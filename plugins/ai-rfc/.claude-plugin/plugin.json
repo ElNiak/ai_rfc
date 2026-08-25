@@ -1,0 +1,9 @@
+{
+  "name": "ai-rfc",
+  "description": "Drives progressive RFC reconstruction over the PANTHER a_rfc substrate: cluster-by-cluster claim mining, evidence-honest adjudication, author interviewing, and gated Internet-Draft revisions.",
+  "version": "0.1.0",
+  "author": {
+    "name": "ElNiak",
+    "email": "christophe.cr.dev@gmail.com"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "ai-rfc-marketplace",
+  "owner": {
+    "name": "ElNiak",
+    "email": "christophe.cr.dev@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "ai-rfc",
+      "source": "./plugins/ai-rfc",
+      "description": "Progressive RFC reconstruction driver for the PANTHER a_rfc substrate: skills, commands and an MCP server for evidence-honest, per-PR specification drafting."
+    }
+  ]
+}
