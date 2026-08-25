@@ -9,6 +9,10 @@ Questions turn an author's knowledge into citable evidence. The register
 (`$ARFC_WORKSPACE/questions.yaml`) is strict: an answered question without
 its answer fails to load, and a question tied to no claim is refused.
 
+When the `arfc` MCP server is connected, use `arfc_question_draft`,
+`arfc_question_export` and `arfc_answer_record` (or the `arfc` CLI verbs) —
+they enforce the verbatim-quote and exact-wording guardrails up front.
+
 ## When to draft a question
 
 A claim capped at `gap` or `inferred` that blocks a draft section — the

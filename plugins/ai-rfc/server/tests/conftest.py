@@ -1,3 +1,4 @@
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -12,25 +13,31 @@ for entry in (str(SERVER_ROOT / "src"), str(PANTHER_ROOT)):
         sys.path.insert(0, entry)
 
 
-def _run(repo: Path, *args: str) -> str:
+def _run(repo: Path, *args: str, date: str | None = None) -> str:
+    env = dict(os.environ)
+    if date is not None:
+        env["GIT_AUTHOR_DATE"] = date
+        env["GIT_COMMITTER_DATE"] = date
     return subprocess.run(
         ["git", "-C", str(repo), *args],
         check=True,
         capture_output=True,
         text=True,
+        env=env,
     ).stdout.strip()
 
 
-@pytest.fixture
-def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """A complete fixture workspace built through the substrate's own code."""
+def _build_workspace(root: Path) -> Path:
+    """Build one complete workspace through the substrate's own code.
+
+    Commit dates are pinned so two builds produce byte-identical corpora —
+    the parity tests compare twin workspaces byte-for-byte.
+    """
     from panther.plugins.services.testers.a_rfc.history import cli as history_cli
     from panther.plugins.services.testers.a_rfc.timeline import cli as timeline_cli
     from panther.plugins.services.testers.a_rfc.views import cli as views_cli
 
-    root = tmp_path / "workspace"
     root.mkdir()
-
     clone = root / "clone"
     clone.mkdir()
     _run(clone, "init", "-b", "main")
@@ -38,24 +45,29 @@ def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     _run(clone, "config", "user.name", "t")
     (clone / "a.txt").write_text("one\n")
     _run(clone, "add", "a.txt")
-    _run(clone, "commit", "-m", "root")
+    _run(clone, "commit", "-m", "root", date="2026-01-01T00:00:01+00:00")
     _run(clone, "checkout", "-b", "feat")
     (clone / "b.txt").write_text("two\n")
     _run(clone, "add", "b.txt")
-    _run(clone, "commit", "-m", "feat work")
+    _run(clone, "commit", "-m", "feat work", date="2026-01-01T00:00:02+00:00")
     _run(clone, "checkout", "main")
     (clone / "c.txt").write_text("three\n")
     _run(clone, "add", "c.txt")
-    _run(clone, "commit", "-m", "direct push")
-    _run(clone, "merge", "--no-ff", "feat", "-m", "Merge branch 'feat'")
+    _run(clone, "commit", "-m", "direct push", date="2026-01-01T00:00:03+00:00")
+    _run(
+        clone,
+        "merge",
+        "--no-ff",
+        "feat",
+        "-m",
+        "Merge branch 'feat'",
+        date="2026-01-01T00:00:04+00:00",
+    )
     head = _run(clone, "rev-parse", "HEAD")
-    merge_sha = head
 
     assert history_cli.main([str(clone), "--out", str(root / "corpus")]) == 0
     assert (
-        timeline_cli.main(
-            [str(root / "corpus"), "--out", str(root / "timeline")]
-        )
+        timeline_cli.main([str(root / "corpus"), "--out", str(root / "timeline")])
         == 0
     )
     assert (
@@ -96,7 +108,7 @@ def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         "        locator: b.txt\n"
         f"        commit: '{head}'\n"
         "      - evidence_class: adr\n"
-        f"        locator: {merge_sha}\n"
+        f"        locator: {head}\n"
     )
     (root / "questions.yaml").write_text("questions: {}\n")
     (root / "revisions.yaml").write_text("revisions: {}\n")
@@ -111,10 +123,35 @@ def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         "# Spec\n\nThing one MUST hold. `a_rfc:t:1.1`\n"
     )
     _run(draft, "add", "draft-test-spec.md")
-    _run(draft, "commit", "-m", "revision 00 content")
+    _run(
+        draft,
+        "commit",
+        "-m",
+        "revision 00 content",
+        date="2026-01-01T00:00:05+00:00",
+    )
+    return root
 
-    monkeypatch.setenv("PANTHER_REPO", str(PANTHER_ROOT))
-    monkeypatch.setenv("ARFC_WORKSPACE", str(root))
+
+@pytest.fixture
+def make_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """A workspace factory plus an env switcher, for twin-workspace tests."""
+
+    def build(name: str) -> Path:
+        return _build_workspace(tmp_path / name)
+
+    def use(root: Path) -> None:
+        monkeypatch.setenv("PANTHER_REPO", str(PANTHER_ROOT))
+        monkeypatch.setenv("ARFC_WORKSPACE", str(root))
+
+    return build, use
+
+
+@pytest.fixture
+def workspace(make_workspace):
+    build, use = make_workspace
+    root = build("ws")
+    use(root)
 
     from ai_rfc_server.paths import resolve_context
 

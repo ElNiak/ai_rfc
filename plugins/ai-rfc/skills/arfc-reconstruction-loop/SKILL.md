@@ -13,6 +13,12 @@ clusters in ordinal order; never skip silently.
 Load `arfc-evidence-hygiene` before touching claims and `arfc-rfc-style`
 before touching prose.
 
+When the `arfc` MCP server is connected, prefer its tools (`arfc_cluster_next`,
+`arfc_claim_upsert`, `arfc_claim_record_status`, `arfc_checkpoint`,
+`arfc_gate`, …) or the equivalent `arfc <verb>` CLI — same core, guardrails
+enforced up front (see `docs/parity.md`). The raw substrate commands below
+remain the documented fallback and the AI+CLI experiment arm.
+
 ## Preconditions
 
 - `PANTHER_REPO` and `ARFC_WORKSPACE` are set; commands below run from

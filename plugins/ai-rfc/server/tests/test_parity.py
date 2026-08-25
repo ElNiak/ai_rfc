@@ -1,0 +1,91 @@
+"""Tool-arm vs CLI-arm parity: same operation, byte-identical results.
+
+The twin workspaces are built with pinned commit dates, so before any
+operation their files are byte-identical; after one operation through each
+frontend they must still be.
+"""
+
+import json
+from pathlib import Path
+
+from ai_rfc_server import cli, tools
+
+
+def _twins(make_workspace):
+    build, use = make_workspace
+    return build("tool-arm"), build("cli-arm"), use
+
+
+def test_twin_workspaces_start_identical(make_workspace):
+    tool_arm, cli_arm, _ = _twins(make_workspace)
+    for name in ("manifest.yaml", "corpus/commits.jsonl", "timeline/timeline.json"):
+        assert (tool_arm / name).read_bytes() == (cli_arm / name).read_bytes()
+
+
+def test_claim_upsert_parity(make_workspace, capsys):
+    tool_arm, cli_arm, use = _twins(make_workspace)
+    fields = {
+        "text": "Thing five.",
+        "section": "5.1",
+        "level": "MAY",
+        "layer": "core",
+        "intent": "intended",
+    }
+    use(tool_arm)
+    tools.arfc_claim_upsert("t:5.1", dict(fields))
+    use(cli_arm)
+    assert (
+        cli.main(
+            [
+                "claim-upsert",
+                "t:5.1",
+                "--text",
+                fields["text"],
+                "--section",
+                fields["section"],
+                "--level",
+                fields["level"],
+                "--layer",
+                fields["layer"],
+                "--field",
+                "intent=intended",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+    assert (
+        (tool_arm / "manifest.yaml").read_bytes()
+        == (cli_arm / "manifest.yaml").read_bytes()
+    )
+
+
+def test_record_status_parity(make_workspace, capsys):
+    tool_arm, cli_arm, use = _twins(make_workspace)
+    use(tool_arm)
+    tools.arfc_claim_record_status()
+    use(cli_arm)
+    assert cli.main(["claim-record-status"]) == 0
+    capsys.readouterr()
+    assert (
+        (tool_arm / "manifest.yaml").read_bytes()
+        == (cli_arm / "manifest.yaml").read_bytes()
+    )
+
+
+def test_read_parity_adjudicate(make_workspace, capsys):
+    tool_arm, cli_arm, use = _twins(make_workspace)
+    use(tool_arm)
+    from_tool = tools.arfc_claim_adjudicate()
+    use(cli_arm)
+    assert cli.main(["claim-adjudicate"]) == 0
+    from_cli = json.loads(capsys.readouterr().out)
+    assert from_tool == from_cli
+
+
+def test_every_tool_is_in_the_parity_table():
+    table = (
+        Path(__file__).resolve().parents[4] / "docs" / "parity.md"
+    ).read_text()
+    for tool in tools.ALL_TOOLS:
+        assert f"`{tool.__name__}`" in table, tool.__name__

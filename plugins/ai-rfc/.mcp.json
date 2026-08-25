@@ -1,0 +1,13 @@
+{
+  "arfc": {
+    "command": "python3",
+    "args": [
+      "-c",
+      "import sys, pathlib; root = pathlib.Path('${CLAUDE_PLUGIN_ROOT}') / 'server' / 'src'; sys.path.insert(0, str(root)); from ai_rfc_server.server import main; main()"
+    ],
+    "env": {
+      "PANTHER_REPO": "${PANTHER_REPO}",
+      "ARFC_WORKSPACE": "${ARFC_WORKSPACE}"
+    }
+  }
+}
