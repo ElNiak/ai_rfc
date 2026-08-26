@@ -36,6 +36,19 @@ def _parser() -> argparse.ArgumentParser:
     profile_init = profile_verbs.add_parser("init", help="Create the profile dir.")
     _add_root(profile_init)
 
+    spike = commands.add_parser("spike", help="S0: prove the profile is hermetic.")
+    _add_root(spike)
+    spike.add_argument("--panther-repo", type=Path, required=True)
+    spike.add_argument(
+        "--plugin-dir",
+        type=Path,
+        default=None,
+        help="Default: the ai-rfc plugin beside this package.",
+    )
+    spike.add_argument("--claude", default="claude")
+    spike.add_argument("--model", default="claude-opus-5")
+    spike.add_argument("--timeout", type=int, default=300)
+
     return parser
 
 
@@ -55,6 +68,27 @@ def main(argv: list[str] | None = None) -> int:
             profile = init_profile(root)
             print(f"profile: {profile}")
             print(f"log in once with:\n  {login_command(root)}")
+        elif args.command == "spike":
+            from .spike import run_spike
+
+            plugin_dir = (
+                args.plugin_dir
+                or Path(__file__).resolve().parents[1] / "plugins" / "ai-rfc"
+            )
+            report = run_spike(
+                root=root,
+                panther_repo=args.panther_repo.resolve(),
+                plugin_dir=plugin_dir.resolve(),
+                claude_bin=args.claude,
+                model=args.model,
+                timeout_s=args.timeout,
+            )
+            for check in report["checks"]:
+                flag = "PASS" if check["passed"] else "FAIL"
+                need = "required" if check["required"] else "product"
+                print(f"{flag}  {check['check']:<14} ({need})")
+            print(f"report: {root / 'spike-report.json'}")
+            return 0 if report["go"] else 2
     except (ExperimentError, OSError) as error:
         _report(f"error: {error}")
         return 1
