@@ -49,6 +49,9 @@ def _parser() -> argparse.ArgumentParser:
     spike.add_argument("--model", default="claude-opus-5")
     spike.add_argument("--timeout", type=int, default=300)
 
+    render = commands.add_parser("render", help="Regenerate the plugin SKILL.md.")
+    render.add_argument("--plugin-dir", type=Path, default=None)
+
     return parser
 
 
@@ -89,6 +92,14 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"{flag}  {check['check']:<14} ({need})")
             print(f"report: {root / 'spike-report.json'}")
             return 0 if report["go"] else 2
+        elif args.command == "render":
+            from .render import write_plugin_skill
+
+            plugin_dir = (
+                args.plugin_dir
+                or Path(__file__).resolve().parents[1] / "plugins" / "ai-rfc"
+            )
+            print(f"wrote {write_plugin_skill(plugin_dir.resolve())}")
     except (ExperimentError, OSError) as error:
         _report(f"error: {error}")
         return 1

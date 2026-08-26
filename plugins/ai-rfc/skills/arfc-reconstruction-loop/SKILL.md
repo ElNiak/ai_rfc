@@ -1,7 +1,7 @@
 ---
 name: arfc-reconstruction-loop
 description: The cluster-by-cluster reconstruction driver — read evidence, mine claims, adjudicate, revise the draft, gate, checkpoint, advance. Use when processing timeline clusters of a reconstruction workspace or when asked to continue a reconstruction.
-allowed-tools: Read, Grep, Glob, Edit, Write, Bash(python -m panther.plugins.services.testers.a_rfc*), Bash(git *), Bash(arfc *)
+allowed-tools: Read, Grep, Glob, Edit, Write, Bash(python -m panther.plugins.services.testers.a_rfc*), Bash(git *), Bash(arfc *), Bash(sqlite3 *)
 ---
 
 # The reconstruction loop
@@ -10,19 +10,13 @@ One iteration turns one timeline cluster into evidence-honest claims and,
 when it changed normative behaviour, a new draft revision. Work through the
 clusters in ordinal order; never skip silently.
 
-Load `arfc-evidence-hygiene` before touching claims and `arfc-rfc-style`
-before touching prose.
+Load `arfc-evidence-hygiene` before touching claims and `arfc-rfc-style` before touching prose.
 
-When the `arfc` MCP server is connected, prefer its tools (`arfc_cluster_next`,
-`arfc_claim_upsert`, `arfc_claim_record_status`, `arfc_checkpoint`,
-`arfc_gate`, …) or the equivalent `arfc <verb>` CLI — same core, guardrails
-enforced up front (see `docs/parity.md`). The raw substrate commands below
-remain the documented fallback and the AI+CLI experiment arm.
+When the `arfc` MCP server is connected, prefer its tools (`arfc_cluster_next`, `arfc_claim_upsert`, `arfc_claim_record_status`, `arfc_checkpoint`, `arfc_gate`, `arfc_revision_tag`, …) or the equivalent `arfc <verb>` CLI — same core, guardrails enforced up front (see `docs/parity.md`). The raw substrate commands below remain the documented fallback and the raw experiment arm.
 
 ## Preconditions
 
-- `PANTHER_REPO` and `ARFC_WORKSPACE` are set; commands below run from
-  `$PANTHER_REPO` with `PY` an interpreter that imports `panther`.
+- `PANTHER_REPO` and `ARFC_WORKSPACE` are set; commands below run with an interpreter that imports `panther` first on `PATH` (`python -m …`).
 - The workspace holds `corpus/`, `timeline/`, `clusters/` and the pinned
   `clone/`. When a forge snapshot exists, the timeline MUST have been built
   with `--forge` **before any checkpoint is written** — forge data
@@ -30,50 +24,33 @@ remain the documented fallback and the AI+CLI experiment arm.
 
 ## One iteration
 
-1. **Pick the next cluster**: the lowest ordinal in
-   `timeline/clusters.jsonl` that has neither a checkpoint under
-   `checkpoints/` nor an entry in `revisions.yaml`.
-2. **Read its evidence**: `clusters/<id>/view.json` (file set, PR number),
-   `span.diff`, `evidence/pr.json` (title, body, reviews, discussion) when
-   present. For context beyond the cluster, query the corpus index —
-   churn-ranked reading beats the directory tree:
-
-   ```python
-   from panther.plugins.services.testers.a_rfc.history.index import open_index
-   conn = open_index(Path("$ARFC_WORKSPACE/corpus"))
-   conn.execute("SELECT path, COUNT(*) c FROM file_changes GROUP BY path ORDER BY c DESC LIMIT 20")
-   ```
-
-3. **Mine claims** into `$ARFC_WORKSPACE/manifest.yaml`: behaviours the
-   cluster introduces or changes, each with pinned anchors (the cluster's
-   member commits are the natural pins) and NO `status`. A commit message
-   stating a decision is an `adr` anchor; PR discussion explaining intent
-   supports `intent:` but is not itself an anchor class.
-4. **Lint**: `$PY -m panther.plugins.services.testers.a_rfc
-   $ARFC_WORKSPACE/manifest.yaml --out $ARFC_WORKSPACE/out --repo
-   $ARFC_WORKSPACE/clone` — fix every `unverified:` line (wrong paths,
-   wrong commits, wrong lines) BEFORE anything is built on top.
-5. **Record statuses**: read `out/report.json`'s `claims` payload and set
-   each claim's `status` to exactly its `supported` value. Re-run with
-   `--strict`; exit 0 is the bar.
+1. **Pick the next cluster**: read `$ARFC_WORKSPACE/timeline/clusters.jsonl` in ordinal order and take the first id that has neither a `checkpoints/<id>/` directory nor a `revisions.yaml` entry.
+2. **Read its evidence**: read `$ARFC_WORKSPACE/clusters/<id>/view.json` (file set, PR number), `span.diff` (paginate long diffs with `sed -n`) and `evidence/pr.json` when present. For context beyond the cluster,
+   query the corpus index — churn-ranked reading beats the directory tree:
+   `sqlite3 $ARFC_WORKSPACE/corpus/index.sqlite "SELECT path, COUNT(*) c FROM file_changes GROUP BY path ORDER BY c DESC LIMIT 20"`.
+3. **Mine claims**: behaviours the cluster introduces or changes, each with
+   pinned anchors (the cluster's member commits are the natural pins) and
+   NO `status`: edit `$ARFC_WORKSPACE/manifest.yaml` by hand — quote every id and section, never write `status`. A commit message stating a decision is an
+   `adr` anchor; PR discussion explaining intent supports `intent:` but is
+   not itself an anchor class.
+4. **Lint**: `python -m panther.plugins.services.testers.a_rfc $ARFC_WORKSPACE/manifest.yaml --out $ARFC_WORKSPACE/out --repo $ARFC_WORKSPACE/clone` — fix every unverified anchor (wrong paths, wrong
+   commits, wrong lines) BEFORE anything is built on top.
+5. **Record statuses**: read `$ARFC_WORKSPACE/out/report.json` (`claims[]`) and set each claim's `status` in `manifest.yaml` to exactly its `supported` value. Then the strict gate:
+   `python -m panther.plugins.services.testers.a_rfc $ARFC_WORKSPACE/manifest.yaml --out $ARFC_WORKSPACE/out --repo $ARFC_WORKSPACE/clone --strict` — exit 0 is the bar.
 6. **Decide spec relevance**:
-   - Normative behaviour changed → update the draft per `arfc-rfc-style`,
-     citing the new/changed claims.
+   - Normative behaviour changed → update the draft per the RFC-style
+     rules, citing the new/changed claims.
    - Nothing normative → no prose edit; the revision entry will say so.
-7. **Checkpoint**: `$PY -m panther.plugins.services.testers.a_rfc.draft
-   checkpoint $ARFC_WORKSPACE/manifest.yaml --timeline
-   $ARFC_WORKSPACE/timeline --cluster <id> --out
-   $ARFC_WORKSPACE/checkpoints`.
-8. **Record the revision** in `revisions.yaml` (tag, cluster id, the
-   checkpoint's `manifest_sha256`, explicit `normative_change`, note); for
-   normative changes commit the draft and add the annotated tag
-   `draft-<name>-NN`.
-9. **Gate**: `$PY -m panther.plugins.services.testers.a_rfc.draft gate
-   $ARFC_WORKSPACE/draft --timeline … --checkpoints … --questions
-   $ARFC_WORKSPACE/questions.yaml --revisions $ARFC_WORKSPACE/revisions.yaml
-   --out $ARFC_WORKSPACE/out --strict` — exit 0 before advancing.
+7. **Checkpoint**: `python -m panther.plugins.services.testers.a_rfc.draft checkpoint $ARFC_WORKSPACE/manifest.yaml --timeline $ARFC_WORKSPACE/timeline --cluster <id> --out $ARFC_WORKSPACE/checkpoints`.
+8. **Record and tag the revision**: append the entry to `$ARFC_WORKSPACE/revisions.yaml` under `revisions:` (`cluster_id`, `checkpoint_manifest_sha256` copied from the checkpoint's `checkpoint.json`, `normative_change`, `note`) — the tag
+   `draft-<name>-NN` (two digits, monotone in cluster ordinal), the cluster
+   id, an explicit `normative_change`, a one-line note. Commit any prose
+   change (`git -C $ARFC_WORKSPACE/draft add -A && git -C $ARFC_WORKSPACE/draft commit -m "<message>"`), then create the annotated tag
+   (`git -C $ARFC_WORKSPACE/draft tag -a draft-<name>-NN -m "<message>"` — only after the strict manifest gate exited 0). Every revision entry needs its tag, no-change
+   revisions included.
+9. **Gate**: `python -m panther.plugins.services.testers.a_rfc.draft gate $ARFC_WORKSPACE/draft --timeline $ARFC_WORKSPACE/timeline --checkpoints $ARFC_WORKSPACE/checkpoints --questions $ARFC_WORKSPACE/questions.yaml --revisions $ARFC_WORKSPACE/revisions.yaml --out $ARFC_WORKSPACE/out --strict` — exit 0 before advancing.
 10. **Open questions**: any claim stuck at `gap`/`inferred` that blocks a
-    section gets a question drafted per `arfc-interviewing`.
+    section gets a question: append a `q-NNN` entry (`question`, `claim_ids`, `status: open`, `asked_at`) to `$ARFC_WORKSPACE/questions.yaml`.
 
 ## Failure recovery
 
