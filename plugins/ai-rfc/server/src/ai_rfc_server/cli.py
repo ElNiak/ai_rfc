@@ -118,9 +118,7 @@ def _parser() -> argparse.ArgumentParser:
     revision.add_argument("tag")
     revision.add_argument("--cluster", required=True)
     normative = revision.add_mutually_exclusive_group(required=True)
-    normative.add_argument(
-        "--normative", action="store_true", dest="normative_change"
-    )
+    normative.add_argument("--normative", action="store_true", dest="normative_change")
     normative.add_argument(
         "--no-normative", action="store_false", dest="normative_change"
     )
@@ -136,6 +134,18 @@ def _parser() -> argparse.ArgumentParser:
 
     citation = verbs.add_parser("citation-gate", help="Draft citation gate.")
     citation.add_argument("--strict", action="store_true")
+
+    draft_commit = verbs.add_parser(
+        "draft-commit", help="Commit every change in draft/ (clean tree is an error)."
+    )
+    draft_commit.add_argument("-m", "--message", required=True)
+
+    revision_tag = verbs.add_parser(
+        "revision-tag",
+        help="Create the annotated revision tag once both strict gates accept it.",
+    )
+    revision_tag.add_argument("tag")
+    revision_tag.add_argument("-m", "--message", required=True)
 
     return parser
 
@@ -159,7 +169,7 @@ def main(argv: list[str] | None = None) -> int:
         _report(f"error: {error}")
         return 1
 
-    from .core import claims, gates, queries, questions, revisions
+    from .core import claims, draft, gates, queries, questions, revisions
 
     try:
         if args.verb == "status":
@@ -227,6 +237,12 @@ def main(argv: list[str] | None = None) -> int:
             return result["exit_code"]
         elif args.verb == "citation-gate":
             result = gates.citation_gate(ctx, strict=args.strict)
+            _emit(result)
+            return result["exit_code"]
+        elif args.verb == "draft-commit":
+            _emit(draft.commit_draft(ctx, args.message))
+        elif args.verb == "revision-tag":
+            result = draft.tag_revision(ctx, args.tag, args.message)
             _emit(result)
             return result["exit_code"]
     except CoreError as error:

@@ -49,6 +49,8 @@ Missing either fails loudly; nothing guesses.
 - `arfc_answer_record` grants `signed_off_by` only when the author
   confirmed the exact claim wording; a paraphrase earns an interview
   anchor, not a sign-off.
+- `arfc_revision_tag` creates a tag only after the strict manifest gate
+  passes and deletes it again if the strict citation gate finds anything.
 - Every write is atomic (temp + rename); every gate failure is surfaced
   verbatim, never worked around.
 

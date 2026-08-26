@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .core import claims, gates, queries, questions, revisions
+from .core import claims, draft, gates, queries, questions, revisions
 from .paths import resolve_context
 
 
@@ -121,6 +121,16 @@ def arfc_citation_gate(strict: bool = False) -> dict[str, Any]:
     return gates.citation_gate(resolve_context(), strict=strict)
 
 
+def arfc_draft_commit(message: str) -> dict[str, Any]:
+    """Commit every change in the draft repository; a clean tree is an error."""
+    return draft.commit_draft(resolve_context(), message)
+
+
+def arfc_revision_tag(tag: str, message: str) -> dict[str, Any]:
+    """Tag a recorded revision once both strict gates accept it (exit code raw)."""
+    return draft.tag_revision(resolve_context(), tag, message)
+
+
 #: Every tool, in the order they appear in docs/parity.md.
 ALL_TOOLS = (
     arfc_status,
@@ -137,4 +147,6 @@ ALL_TOOLS = (
     arfc_checkpoint,
     arfc_gate,
     arfc_citation_gate,
+    arfc_draft_commit,
+    arfc_revision_tag,
 )

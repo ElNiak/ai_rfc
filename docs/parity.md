@@ -21,8 +21,13 @@ missing from this table.
 | `arfc_checkpoint` | `arfc checkpoint ID` | `python -m …a_rfc.draft checkpoint …` |
 | `arfc_gate` | `arfc gate [--strict]` | `python -m …a_rfc <manifest> --out … --repo … [--strict]` |
 | `arfc_citation_gate` | `arfc citation-gate [--strict]` | `python -m …a_rfc.draft gate … [--strict]` |
+| `arfc_draft_commit` | `arfc draft-commit -m MSG` | `git -C draft add -A && git -C draft commit -m MSG` |
+| `arfc_revision_tag` | `arfc revision-tag TAG -m MSG` | `git -C draft tag -a TAG -m MSG`, then `python -m …a_rfc.draft gate … --strict` (the tool deletes the tag on findings; the raw route leaves that to the author) |
 
 Asymmetries accepted and measured, not hidden: the raw-CLI arm can hand-edit
 YAML (the gate catches overstatement after the fact, where the tool arm's
 `claim_upsert` refuses it up front), and has no single-call equivalent for
-the register/answer guardrails.
+the register/answer guardrails. The raw arm's only corpus-index path is the
+`sqlite3` CLI over `corpus/index.sqlite` (the index is derived and
+disposable; a write through it is detected by nothing), and its tag is not
+rolled back on citation findings.
