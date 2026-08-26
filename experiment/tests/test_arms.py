@@ -3,6 +3,7 @@ import pytest
 from experiment import ExperimentError
 from experiment.arms import (
     ARMS,
+    PROFILES,
     arm_flags,
     build_argv,
     constant_flags,
@@ -16,22 +17,92 @@ def _value(flags: list[str], name: str) -> str:
 
 
 def test_arm_a_has_no_bash_and_mounts_mcp(tmp_path):
-    flags = arm_flags(profile("A"), tmp_path / "arfc.json")
-    assert "Bash" not in _value(flags, "--tools").split(",")
-    assert "mcp__arfc" in _value(flags, "--allowedTools").split(",")
-    assert _value(flags, "--mcp-config") == str(tmp_path / "arfc.json")
+    mcp_config_path = tmp_path / "arfc.json"
+    flags = arm_flags(profile("A"), mcp_config_path)
+    assert _value(flags, "--tools").split(",") == [
+        "Read",
+        "Edit",
+        "Write",
+        "Grep",
+        "Glob",
+    ]
+    assert _value(flags, "--allowedTools").split(",") == [
+        "Read",
+        "Edit",
+        "Write",
+        "Grep",
+        "Glob",
+        "mcp__arfc",
+    ]
+    assert _value(flags, "--mcp-config") == str(mcp_config_path)
     assert "--strict-mcp-config" in flags
+
+    argv = build_argv(
+        claude_bin="claude",
+        prompt="go",
+        arm_profile=profile("A"),
+        mcp_config_path=mcp_config_path,
+        model="m",
+        effort="high",
+        budget_usd=1,
+        prompt_file=tmp_path / "p",
+    )
+    assert argv[:3] == ["claude", "-p", "go"]
+    assert _value(argv, "--tools").split(",") == [
+        "Read",
+        "Edit",
+        "Write",
+        "Grep",
+        "Glob",
+    ]
+    assert _value(argv, "--allowedTools").split(",") == [
+        "Read",
+        "Edit",
+        "Write",
+        "Grep",
+        "Glob",
+        "mcp__arfc",
+    ]
+    assert _value(argv, "--mcp-config") == str(mcp_config_path)
 
 
 def test_arms_b_and_c_allow_exactly_their_command_family():
     b = arm_flags(profile("B"), None)
     c = arm_flags(profile("C"), None)
-    assert "Bash" in _value(b, "--tools").split(",")
-    assert _value(b, "--allowedTools").split(",")[-1] == "Bash(arfc *)"
-    allowed_c = _value(c, "--allowedTools").split(",")
-    assert "Bash(python -m panther.plugins.services.testers.a_rfc*)" in allowed_c
-    assert "Bash(git *)" in allowed_c and "Bash(sqlite3 *)" in allowed_c
-    assert "Bash(arfc *)" not in allowed_c and "mcp__arfc" not in allowed_c
+    assert _value(b, "--tools").split(",") == [
+        "Read",
+        "Edit",
+        "Write",
+        "Grep",
+        "Glob",
+        "Bash",
+    ]
+    assert _value(b, "--allowedTools").split(",") == [
+        "Read",
+        "Edit",
+        "Write",
+        "Grep",
+        "Glob",
+        "Bash(arfc *)",
+    ]
+    assert _value(c, "--tools").split(",") == [
+        "Read",
+        "Edit",
+        "Write",
+        "Grep",
+        "Glob",
+        "Bash",
+    ]
+    assert _value(c, "--allowedTools").split(",") == [
+        "Read",
+        "Edit",
+        "Write",
+        "Grep",
+        "Glob",
+        "Bash(python -m panther.plugins.services.testers.a_rfc*)",
+        "Bash(git *)",
+        "Bash(sqlite3 *)",
+    ]
     for flags in (b, c):
         assert "--mcp-config" not in flags and "--strict-mcp-config" in flags
 
@@ -44,6 +115,7 @@ def test_mcp_mount_is_required_and_refused_per_arm(tmp_path):
     with pytest.raises(ExperimentError):
         profile("D")
     assert ARMS == ("A", "B", "C")
+    assert set(PROFILES) == set(ARMS)
 
 
 def test_constant_flags_pin_the_harness(tmp_path):
