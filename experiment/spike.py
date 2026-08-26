@@ -13,7 +13,7 @@ import json
 import os
 import subprocess
 import sys
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -286,10 +286,20 @@ def run_claude(invocation: Invocation, timeout_s: int) -> dict[str, Any]:
             timeout=timeout_s,
         )
     except subprocess.TimeoutExpired as expired:
+        stdout = expired.stdout
+        if isinstance(stdout, bytes):
+            stdout = stdout.decode(errors="replace")
+        stderr = expired.stderr
+        if isinstance(stderr, bytes):
+            stderr = stderr.decode(errors="replace")
+        try:
+            events = parse_stream(stdout) if stdout else []
+        except ExperimentError:
+            events = []
         return {
             "exit_code": None,
-            "events": parse_stream(expired.stdout or "") if expired.stdout else [],
-            "stderr": expired.stderr or "",
+            "events": events,
+            "stderr": stderr or "",
             "timed_out": True,
         }
     except FileNotFoundError as missing:
@@ -378,7 +388,9 @@ def evaluate(
     isolated, control = got("hooks_isolated"), got("hooks_control")
     add(
         "hooks",
-        isolated["exit_code"] == 0 and _hook_events(isolated["events"]) == 0,
+        isolated["exit_code"] == 0
+        and _hook_events(isolated["events"]) == 0
+        and _hook_events(control["events"]) > 0,
         {
             "isolated_hook_events": _hook_events(isolated["events"]),
             "control_hook_events": _hook_events(control["events"]),
@@ -388,7 +400,9 @@ def evaluate(
     md_control, md_isolated = got("claude_md_control"), got("claude_md_isolated")
     add(
         "claude_md",
-        md_isolated["exit_code"] == 0 and CANARY not in _answer(md_isolated),
+        md_isolated["exit_code"] == 0
+        and CANARY not in _answer(md_isolated)
+        and CANARY in _answer(md_control),
         {
             "control_leaked": CANARY in _answer(md_control),
             "isolated_answer": _answer(md_isolated)[:80],

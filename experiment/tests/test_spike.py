@@ -1,7 +1,16 @@
 import json
+import os
+import sys
 from pathlib import Path
 
-from experiment.spike import CHECKS, build_invocations, evaluate
+from experiment.spike import (
+    CANARY,
+    CHECKS,
+    Invocation,
+    build_invocations,
+    evaluate,
+    run_claude,
+)
 from experiment.stream import parse_stream
 
 FIXTURES = Path(__file__).parent / "fixtures" / "stream"
@@ -88,3 +97,58 @@ def test_evaluate_marks_missing_outcomes_failed(tmp_path):
         checks["auth"]["required"] is True
         and checks["draft_commit"]["required"] is False
     )
+
+
+def test_hooks_and_claude_md_require_their_positive_controls(tmp_path):
+    no_hook_events = {"exit_code": 0, "events": [], "stderr": "", "timed_out": False}
+    outcomes = {"hooks_isolated": no_hook_events, "hooks_control": no_hook_events}
+    checks = {c["check"]: c for c in evaluate(outcomes, tmp_path)}
+    assert checks["hooks"]["passed"] is False
+
+    outcomes["hooks_control"] = {
+        "exit_code": 0,
+        "events": [{"type": "hook_event", "hook_event_name": "SessionStart"}],
+        "stderr": "",
+        "timed_out": False,
+    }
+    checks = {c["check"]: c for c in evaluate(outcomes, tmp_path)}
+    assert checks["hooks"]["passed"] is True
+
+    def result_outcome(answer):
+        return {
+            "exit_code": 0,
+            "events": [{"type": "result", "result": answer}],
+            "stderr": "",
+            "timed_out": False,
+        }
+
+    outcomes = {
+        "claude_md_isolated": result_outcome("NONE"),
+        "claude_md_control": result_outcome("NONE"),
+    }
+    checks = {c["check"]: c for c in evaluate(outcomes, tmp_path)}
+    assert checks["claude_md"]["passed"] is False
+
+    outcomes["claude_md_control"] = result_outcome(CANARY)
+    checks = {c["check"]: c for c in evaluate(outcomes, tmp_path)}
+    assert checks["claude_md"]["passed"] is True
+
+
+def test_run_claude_timeout_degrades_gracefully(tmp_path):
+    invocation = Invocation(
+        name="timeout_probe",
+        argv=(
+            sys.executable,
+            "-c",
+            'import sys, time; sys.stdout.write(\'{"type":"system","subtype":"init"}\\n{"type":"assis\'); sys.stdout.flush(); sys.stderr.write(\'warn\\n\'); sys.stderr.flush(); time.sleep(30)',
+        ),
+        env={"PATH": os.environ["PATH"]},
+        cwd=tmp_path,
+    )
+    outcome = run_claude(invocation, timeout_s=1)
+    assert outcome["timed_out"] is True
+    assert outcome["exit_code"] is None
+    assert isinstance(outcome["stderr"], str)
+    assert "warn" in outcome["stderr"]
+    assert outcome["events"] == []
+    json.dumps(outcome)
