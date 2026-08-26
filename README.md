@@ -51,3 +51,13 @@ Missing either fails loudly; nothing guesses.
   anchor, not a sign-off.
 - Every write is atomic (temp + rename); every gate failure is surfaced
   verbatim, never worked around.
+
+## Experiment harness
+
+`experiment/` runs the AI+MCP vs AI+CLI comparison the protocol in
+`docs/experiment-protocol.md` describes: `python -m experiment profile init`
+creates the isolated Claude Code profile, `workspace prepare` builds a
+pristine reconstruction workspace, and the campaign commands (see the
+harness plan) launch, audit and analyze runs. State lives under
+`ARFC_EXPERIMENTS_ROOT` (default `~/arfc-experiments`), never inside a
+repository.
