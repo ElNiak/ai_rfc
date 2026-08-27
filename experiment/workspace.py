@@ -18,7 +18,9 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
+
+import yaml
 
 from . import ExperimentError
 
@@ -301,3 +303,112 @@ def copy_workspace(pristine: Path, dest: Path) -> Path:
                 f"{name} HEAD {head} differs from recorded {record[key]}"
             )
     return dest
+
+
+def _git_version() -> str:
+    return subprocess.run(
+        ["git", "--version"], capture_output=True, text=True
+    ).stdout.strip()
+
+
+def prepare(
+    target: Target,
+    *,
+    root: Path,
+    panther_repo: Path,
+    template: str = TEMPLATE_URL,
+    template_commit: str = TEMPLATE_COMMIT,
+) -> Path:
+    """Build the pristine workspace of ``target`` under ``root/pristine/``.
+
+    Copies the substrate outputs, emits and re-verifies every view, writes the
+    empty manifest and registers, scaffolds the draft, pre-seeds every
+    out-of-window ordinal, records provenance and writes the digest manifest.
+
+    Args:
+        target: What to prepare, and the window to leave unprocessed.
+        root: The runs root; the workspace lands in ``root/pristine/``.
+        panther_repo: PANTHER repository root, put on ``sys.path``.
+        template: Draft template clone source.
+        template_commit: The commit the draft scaffold is pinned to.
+
+    Returns:
+        The pristine directory.
+
+    Raises:
+        ExperimentError: If the pristine directory exists, a source part is
+            missing, or a substrate stage fails.
+    """
+    pristine = root / "pristine" / target.pristine_name
+    if pristine.exists():
+        raise ExperimentError(
+            f"{pristine} exists; a pristine workspace is prepared once"
+        )
+    source = (
+        target.source if target.source.is_absolute() else panther_repo / target.source
+    )
+    for part in ("clone", "corpus", "timeline"):
+        if not (source / part).is_dir():
+            raise ExperimentError(f"{source / part} is missing")
+    pristine.mkdir(parents=True)
+    for part in ("clone", "corpus", "timeline"):
+        shutil.copytree(source / part, pristine / part, symlinks=False)
+    snapshot = None
+    if target.forge_snapshot is not None:
+        snapshot = pristine / target.forge_snapshot
+        shutil.copytree(source / target.forge_snapshot, snapshot, symlinks=False)
+    clone_head = _git(pristine / "clone", "rev-parse", "HEAD")
+
+    _, read_clusters, views_cli = _substrate(panther_repo)
+    views_args = [
+        str(pristine / "timeline"),
+        "--corpus",
+        str(pristine / "corpus"),
+        "--repo",
+        str(pristine / "clone"),
+        "--out",
+        str(pristine / "clusters"),
+    ]
+    if snapshot is not None:
+        views_args += ["--forge", str(snapshot)]
+    if views_cli.main(views_args) != 0:
+        raise ExperimentError("view emission failed; see stderr")
+    if views_cli.main(views_args + ["--verify"]) != 0:
+        raise ExperimentError("views do not reproduce byte-for-byte; see stderr")
+
+    (pristine / "manifest.yaml").write_text(
+        yaml.safe_dump(
+            {"rfc": target.rfc_id, "title": target.title, "requirements": {}},
+            sort_keys=False,
+        )
+    )
+    (pristine / "questions.yaml").write_text("questions: {}\n")
+    (pristine / "revisions.yaml").write_text("revisions: {}\n")
+    (pristine / "interviews").mkdir()
+    draft_head = scaffold_draft(
+        pristine / "draft", target, template=template, template_commit=template_commit
+    )
+
+    ordinals = [row["ordinal"] for row in read_clusters(pristine / "timeline")]
+    seeded = preseed(pristine, panther_repo, out_of_window(ordinals, target.window))
+
+    record: dict[str, Any] = {
+        "target": target.name,
+        "window": list(target.window),
+        "source": str(source),
+        "clone_head": clone_head,
+        "draft_head": draft_head,
+        "template": template,
+        "template_commit": template_commit,
+        "template_stripped": list(TEMPLATE_STRIP),
+        "forge_snapshot": str(target.forge_snapshot) if target.forge_snapshot else None,
+        "cluster_count": len(ordinals),
+        "pre_seeded": seeded,
+        "git_version": _git_version(),
+        "python": sys.version.split()[0],
+    }
+    (pristine / RECORD_FILE).write_text(
+        json.dumps(record, indent=2, sort_keys=True) + "\n"
+    )
+    write_digest(pristine)
+    return pristine

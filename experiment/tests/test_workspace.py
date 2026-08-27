@@ -10,9 +10,11 @@ from experiment.workspace import (
     DIGEST_FILE,
     HARNESS_MARKER,
     RECORD_FILE,
+    TARGETS,
     Target,
     copy_workspace,
     out_of_window,
+    prepare,
     preseed,
     scaffold_draft,
     verify_digest,
@@ -208,3 +210,107 @@ def test_copy_refuses_a_tampered_pristine(sealed, tmp_path):
     with pytest.raises(ExperimentError) as excinfo:
         copy_workspace(sealed, tmp_path / "run" / "workspace")
     assert "does not verify" in str(excinfo.value)
+
+
+def _prepare(fixture_workspace, panther_repo, template_repo, tmp_path):
+    template, commit = template_repo
+    return prepare(
+        _target(fixture_workspace),
+        root=tmp_path / "root",
+        panther_repo=panther_repo,
+        template=template,
+        template_commit=commit,
+    )
+
+
+def test_prepare_builds_the_pristine_tree(
+    fixture_workspace, panther_repo, template_repo, tmp_path
+):
+    pristine = _prepare(fixture_workspace, panther_repo, template_repo, tmp_path)
+    assert pristine == tmp_path / "root" / "pristine" / "fixture-w02-02"
+    ids = _cluster_ids(pristine)
+    assert sorted(p.name for p in (pristine / "clusters").iterdir()) == sorted(ids)
+    assert (pristine / "manifest.yaml").read_text() == (
+        "rfc: FIX-1\ntitle: Fixture\nrequirements: {}\n"
+    )
+    assert (pristine / "questions.yaml").read_text() == "questions: {}\n"
+    assert (pristine / "revisions.yaml").read_text() == "revisions: {}\n"
+    assert (pristine / "interviews").is_dir()
+    assert (pristine / "draft" / "draft-test-fixture.md").exists()
+    record = json.loads((pristine / RECORD_FILE).read_text())
+    assert record["template_commit"] == template_repo[1]
+    assert record["pre_seeded"] == [ids[0]]
+    assert record["cluster_count"] == 2
+    assert record["window"] == [2, 2]
+    assert record["clone_head"] == git(pristine / "clone", "rev-parse", "HEAD")
+    assert record["draft_head"] == git(pristine / "draft", "rev-parse", "HEAD")
+    assert (pristine / "checkpoints" / ids[0] / HARNESS_MARKER).exists()
+    assert (pristine / "checkpoints" / ids[0] / "checkpoint.json").exists()
+    assert not (pristine / "checkpoints" / ids[1]).exists()
+    assert verify_digest(pristine) == []
+
+
+def test_prepared_window_is_the_only_unprocessed_range(
+    fixture_workspace, panther_repo, template_repo, tmp_path, monkeypatch
+):
+    pristine = _prepare(fixture_workspace, panther_repo, template_repo, tmp_path)
+    monkeypatch.setenv("ARFC_WORKSPACE", str(pristine))
+
+    from ai_rfc_server.core.queries import cluster_next, status
+    from ai_rfc_server.paths import resolve_context
+
+    ctx = resolve_context()
+    assert cluster_next(ctx)["ordinal"] == 2
+    composite = status(ctx)
+    assert composite["clusters_total"] == 2
+    assert composite["clusters_processed"] == 1
+
+
+def test_prepare_refuses_to_overwrite_or_to_run_without_the_substrate(
+    fixture_workspace, panther_repo, template_repo, tmp_path
+):
+    _prepare(fixture_workspace, panther_repo, template_repo, tmp_path)
+    with pytest.raises(ExperimentError) as overwrite:
+        _prepare(fixture_workspace, panther_repo, template_repo, tmp_path)
+    assert "prepared once" in str(overwrite.value)
+
+    empty = tmp_path / "empty-source"
+    empty.mkdir()
+    template, commit = template_repo
+    with pytest.raises(ExperimentError) as missing:
+        prepare(
+            _target(empty),
+            root=tmp_path / "other-root",
+            panther_repo=panther_repo,
+            template=template,
+            template_commit=commit,
+        )
+    assert str(empty / "clone") in str(missing.value)
+
+
+def test_cli_workspace_prepare_reports_the_tree(
+    fixture_workspace, panther_repo, template_repo, tmp_path, monkeypatch, capsys
+):
+    from experiment.cli import main
+
+    template, commit = template_repo
+    monkeypatch.setitem(TARGETS, "fixture", _target(fixture_workspace))
+    code = main(
+        [
+            "workspace",
+            "prepare",
+            "fixture",
+            "--root",
+            str(tmp_path / "root"),
+            "--panther-repo",
+            str(panther_repo),
+            "--template",
+            template,
+            "--template-commit",
+            commit,
+        ]
+    )
+    out = capsys.readouterr().out
+    assert code == 0
+    assert f"pristine: {tmp_path / 'root' / 'pristine' / 'fixture-w02-02'}" in out
+    assert "clusters: 2  pre-seeded: 1  window: [2, 2]" in out
