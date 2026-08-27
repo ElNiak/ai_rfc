@@ -1,146 +1,118 @@
-# Spike S0 — isolated-profile hermeticity
+# Spike S0 — isolated-profile hermeticity and arm enforcement
 
-**Run:** 2026-08-27 · `claude --version` = **2.1.247 (Claude Code)** · model `claude-opus-5`
-**Verdict recorded in `~/arfc-experiments/spike-report.json`:** `go: false`
-**Verdict as interpreted here:** D20 (isolated OAuth profile) is **supported**; the
-`go: false` comes from two broken checks and one real capability finding, none of
-which is a hermeticity failure. The `--bare` + `ANTHROPIC_API_KEY` fallback is **not**
-indicated.
+**Verdict: `go: true`** · 2026-08-27 · `claude --version` = **2.1.247 (Claude Code)** ·
+model `claude-opus-5` · report `~/arfc-experiments/spike-report.json`
 
-Every plan and the spec were written against CLI **2.1.246**; this ran on **2.1.247**.
-The flag surface below is therefore re-validated on 247, not inherited.
+All nine checks pass. D20 (isolated OAuth profile) is **supported**; the `--bare` +
+`ANTHROPIC_API_KEY` fallback is not needed. Every plan and the spec were written
+against CLI **2.1.246**; everything below is measured on **2.1.247**.
 
 ## Results
 
-| Check | Required | Result | Evidence |
+| Check | Required | Evidence |
+|---|---|---|
+| `auth` | yes | Isolated profile authenticates; `apiKeySource: none`. |
+| `hooks` | yes | Control fired **20** hook events, isolated fired **0**. |
+| `claude_md` | yes | A canary `CLAUDE.md` one directory above the cwd does not reach the isolated run. |
+| `arm_surface` | yes | A: `Edit,Glob,Grep,Read,Write` + 16 `mcp__arfc__*`, `arfc: connected`, **no Bash**. B and C: Bash, no MCP. Slash commands empty in all three. |
+| `draft_commit` | no | Draft committed and revision tagged through the core. |
+| `plugin_mcp` | no | `arfc_status` answered `2`; connected **with and without** the env block. |
+| `result_fields` | yes | All required and optional result fields present. |
+| `denial` | yes | Out-of-family `echo bypass-probe` blocked by the guard; in-family `git --version` still ran. |
+| `append_prompt` | yes | `--append-system-prompt-file` reaches the model. |
+
+## The enforcement finding, and what actually works
+
+Spike item 8 asked whether `dontAsk` plus `--allowedTools "Bash(arfc *)"` denies an
+out-of-family command. **It does not.** `--allowedTools` does not constrain a
+built-in tool that `--tools` has enabled. It is not inert in general — an MCP tool
+absent from the allowlist *is* denied under the same mode.
+
+Seven mechanisms were measured against the same probe pair, every verdict read from
+the transcript (the model narrates, and sometimes emits literal tool-invocation text,
+so an answer-string detector is unreliable). Family under test `ls`; deny probe
+`echo bypass-probe`; control `ls`.
+
+| Mechanism | Deny probe | Control | Verdict |
 |---|---|---|---|
-| `auth` | yes | **PASS** | Isolated profile authenticates; `apiKeySource: none`, exit 0. |
-| `hooks` | yes | FAIL (instrument) | Control fired 20 hook events, isolated fired 0 — the desired outcome. The detector cannot see them; see defect 2. |
-| `claude_md` | yes | **PASS** | Canary `CLAUDE.md` one directory above the cwd did not reach the isolated run. |
-| `arm_surface` | yes | **PASS** | Arm A: exactly `Edit, Glob, Grep, Read, Write` + 15 `mcp__arfc__*`, `arfc: connected`, **no Bash**. Slash commands empty in all three arms. |
-| `draft_commit` | no | **PASS** | Draft committed and revision tagged through the core. |
-| `plugin_mcp` | no | FAIL (instrument) | The plugin server **did** connect; the check looked for the wrong server and tool names. See defect 3. |
-| `result_fields` | yes | **PASS** | All required and optional result fields present, `permission_denials` among them. |
-| `denial` | yes | FAIL (real) | `echo bypass-probe` executed with zero denials. See defect 1. |
-| `append_prompt` | yes | **PASS** | `--append-system-prompt-file` reached the model. |
+| `--permission-mode dontAsk` + allowlist (as shipped) | ran | ran | **leaks** |
+| `--permission-mode manual` + allowlist | ran | ran | **leaks** |
+| `--settings` `permissions.deny: ["Bash(echo *)"]` | blocked | ran | enforces |
+| `--disallowedTools "Bash(echo *)"` | blocked | ran | enforces |
+| `--settings` `permissions.deny:["Bash"] + allow:["Bash(ls *)"]` | no call | **no call** | over-blocks |
+| `PreToolUse` hook returning `permissionDecision: deny` | ran | ran | **leaks** |
+| `PreToolUse` hook exiting **2** | blocked | ran | **enforces** |
 
-## Defect 1 — `--allowedTools` does not gate built-in Bash (real, load-bearing)
+Three conclusions, each load-bearing:
 
-The spike asked arm B's configuration to run `echo bypass-probe`, which is outside
-its `Bash(arfc *)` allowance. It ran, `permission_denials` was empty.
+1. **The permission mode is not the cause.** `manual` leaks exactly as `dontAsk`
+   does, so swapping the mode fixes nothing.
+2. **Deny rules enforce but cannot express an arm.** They are blacklists; denying
+   `Bash` wholesale and re-allowing one family blocks the allowed command too. There
+   is no way to say "only `arfc *`" with them.
+3. **The `PreToolUse` hook works only through the exit-2 blocking path.** The
+   documented `hookSpecificOutput.permissionDecision = "deny"` is silently ignored —
+   the hook demonstrably fires (`hook_started` + `hook_response` in the stream) and
+   the command runs anyway. This is the trap: the documented shape is the one that
+   fails.
 
-A three-way probe pins the cause and refutes the obvious explanation. Under
-`--permission-mode dontAsk` with `--tools Bash`:
+## What was built
 
-| `--allowedTools` | Result |
-|---|---|
-| `Bash(arfc *)` | `echo` ran — leaked |
-| `Bash(arfc:*)` | `echo` ran — leaked |
-| `Read` (Bash absent from the allowlist entirely) | `echo` ran — leaked |
+`experiment/enforcement.py` derives each arm's command families from its existing
+`allowed_tools` declaration, so enforcement adds no second source of truth:
+A → none, B → `arfc `, C → `python -m panther…a_rfc`, `git `, `sqlite3 `.
+`experiment/guard.py` is mounted per arm through `--settings` and exits 2 on
+anything outside them.
 
-So this is not a specifier-parsing problem: **`--allowedTools` does not constrain a
-built-in tool that `--tools` has enabled.** It is not inert in general — in the
-`plugin_mcp` run an MCP tool absent from the allowlist *was* denied under the same
-permission mode, with an explicit `system/permission_denied` event.
+The guard **fails closed on command substitution** (`$(`, backticks, `<(`, `>(`,
+`${`) because a prefix check cannot see what those would run, and it splits on
+`&&`, `||`, `;`, `|`, `&` and newlines so every segment must be in family. Verified
+live against a real arm C: `git --version` runs, `echo bypass-probe` is blocked, and
+`git --version && echo bypass-probe` is blocked — the exact case spec item 8 names.
 
-Consequences for the design:
+Hook denials are readable three ways: an errored `tool_result` whose text carries the
+guard's message, the result event's `permission_denials`, and the `hook_started` /
+`hook_response` pair. The audit stage can use any of them.
 
-- Arm separation via `--tools` is **sound**: arm A demonstrably has no Bash.
-- Sub-command restriction *within* Bash is **not enforceable this way**, so arm B
-  cannot be held to `arfc *`, and D28's `Bash(sqlite3 *)` for arm C will not hold
-  either. Both arms effectively get unrestricted Bash.
-- The 2026-08-26 note that "`--allowedTools` auto-denies in `-p`" holds for MCP
-  tools on 2.1.247, but not for built-ins.
+**Where the guard lives matters.** The arms pass `--setting-sources project`, so
+user-level settings never load — a guard in the profile's `settings.json` would be
+inert. It is mounted with `--settings` from the campaign directory, never from
+`ARFC_WORKSPACE`, which arms B and C can write.
 
-**Decision (2026-08-27):** enforce with a **`PreToolUse` hook** in the campaign
-profile, matching each Bash command against its arm's allowance and denying the
-rest. The arms stay exactly as §2 and D28 define them. Two consequences follow:
-the §2 enforcement table's `--allowedTools` column becomes advisory for built-ins
-and normative only for MCP tools, and this document's hermeticity criterion changes
-from "the isolated profile fires no hooks" to "the isolated profile fires no
-*inherited* hooks besides the campaign's own enforcement hook". Hook activity is
-visible in the stream (defect 2), so the audit stage can count bypass attempts from
-it. Designing and building that hook is not part of this spike.
+## Residual threats
 
-## Defect 2 — the hook detector reads a field that 2.1.247 does not emit
+- Arms B and C hold unrestricted `Bash` and could edit the campaign's settings file.
+  Detection: hash the settings before and after each run, and treat a run whose
+  stream carries no `hook_started` events as one that had no guard.
+- Redirections inside an in-family segment are allowed (`arfc status > f`). The
+  per-run workspace copy contains the blast radius and the digest detects tampering.
+- Without `--strict-mcp-config` a run inherits **account-level** connectors
+  (Context7, Mermaid, Scholar, Drive) even under an isolated `CLAUDE_CONFIG_DIR`.
+  All arm invocations pass it; anything new must too.
 
-`_hook_events` counts events whose `type` starts with `hook` or that carry
-`hook_event_name`. On 2.1.247 hook activity arrives as `type: system` with
-`subtype: hook_started` / `hook_response`, carrying `hook_event`, `hook_id`,
-`hook_name`. The counter therefore returns 0 for both sides, and the check fails
-its own positive control.
+## Defects found and fixed along the way
 
-The underlying measurement is unambiguous and favourable: the control run produced
-10 `hook_started` + 10 `hook_response` events; the isolated run produced **no event
-carrying any hook key at all**. Hermeticity holds; only the detector is blind.
+1. **`USER` is required in the subprocess environment.** The first attempt died at
+   `auth` with "Not logged in" despite a valid login: `_base_env` passed only
+   `HOME`/`PATH`/`LANG`/`CLAUDE_CONFIG_DIR`. Bisected — `USER` fixes it; `LOGNAME`,
+   `SHELL`, `TMPDIR`, `XPC_SERVICE_NAME`, `__CF_USER_TEXT_ENCODING` do not. Mirrored
+   into the harness plan's runner environment.
+2. **The hook detector read a field 2.1.247 does not emit.** It looked for
+   `type:hook*` / `hook_event_name`; the CLI emits `type:system` +
+   `subtype:hook_started|hook_response` + `hook_event`. The unit fixture had encoded
+   the shape the detector expected rather than the one the CLI produces.
+3. **The plugin MCP check looked for the wrong names.** Loaded through
+   `--plugin-dir` the server is `plugin:ai-rfc:arfc` and its tool is
+   `mcp__plugin_ai-rfc_arfc__arfc_status`. Its hardcoded note advising removal of the
+   `.mcp.json` `env` block was wrong and is deleted — the server connects either way,
+   which also answers spec item 6.
+4. **A run can exit 0 with an empty stream.** One `hooks_control` invocation produced
+   zero events, failing its own positive control; the same command reproduced fine
+   immediately after. Scoring that as evidence made the verdict a coin flip, so an
+   empty stream on a clean exit is now retried once.
 
-**Fixed 2026-08-27**: the counter now reads `subtype` and `hook_event`. Replayed
-against the captured transcripts it returns 20 for the control and 0 for the
-isolated run, so the check passes on this run's own data. The unit test's synthetic
-fixture was corrected to the real event shape at the same time — it had encoded the
-shape the detector expected rather than the one the CLI emits.
-
-## Defect 3 — the plugin MCP check looks for the wrong names
-
-`plugin_mcp` reported `env_connected: false`, and the report's generated note advises
-dropping the `env` block from `plugins/ai-rfc/.mcp.json`. **Do not act on that note.**
-The init event shows `plugin:ai-rfc:arfc` with status `connected`, so
-`${PANTHER_REPO}` expansion works and the `env` block is fine. Two naming mismatches
-cause the false negative:
-
-- `_mcp_status` keys servers by `arfc`; loaded through `--plugin-dir` the server is
-  named `plugin:ai-rfc:arfc`.
-- The invocation passes `--allowedTools mcp__arfc`, but the tool is exposed as
-  `mcp__plugin_ai-rfc_arfc__arfc_status`, so it was denied under `dontAsk` — the one
-  place the allowlist did bite.
-
-The note's remedy is also self-contradicted by its own data: `noenv_connected` is
-false too, so removing the `env` block would change nothing.
-
-**Fixed 2026-08-27**: server detection now accepts `arfc` or any `…:arfc`, the
-allowlist is derived as `mcp__plugin_<plugin-dir>_arfc`, and the hardcoded note —
-a conclusion presented as evidence, wrong in exactly the case it fired — is gone.
-Replayed against the captured transcripts, detection returns True for both the
-plugin-dir and the `--mcp-config` paths.
-
-## The denial reader, and the fixture that cannot happen
-
-`stream.denials()` was replayed against the captured transcripts. It reads the real
-2.1.247 denial correctly, returning two entries for the `plugin_mcp_env` run (one
-from the `tool_result`, one from the `result` event) and zero for the leaked
-`denial` run. It does **not** read the `system/permission_denied` event, which is
-present and is the most authoritative of the three; adding it would make the audit
-stage's count independent of the assistant's own transcript.
-
-The committed fixture `experiment/tests/fixtures/stream/denied-bash.jsonl` is a
-hand-written approximation carrying a Bash denial with the detail *"Permission
-denied: Bash(echo bypass-probe) is not in the allowed tools"* and no
-`system/permission_denied` event. Defect 1 shows that denial never occurs on
-2.1.247. The fixture is therefore left in place rather than refreshed: the run that
-should have produced a real Bash denial produced none, and the only genuine denial
-captured is an MCP one with a different tool name and shape. Refresh it from a real
-Bash denial once the enforcement hook of defect 1 can produce one.
-
-## Incidental hermeticity observation
-
-The two `plugin_mcp` runs, which do **not** pass `--strict-mcp-config`, inherited
-account-level connectors (Context7, Mermaid Chart, Scholar Gateway, Google Drive)
-even under the isolated `CLAUDE_CONFIG_DIR`. These arrive with the account, not the
-config directory. The arm invocations all pass `--strict-mcp-config` and were clean,
-so the arms are unaffected — but any future launch that omits that flag will not be
-hermetic.
-
-## Fix applied before this run
-
-The first attempt failed at `auth` with "Not logged in · Please run /login" despite a
-valid login. `_base_env` passed only `HOME`, `PATH`, `LANG` and `CLAUDE_CONFIG_DIR`.
-Measured: adding `USER` makes authentication succeed; adding any of `LOGNAME`,
-`SHELL`, `TMPDIR`, `XPC_SERVICE_NAME` or `__CF_USER_TEXT_ENCODING` instead does not.
-Deterministic across two runs. Fixed in `fix: pass USER so the isolated profile can
-read its credentials`, and mirrored into the harness plan's runner environment.
-
-The failed first run is preserved at `~/arfc-experiments/spike.failed-auth-1/` with
-`spike-report.failed-auth-1.json`.
+Superseded runs are preserved at `~/arfc-experiments/spike.failed-auth-1/`,
+`spike.pre-guard-2/` and `spike.flaky-control-3/` with their reports.
 
 ## Commands
 
