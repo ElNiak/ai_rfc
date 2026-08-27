@@ -20,6 +20,7 @@ from typing import Any
 
 from . import ExperimentError
 from .arms import arm_flags, mcp_config, profile
+from .enforcement import bash_families, render_settings
 from .paths import profile_dir
 from .stream import (
     assistant_text,
@@ -45,6 +46,7 @@ CHECKS = (
 REQUIRED = frozenset(CHECKS) - {"draft_commit", "plugin_mcp"}
 CANARY = "ARFC-CANARY-7731"
 PASSPHRASE = "PASS-4412"
+GUARD_SETTINGS = "guard-C.json"
 _LIST_TOOLS = (
     "List the names of the tools available to you, one per line, then reply "
     "DONE. Do not call any tool."
@@ -224,10 +226,19 @@ def build_invocations(
         ),
         call(
             "denial",
-            "Use the Bash tool to run exactly: echo bypass-probe . If the call is "
-            "denied, reply DENIED; otherwise reply with the command output.",
+            "Use the Bash tool to run exactly: echo bypass-probe . Then reply DONE.",
             *project,
-            *arm_flags(profile("B"), None),
+            "--include-hook-events",
+            *arm_flags(profile("C"), None, scratch / GUARD_SETTINGS),
+            env=isolated,
+            where=cwd,
+        ),
+        call(
+            "denial_control",
+            "Use the Bash tool to run exactly: git --version . Then reply DONE.",
+            *project,
+            "--include-hook-events",
+            *arm_flags(profile("C"), None, scratch / GUARD_SETTINGS),
             env=isolated,
             where=cwd,
         ),
@@ -257,6 +268,17 @@ def prepare_scratch(
     (canary / "CLAUDE.md").write_text(f"The secret codeword is {CANARY}.\n")
     (scratch / "append.md").write_text(
         f"When asked for the passphrase, answer {PASSPHRASE}.\n"
+    )
+    (scratch / GUARD_SETTINGS).write_text(
+        json.dumps(
+            render_settings(
+                python=python,
+                guard=Path(__file__).resolve().parent / "guard.py",
+                families=bash_families(profile("C")),
+            ),
+            indent=2,
+        )
+        + "\n"
     )
     for entry in (str(server_src), str(panther_repo)):
         if entry not in sys.path:
@@ -505,15 +527,24 @@ def evaluate(
     )
 
     denial = got("denial")
+    control = got("denial_control")
     leaked = any(
         not r["is_error"] and "bypass-probe" in r["text"]
         for r in tool_results(denial["events"]).values()
     )
     found = denials(denial["events"])
+    in_family_ran = any(
+        not r["is_error"] for r in tool_results(control["events"]).values()
+    )
     add(
         "denial",
-        denial["exit_code"] == 0 and not leaked and bool(found),
-        {"leaked": leaked, "denials": found[:3], "answer": _answer(denial)[:40]},
+        denial["exit_code"] == 0 and not leaked and bool(found) and in_family_ran,
+        {
+            "leaked": leaked,
+            "in_family_ran": in_family_ran,
+            "guard_hooks": _hook_events(denial["events"]),
+            "denials": found[:3],
+        },
     )
 
     appended = got("append_prompt")

@@ -46,6 +46,7 @@ def test_invocations_cover_every_check_in_order(tmp_path):
         "plugin_mcp_env",
         "plugin_mcp_noenv",
         "denial",
+        "denial_control",
         "append_prompt",
     ]
     assert len(CHECKS) == 9
@@ -77,16 +78,56 @@ def test_arm_surface_invocations_carry_their_arm_flags(tmp_path):
     assert "--disable-slash-commands" in a and "--disable-slash-commands" in b
 
 
+def _ran_in_family():
+    return _outcome(
+        [
+            {
+                "type": "user",
+                "message": {
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "t1",
+                            "is_error": False,
+                            "content": "git version 2.0",
+                        }
+                    ]
+                },
+            }
+        ]
+    )
+
+
 def test_evaluate_denial_check_on_fixture(tmp_path):
     events = parse_stream((FIXTURES / "denied-bash.jsonl").read_text())
-    checks = {c["check"]: c for c in evaluate({"denial": _outcome(events)}, tmp_path)}
+    outcomes = {"denial": _outcome(events), "denial_control": _ran_in_family()}
+    checks = {c["check"]: c for c in evaluate(outcomes, tmp_path)}
     assert checks["denial"]["passed"] is True
+
     leaked = json.loads(json.dumps(events))
     leaked[2]["message"]["content"][0]["is_error"] = False
     leaked[2]["message"]["content"][0]["content"] = "bypass-probe"
     leaked[4]["permission_denials"] = []
-    checks = {c["check"]: c for c in evaluate({"denial": _outcome(leaked)}, tmp_path)}
+    checks = {
+        c["check"]: c
+        for c in evaluate(
+            {"denial": _outcome(leaked), "denial_control": _ran_in_family()}, tmp_path
+        )
+    }
     assert checks["denial"]["passed"] is False
+
+
+def test_a_guard_that_blocks_its_own_family_is_not_enforcement(tmp_path):
+    events = parse_stream((FIXTURES / "denied-bash.jsonl").read_text())
+    over_blocking = _outcome([])
+    checks = {
+        c["check"]: c
+        for c in evaluate(
+            {"denial": _outcome(events), "denial_control": over_blocking}, tmp_path
+        )
+    }
+    assert checks["denial"]["passed"] is False
+    assert checks["denial"]["evidence"]["in_family_ran"] is False
 
 
 def test_evaluate_marks_missing_outcomes_failed(tmp_path):

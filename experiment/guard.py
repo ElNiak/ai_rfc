@@ -32,7 +32,8 @@ def main(argv: list[str]) -> int:
     command = str((payload.get("tool_input") or {}).get("command", ""))
     if is_allowed(command, argv):
         return 0
-    sys.stderr.write(f"command outside this arm's allowed families: {command}\n")
+    families = ", ".join(repr(family) for family in argv) or "(none)"
+    sys.stderr.write(f"denied: this arm may run only {families}; refused: {command}\n")
     return 2
 
 
