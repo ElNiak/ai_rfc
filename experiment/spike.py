@@ -1,6 +1,6 @@
 """Spike S0: prove the isolated profile is hermetic before any product code.
 
-Thirteen real ``claude -p`` calls with a one-dollar budget each feed nine
+Fourteen real ``claude -p`` calls with a one-dollar budget each feed nine
 checks. The report is the go/no-go for D20: if auth, hooks or CLAUDE.md
 isolation fail, the documented fallback is ``--bare`` with an API key.
 Nothing here runs under pytest; the pure parts are tested, the calls are
@@ -590,6 +590,13 @@ def run_spike(
     log: list[dict[str, Any]] = []
     for invocation in invocations:
         outcome = run_claude(invocation, timeout_s)
+        if outcome["exit_code"] == 0 and not outcome["events"]:
+            # A run can exit 0 having written nothing at all; that is a harness
+            # failure, and scoring it as evidence makes the verdict a coin flip.
+            print(
+                f"note: {invocation.name}: empty stream, retrying once", file=sys.stderr
+            )
+            outcome = run_claude(invocation, timeout_s)
         outcomes[invocation.name] = outcome
         log.append(
             {
