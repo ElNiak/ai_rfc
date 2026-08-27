@@ -9,10 +9,12 @@ manifest, each carrying a harness sidecar the analysis excludes.
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import string
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -36,6 +38,7 @@ TEMPLATE_STRIP = (
 HARNESS_NAME = "arfc-harness"
 HARNESS_EMAIL = "arfc-harness@localhost"
 PINNED_DATE = "2026-08-26T00:00:00+00:00"
+HARNESS_MARKER = "harness.json"
 
 
 @dataclass(frozen=True)
@@ -86,6 +89,18 @@ def _git(repo: Path, *args: str, date: str | None = None) -> str:
             f"git {' '.join(args)} in {repo} failed: {result.stderr.strip()}"
         )
     return result.stdout.strip()
+
+
+def _substrate(panther_repo: Path):  # noqa: ANN202 - substrate modules, resolved lazily
+    if str(panther_repo) not in sys.path:
+        sys.path.insert(0, str(panther_repo))
+    from panther.plugins.services.testers.a_rfc.draft.checkpoint import (
+        write_checkpoint,
+    )
+    from panther.plugins.services.testers.a_rfc.timeline.store import read_clusters
+    from panther.plugins.services.testers.a_rfc.views import cli as views_cli
+
+    return write_checkpoint, read_clusters, views_cli
 
 
 def out_of_window(ordinals: Iterable[int], window: tuple[int, int]) -> list[int]:
@@ -157,3 +172,43 @@ def scaffold_draft(
         dest, "commit", "-q", "-m", "scaffold from auto-i-d-template", date=PINNED_DATE
     )
     return _git(dest, "rev-parse", "HEAD")
+
+
+def preseed(workspace: Path, panther_repo: Path, ordinals: Iterable[int]) -> list[str]:
+    """Checkpoint the workspace manifest against each ordinal and mark it pre-seeded.
+
+    Args:
+        workspace: The workspace whose ``checkpoints/`` directory is written.
+        panther_repo: PANTHER repository root, put on ``sys.path``.
+        ordinals: Cluster ordinals to pre-seed, in order.
+
+    Returns:
+        The cluster ids checkpointed, in the order given.
+
+    Raises:
+        ExperimentError: If an ordinal has no cluster.
+    """
+    write_checkpoint, read_clusters, _ = _substrate(panther_repo)
+    by_ordinal = {
+        row["ordinal"]: row["id"] for row in read_clusters(workspace / "timeline")
+    }
+    seeded = []
+    for ordinal in ordinals:
+        cluster_id = by_ordinal.get(ordinal)
+        if cluster_id is None:
+            raise ExperimentError(f"no cluster with ordinal {ordinal}")
+        checkpoint_dir = write_checkpoint(
+            workspace / "manifest.yaml",
+            workspace / "timeline",
+            cluster_id,
+            workspace / "checkpoints",
+        )
+        (checkpoint_dir / HARNESS_MARKER).write_text(
+            json.dumps(
+                {"pre_seeded": True, "reason": "outside window", "ordinal": ordinal},
+                sort_keys=True,
+            )
+            + "\n"
+        )
+        seeded.append(cluster_id)
+    return seeded

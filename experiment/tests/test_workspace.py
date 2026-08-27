@@ -1,10 +1,18 @@
+import hashlib
+import json
 from pathlib import Path
 
 import pytest
 
 from ai_rfc_server.testing import git
 from experiment import ExperimentError
-from experiment.workspace import Target, out_of_window, scaffold_draft
+from experiment.workspace import (
+    HARNESS_MARKER,
+    Target,
+    out_of_window,
+    preseed,
+    scaffold_draft,
+)
 
 
 @pytest.fixture
@@ -85,3 +93,54 @@ def test_scaffold_refuses_an_existing_destination(template_repo, tmp_path):
             dest, _target(tmp_path), template=template, template_commit=commit
         )
     assert "scaffolded once" in str(excinfo.value)
+
+
+def _clusters(workspace: Path) -> list[dict]:
+    rows = (workspace / "timeline" / "clusters.jsonl").read_text().splitlines()
+    return [json.loads(row) for row in rows]
+
+
+def _cluster_ids(workspace: Path) -> list[str]:
+    return [row["id"] for row in _clusters(workspace)]
+
+
+def _tree_digest(root: Path) -> dict[str, str]:
+    return {
+        path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in sorted(root.rglob("*"))
+        if path.is_file()
+    }
+
+
+def test_preseed_makes_the_server_skip_the_cluster(fixture_workspace, panther_repo):
+    ordinals = [row["ordinal"] for row in _clusters(fixture_workspace)]
+    assert ordinals == [1, 2]
+    seeded = preseed(fixture_workspace, panther_repo, out_of_window(ordinals, (2, 2)))
+    assert seeded == [_cluster_ids(fixture_workspace)[0]]
+    marker = json.loads(
+        (fixture_workspace / "checkpoints" / seeded[0] / HARNESS_MARKER).read_text()
+    )
+    assert marker == {"ordinal": 1, "pre_seeded": True, "reason": "outside window"}
+
+    from ai_rfc_server.core.queries import cluster_next, status
+    from ai_rfc_server.paths import resolve_context
+
+    ctx = resolve_context()
+    assert cluster_next(ctx)["ordinal"] == 2
+    composite = status(ctx)
+    assert composite["clusters_total"] == 2
+    assert composite["clusters_processed"] == 1
+
+
+def test_preseed_rejects_an_unknown_ordinal(fixture_workspace, panther_repo):
+    with pytest.raises(ExperimentError) as excinfo:
+        preseed(fixture_workspace, panther_repo, [99])
+    assert "no cluster with ordinal 99" in str(excinfo.value)
+
+
+def test_preseed_leaves_substrate_artifacts_untouched(fixture_workspace, panther_repo):
+    before = _tree_digest(fixture_workspace / "timeline")
+    manifest_before = (fixture_workspace / "manifest.yaml").read_bytes()
+    preseed(fixture_workspace, panther_repo, [1])
+    assert _tree_digest(fixture_workspace / "timeline") == before
+    assert (fixture_workspace / "manifest.yaml").read_bytes() == manifest_before
