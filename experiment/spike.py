@@ -117,6 +117,9 @@ def build_invocations(
     prompt_file = scratch / "append.md"
     project = ("--setting-sources", "project")
     no_tools = ("--tools", "")
+    # --plugin-dir namespaces the server, so its tools arrive as
+    # mcp__plugin_<plugin>_arfc__*, not the bare mcp__arfc__* of --mcp-config.
+    plugin_tool_prefix = f"mcp__plugin_{plugin_dir.name}_arfc"
 
     def call(name: str, prompt: str, *flags: str, env: dict[str, str], where: Path):
         return Invocation(
@@ -203,7 +206,7 @@ def build_invocations(
             str(plugin_dir),
             *no_tools,
             "--allowedTools",
-            "mcp__arfc",
+            plugin_tool_prefix,
             env=plugin_env,
             where=workspace,
         ),
@@ -215,7 +218,7 @@ def build_invocations(
             str(plugin_dir),
             *no_tools,
             "--allowedTools",
-            "mcp__arfc",
+            plugin_tool_prefix,
             env=isolated,
             where=workspace,
         ),
@@ -326,10 +329,12 @@ def _answer(outcome: dict[str, Any]) -> str:
 
 
 def _hook_events(events: list[dict[str, Any]]) -> int:
+    # 2.1.247 reports hook activity as system events with subtype hook_started /
+    # hook_response carrying hook_event, never as a dedicated top-level type.
     return sum(
         1
         for event in events
-        if str(event.get("type", "")).startswith("hook") or "hook_event_name" in event
+        if str(event.get("subtype", "")).startswith("hook_") or "hook_event" in event
     )
 
 
@@ -341,6 +346,22 @@ def _mcp_status(events: list[dict[str, Any]]) -> dict[str, str]:
         if isinstance(server, dict):
             status[str(server.get("name"))] = str(server.get("status"))
     return status
+
+
+def _arfc_connected(events: list[dict[str, Any]]) -> bool:
+    """Whether the arfc server is connected, under either loading path.
+
+    Args:
+        events: One invocation's stream-json events.
+
+    Returns:
+        True when a connected server is named ``arfc`` (``--mcp-config``) or
+        ``plugin:<plugin>:arfc`` (``--plugin-dir``).
+    """
+    return any(
+        (name == "arfc" or name.endswith(":arfc")) and status == "connected"
+        for name, status in _mcp_status(events).items()
+    )
 
 
 def _tools(events: list[dict[str, Any]]) -> list[str]:
@@ -450,8 +471,8 @@ def evaluate(
     )
 
     env_run, noenv_run = got("plugin_mcp_env"), got("plugin_mcp_noenv")
-    env_connected = _mcp_status(env_run["events"]).get("arfc") == "connected"
-    noenv_connected = _mcp_status(noenv_run["events"]).get("arfc") == "connected"
+    env_connected = _arfc_connected(env_run["events"])
+    noenv_connected = _arfc_connected(noenv_run["events"])
     add(
         "plugin_mcp",
         env_connected and "2" in _answer(env_run),
@@ -459,7 +480,6 @@ def evaluate(
             "env_connected": env_connected,
             "noenv_connected": noenv_connected,
             "answer": _answer(env_run)[:40],
-            "note": "env_connected False with arm_surface A connected ⇒ drop the env block from plugins/ai-rfc/.mcp.json (spec §1)",
         },
     )
 

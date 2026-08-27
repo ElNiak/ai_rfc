@@ -107,7 +107,14 @@ def test_hooks_and_claude_md_require_their_positive_controls(tmp_path):
 
     outcomes["hooks_control"] = {
         "exit_code": 0,
-        "events": [{"type": "hook_event", "hook_event_name": "SessionStart"}],
+        "events": [
+            {
+                "type": "system",
+                "subtype": "hook_started",
+                "hook_event": "PreToolUse",
+                "hook_name": "guard",
+            }
+        ],
         "stderr": "",
         "timed_out": False,
     }
