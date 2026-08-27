@@ -65,8 +65,11 @@ class Invocation:
 
 
 def _base_env(profile_path: Path | None) -> dict[str, str]:
+    # Measured on Claude Code 2.1.247 / macOS: drop USER and the CLI cannot reach
+    # its stored credentials, answering "Not logged in" however valid the profile.
     env = {
         "HOME": os.environ.get("HOME", ""),
+        "USER": os.environ.get("USER", ""),
         "PATH": os.environ.get("PATH", ""),
         "LANG": os.environ.get("LANG", "C.UTF-8"),
     }
