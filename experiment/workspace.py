@@ -9,6 +9,7 @@ manifest, each carrying a harness sidecar the analysis excludes.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -39,6 +40,9 @@ HARNESS_NAME = "arfc-harness"
 HARNESS_EMAIL = "arfc-harness@localhost"
 PINNED_DATE = "2026-08-26T00:00:00+00:00"
 HARNESS_MARKER = "harness.json"
+DIGEST_FILE = "pristine.sha256"
+RECORD_FILE = "pristine.json"
+_SKIP_FROM_DIGEST = frozenset({DIGEST_FILE, RECORD_FILE})
 
 
 @dataclass(frozen=True)
@@ -212,3 +216,88 @@ def preseed(workspace: Path, panther_repo: Path, ordinals: Iterable[int]) -> lis
         )
         seeded.append(cluster_id)
     return seeded
+
+
+def _digests(root: Path) -> dict[str, str]:
+    found: dict[str, str] = {}
+    for path in sorted(p for p in root.rglob("*") if p.is_file()):
+        relative = path.relative_to(root)
+        if ".git" in relative.parts or relative.name in _SKIP_FROM_DIGEST:
+            continue
+        found[relative.as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
+    return found
+
+
+def write_digest(root: Path) -> Path:
+    """Write ``pristine.sha256`` over every regular file outside ``.git``.
+
+    Args:
+        root: The workspace to seal.
+
+    Returns:
+        The digest manifest's path.
+    """
+    lines = [f"{digest}  {relative}" for relative, digest in _digests(root).items()]
+    target = root / DIGEST_FILE
+    target.write_text("\n".join(lines) + "\n")
+    return target
+
+
+def verify_digest(root: Path) -> list[str]:
+    """Differences between a tree and its digest manifest; empty means verified.
+
+    Args:
+        root: A workspace previously sealed by :func:`write_digest`.
+
+    Returns:
+        One ``missing:``/``unexpected:``/``modified:`` line per differing
+        path, in path-sorted order.
+    """
+    manifest_path = root / DIGEST_FILE
+    if not manifest_path.exists():
+        return [f"{DIGEST_FILE} is missing"]
+    expected: dict[str, str] = {}
+    for line in manifest_path.read_text().splitlines():
+        if line.strip():
+            digest, _, relative = line.partition("  ")
+            expected[relative] = digest
+    actual = _digests(root)
+    problems = []
+    for relative in sorted(set(expected) | set(actual)):
+        if relative not in actual:
+            problems.append(f"missing: {relative}")
+        elif relative not in expected:
+            problems.append(f"unexpected: {relative}")
+        elif actual[relative] != expected[relative]:
+            problems.append(f"modified: {relative}")
+    return problems
+
+
+def copy_workspace(pristine: Path, dest: Path) -> Path:
+    """Copy a pristine workspace for one run and verify the copy.
+
+    Args:
+        pristine: The sealed workspace to copy from.
+        dest: Where the run's private workspace is created (must not exist).
+
+    Returns:
+        The destination path.
+
+    Raises:
+        ExperimentError: If ``dest`` exists, the copy does not reproduce the
+            digest manifest, or a nested repository HEAD moved.
+    """
+    if dest.exists():
+        raise ExperimentError(f"{dest} exists; a run never reuses a workspace")
+    shutil.copytree(pristine, dest, symlinks=False)
+    problems = verify_digest(dest)
+    if problems:
+        raise ExperimentError(f"copied workspace does not verify: {problems[:5]}")
+    record = json.loads((dest / RECORD_FILE).read_text())
+    for name, key in (("clone", "clone_head"), ("draft", "draft_head")):
+        head = _git(dest / name, "rev-parse", "HEAD")
+        if head != record[key]:
+            raise ExperimentError(
+                f"{name} HEAD {head} differs from recorded {record[key]}"
+            )
+    return dest

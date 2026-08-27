@@ -7,11 +7,16 @@ import pytest
 from ai_rfc_server.testing import git
 from experiment import ExperimentError
 from experiment.workspace import (
+    DIGEST_FILE,
     HARNESS_MARKER,
+    RECORD_FILE,
     Target,
+    copy_workspace,
     out_of_window,
     preseed,
     scaffold_draft,
+    verify_digest,
+    write_digest,
 )
 
 
@@ -144,3 +149,62 @@ def test_preseed_leaves_substrate_artifacts_untouched(fixture_workspace, panther
     preseed(fixture_workspace, panther_repo, [1])
     assert _tree_digest(fixture_workspace / "timeline") == before
     assert (fixture_workspace / "manifest.yaml").read_bytes() == manifest_before
+
+
+@pytest.fixture
+def sealed(fixture_workspace: Path) -> Path:
+    """A fixture workspace sealed the way a pristine one is: record + digest."""
+    record = {
+        "clone_head": git(fixture_workspace / "clone", "rev-parse", "HEAD"),
+        "draft_head": git(fixture_workspace / "draft", "rev-parse", "HEAD"),
+    }
+    (fixture_workspace / RECORD_FILE).write_text(
+        json.dumps(record, indent=2, sort_keys=True) + "\n"
+    )
+    write_digest(fixture_workspace)
+    return fixture_workspace
+
+
+def test_digest_covers_content_but_not_git_or_itself(sealed):
+    covered = [
+        line.partition("  ")[2]
+        for line in (sealed / DIGEST_FILE).read_text().splitlines()
+    ]
+    assert "manifest.yaml" in covered
+    assert "draft/draft-test-spec.md" in covered
+    assert not any(part == ".git" for path in covered for part in path.split("/"))
+    assert DIGEST_FILE not in covered and RECORD_FILE not in covered
+    assert verify_digest(sealed) == []
+
+
+def test_verify_reports_every_kind_of_drift_in_path_order(sealed):
+    (sealed / "manifest.yaml").write_text("rfc: X\ntitle: t\nrequirements: {}\n")
+    (sealed / "extra.txt").write_text("x\n")
+    (sealed / "questions.yaml").unlink()
+    assert verify_digest(sealed) == [
+        "unexpected: extra.txt",
+        "modified: manifest.yaml",
+        "missing: questions.yaml",
+    ]
+
+
+def test_verify_reports_a_missing_manifest(fixture_workspace):
+    assert verify_digest(fixture_workspace) == ["pristine.sha256 is missing"]
+
+
+def test_copy_verifies_and_never_reuses_a_destination(sealed, tmp_path):
+    copy = copy_workspace(sealed, tmp_path / "run" / "workspace")
+    assert verify_digest(copy) == []
+    assert git(copy / "draft", "rev-parse", "HEAD") == git(
+        sealed / "draft", "rev-parse", "HEAD"
+    )
+    with pytest.raises(ExperimentError) as excinfo:
+        copy_workspace(sealed, tmp_path / "run" / "workspace")
+    assert "never reuses" in str(excinfo.value)
+
+
+def test_copy_refuses_a_tampered_pristine(sealed, tmp_path):
+    (sealed / "manifest.yaml").write_text("rfc: X\ntitle: t\nrequirements: {}\n")
+    with pytest.raises(ExperimentError) as excinfo:
+        copy_workspace(sealed, tmp_path / "run" / "workspace")
+    assert "does not verify" in str(excinfo.value)
