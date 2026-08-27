@@ -1,8 +1,10 @@
 """Per-arm enforcement profiles: which surfaces a session may reach.
 
-Enforcement is by removal (arm A has no Bash tool at all) or by allowlist
-(arms B and C may run exactly one command family); everything else is
-auto-denied by ``claude -p`` and counted by the audit as a bypass attempt.
+Enforcement is by removal (arm A has no Bash tool at all) or, for arms B and C,
+by a ``PreToolUse`` guard confining Bash to the command families their
+``allowed_tools`` declares. The allowlist alone does not confine a built-in on
+CLI 2.1.247, which is why the guard exists; see :mod:`experiment.enforcement`.
+A blocked call is counted by the audit as a bypass attempt.
 The MCP server is mounted only in arm A, through a rendered config with
 absolute paths, and ``--strict-mcp-config`` keeps every other server out.
 """
@@ -78,6 +80,7 @@ def constant_flags(
         "--output-format",
         "stream-json",
         "--verbose",
+        "--include-hook-events",
         "--append-system-prompt-file",
         str(prompt_file),
         "--disable-slash-commands",
@@ -94,11 +97,17 @@ def constant_flags(
     ]
 
 
-def arm_flags(arm_profile: ArmProfile, mcp_config_path: Path | None) -> list[str]:
-    """Flags that differ by arm: built-in tool set, allowlist, MCP mount.
+def arm_flags(
+    arm_profile: ArmProfile,
+    mcp_config_path: Path | None,
+    guard_settings: Path | None = None,
+) -> list[str]:
+    """Flags that differ by arm: built-in tool set, allowlist, MCP mount, guard.
 
     Tool lists are passed comma-joined as one argument so a following flag
-    can never be swallowed as a tool name.
+    can never be swallowed as a tool name. The allowlist is normative for MCP
+    tools only; a built-in enabled by ``--tools`` is confined by the guard
+    mounted through ``guard_settings`` (see :mod:`experiment.enforcement`).
 
     Raises:
         ExperimentError: If an MCP config is missing for arm A or given for
@@ -119,6 +128,8 @@ def arm_flags(arm_profile: ArmProfile, mcp_config_path: Path | None) -> list[str
     ]
     if mcp_config_path is not None:
         flags += ["--mcp-config", str(mcp_config_path)]
+    if guard_settings is not None:
+        flags += ["--settings", str(guard_settings)]
     return flags
 
 
@@ -154,6 +165,7 @@ def build_argv(
     effort: str,
     budget_usd: float,
     prompt_file: Path,
+    guard_settings: Path | None = None,
 ) -> list[str]:
     """The complete ``claude -p`` argument vector for one run."""
     return [
@@ -163,5 +175,5 @@ def build_argv(
         *constant_flags(
             model=model, effort=effort, budget_usd=budget_usd, prompt_file=prompt_file
         ),
-        *arm_flags(arm_profile, mcp_config_path),
+        *arm_flags(arm_profile, mcp_config_path, guard_settings),
     ]

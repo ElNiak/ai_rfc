@@ -161,3 +161,30 @@ def test_build_argv_starts_with_print_mode(tmp_path):
     )
     assert argv[:3] == ["claude", "-p", "go"]
     assert "--tools" in argv and "--allowedTools" in argv
+
+
+def test_hook_events_are_always_streamed(tmp_path):
+    flags = constant_flags(
+        model="m", effort="high", budget_usd=1, prompt_file=tmp_path / "p"
+    )
+    assert "--include-hook-events" in flags
+    assert _value(flags, "--output-format") == "stream-json"
+
+
+def test_the_guard_mounts_only_when_a_settings_path_is_given(tmp_path):
+    guard = tmp_path / "B.json"
+    assert "--settings" not in arm_flags(profile("B"), None)
+    assert _value(arm_flags(profile("B"), None, guard), "--settings") == str(guard)
+
+    argv = build_argv(
+        claude_bin="claude",
+        prompt="go",
+        arm_profile=profile("B"),
+        mcp_config_path=None,
+        model="m",
+        effort="high",
+        budget_usd=1,
+        prompt_file=tmp_path / "p",
+        guard_settings=guard,
+    )
+    assert _value(argv, "--settings") == str(guard)
