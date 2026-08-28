@@ -1,0 +1,272 @@
+"""Classify a run's tool calls by surface and judge arm integrity.
+
+An *executed* call on a surface outside the run's arm is an integrity
+violation (impossible by construction, still checked). A *denied* call is a
+bypass attempt, kept as data. Errors split into the class-1 channel (typed
+tool errors) and the class-2 channel (shell errors), as the protocol's
+two-sided taxonomy asks.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+from collections import Counter
+from dataclasses import asdict, dataclass
+from typing import Any
+
+from . import ExperimentError
+from .config import Campaign
+from .runner import EVENTS_FILE, load_status
+from .stream import is_denial, parse_stream, result_event, tool_results, tool_uses
+
+RAW_PREFIX = "python -m panther.plugins.services.testers.a_rfc"
+REGISTERS = ("manifest.yaml", "questions.yaml", "revisions.yaml")
+ALLOWED: dict[str, set[str]] = {
+    "A": {"mcp", "edit", "read"},
+    "B": {"bash:arfc", "edit", "read"},
+    "C": {"bash:python_a_rfc", "bash:git", "bash:sqlite3", "edit", "read"},
+}
+_SEGMENT = re.compile(r"&&|\|\||;|\|")
+
+
+@dataclass(frozen=True)
+class ToolCall:
+    """One classified tool call."""
+
+    index: int
+    name: str
+    surface: str
+    family: str
+    target: str
+    denied: bool
+    errored: bool
+    summary: str
+    path: str = ""
+
+
+def bash_family(command: str) -> str:
+    """The command family of a shell line; mixed families are named as such.
+
+    Args:
+        command: The raw ``tool_input.command`` string.
+
+    Returns:
+        One of ``bash:arfc``, ``bash:python_a_rfc``, ``bash:git``,
+        ``bash:sqlite3``, ``bash:other`` or ``bash:mixed``.
+    """
+    families = set()
+    for segment in (part.strip() for part in _SEGMENT.split(command)):
+        if not segment:
+            continue
+        if segment.startswith("arfc "):
+            families.add("bash:arfc")
+        elif segment.startswith(RAW_PREFIX):
+            families.add("bash:python_a_rfc")
+        elif segment.startswith("git "):
+            families.add("bash:git")
+        elif segment.startswith("sqlite3 "):
+            families.add("bash:sqlite3")
+        else:
+            families.add("bash:other")
+    if not families:
+        return "bash:other"
+    return families.pop() if len(families) == 1 else "bash:mixed"
+
+
+def classify(name: str, tool_input: dict[str, Any]) -> tuple[str, str, str]:
+    """Return ``(surface, family, target)`` for one tool call.
+
+    Args:
+        name: The tool's name as the stream reports it.
+        tool_input: The call's input object.
+
+    Returns:
+        The surface it reached for, the family within that surface, and the
+        edit target (``register``, ``prose`` or ``other``) where it applies.
+    """
+    if name.startswith("mcp__arfc__"):
+        return "mcp", name[len("mcp__arfc__") :], ""
+    if name.startswith("mcp__"):
+        return "mcp:other", name, ""
+    if name == "Bash":
+        command = str(tool_input.get("command", "")).strip()
+        family = bash_family(command)
+        return family, command.split(" ", 1)[0] if command else "", ""
+    if name in ("Edit", "Write", "MultiEdit"):
+        path = str(tool_input.get("file_path", ""))
+        basename = path.rsplit("/", 1)[-1]
+        if basename in REGISTERS:
+            target = "register"
+        elif "/draft/" in path and path.endswith(".md"):
+            target = "prose"
+        else:
+            target = "other"
+        return "edit", name, target
+    if name in ("Read", "Grep", "Glob"):
+        return "read", name, ""
+    return "other", name, ""
+
+
+def _summary(use: dict[str, Any]) -> str:
+    tool_input = use["input"]
+    for key in ("command", "file_path", "cluster_id", "claim_id", "tag"):
+        if key in tool_input:
+            value = str(tool_input[key])
+            if len(value) <= 120:
+                return f"{key}={value}"
+            # Keep the tail of a path: the basename is the identifying half.
+            head = "..." if key == "file_path" else ""
+            kept = value[-117:] if key == "file_path" else value[:120]
+            return f"{key}={head}{kept}"
+    return json.dumps(tool_input, sort_keys=True)[:120]
+
+
+def _denied_ids(events: list[dict[str, Any]]) -> set[str]:
+    """The ids of calls the CLI itself reported as denied.
+
+    Measured on 2.1.247: ``permission_denials`` carries ``tool_use_id``, which
+    links a denial to the exact call it refused. That is authoritative and needs
+    no text matching; ``is_denial`` remains the fallback for a denial that never
+    reached the result event.
+
+    Args:
+        events: The parsed transcript.
+
+    Returns:
+        The denied calls' ids.
+    """
+    final = result_event(events) or {}
+    return {
+        str(denial["tool_use_id"])
+        for denial in final.get("permission_denials") or []
+        if isinstance(denial, dict) and denial.get("tool_use_id")
+    }
+
+
+def audit_events(events: list[dict[str, Any]], arm: str) -> dict[str, Any]:
+    """Audit one transcript for the arm it was supposed to stay inside.
+
+    Args:
+        events: The parsed transcript.
+        arm: The arm the run was launched as.
+
+    Returns:
+        The audit record.
+    """
+    results = tool_results(events)
+    denied_ids = _denied_ids(events)
+    calls: list[ToolCall] = []
+    for use in tool_uses(events):
+        surface, family, target = classify(use["name"], use["input"])
+        result = results.get(str(use["id"]))
+        errored = bool(result and result["is_error"])
+        denied = str(use["id"]) in denied_ids or (errored and is_denial(result["text"]))
+        calls.append(
+            ToolCall(
+                index=use["index"],
+                name=use["name"],
+                surface=surface,
+                family=family,
+                target=target,
+                denied=denied,
+                errored=errored,
+                summary=_summary(use),
+                path=str(use["input"].get("file_path", "")),
+            )
+        )
+    allowed = ALLOWED[arm]
+    violations = [c for c in calls if c.surface not in allowed and not c.denied]
+    bypasses = [c for c in calls if c.denied]
+    class1 = [
+        c for c in calls if c.errored and not c.denied and c.surface.startswith("mcp")
+    ]
+    class2 = [
+        c for c in calls if c.errored and not c.denied and c.surface.startswith("bash")
+    ]
+    failures = sorted(c.index for c in class1 + class2)
+    final = result_event(events) or {}
+    return {
+        "arm": arm,
+        "integrity": not violations,
+        "tool_calls": {
+            "total": len(calls),
+            "by_surface": dict(sorted(Counter(c.surface for c in calls).items())),
+        },
+        "executed_out_of_arm": [asdict(c) for c in violations],
+        "bypass_attempts": {
+            "count": len(bypasses),
+            "by_surface": dict(sorted(Counter(c.surface for c in bypasses).items())),
+            "items": [asdict(c) for c in bypasses],
+            "result_permission_denials": len(final.get("permission_denials") or []),
+        },
+        "errors": {
+            "class1": len(class1),
+            "class2": len(class2),
+            "first_failure_index": failures[0] if failures else None,
+        },
+        "hand_edits": {
+            name: sum(
+                1
+                for c in calls
+                if c.surface == "edit"
+                and c.target == "register"
+                and c.path.rsplit("/", 1)[-1] == name
+            )
+            for name in REGISTERS
+        },
+        "prose_edits": sum(
+            1 for c in calls if c.surface == "edit" and c.target == "prose"
+        ),
+        "compaction_events": sum(
+            1
+            for event in events
+            if event.get("type") == "system"
+            and "compact" in str(event.get("subtype", ""))
+        ),
+        "api_errors": sum(1 for event in events if event.get("type") == "error")
+        + (1 if final.get("is_error") else 0),
+        "event_count": len(events),
+    }
+
+
+def audit_run(campaign: Campaign, run_id: str) -> dict[str, Any]:
+    """Audit one run from its transcript and write ``audit/<run_id>.json``.
+
+    Args:
+        campaign: The frozen campaign.
+        run_id: The run to audit.
+
+    Returns:
+        The audit record, also written to the campaign's audit directory.
+
+    Raises:
+        ExperimentError: If the run has no status record.
+    """
+    run_dir = campaign.runs_dir / run_id
+    status = load_status(run_dir)
+    if status is None:
+        raise ExperimentError(f"{run_id} has no status record; nothing to audit")
+    events = parse_stream((run_dir / EVENTS_FILE).read_text(errors="replace"))
+    audit = {"run_id": run_id, **audit_events(events, status.arm)}
+    campaign.audit_dir.mkdir(exist_ok=True)
+    (campaign.audit_dir / f"{run_id}.json").write_text(
+        json.dumps(audit, indent=2, sort_keys=True) + "\n"
+    )
+    return audit
+
+
+def audit_campaign(campaign: Campaign) -> dict[str, dict[str, Any]]:
+    """Audit every run that has a status record.
+
+    Args:
+        campaign: The frozen campaign.
+
+    Returns:
+        One audit record per completed run, keyed by run id.
+    """
+    return {
+        run_id: audit_run(campaign, run_id)
+        for run_id in campaign.run_order
+        if load_status(campaign.runs_dir / run_id) is not None
+    }

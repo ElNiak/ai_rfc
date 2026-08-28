@@ -114,12 +114,24 @@ def tool_results(events: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     return results
 
 
+def is_denial(text: str) -> bool:
+    """Whether an errored tool result reads as a permission denial.
+
+    Args:
+        text: The tool result's text.
+
+    Returns:
+        True when the text carries denial wording.
+    """
+    return bool(_DENIAL.search(text))
+
+
 def denials(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Permission denials, from errored tool results and the result event."""
     found = []
     names = {use["id"]: use["name"] for use in tool_uses(events)}
     for use_id, result in tool_results(events).items():
-        if result["is_error"] and _DENIAL.search(result["text"]):
+        if result["is_error"] and is_denial(result["text"]):
             found.append(
                 {
                     "source": "tool_result",
