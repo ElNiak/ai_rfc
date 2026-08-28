@@ -56,8 +56,14 @@ def test_isolated_invocations_use_the_profile_and_controls_do_not(tmp_path):
     by_name = {inv.name: inv for inv in _invocations(tmp_path)}
     profile = str(tmp_path / "root" / "profile")
     assert by_name["auth"].env["CLAUDE_CONFIG_DIR"] == profile
-    assert "CLAUDE_CONFIG_DIR" not in by_name["hooks_control"].env
-    assert by_name["hooks_control"].cwd == tmp_path / "W"
+    # The positive control is isolated like every other invocation and carries
+    # its own always-allow hook, so nothing in the spike reads the real config.
+    control = by_name["hooks_control"]
+    assert control.env["CLAUDE_CONFIG_DIR"] == str(tmp_path / "root" / "profile")
+    assert control.cwd == tmp_path / "root" / "spike" / "cwd"
+    assert control.argv[control.argv.index("--settings") + 1].endswith(
+        "guard-allow.json"
+    )
     assert (
         by_name["claude_md_control"].cwd
         == tmp_path / "root" / "spike" / "canary" / "sub"

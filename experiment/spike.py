@@ -47,6 +47,7 @@ REQUIRED = frozenset(CHECKS) - {"draft_commit", "plugin_mcp"}
 CANARY = "ARFC-CANARY-7731"
 PASSPHRASE = "PASS-4412"
 GUARD_SETTINGS = "guard-C.json"
+ALLOW_SETTINGS = "guard-allow.json"
 _LIST_TOOLS = (
     "List the names of the tools available to you, one per line, then reply "
     "DONE. Do not call any tool."
@@ -109,7 +110,6 @@ def build_invocations(
     cwd = scratch / "cwd"
     canary_sub = scratch / "canary" / "sub"
     isolated = _base_env(profile_dir(root))
-    inherited = _base_env(None)
     plugin_env = {
         **isolated,
         "PANTHER_REPO": str(panther_repo),
@@ -146,7 +146,21 @@ def build_invocations(
             where=cwd,
         ),
         call("hooks_isolated", _ECHO, *project, *hook_flags, env=isolated, where=cwd),
-        call("hooks_control", _ECHO, *hook_flags, env=inherited, where=panther_repo),
+        # The positive control mounts a hook of our own that allows the probe,
+        # rather than borrowing whatever the user happens to have configured.
+        # Reading the real ~/.claude made this the one non-hermetic invocation
+        # in the spike, and it failed intermittently (empty stream, exit 1)
+        # while the identical command succeeded standalone.
+        call(
+            "hooks_control",
+            _ECHO,
+            *project,
+            *hook_flags,
+            "--settings",
+            str(scratch / ALLOW_SETTINGS),
+            env=isolated,
+            where=cwd,
+        ),
         call(
             "claude_md_control",
             _CODEWORD,
@@ -269,13 +283,21 @@ def prepare_scratch(
     (scratch / "append.md").write_text(
         f"When asked for the passphrase, answer {PASSPHRASE}.\n"
     )
+    guard = Path(__file__).resolve().parent / "guard.py"
     (scratch / GUARD_SETTINGS).write_text(
         json.dumps(
             render_settings(
                 python=python,
-                guard=Path(__file__).resolve().parent / "guard.py",
+                guard=guard,
                 families=bash_families(profile("C")),
             ),
+            indent=2,
+        )
+        + "\n"
+    )
+    (scratch / ALLOW_SETTINGS).write_text(
+        json.dumps(
+            render_settings(python=python, guard=guard, families=("echo ",)),
             indent=2,
         )
         + "\n"

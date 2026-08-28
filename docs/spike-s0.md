@@ -1,18 +1,21 @@
 # Spike S0 — isolated-profile hermeticity and arm enforcement
 
-**Verdict: `go: true`** · 2026-08-27 · `claude --version` = **2.1.247 (Claude Code)** ·
-model `claude-opus-5` · report `~/arfc-experiments/spike-report.json`
+**Verdict: `go: true`** · first measured 2026-08-27 on **2.1.247**, re-verified
+2026-08-28 on **2.1.250 (Claude Code)** · model `claude-opus-5` ·
+report `~/arfc-experiments/spike-report.json`
 
-All nine checks pass. D20 (isolated OAuth profile) is **supported**; the `--bare` +
-`ANTHROPIC_API_KEY` fallback is not needed. Every plan and the spec were written
-against CLI **2.1.246**; everything below is measured on **2.1.247**.
+All required checks pass on both versions. D20 (isolated OAuth profile) is
+**supported**; the `--bare` + `ANTHROPIC_API_KEY` fallback is not needed. Every plan
+and the spec were written against CLI **2.1.246**; the measurements below were taken
+on **2.1.247** and re-taken on **2.1.250** before the pilot — see
+[§ Re-verification on 2.1.250](#re-verification-on-21250).
 
 ## Results
 
 | Check | Required | Evidence |
 |---|---|---|
 | `auth` | yes | Isolated profile authenticates; `apiKeySource: none`. |
-| `hooks` | yes | Control fired **20** hook events, isolated fired **0**. |
+| `hooks` | yes | Positive control fired **2** hook events, isolated fired **0**. |
 | `claude_md` | yes | A canary `CLAUDE.md` one directory above the cwd does not reach the isolated run. |
 | `arm_surface` | yes | A: `Edit,Glob,Grep,Read,Write` + 16 `mcp__arfc__*`, `arfc: connected`, **no Bash**. B and C: Bash, no MCP. Slash commands empty in all three. |
 | `draft_commit` | no | Draft committed and revision tagged through the core. |
@@ -20,6 +23,34 @@ against CLI **2.1.246**; everything below is measured on **2.1.247**.
 | `result_fields` | yes | All required and optional result fields present. |
 | `denial` | yes | Out-of-family `echo bypass-probe` blocked by the guard; in-family `git --version` still ran. |
 | `append_prompt` | yes | `--append-system-prompt-file` reaches the model. |
+
+## Re-verification on 2.1.250
+
+The CLI auto-updated from 2.1.247 to **2.1.250** before the pilot. Since the arm
+separation rests entirely on measured 2.1.247 behaviour — and the whole test suite
+runs against a fake `claude` that encodes that behaviour by construction — the spike
+was re-run rather than assumed. Verdict `go: true`, all seven required checks passing.
+
+**The `denial` evidence is byte-identical across the two versions**: the same refusal
+text, the same two denial sources (`tool_result` and the result event's
+`permission_denials`), `guard_hooks: 2`, and the in-family control still running. The
+hook event shape is unchanged (`system` / `hook_started` | `hook_response`, each
+carrying `hook_event: PreToolUse`). `result_fields` reports nothing missing, required
+or optional. Nothing the harness depends on moved.
+
+Two instrument defects surfaced, neither a product regression:
+
+- **The positive control was not hermetic and was flaky.** `hooks_control` was the one
+  invocation that read the user's real `~/.claude`, borrowing whatever hooks happened
+  to be configured there. Inside the spike it produced nothing — exit 1 on one run,
+  exit 0 with an empty stream (and a failed retry) on the next — while the identical
+  argv, environment and cwd exited 0 with 26–28 events when run standalone. It now
+  mounts an always-allow guard of its own on the isolated profile (`guard-allow.json`,
+  family `echo `), so the control is deterministic and no invocation in the spike
+  reads the real configuration any more. `hooks` passes with control **2**, isolated **0**.
+- **`plugin_mcp` is intermittent** (passed one run of three). This is the known
+  `--plugin-dir` MCP startup race; it is a product check, not required, and the arms
+  mount the server with `--mcp-config`, which is unaffected.
 
 ## The enforcement finding, and what actually works
 
