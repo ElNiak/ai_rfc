@@ -5,6 +5,7 @@ as libraries; the paths are derived from this file's location so the
 tests run from any cwd without an installed package.
 """
 
+import json
 import sys
 from pathlib import Path
 
@@ -13,6 +14,7 @@ import pytest
 AI_RFC_ROOT = Path(__file__).resolve().parents[2]
 SERVER_SRC = AI_RFC_ROOT / "plugins" / "ai-rfc" / "server" / "src"
 PANTHER_ROOT = AI_RFC_ROOT.parents[5]
+FAKE_CLAUDE = Path(__file__).parent / "fake_claude" / "claude"
 
 for entry in (str(AI_RFC_ROOT), str(SERVER_SRC), str(PANTHER_ROOT)):
     if entry not in sys.path:
@@ -39,3 +41,68 @@ def fixture_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("PANTHER_REPO", str(PANTHER_ROOT))
     monkeypatch.setenv("ARFC_WORKSPACE", str(root))
     return root
+
+
+@pytest.fixture
+def template_repo(tmp_path: Path) -> tuple[str, str]:
+    """A local stand-in for auto-i-d-template, carrying agent files to strip."""
+    from ai_rfc_server.testing import git
+
+    repo = tmp_path / "template"
+    repo.mkdir()
+    git(repo, "init", "-q", "-b", "main")
+    git(repo, "config", "user.email", "t@t")
+    git(repo, "config", "user.name", "t")
+    (repo / ".gitignore").write_text("draft-*\n*.swp\n")
+    (repo / "Makefile").write_text("all:\n\t@echo build\n")
+    (repo / "CLAUDE.md").write_text("template agent notes\n")
+    (repo / ".claude").mkdir()
+    (repo / ".claude" / "settings.json").write_text("{}\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "template", date="2026-01-01T00:00:09+00:00")
+    return str(repo), git(repo, "rev-parse", "HEAD")
+
+
+def fixture_target(source: Path):
+    """The two-cluster fixture target every workspace test builds from."""
+    from experiment.workspace import Target
+
+    return Target(
+        name="fixture",
+        source=source,
+        forge_snapshot=None,
+        window=(2, 2),
+        draft_name="draft-test-fixture",
+        rfc_id="FIX-1",
+        title="Fixture",
+        abbrev="Fix",
+    )
+
+
+@pytest.fixture
+def pristine(fixture_workspace, panther_repo, template_repo, tmp_path) -> Path:
+    """A prepared pristine workspace of the fixture target (window 2-2)."""
+    from experiment.workspace import prepare
+
+    template, commit = template_repo
+    return prepare(
+        fixture_target(fixture_workspace),
+        root=tmp_path / "root",
+        panther_repo=panther_repo,
+        template=template,
+        template_commit=commit,
+    )
+
+
+@pytest.fixture
+def write_scenario():
+    """Write one fake-claude scenario into an isolated profile directory."""
+
+    def write(profile_dir: Path, run_id: str, payload: dict) -> Path:
+        scenarios = profile_dir / "fake-scenarios"
+        scenarios.mkdir(parents=True, exist_ok=True)
+        path = scenarios / f"{run_id}.json"
+        path.write_text(json.dumps(payload, indent=2))
+        return path
+
+    return write
