@@ -105,9 +105,13 @@ def test_evaluate_denial_check_on_fixture(tmp_path):
     assert checks["denial"]["passed"] is True
 
     leaked = json.loads(json.dumps(events))
-    leaked[2]["message"]["content"][0]["is_error"] = False
-    leaked[2]["message"]["content"][0]["content"] = "bypass-probe"
-    leaked[4]["permission_denials"] = []
+    for event in leaked:
+        if event.get("type") == "user":
+            block = event["message"]["content"][0]
+            block["is_error"] = False
+            block["content"] = "bypass-probe"
+        if event.get("type") == "result":
+            event["permission_denials"] = []
     checks = {
         c["check"]: c
         for c in evaluate(

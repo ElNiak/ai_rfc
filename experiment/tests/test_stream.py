@@ -1,3 +1,6 @@
+import json
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -15,6 +18,7 @@ from experiment.stream import (
 )
 
 FIXTURES = Path(__file__).parent / "fixtures" / "stream"
+GUARD = Path(__file__).resolve().parents[1] / "guard.py"
 
 
 @pytest.fixture
@@ -30,8 +34,8 @@ def test_parse_stream_rejects_malformed_lines():
 
 
 def test_init_and_result_events(denied):
-    assert init_event(denied)["tools"][-1] == "Bash"
-    assert result_event(denied)["total_cost_usd"] == 0.01
+    assert init_event(denied)["tools"][0] == "Bash"
+    assert result_event(denied)["total_cost_usd"] == 0.038631
     assert init_event([]) is None and result_event([]) is None
 
 
@@ -39,15 +43,19 @@ def test_tool_uses_and_results_are_linked(denied):
     uses = tool_uses(denied)
     assert uses == [
         {
-            "index": 1,
-            "id": "tu1",
+            "index": 2,
+            "id": "toolu_018QkF8RV3XbXftt2hKpQeqV",
             "name": "Bash",
-            "input": {"command": "echo bypass-probe"},
+            "input": {
+                "command": "echo bypass-probe",
+                "description": "Echo bypass-probe",
+            },
         }
     ]
-    results = tool_results(denied)
-    assert results["tu1"]["is_error"] is True
-    assert "Permission denied" in results["tu1"]["text"]
+    result = tool_results(denied)["toolu_018QkF8RV3XbXftt2hKpQeqV"]
+    assert result["is_error"] is True
+    assert result["text"].startswith("PreToolUse:Bash hook error:")
+    assert "denied: this arm may run only" in result["text"]
 
 
 def test_denials_come_from_both_sources(denied):
@@ -57,10 +65,43 @@ def test_denials_come_from_both_sources(denied):
 
 
 def test_assistant_text_and_usage_series(denied):
-    assert assistant_text(denied) == "DENIED"
+    assert assistant_text(denied).endswith("DONE")
+    assert "blocked the command" in assistant_text(denied)
     series = usage_series(denied)
-    assert [s["total"] for s in series] == [15, 40]
-    assert series[-1]["cache_read_input_tokens"] == 6
+    assert [s["total"] for s in series] == [29343, 59075]
+    assert series[-1]["cache_read_input_tokens"] == 58650
+
+
+def test_the_guards_own_message_is_recognised_as_a_denial():
+    """``denials`` sees the tool-result side only if the guard says "denied"."""
+    completed = subprocess.run(
+        [sys.executable, str(GUARD), "git "],
+        input=json.dumps({"tool_input": {"command": "echo bypass-probe"}}),
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 2
+    events = parse_stream(
+        json.dumps(
+            {
+                "type": "user",
+                "message": {
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "t1",
+                            "is_error": True,
+                            "content": (
+                                f"PreToolUse:Bash hook error: [guard]: "
+                                f"{completed.stderr}"
+                            ),
+                        }
+                    ]
+                },
+            }
+        )
+    )
+    assert [d["source"] for d in denials(events)] == ["tool_result"]
 
 
 def test_usage_series_counts_each_message_once():
