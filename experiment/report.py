@@ -64,6 +64,13 @@ def _run_rows(runs: dict[str, dict[str, Any]]) -> list[str]:
     return rows
 
 
+def _pass_mark(value: Any) -> str:
+    """Three-way: passed, failed, or not yet decided by enough repeats."""
+    if value is None:
+        return "—"
+    return "✓" if value else "✗"
+
+
 def _cluster_rows(arms: dict[str, dict[str, Any]]) -> list[str]:
     names = list(arms)
     cluster_ids: list[str] = []
@@ -73,9 +80,7 @@ def _cluster_rows(arms: dict[str, dict[str, Any]]) -> list[str]:
                 cluster_ids.append(cluster_id)
     rows = ["| cluster | " + " | ".join(names) + " |", "|" + "---|" * (len(names) + 1)]
     for cluster_id in cluster_ids:
-        marks = " | ".join(
-            "✓" if arms[a]["pass_k"].get(cluster_id) else "✗" for a in names
-        )
+        marks = " | ".join(_pass_mark(arms[a]["pass_k"].get(cluster_id)) for a in names)
         rows.append(f"| {cluster_id} | {marks} |")
     return rows
 

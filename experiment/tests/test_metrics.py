@@ -3,6 +3,7 @@ import json
 from experiment.audit import audit_campaign
 from experiment.matrix import execute
 from experiment.metrics import (
+    _arm_summary,
     analyze_campaign,
     analyze_run,
     checkpoint_calls,
@@ -116,3 +117,41 @@ def test_trajectory_points_follow_checkpoint_calls():
     assert result["tokens_to_first_completion"] == 165
     assert abs(result["auc"] - 0.5 * (1 - 165 / 200)) < 1e-9
     assert trajectory(events, "B", set(), window_size=2)["auc"] == 0.0
+
+
+def _synthetic_run(run_id: str, completed: bool, cost: float = 1.0) -> dict:
+    return {
+        "run_id": run_id,
+        "arm": run_id[0],
+        "clusters": [{"cluster_id": "c1", "completed": completed, "artifacts": True}],
+        "completed_fraction": 1.0 if completed else 0.0,
+        "artifacts_fraction": 1.0,
+        "gates": {"clean": completed},
+        "cost": {"total_cost_usd": cost},
+        "trajectory": {
+            "auc": 0.5,
+            "tokens_to_first_completion": 10 if completed else None,
+        },
+        "status": {"timed_out": False, "exit_code": 0},
+        "audit": {
+            "integrity": True,
+            "bypass_attempts": {"count": 0},
+            "errors": {"class1": 0, "class2": 0},
+            "hand_edits": {"manifest.yaml": 0},
+        },
+    }
+
+
+def test_pass_k_needs_every_repeat_and_is_undecided_until_then():
+    """k=2 is a headline number; an unfinished arm must not read as a failure."""
+    both = [_synthetic_run("A1", True), _synthetic_run("A2", True)]
+    assert _arm_summary(both, ["c1"], repeats=2)["pass_k"] == {"c1": True}
+    assert _arm_summary(both, ["c1"], repeats=2)["pass_k_mean"] == 1.0
+
+    one_failed = [_synthetic_run("B1", True), _synthetic_run("B2", False)]
+    assert _arm_summary(one_failed, ["c1"], repeats=2)["pass_k"] == {"c1": False}
+    assert _arm_summary(one_failed, ["c1"], repeats=2)["pass_k_mean"] == 0.0
+
+    half = _arm_summary([_synthetic_run("C1", True)], ["c1"], repeats=2)
+    assert half["pass_k"] == {"c1": None}
+    assert half["pass_k_mean"] is None

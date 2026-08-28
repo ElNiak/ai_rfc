@@ -102,3 +102,12 @@ def test_render_report_tolerates_missing_values():
     aggregate["runs"]["A1"]["audit"] = None
     text = render_report(aggregate)
     assert "—" in text
+
+
+def test_an_undecided_cluster_is_not_rendered_as_a_failure():
+    aggregate = _aggregate()
+    aggregate["arms"]["A"]["pass_k"] = {"c0002-x": None}
+    aggregate["arms"]["A"]["pass_k_mean"] = None
+    text = render_report(aggregate)
+    assert "| c0002-x | \u2014 |" in text
+    assert "\u2717" not in text

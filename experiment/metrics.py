@@ -31,7 +31,7 @@ DEFINITIONS = {
     "artifacts": "checkpoint exists without a harness marker AND a revisions.yaml entry names the cluster AND that entry's tag exists in draft/",
     "completed": "artifacts AND both strict gates exit 0 when the harness re-runs them on the final workspace (run-level)",
     "completed_fraction": "completed clusters / window size (primary outcome, D23)",
-    "pass_k": "per cluster: completed in every repeat of the arm; pass_k_mean averages over the window",
+    "pass_k": "per cluster: completed in every repeat of the arm; null until the arm has run every repeat; pass_k_mean averages the decided ones",
     "integrity_rate": "runs whose audit found no executed out-of-arm call / runs",
     "failure_cost_share": "sum of total_cost_usd over runs with zero completed clusters / sum over all runs of the arm",
     "cost_per_completed_cluster": "sum of total_cost_usd / sum of completed clusters (None when nothing completed)",
@@ -343,16 +343,20 @@ def _arm_summary(
     completed_counts = [sum(1 for c in r["clusters"] if c["completed"]) for r in runs]
     failed_cost = sum(cost for cost, done in zip(costs, completed_counts) if done == 0)
     audits = [r["audit"] for r in runs if r["audit"] is not None]
+    # An arm that has not finished its repeats has no pass^k yet. Scoring it
+    # False would render as a failed cluster, indistinguishable from a real one.
+    decided = len(runs) == repeats
     pass_k = {
         cluster_id: (
-            len(runs) == repeats
-            and all(
+            all(
                 any(
                     c["cluster_id"] == cluster_id and c["completed"]
                     for c in r["clusters"]
                 )
                 for r in runs
             )
+            if decided
+            else None
         )
         for cluster_id in window_ids
     }
@@ -370,7 +374,9 @@ def _arm_summary(
         "artifacts_fraction_mean": _mean([r["artifacts_fraction"] for r in runs]),
         "gates_clean_runs": sum(1 for r in runs if r["gates"]["clean"]),
         "pass_k": pass_k,
-        "pass_k_mean": _mean([1.0 if v else 0.0 for v in pass_k.values()]),
+        "pass_k_mean": _mean(
+            [1.0 if v else 0.0 for v in pass_k.values() if v is not None]
+        ),
         "integrity_rate": _mean([1.0 if a["integrity"] else 0.0 for a in audits]),
         "bypass_attempts": sum(a["bypass_attempts"]["count"] for a in audits),
         "errors_class1": sum(a["errors"]["class1"] for a in audits),
