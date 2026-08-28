@@ -106,3 +106,42 @@ def write_scenario():
         return path
 
     return write
+
+
+COMPLETE_STEPS = [
+    {"kind": "claim", "id": "t:3.1", "section": "3.1"},
+    {"kind": "record_status"},
+    {"kind": "checkpoint", "ordinal": 2},
+    {"kind": "prose", "line": "Thing three MAY hold. `a_rfc:t:3.1`"},
+    {
+        "kind": "revision",
+        "ordinal": 2,
+        "tag": "draft-test-fixture-00",
+        "normative": True,
+    },
+    {"kind": "tag", "tag": "draft-test-fixture-00"},
+]
+
+
+@pytest.fixture
+def campaign(pristine, panther_repo, plugin_root, tmp_path):
+    """A frozen three-arm campaign whose launches go through the fake claude."""
+    from experiment.config import init_campaign
+
+    return init_campaign(
+        root=tmp_path / "root",
+        campaign_id="test",
+        pristine_dir=pristine,
+        arms=("A", "B", "C"),
+        repeats=1,
+        seed=7,
+        model="fake-model",
+        effort="high",
+        budget_usd=1.0,
+        timeout_s=60,
+        panther_repo=panther_repo,
+        plugin_root=plugin_root,
+        python=sys.executable,
+        claude_bin=str(FAKE_CLAUDE),
+        parity={"passed": True, "summary": "test"},
+    )
