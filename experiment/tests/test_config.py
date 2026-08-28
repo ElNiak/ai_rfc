@@ -114,3 +114,23 @@ def test_load_campaign_round_trips(tmp_path, pristine, panther_repo, plugin_root
 
 def test_git_describe_names_a_commit(panther_repo):
     assert git_describe(panther_repo) and " " not in git_describe(panther_repo)
+
+
+def test_init_campaign_freezes_an_absolute_claude_binary(
+    tmp_path, pristine, panther_repo, plugin_root
+):
+    """A run's PATH excludes the user's bin dirs, so a bare name would not resolve."""
+    campaign = _init(tmp_path, pristine, panther_repo, plugin_root, claude_bin="echo")
+    assert Path(campaign.claude_bin).is_absolute()
+    assert Path(campaign.claude_bin).exists()
+
+    with pytest.raises(ExperimentError) as excinfo:
+        _init(
+            tmp_path,
+            pristine,
+            panther_repo,
+            plugin_root,
+            campaign_id="no-such-binary",
+            claude_bin="definitely-not-a-real-binary-xyz",
+        )
+    assert "cannot find the claude binary" in str(excinfo.value)

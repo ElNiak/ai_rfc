@@ -12,6 +12,7 @@ import dataclasses
 import hashlib
 import json
 import random
+import shutil
 import string
 import subprocess
 from dataclasses import dataclass
@@ -217,12 +218,23 @@ def init_campaign(
         The frozen campaign.
 
     Raises:
-        ExperimentError: If the campaign exists, an arm is unknown, or the
-            pristine workspace lacks its digest or record.
+        ExperimentError: If the campaign exists, an arm is unknown, the
+            pristine workspace lacks its digest or record, or the claude
+            binary cannot be found.
     """
     for arm in arms:
         if arm not in ARMS:
             raise ExperimentError(f"unknown arm {arm!r}")
+    # Freeze the binary, not a name. A run's PATH is minimal and deliberately
+    # excludes the user's own bin directories, so a bare name that resolves
+    # here would not resolve at launch — and a campaign that records a name
+    # does not record which binary it actually ran.
+    resolved_claude = shutil.which(claude_bin)
+    if resolved_claude is None:
+        raise ExperimentError(
+            f"cannot find the claude binary {claude_bin!r} on PATH; "
+            f"pass an absolute path with --claude"
+        )
     campaign_dir = root / "campaigns" / campaign_id
     if campaign_dir.exists():
         raise ExperimentError(f"{campaign_dir} exists; a campaign is frozen once")
@@ -277,8 +289,8 @@ def init_campaign(
         panther_repo=panther_repo,
         plugin_root=plugin_root,
         python=python,
-        claude_bin=claude_bin,
-        claude_version=_claude_version(claude_bin),
+        claude_bin=resolved_claude,
+        claude_version=_claude_version(resolved_claude),
         run_order=run_order(tuple(arms), repeats, seed),
         prompt_sha256=prompt_sha256,
         pristine_sha256=digest_path.read_text(),
