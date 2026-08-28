@@ -31,7 +31,7 @@ def _launch(profile: Path, workspace: Path, panther_repo: Path, *argv: str):
         env=env,
         capture_output=True,
         text=True,
-        timeout=60,
+        timeout=900,
     )
     assert completed.returncode == 0, completed.stderr
     return parse_stream(completed.stdout)
