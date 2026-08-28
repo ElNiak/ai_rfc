@@ -364,6 +364,14 @@ class Session:
                     step=step,
                     is_error=True,
                 )
+        elif kind == "overstate":
+            import yaml
+
+            manifest = self.workspace / "manifest.yaml"
+            document = yaml.safe_load(manifest.read_text())
+            document["requirements"][step["id"]]["status"] = "confirmed"
+            manifest.write_text(yaml.safe_dump(document, sort_keys=True))
+            self.edit("manifest.yaml", step)
         elif kind == "compact":
             _emit({"type": "system", "subtype": "compact_boundary"})
         else:
