@@ -21,7 +21,15 @@ from typing import Any, Sequence
 from .arms import ArmProfile
 
 SUBSTITUTION = ("$(", "`", "<(", ">(", "${")
-_OPERATORS = re.compile(r"\|\||&&|[;|&\n]")
+#: Programs an in-family command may pipe into. They only read and trim their
+#: input, so they cannot reach a surface the arm does not already have.
+PAGERS = ("head", "tail", "wc", "cut")
+#: A backslash-newline continues one command; it does not start a second.
+_CONTINUATION = re.compile(r"\\\r?\n")
+#: Operators that separate whole commands. ``&`` is one of them only when it is
+#: not part of a redirection: ``2>&1`` and ``&>log`` redirect, they do not run
+#: anything. ``|`` is absent on purpose — pipes are handled per group below.
+_GROUP_OPERATORS = re.compile(r"\|\||&&|(?<!>)&(?!>)|[;\n]")
 _BASH_ENTRY = re.compile(r"^Bash\((?P<family>.*?)\*?\)$")
 
 
@@ -43,42 +51,58 @@ def bash_families(arm_profile: ArmProfile) -> tuple[str, ...]:
     return tuple(families)
 
 
-def command_segments(command: str) -> list[str]:
-    """Split a shell command into the parts that each execute something.
+def command_groups(command: str) -> list[list[str]]:
+    """Split a shell command into command groups, each a list of pipe stages.
+
+    Line continuations are joined first, so a command written across several
+    lines stays one command. Redirections are not operators.
 
     Args:
         command: The raw ``tool_input.command`` string.
 
     Returns:
-        Stripped, non-empty segments separated by shell control operators.
+        One list of stripped, non-empty pipe stages per command group.
     """
-    return [part.strip() for part in _OPERATORS.split(command) if part.strip()]
+    joined = _CONTINUATION.sub(" ", command)
+    groups = []
+    for part in _GROUP_OPERATORS.split(joined):
+        stages = [stage.strip() for stage in part.split("|") if stage.strip()]
+        if stages:
+            groups.append(stages)
+    return groups
 
 
 def is_allowed(command: str, families: Sequence[str]) -> bool:
-    """Whether every segment of ``command`` falls inside ``families``.
+    """Whether every command in ``command`` falls inside ``families``.
 
     Fails closed on command substitution: a prefix check cannot see what
     ``$(...)`` or a backtick would run, so such a command is never allowed.
+
+    Each command group must *begin* with an in-family command. A group may
+    then pipe into :data:`PAGERS` and nothing else, so an arm can page long
+    output without gaining a way to run something it may not.
 
     Args:
         command: The raw ``tool_input.command`` string.
         families: Allowed command prefixes, from :func:`bash_families`.
 
     Returns:
-        True only when substitution is absent and every segment starts with
-        one of the families.
+        True only when substitution is absent, every group starts in family,
+        and every later pipe stage is a permitted pager.
     """
     if not families:
         return False
     if any(token in command for token in SUBSTITUTION):
         return False
-    segments = command_segments(command)
-    if not segments:
+    groups = command_groups(command)
+    if not groups:
         return False
-    return all(
-        any(segment.startswith(family) for family in families) for segment in segments
-    )
+    for stages in groups:
+        if not any(stages[0].startswith(family) for family in families):
+            return False
+        if any(stage.split()[0] not in PAGERS for stage in stages[1:]):
+            return False
+    return True
 
 
 def render_settings(

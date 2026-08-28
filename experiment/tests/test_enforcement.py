@@ -8,7 +8,7 @@ import pytest
 from experiment.arms import profile
 from experiment.enforcement import (
     bash_families,
-    command_segments,
+    command_groups,
     is_allowed,
     render_settings,
 )
@@ -27,9 +27,16 @@ def test_families_come_from_each_arm_allowlist():
 
 
 def test_segments_split_on_every_control_operator():
-    assert command_segments("arfc status && echo x") == ["arfc status", "echo x"]
-    assert command_segments("a; b | c || d & e") == ["a", "b", "c", "d", "e"]
-    assert command_segments("   ") == []
+    assert command_groups("arfc status && echo x") == [["arfc status"], ["echo x"]]
+    assert command_groups("a; b | c || d & e") == [["a"], ["b", "c"], ["d"], ["e"]]
+    assert command_groups("   ") == []
+    # A backslash-newline continues one command; it does not start a second.
+    (continued,) = command_groups("arfc up x \\\n  --text y")
+    assert len(continued) == 1
+    assert continued[0].split() == ["arfc", "up", "x", "--text", "y"]
+    # 2>&1 and &> redirect; they do not run anything.
+    assert command_groups("arfc x 2>&1") == [["arfc x 2>&1"]]
+    assert command_groups("arfc x &>log") == [["arfc x &>log"]]
 
 
 @pytest.mark.parametrize(
@@ -102,3 +109,27 @@ def test_guard_blocks_an_unreadable_payload():
         text=True,
     )
     assert result.returncode == 2
+
+
+def test_a_continued_command_is_one_command():
+    """Observed live in pilot run B1: a multi-line claim-upsert was refused."""
+    command = (
+        'arfc claim-upsert pkg.1 \\\n  --text "A conforming distribution MUST ship it"'
+    )
+    assert is_allowed(command, ("arfc ",))
+    # The continuation must not launder a second command past the check.
+    assert not is_allowed("arfc status \\\n && echo bypass-probe", ("arfc ",))
+    assert not is_allowed("arfc status \\\n ; echo bypass-probe", ("arfc ",))
+
+
+def test_an_in_family_command_may_page_its_own_output():
+    """Also observed in B1: `arfc cluster-get --patch ... 2>&1 | head` was refused."""
+    families = ("arfc ",)
+    assert is_allowed("arfc cluster-get c --patch 2>&1 | head -c 20000", families)
+    assert is_allowed("arfc status | head -20", families)
+    assert is_allowed("arfc status | tail -5 | wc -l", families)
+    assert is_allowed("arfc status > out.txt", families)
+    # Only the pagers, and only after something in family.
+    assert not is_allowed("arfc status | sh", families)
+    assert not is_allowed("arfc status | tee /tmp/x", families)
+    assert not is_allowed("echo bypass | head", families)
