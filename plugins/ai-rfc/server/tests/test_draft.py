@@ -81,7 +81,7 @@ def test_tag_revision_stops_on_manifest_gate_findings(workspace):
     document["requirements"]["t:1.1"]["status"] = "confirmed"
     workspace.manifest.write_text(yaml.safe_dump(document, sort_keys=True))
     result = tag_revision(workspace, "draft-test-spec-00", "revision 00")
-    assert result["exit_code"] in (2, 3) and result["stage"] == "manifest_gate"
+    assert result["exit_code"] == 3 and result["stage"] == "manifest_gate"
     assert git(_draft(workspace), "tag", "-l") == ""
 
 
@@ -91,7 +91,7 @@ def test_tag_revision_rolls_back_on_citation_findings(workspace):
     commit_draft(workspace, "cite a ghost")
     _recorded(workspace)
     result = tag_revision(workspace, "draft-test-spec-00", "revision 00")
-    assert result["exit_code"] in (2, 3) and result["stage"] == "citation_gate"
+    assert result["exit_code"] == 3 and result["stage"] == "citation_gate"
     assert result["rolled_back"] is True
     assert any("t:9.9" in finding for finding in result["findings"])
     assert git(_draft(workspace), "tag", "-l") == ""
