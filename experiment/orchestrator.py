@@ -19,9 +19,12 @@ so the audit, the metrics and the report cannot tell how it was executed.
 
 from __future__ import annotations
 
+import json
+import time
 from pathlib import Path
 from typing import Any, Callable
 
+from . import ExperimentError
 from .config import Campaign, render_task
 from .metrics import cluster_artifacts, window_clusters
 from .runner import (
@@ -32,11 +35,17 @@ from .runner import (
     build_run_argv,
 )
 from .spawn import spawn
+from .stream import parse_stream, result_events
 
 #: How many times one cluster is attempted before the run halts. A second
 #: attempt gets a clean context, which is the plausible cure for a session that
 #: wandered; a third would mostly buy repetition of the same failure.
 ATTEMPTS_PER_CLUSTER = 2
+
+#: One line per session: which cluster, what it cost, and the argv it ran.
+#: ``argv.json`` holds the whole-window vector built before dispatch, which is
+#: not what any session executed in this mode.
+SESSIONS_FILE = "sessions.jsonl"
 
 
 def next_cluster(workspace: Path) -> dict[str, Any] | None:
@@ -60,6 +69,31 @@ def next_cluster(workspace: Path) -> dict[str, Any] | None:
     return None
 
 
+def _session_cost(events_path: Path) -> float:
+    """What the most recent session spent, from its own result event.
+
+    Read back off the transcript rather than tracked, for the same reason the
+    next cluster is: the transcript is what survives, and a figure carried in
+    memory would be lost by the kill it exists to prevent.
+
+    Args:
+        events_path: The run's transcript.
+
+    Returns:
+        The last result event's cost, or 0.0 when there is none to read. A
+        session that produced no result event reports nothing about its spend,
+        and guessing upward would halt runs that are fine.
+    """
+    try:
+        results = result_events(parse_stream(events_path.read_text(errors="replace")))
+    except (ExperimentError, OSError):
+        return 0.0
+    if not results:
+        return 0.0
+    cost = results[-1].get("total_cost_usd")
+    return float(cost) if isinstance(cost, (int, float)) else 0.0
+
+
 def run_per_cluster(
     campaign: Campaign,
     spec: RunSpec,
@@ -68,6 +102,12 @@ def run_per_cluster(
 ) -> tuple[int | None, bool, int]:
     """Spawn one session per remaining cluster, appending to one transcript.
 
+    ``campaign.budget_usd`` and ``campaign.timeout_s`` cap the **run**, not a
+    session. Each session is given what the run has left, so the totals hold
+    however many sessions there turn out to be — without that, a per-cluster run
+    of sixty-nine clusters could spend sixty-nine times the flag, which is the
+    opposite of what a budget is for.
+
     Args:
         campaign: The frozen campaign.
         spec: The run being launched; its workspace must already exist.
@@ -75,13 +115,17 @@ def run_per_cluster(
 
     Returns:
         ``(exit_code, timed_out, sessions)``. The exit code is the last
-        session's, and is non-zero if any cluster was abandoned; ``timed_out``
-        is true if any session hit the cap.
+        session's, and is non-zero if any cluster was abandoned or a cap was
+        reached with work outstanding; ``timed_out`` is true if any session hit
+        its cap.
     """
     env = build_env(campaign, spec)
     events_path = spec.run_dir / EVENTS_FILE
     stderr_path = spec.run_dir / STDERR_FILE
+    sessions_path = spec.run_dir / SESSIONS_FILE
     sessions = 0
+    spent = 0.0
+    started = time.monotonic()
     exit_code: int | None = 0
     any_timeout = False
 
@@ -91,28 +135,64 @@ def run_per_cluster(
             report(f"{spec.run_id}: window complete after {sessions} session(s)")
             return exit_code, any_timeout, sessions
 
+        budget_left = campaign.budget_usd - spent
+        time_left = campaign.timeout_s - (time.monotonic() - started)
+        if budget_left <= 0 or time_left <= 0:
+            reached = "budget" if budget_left <= 0 else "wall clock"
+            report(
+                f"{spec.run_id}: {reached} exhausted after {sessions} session(s) "
+                f"(${spent:.2f}); {row['ordinal']} and later not attempted"
+            )
+            return exit_code or 1, any_timeout, sessions
+
         ordinal = row["ordinal"]
         # A one-cluster window through the prompt the whole-window runs use, so
         # there is no second task prompt to drift from the first.
         task = render_task((ordinal, ordinal))
         for attempt in range(1, ATTEMPTS_PER_CLUSTER + 1):
             report(
-                f"{spec.run_id}: cluster {ordinal} ({row['id']}), " f"attempt {attempt}"
+                f"{spec.run_id}: cluster {ordinal} ({row['id']}), attempt "
+                f"{attempt}, ${budget_left:.2f} left"
             )
-            argv = build_run_argv(campaign, spec, task=task)
+            argv = build_run_argv(campaign, spec, task=task, budget_usd=budget_left)
             exit_code, timed_out = spawn(
                 argv,
                 cwd=spec.workspace,
                 env=env,
                 events_path=events_path,
                 stderr_path=stderr_path,
-                timeout_s=campaign.timeout_s,
+                timeout_s=int(time_left),
                 append=sessions > 0,
             )
             sessions += 1
             any_timeout = any_timeout or timed_out
+            cost = _session_cost(events_path)
+            spent += cost
+            # The run's argv.json holds the whole-window vector launch() built
+            # before dispatching here, which is not what any session ran. Each
+            # session's own is recorded so the run says what it actually did.
+            with sessions_path.open("a") as handle:
+                handle.write(
+                    json.dumps(
+                        {
+                            "session": sessions,
+                            "cluster_id": row["id"],
+                            "ordinal": ordinal,
+                            "attempt": attempt,
+                            "exit_code": exit_code,
+                            "timed_out": timed_out,
+                            "cost_usd": cost,
+                            "cumulative_cost_usd": spent,
+                            "budget_given_usd": budget_left,
+                            "argv": argv,
+                        },
+                        sort_keys=True,
+                    )
+                    + "\n"
+                )
             if cluster_artifacts(spec.workspace, row)["artifacts"]:
                 break
+            budget_left = campaign.budget_usd - spent
         else:
             # Never skip and continue. Later clusters' prose builds on earlier
             # prose, and a draft with a hole in it is worse than a short one.

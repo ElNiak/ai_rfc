@@ -165,6 +165,72 @@ def _spec(campaign):
     return spec
 
 
+def _clusters(count: int):
+    return [{"ordinal": n, "id": f"c{n}"} for n in range(1, count + 1)]
+
+
+def test_the_budget_caps_the_run_not_each_session(per_cluster_campaign, monkeypatch):
+    """Otherwise sixty-nine clusters could spend sixty-nine times the flag.
+
+    A budget's whole job is the pathological case, so a mode where it silently
+    became per-session would have removed the only thing standing between a
+    looping agent and the card.
+    """
+    import experiment.orchestrator as orchestrator
+
+    calls = _stub_spawn(orchestrator, monkeypatch, sessions_per_cluster=1)
+    monkeypatch.setattr(orchestrator, "window_clusters", lambda _ws: _clusters(10))
+    # Each session spends the whole $1.00 campaign budget.
+    monkeypatch.setattr(orchestrator, "_session_cost", lambda _p: 1.0)
+
+    spec = _spec(per_cluster_campaign)
+    exit_code, _, sessions = orchestrator.run_per_cluster(per_cluster_campaign, spec)
+    assert sessions == 1 and calls["n"] == 1
+    assert exit_code != 0
+
+
+def test_each_session_is_given_only_what_the_run_has_left(
+    per_cluster_campaign, monkeypatch
+):
+    """The cap holds by construction, not only by the loop's check."""
+    import experiment.orchestrator as orchestrator
+
+    given: list[float] = []
+
+    def capture(campaign, spec, task=None, budget_usd=None):
+        given.append(budget_usd)
+        return ["fake"]
+
+    _stub_spawn(orchestrator, monkeypatch, sessions_per_cluster=1)
+    monkeypatch.setattr(orchestrator, "window_clusters", lambda _ws: _clusters(3))
+    monkeypatch.setattr(orchestrator, "build_run_argv", capture)
+    monkeypatch.setattr(orchestrator, "_session_cost", lambda _p: 0.25)
+
+    orchestrator.run_per_cluster(per_cluster_campaign, _spec(per_cluster_campaign))
+    assert given == [1.0, 0.75, 0.5]
+
+
+def test_every_session_records_the_argv_it_actually_ran(
+    per_cluster_campaign, monkeypatch
+):
+    """argv.json holds the whole-window vector, which no session executed."""
+    import experiment.orchestrator as orchestrator
+
+    _stub_spawn(orchestrator, monkeypatch, sessions_per_cluster=1)
+    monkeypatch.setattr(orchestrator, "window_clusters", lambda _ws: _clusters(2))
+    monkeypatch.setattr(orchestrator, "_session_cost", lambda _p: 0.1)
+
+    spec = _spec(per_cluster_campaign)
+    orchestrator.run_per_cluster(per_cluster_campaign, spec)
+    rows = [
+        json.loads(line)
+        for line in (spec.run_dir / orchestrator.SESSIONS_FILE).read_text().splitlines()
+    ]
+    assert [r["ordinal"] for r in rows] == [1, 2]
+    assert [r["cumulative_cost_usd"] for r in rows] == [0.1, 0.2]
+    assert all(r["argv"] for r in rows)
+
+
 def test_a_single_session_run_records_exactly_what_it_always_did(
     per_cluster_campaign, write_scenario
 ):

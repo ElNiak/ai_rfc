@@ -110,7 +110,10 @@ def build_env(campaign: Campaign, spec: RunSpec) -> dict[str, str]:
 
 
 def build_run_argv(
-    campaign: Campaign, spec: RunSpec, task: str | None = None
+    campaign: Campaign,
+    spec: RunSpec,
+    task: str | None = None,
+    budget_usd: float | None = None,
 ) -> list[str]:
     """The argument vector of a run; writes its MCP config and its guard.
 
@@ -126,6 +129,10 @@ def build_run_argv(
             per-cluster session narrows the window to a single ordinal, and
             renders it through the same template, so the two execution modes
             cannot drift apart in what they ask for.
+        budget_usd: The session's own spend cap, when it is not the campaign's.
+            ``campaign.budget_usd`` is the cap on a *run*; a run made of
+            several sessions gives each what the run has left, so the total
+            holds however many sessions there turn out to be.
 
     Returns:
         The complete ``claude -p`` argument vector.
@@ -167,7 +174,7 @@ def build_run_argv(
         mcp_config_path=mcp_path,
         model=campaign.model,
         effort=campaign.effort,
-        budget_usd=campaign.budget_usd,
+        budget_usd=campaign.budget_usd if budget_usd is None else budget_usd,
         prompt_file=campaign.prompts_dir / f"arm-{spec.arm}.md",
         guard_settings=guard_path,
     )
