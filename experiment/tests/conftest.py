@@ -63,15 +63,19 @@ def template_repo(tmp_path: Path) -> tuple[str, str]:
     return str(repo), git(repo, "rev-parse", "HEAD")
 
 
-def fixture_target(source: Path):
-    """The two-cluster fixture target every workspace test builds from."""
+def fixture_target(source: Path, window: tuple[int, int] = (2, 2)):
+    """The two-cluster fixture target every workspace test builds from.
+
+    The default window holds one cluster, which is all most tests need. A test
+    that has to observe several sessions widens it to both.
+    """
     from experiment.workspace import Target
 
     return Target(
         name="fixture",
         source=source,
         forge_snapshot=None,
-        window=(2, 2),
+        window=window,
         draft_name="draft-test-fixture",
         rfc_id="FIX-1",
         title="Fixture",

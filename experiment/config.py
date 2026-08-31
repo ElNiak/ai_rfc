@@ -59,6 +59,8 @@ class CampaignRequest:
     python: str
     claude_bin: str
     parity: dict[str, Any] | None
+    #: ``single`` or ``per-cluster``; see :attr:`Campaign.sessions`.
+    sessions: str = "single"
 
 
 @dataclass(frozen=True)
@@ -89,6 +91,13 @@ class Campaign:
     git: dict[str, str]
     parity: dict[str, Any] | None
     created_at: str
+    #: How a run is executed. ``single`` gives the whole window to one agent
+    #: session, as the pilot did. ``per-cluster`` spawns one session per
+    #: cluster: over a long window a single session compacts repeatedly and
+    #: reasons about late clusters from a summary, and a budget kill loses
+    #: everything after it. Defaulted so campaigns frozen before this existed
+    #: still load, and recorded so a run says how it was executed.
+    sessions: str = "single"
 
     @property
     def dir(self) -> Path:
@@ -308,6 +317,7 @@ def init_campaign(request: CampaignRequest) -> Campaign:
         },
         parity=request.parity,
         created_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        sessions=request.sessions,
     )
     (campaign_dir / CAMPAIGN_FILE).write_text(_dump(campaign))
     return campaign

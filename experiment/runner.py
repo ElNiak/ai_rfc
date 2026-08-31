@@ -109,7 +109,9 @@ def build_env(campaign: Campaign, spec: RunSpec) -> dict[str, str]:
     }
 
 
-def build_run_argv(campaign: Campaign, spec: RunSpec) -> list[str]:
+def build_run_argv(
+    campaign: Campaign, spec: RunSpec, task: str | None = None
+) -> list[str]:
     """The argument vector of a run; writes its MCP config and its guard.
 
     The guard is what actually separates the arms: ``--allowedTools`` does not
@@ -120,6 +122,10 @@ def build_run_argv(campaign: Campaign, spec: RunSpec) -> list[str]:
     Args:
         campaign: The frozen campaign.
         spec: The run being launched.
+        task: The task prompt, when it is not the campaign's frozen one. A
+            per-cluster session narrows the window to a single ordinal, and
+            renders it through the same template, so the two execution modes
+            cannot drift apart in what they ask for.
 
     Returns:
         The complete ``claude -p`` argument vector.
@@ -154,7 +160,9 @@ def build_run_argv(campaign: Campaign, spec: RunSpec) -> list[str]:
     )
     return build_argv(
         claude_bin=campaign.claude_bin,
-        prompt=(campaign.prompts_dir / "task.md").read_text(),
+        prompt=(
+            task if task is not None else (campaign.prompts_dir / "task.md").read_text()
+        ),
         arm_profile=arm_profile,
         mcp_config_path=mcp_path,
         model=campaign.model,
@@ -221,14 +229,22 @@ def launch(campaign: Campaign, spec: RunSpec) -> RunStatus:
         + (campaign.prompts_dir / "task.md").read_text()
     )
     started = _now()
-    exit_code, timed_out = spawn(
-        argv,
-        cwd=spec.workspace,
-        env=env,
-        events_path=spec.run_dir / EVENTS_FILE,
-        stderr_path=spec.run_dir / STDERR_FILE,
-        timeout_s=campaign.timeout_s,
-    )
+    if campaign.sessions == "per-cluster":
+        # Imported here, not at module scope: the orchestrator needs this
+        # module's env and argv builders, and importing it eagerly would make
+        # that a cycle.
+        from .orchestrator import run_per_cluster
+
+        exit_code, timed_out, _ = run_per_cluster(campaign, spec)
+    else:
+        exit_code, timed_out = spawn(
+            argv,
+            cwd=spec.workspace,
+            env=env,
+            events_path=spec.run_dir / EVENTS_FILE,
+            stderr_path=spec.run_dir / STDERR_FILE,
+            timeout_s=campaign.timeout_s,
+        )
     try:
         # Merged rather than taken from the tail: a run that spawns an agent
         # per cluster writes one result event per session, and the last one's

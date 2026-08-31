@@ -268,6 +268,17 @@ def _parser() -> argparse.ArgumentParser:
         help="Claude Code binary; frozen as a resolved path, not a name.",
     )
     init.add_argument(
+        "--sessions",
+        choices=("single", "per-cluster"),
+        default="single",
+        help=(
+            "How a run is executed (default: %(default)s). single gives the "
+            "whole window to one agent session; per-cluster spawns one per "
+            "cluster, which over a long window avoids reasoning about late "
+            "clusters from a compacted summary and makes a killed run resumable."
+        ),
+    )
+    init.add_argument(
         "--skip-parity",
         action="store_true",
         help="Skip the parity suite. It is the protocol's stop-ship check.",
@@ -367,6 +378,7 @@ def main(argv: list[str] | None = None) -> int:
                     python=args.python,
                     claude_bin=args.claude,
                     parity=parity,
+                    sessions=args.sessions,
                 )
             )
             print(f"campaign: {campaign.dir}")
