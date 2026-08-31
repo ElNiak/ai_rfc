@@ -119,7 +119,7 @@ def test_trajectory_points_follow_checkpoint_calls():
     assert trajectory(events, "B", set(), window_size=2)["auc"] == 0.0
 
 
-def _synthetic_run(run_id: str, completed: bool, cost: float = 1.0) -> dict:
+def _synthetic_run(run_id: str, completed: bool, cost: float | None = 1.0) -> dict:
     return {
         "run_id": run_id,
         "arm": run_id[0],
@@ -155,3 +155,31 @@ def test_pass_k_needs_every_repeat_and_is_undecided_until_then():
     half = _arm_summary([_synthetic_run("C1", True)], ["c1"], repeats=2)
     assert half["pass_k"] == {"c1": None}
     assert half["pass_k_mean"] is None
+
+
+def test_a_run_with_no_result_event_has_unknown_cost_not_zero_cost():
+    """An interrupted run must not be priced at $0.00 and averaged in.
+
+    ``runner`` writes ``result.json`` as ``null`` when no terminal result event
+    was captured, so ``total_cost_usd`` is None. Treating that as 0.0 pulls
+    ``cost_mean`` down and understates ``failure_cost_share`` twice over, since
+    a run producing nothing completed is exactly the kind that ends without a
+    result event -- it lands in the numerator at zero and inflates nothing in
+    the denominator.
+    """
+    priced = _synthetic_run("A1", True, cost=10.0)
+    unpriced = _synthetic_run("A2", False, cost=None)
+    summary = _arm_summary([priced, unpriced], ["c1"], repeats=2)
+
+    assert summary["cost_total"] == 10.0
+    assert summary["cost_mean"] == 10.0, "the unpriced run must not drag the mean"
+    assert summary["runs_with_unknown_cost"] == 1
+    # The failed run is unpriced, so no spend is attributable to failure yet.
+    assert summary["failure_cost_share"] == 0.0
+    # One completed cluster, priced; the unpriced run contributes neither side.
+    assert summary["cost_per_completed_cluster"] == 10.0
+
+    # A priced failure still counts, so the metric is not simply always zero.
+    both_priced = [priced, _synthetic_run("A2", False, cost=6.0)]
+    assert _arm_summary(both_priced, ["c1"], repeats=2)["failure_cost_share"] == 0.375
+    assert _arm_summary(both_priced, ["c1"], repeats=2)["runs_with_unknown_cost"] == 0

@@ -339,9 +339,24 @@ def _mean(values: list[float]) -> float | None:
 def _arm_summary(
     runs: list[dict[str, Any]], window_ids: list[str], repeats: int
 ) -> dict[str, Any]:
-    costs = [r["cost"]["total_cost_usd"] or 0.0 for r in runs]
     completed_counts = [sum(1 for c in r["clusters"] if c["completed"]) for r in runs]
-    failed_cost = sum(cost for cost, done in zip(costs, completed_counts) if done == 0)
+    # A run that ended without a terminal result event has an *unknown* cost,
+    # not a zero one, and folding it in as 0.0 biases every figure below in the
+    # same direction: it understates cost_total and cost_mean, and understates
+    # failure_cost_share twice over, since a run producing no completed
+    # clusters is exactly the kind that ends without a result event. Cost
+    # figures therefore cover the priced runs only, and the count of unpriced
+    # ones is reported beside them. Same principle as pass^k below: undecided
+    # is not failed.
+    priced = [
+        (r["cost"]["total_cost_usd"], done)
+        for r, done in zip(runs, completed_counts)
+        if r["cost"]["total_cost_usd"] is not None
+    ]
+    costs = [cost for cost, _ in priced]
+    cost_total = sum(costs)
+    failed_cost = sum(cost for cost, done in priced if done == 0)
+    priced_completed = sum(done for _, done in priced)
     audits = [r["audit"] for r in runs if r["audit"] is not None]
     # An arm that has not finished its repeats has no pass^k yet. Scoring it
     # False would render as a failed cluster, indistinguishable from a real one.
@@ -382,11 +397,12 @@ def _arm_summary(
         "errors_class1": sum(a["errors"]["class1"] for a in audits),
         "errors_class2": sum(a["errors"]["class2"] for a in audits),
         "hand_edits": sum(sum(a["hand_edits"].values()) for a in audits),
-        "cost_total": sum(costs),
+        "cost_total": cost_total,
         "cost_mean": _mean(costs),
-        "failure_cost_share": (failed_cost / sum(costs)) if sum(costs) else None,
+        "runs_with_unknown_cost": len(runs) - len(priced),
+        "failure_cost_share": (failed_cost / cost_total) if cost_total else None,
         "cost_per_completed_cluster": (
-            (sum(costs) / sum(completed_counts)) if sum(completed_counts) else None
+            (cost_total / priced_completed) if priced_completed else None
         ),
         "tokens_to_first_completion_mean": _mean(firsts),
         "auc_mean": _mean([r["trajectory"]["auc"] for r in runs]),
