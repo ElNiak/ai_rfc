@@ -15,8 +15,9 @@ from pathlib import Path
 
 import pytest
 
-from experiment.audit import ALLOWED, bash_family
-from experiment.enforcement import is_allowed
+from experiment.arms import ARMS, profile
+from experiment.audit import bash_family, in_arm
+from experiment.enforcement import bash_families, is_allowed
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "enforcement"
 ARM_B = ("arfc ",)
@@ -110,18 +111,53 @@ def test_arm_a_has_no_bash_surface_so_nothing_is_allowed():
     assert is_allowed("echo hello", ()) is False
 
 
+@pytest.mark.parametrize("arm", ARMS)
 @pytest.mark.parametrize("command,allowed,why,families", _corpus())
 def test_the_audit_reads_a_command_the_way_the_guard_did(
-    command, allowed, why, families
+    command, allowed, why, families, arm
 ):
     """The enforcement and the measurement must not disagree about a command.
 
     They are separate readers of the same string, coupled only by convention,
-    and they have drifted before: the audit once split on operators wherever
-    they appeared, so a command the guard permitted could be classified out of
-    its own arm and reported as an integrity violation. Whatever the guard
-    lets through must land inside the arm's allowed surfaces, and whatever it
-    refuses must not.
+    and they have drifted twice: the audit once split on operators wherever
+    they appeared, and later judged arm membership from the collapsed surface
+    label, which cannot represent a line reaching two families the arm holds.
+
+    Asserting agreement over every arm, rather than a fixed verdict for arm B,
+    is what closes the second gap: arm B has one family, so no arm-B command
+    can span two, and the earlier single-arm version of this test could never
+    have failed on it.
     """
-    surface = bash_family(command)
-    assert (surface in ALLOWED["B"]) is allowed, why
+    guard = is_allowed(command, bash_families(profile(arm)))
+    audit = in_arm("Bash", {"command": command}, bash_family(command), arm)
+    assert audit is guard, f"{arm}: {why}"
+    if arm == "B":
+        assert guard is allowed, why
+
+
+@pytest.mark.parametrize(
+    "command,allowed,why",
+    [
+        # The line aioquic pilot run C1 issued at index 23. Both groups are
+        # surfaces arm C holds, so the guard admitted it -- and the audit,
+        # judging from the collapsed `bash:mixed` label, reported the run as an
+        # integrity violation for a call the arm was entitled to make.
+        (
+            "sqlite3 -version; git -C /w/clone rev-parse HEAD",
+            True,
+            "two groups, each a family arm C holds",
+        ),
+        (
+            "git -C /w/clone rev-parse HEAD && sqlite3 corpus.db .tables",
+            True,
+            "the same, joined by &&",
+        ),
+        # One group outside the arm still takes the whole line out of it.
+        ("sqlite3 -version; arfc status", False, "arfc is arm B's surface"),
+        ("git log --oneline; echo hi", False, "echo is no arm's surface"),
+    ],
+)
+def test_a_line_spanning_two_held_families_stays_in_arm_c(command, allowed, why):
+    """A multi-family line is in arm when every one of its families is."""
+    assert is_allowed(command, ARM_C) is allowed, why
+    assert in_arm("Bash", {"command": command}, bash_family(command), "C") is allowed

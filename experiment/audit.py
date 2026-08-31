@@ -16,8 +16,9 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 from . import ExperimentError
+from .arms import profile
 from .config import Campaign
-from .enforcement import PAGERS, command_groups
+from .enforcement import PAGERS, bash_families, command_groups, is_allowed
 from .runner import EVENTS_FILE, GUARD_FILE, load_status
 from .stream import (
     is_denial,
@@ -48,6 +49,7 @@ class ToolCall:
     target: str
     denied: bool
     errored: bool
+    in_arm: bool
     summary: str
     path: str = ""
 
@@ -132,6 +134,32 @@ def classify(name: str, tool_input: dict[str, Any]) -> tuple[str, str, str]:
     if name in ("Read", "Grep", "Glob"):
         return "read", name, ""
     return "other", name, ""
+
+
+def in_arm(name: str, tool_input: dict[str, Any], surface: str, arm: str) -> bool:
+    """Whether one call stayed inside ``arm``, read the way the guard reads it.
+
+    For ``Bash`` the verdict comes from :func:`enforcement.is_allowed` — the
+    same function the live ``PreToolUse`` guard runs — rather than from the
+    surface label. The label collapses a command to a single family, so a
+    command whose groups reach two families the arm *holds* (``sqlite3
+    -version; git ...`` in arm C) labels as ``bash:mixed`` and, tested against
+    the label, was reported as a violation the arm was entitled to make. The
+    label stays as reporting detail; only the decision moved.
+
+    Args:
+        name: The tool's name as the stream reports it.
+        tool_input: The call's input object.
+        surface: The surface :func:`classify` assigned it.
+        arm: The arm the run was launched as.
+
+    Returns:
+        True when the arm was entitled to make this call.
+    """
+    if name == "Bash":
+        command = str(tool_input.get("command", "")).strip()
+        return is_allowed(command, bash_families(profile(arm)))
+    return surface in ALLOWED[arm]
 
 
 def _summary(use: dict[str, Any]) -> str:
@@ -242,12 +270,12 @@ def audit_events(events: list[dict[str, Any]], arm: str) -> dict[str, Any]:
                 target=target,
                 denied=denied,
                 errored=errored,
+                in_arm=in_arm(use["name"], use["input"], surface, arm),
                 summary=_summary(use),
                 path=str(use["input"].get("file_path", "")),
             )
         )
-    allowed = ALLOWED[arm]
-    violations = [c for c in calls if c.surface not in allowed and not c.denied]
+    violations = [c for c in calls if not c.in_arm and not c.denied]
     bypasses = [c for c in calls if c.denied]
     class1 = [
         c for c in calls if c.errored and not c.denied and c.surface.startswith("mcp")
