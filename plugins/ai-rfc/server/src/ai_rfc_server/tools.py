@@ -112,7 +112,7 @@ def arfc_checkpoint(cluster_id: str) -> dict[str, Any]:
 
 
 def arfc_gate(strict: bool = False) -> dict[str, Any]:
-    """Run the manifest gate; strict exit 2 is information, never bypassed."""
+    """Run the manifest gate; strict exit 3 is information, never bypassed."""
     return gates.manifest_gate(resolve_context(), strict=strict)
 
 

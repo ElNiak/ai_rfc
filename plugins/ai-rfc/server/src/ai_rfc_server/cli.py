@@ -2,7 +2,7 @@
 
 Every verb maps 1:1 onto a core function; results go to stdout as JSON,
 diagnostics to stderr, and gate exit codes pass through untouched (0 clean,
-1 unusable inputs, 2 strict findings).
+1 unusable inputs, 2 a usage error from argparse itself, 3 strict findings).
 """
 
 from __future__ import annotations

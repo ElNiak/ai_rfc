@@ -24,7 +24,7 @@ produced document, visually separating evidence pointers from prose.
 ## Don'ts
 
 - Never cite a claim that is not in the checkpoint manifest paired with the
-  revision — the gate names every such citation and `--strict` exits 2.
+  revision — the gate names every such citation and `--strict` exits 3.
 - Never delete a claim from the manifest to silence a citation finding;
   reconcile the prose or fix the claim.
 - Never put a citation inside a heading or the front matter.

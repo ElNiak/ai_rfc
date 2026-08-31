@@ -24,6 +24,24 @@ missing from this table.
 | `arfc_draft_commit` | `arfc draft-commit -m MSG` | `git -C draft add -A && git -C draft commit -m MSG` |
 | `arfc_revision_tag` | `arfc revision-tag TAG -m MSG` | `git -C draft tag -a TAG -m MSG`, then `python -m …a_rfc.draft gate … --strict` (the tool deletes the tag on findings; the raw route leaves that to the author) |
 
+## Exit codes
+
+Every gate route — MCP tool, `arfc` verb, or raw substrate command — surfaces
+the substrate's own exit code untouched, so all three arms read the same
+number for the same outcome.
+
+| Code | Meaning |
+|---|---|
+| 0 | Clean |
+| 1 | Inputs unusable — a manifest that will not load, a path that is not a repository |
+| 2 | A usage error raised by `argparse` itself: the invocation was malformed |
+| 3 | Strict findings — a promotion violation, an unresolved anchor, or a citation the gate refused |
+
+The 2/3 split matters because argparse owns 2 unconditionally. While strict
+findings also exited 2, a caller branching on it could not distinguish a
+mistyped flag from a real finding about the manifest, and the two demand
+opposite responses: fix the command, or fix the evidence.
+
 Asymmetries accepted and measured, not hidden: the raw-CLI arm can hand-edit
 YAML (the gate catches overstatement after the fact, where the tool arm's
 `claim_upsert` refuses it up front), and has no single-call equivalent for

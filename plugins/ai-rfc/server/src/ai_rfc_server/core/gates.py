@@ -2,7 +2,9 @@
 
 These shell out to the substrate CLIs — the same commands the AI+CLI arm
 types — with ``cwd`` at the PANTHER checkout, and never reinterpret an exit
-code: 2 from a strict gate is information, not an obstacle.
+code: 3 from a strict gate is information, not an obstacle. The substrate
+leaves 2 to argparse, so a 2 here means the invocation was malformed, which
+is a defect in the caller rather than a finding about the manifest.
 """
 
 from __future__ import annotations

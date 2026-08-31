@@ -56,7 +56,7 @@ When the `arfc` MCP server is connected, prefer its tools (`arfc_cluster_next`, 
 
 | Failure | Response |
 |---|---|
-| Strict gate exit 2 | The system working. Fix anchors first (weakest link), re-adjudicate, re-run. Never hand-edit a status upward, never bypass. |
+| Strict gate exit 3 | The system working. Fix anchors first (weakest link), re-adjudicate, re-run. Never hand-edit a status upward, never bypass. |
 | `StaleIndexError` | Rebuild the index (`build_index`), never migrate. If the corpus itself moved, STOP — every anchor needs re-verification. |
 | Citation-gate finding | Reconcile prose or claims. Never delete a claim to silence a citation. |
 | Checkpoint refused (exists) | The cluster was processed; re-running is a new decision — investigate before deleting anything. |

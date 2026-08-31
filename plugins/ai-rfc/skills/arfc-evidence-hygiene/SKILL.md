@@ -67,5 +67,5 @@ more reading.
 | YAML type coercion of identifiers | `4.10` sorts before `4.9`; quote every section and id |
 | Serialisation dropping derived values | Counts and fractions vanish silently |
 
-Treat a gate exit 2 as the system working, never as an obstacle: fix the
+Treat a gate exit 3 as the system working, never as an obstacle: fix the
 anchors first (they are the weakest link), re-adjudicate, re-run.
