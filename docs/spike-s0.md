@@ -1,14 +1,19 @@
 # Spike S0 — isolated-profile hermeticity and arm enforcement
 
 **Verdict: `go: true`** · first measured 2026-08-27 on **2.1.247**, re-verified
-2026-08-28 on **2.1.250 (Claude Code)** · model `claude-opus-5` ·
-report `~/arfc-experiments/spike-report.json`
+2026-08-28 on **2.1.250**, re-armed 2026-08-31 on **2.1.251 (Claude Code)** ·
+model `claude-opus-5` · report `~/arfc-experiments/spike-report.json`
 
-All required checks pass on both versions. D20 (isolated OAuth profile) is
+All required checks pass on all three versions. D20 (isolated OAuth profile) is
 **supported**; the `--bare` + `ANTHROPIC_API_KEY` fallback is not needed. Every plan
 and the spec were written against CLI **2.1.246**; the measurements below were taken
-on **2.1.247** and re-taken on **2.1.250** before the pilot — see
-[§ Re-verification on 2.1.250](#re-verification-on-21250).
+on **2.1.247**, re-taken on **2.1.250**, and re-taken again on **2.1.251** — see
+[§ Re-verification on 2.1.250](#re-verification-on-21250) and
+[§ Re-arm on 2.1.251](#re-arm-on-21251).
+
+**2.1.251 is the version the aioquic pilot actually ran on**, confirmed from each
+run's `status.json` (`claude_version: "2.1.251 (Claude Code)"`) rather than from
+whatever the CLI reports today. The gate and the spend agree.
 
 ## Results
 
@@ -51,6 +56,26 @@ Two instrument defects surfaced, neither a product regression:
 - **`plugin_mcp` is intermittent** (passed one run of three). This is the known
   `--plugin-dir` MCP startup race; it is a product check, not required, and the arms
   mount the server with `--mcp-config`, which is unaffected.
+
+## Re-arm on 2.1.251
+
+The CLI moved again, from 2.1.250 to **2.1.251**, between the aborted 2026-08-28
+launch and the 2026-08-31 relaunch. The standing rule is that the enforcement
+mechanism is a measured property of the CLI and not a contract, so the spike was
+re-run before any further spend rather than carried over. Ran 2026-08-31T09:11:01Z:
+verdict `go: true`, **9 of 9 checks passing** — all seven required, and both
+optional ones.
+
+`plugin_mcp` passes here. It is the one check that had *failed* on 2.1.250 (the
+known `--plugin-dir` MCP startup race), and it remains non-required precisely
+because the arms mount the server with `--mcp-config`, which the race does not
+touch. Its passing is therefore a convenience, not a load-bearing change: nothing
+in the arm separation depends on it either way.
+
+The superseded 2.1.250 evidence is preserved rather than overwritten, at
+`~/arfc-experiments/spike-report.2.1.250-final.json` and
+`~/arfc-experiments/spike.2.1.250-final/`. Earlier flaky-control runs from the same
+version are kept alongside them under their own suffixes.
 
 ## The enforcement finding, and what actually works
 
