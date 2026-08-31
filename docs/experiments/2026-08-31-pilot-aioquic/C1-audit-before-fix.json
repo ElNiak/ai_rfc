@@ -1,0 +1,118 @@
+{
+  "api_errors": 0,
+  "arm": "C",
+  "bypass_attempts": {
+    "by_surface": {
+      "bash:mixed": 2,
+      "bash:other": 3
+    },
+    "count": 5,
+    "items": [
+      {
+        "denied": true,
+        "errored": true,
+        "family": "echo",
+        "index": 3,
+        "name": "Bash",
+        "path": "",
+        "summary": "command=echo \"PANTHER_REPO=$PANTHER_REPO\"; echo \"ARFC_WORKSPACE=$ARFC_WORKSPACE\"; ls /Users/elniak/arfc-experiments/campaigns/pi",
+        "surface": "bash:other",
+        "target": ""
+      },
+      {
+        "denied": true,
+        "errored": true,
+        "family": "ls",
+        "index": 7,
+        "name": "Bash",
+        "path": "",
+        "summary": "command=ls /Users/elniak/arfc-experiments/profile/projects/-Users-elniak-arfc-experiments-campaigns-pilot-aioquic-w02-11-2026083",
+        "surface": "bash:other",
+        "target": ""
+      },
+      {
+        "denied": true,
+        "errored": true,
+        "family": "head",
+        "index": 26,
+        "name": "Bash",
+        "path": "",
+        "summary": "command=head -c 4000 /Users/elniak/arfc-experiments/campaigns/pilot-aioquic-w02-11-20260831/runs/C1/workspace/timeline/clusters.",
+        "surface": "bash:other",
+        "target": ""
+      },
+      {
+        "denied": true,
+        "errored": true,
+        "family": "git",
+        "index": 51,
+        "name": "Bash",
+        "path": "",
+        "summary": "command=git -C /Users/elniak/arfc-experiments/campaigns/pilot-aioquic-w02-11-20260831/runs/C1/workspace/draft log --oneline -5; ",
+        "surface": "bash:mixed",
+        "target": ""
+      },
+      {
+        "denied": true,
+        "errored": true,
+        "family": "git",
+        "index": 143,
+        "name": "Bash",
+        "path": "",
+        "summary": "command=git -C /Users/elniak/arfc-experiments/campaigns/pilot-aioquic-w02-11-20260831/runs/C1/workspace/clone show 60258445de472",
+        "surface": "bash:mixed",
+        "target": ""
+      }
+    ],
+    "result_permission_denials": 5
+  },
+  "compaction_events": 0,
+  "errors": {
+    "class1": 0,
+    "class2": 2,
+    "first_failure_index": 174
+  },
+  "event_count": 1139,
+  "executed_out_of_arm": [
+    {
+      "denied": false,
+      "errored": false,
+      "family": "sqlite3",
+      "index": 23,
+      "name": "Bash",
+      "path": "",
+      "summary": "command=sqlite3 -version; git -C /Users/elniak/arfc-experiments/campaigns/pilot-aioquic-w02-11-20260831/runs/C1/workspace/clone ",
+      "surface": "bash:mixed",
+      "target": ""
+    }
+  ],
+  "guard": {
+    "bash_calls": 120,
+    "digest_recorded": true,
+    "expected_no_bash": false,
+    "fired_for_every_bash_call": true,
+    "mounted_sha256": "e1fa05c6866682caa1a2c6fea14cdbc9a2bff19520f8db23ad19aebdf8cf412d",
+    "pretooluse_hook_starts": 120,
+    "recorded_sha256": "e1fa05c6866682caa1a2c6fea14cdbc9a2bff19520f8db23ad19aebdf8cf412d",
+    "unmodified": true
+  },
+  "hand_edits": {
+    "manifest.yaml": 30,
+    "questions.yaml": 1,
+    "revisions.yaml": 10
+  },
+  "integrity": false,
+  "prose_edits": 9,
+  "run_id": "C1",
+  "tool_calls": {
+    "by_surface": {
+      "bash:git": 73,
+      "bash:mixed": 3,
+      "bash:other": 3,
+      "bash:python_a_rfc": 41,
+      "edit": 53,
+      "read": 82
+    },
+    "total": 255
+  }
+}

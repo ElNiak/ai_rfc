@@ -30,6 +30,7 @@
       },
       "pass_k_mean": 1.0,
       "runs": 2,
+      "runs_with_unknown_cost": 0,
       "timed_out_runs": 0,
       "tokens_to_first_completion_mean": 589373.0
     },
@@ -63,6 +64,7 @@
       },
       "pass_k_mean": 1.0,
       "runs": 2,
+      "runs_with_unknown_cost": 0,
       "timed_out_runs": 0,
       "tokens_to_first_completion_mean": 1345138.5
     },
@@ -96,6 +98,7 @@
       },
       "pass_k_mean": 1.0,
       "runs": 2,
+      "runs_with_unknown_cost": 0,
       "timed_out_runs": 0,
       "tokens_to_first_completion_mean": 3958540.0
     }
