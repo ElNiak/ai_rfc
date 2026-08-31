@@ -13,6 +13,7 @@ import hashlib
 import json
 from collections import Counter
 from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Any
 
 from . import ExperimentError
@@ -102,12 +103,46 @@ def bash_family(command: str) -> str:
     return families.pop() if len(families) == 1 else "bash:mixed"
 
 
-def classify(name: str, tool_input: dict[str, Any]) -> tuple[str, str, str]:
+def edit_target(file_path: str, workspace: Path) -> str:
+    """Where an edit landed, resolved against the run's own workspace.
+
+    Read from the workspace layout rather than from the path's shape. A
+    basename match alone counts an edit to any file called ``manifest.yaml``
+    anywhere on disk as a register hand-edit, and a ``/draft/`` substring
+    counts any markdown file under any directory called ``draft``. Both feed
+    published measurements, so a workspace laid out differently — or a stray
+    edit outside it — silently changes the numbers.
+
+    Args:
+        file_path: The edit's target as the transcript recorded it.
+        workspace: The run's workspace root.
+
+    Returns:
+        ``register``, ``prose``, or ``other``.
+    """
+    if not file_path:
+        return "other"
+    candidate = Path(file_path)
+    if not candidate.is_relative_to(workspace):
+        return "other"
+    parts = candidate.relative_to(workspace).parts
+    if len(parts) == 1 and parts[0] in REGISTERS:
+        return "register"
+    if len(parts) == 2 and parts[0] == "draft" and parts[1].endswith(".md"):
+        return "prose"
+    return "other"
+
+
+def classify(
+    name: str, tool_input: dict[str, Any], workspace: Path
+) -> tuple[str, str, str]:
     """Return ``(surface, family, target)`` for one tool call.
 
     Args:
         name: The tool's name as the stream reports it.
         tool_input: The call's input object.
+        workspace: The run's workspace root, against which edit targets are
+            resolved.
 
     Returns:
         The surface it reached for, the family within that surface, and the
@@ -123,14 +158,7 @@ def classify(name: str, tool_input: dict[str, Any]) -> tuple[str, str, str]:
         return family, command.split(" ", 1)[0] if command else "", ""
     if name in ("Edit", "Write", "MultiEdit"):
         path = str(tool_input.get("file_path", ""))
-        basename = path.rsplit("/", 1)[-1]
-        if basename in REGISTERS:
-            target = "register"
-        elif "/draft/" in path and path.endswith(".md"):
-            target = "prose"
-        else:
-            target = "other"
-        return "edit", name, target
+        return "edit", name, edit_target(path, workspace)
     if name in ("Read", "Grep", "Glob"):
         return "read", name, ""
     return "other", name, ""
@@ -243,12 +271,16 @@ def guard_report(
     }
 
 
-def audit_events(events: list[dict[str, Any]], arm: str) -> dict[str, Any]:
+def audit_events(
+    events: list[dict[str, Any]], arm: str, workspace: Path
+) -> dict[str, Any]:
     """Audit one transcript for the arm it was supposed to stay inside.
 
     Args:
         events: The parsed transcript.
         arm: The arm the run was launched as.
+        workspace: The run's workspace root, against which edit targets are
+            resolved.
 
     Returns:
         The audit record.
@@ -257,7 +289,7 @@ def audit_events(events: list[dict[str, Any]], arm: str) -> dict[str, Any]:
     denied_ids = _denied_ids(events)
     calls: list[ToolCall] = []
     for use in tool_uses(events):
-        surface, family, target = classify(use["name"], use["input"])
+        surface, family, target = classify(use["name"], use["input"], workspace)
         result = results.get(str(use["id"]))
         errored = bool(result and result["is_error"])
         denied = str(use["id"]) in denied_ids or (errored and is_denial(result["text"]))
@@ -355,7 +387,7 @@ def audit_run(campaign: Campaign, run_id: str) -> dict[str, Any]:
     )
     audit = {
         "run_id": run_id,
-        **audit_events(events, status.arm),
+        **audit_events(events, status.arm, run_dir / "workspace"),
         "guard": guard_report(events, status.arm, status.guard_sha256, mounted),
     }
     campaign.audit_dir.mkdir(exist_ok=True)

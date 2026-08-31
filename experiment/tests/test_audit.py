@@ -1,10 +1,12 @@
 import json
+from pathlib import Path
 
 from experiment.audit import (
     audit_campaign,
     audit_events,
     bash_family,
     classify,
+    edit_target,
     guard_report,
 )
 from experiment.matrix import execute
@@ -26,31 +28,59 @@ def test_bash_family_recognises_each_command_family():
     assert bash_family("echo hi") == "bash:other" and bash_family("") == "bash:other"
 
 
+WS = Path("/w")
+
+
 def test_classify_maps_tools_to_surfaces():
-    assert classify("mcp__arfc__arfc_checkpoint", {"cluster_id": "c"}) == (
+    assert classify("mcp__arfc__arfc_checkpoint", {"cluster_id": "c"}, WS) == (
         "mcp",
         "arfc_checkpoint",
         "",
     )
-    assert classify("mcp__other__thing", {}) == ("mcp:other", "mcp__other__thing", "")
-    assert classify("Bash", {"command": "arfc gate --strict"}) == (
+    assert classify("mcp__other__thing", {}, WS) == (
+        "mcp:other",
+        "mcp__other__thing",
+        "",
+    )
+    assert classify("Bash", {"command": "arfc gate --strict"}, WS) == (
         "bash:arfc",
         "arfc",
         "",
     )
-    assert classify("Edit", {"file_path": "/w/manifest.yaml"}) == (
+    assert classify("Edit", {"file_path": "/w/manifest.yaml"}, WS) == (
         "edit",
         "Edit",
         "register",
     )
-    assert classify("Write", {"file_path": "/w/draft/draft-x.md"}) == (
+    assert classify("Write", {"file_path": "/w/draft/draft-x.md"}, WS) == (
         "edit",
         "Write",
         "prose",
     )
-    assert classify("Edit", {"file_path": "/w/notes.txt"}) == ("edit", "Edit", "other")
-    assert classify("Grep", {"pattern": "x"}) == ("read", "Grep", "")
-    assert classify("WebFetch", {}) == ("other", "WebFetch", "")
+    assert classify("Edit", {"file_path": "/w/notes.txt"}, WS) == (
+        "edit",
+        "Edit",
+        "other",
+    )
+    assert classify("Grep", {"pattern": "x"}, WS) == ("read", "Grep", "")
+    assert classify("WebFetch", {}, WS) == ("other", "WebFetch", "")
+
+
+def test_edit_target_is_read_from_the_layout_not_the_path_shape():
+    """The same basename outside the workspace is not a register edit.
+
+    Both counters feed published measurements, so a basename match anywhere on
+    disk, or any directory happening to be called ``draft``, would move the
+    numbers without anything in the workspace changing.
+    """
+    assert edit_target("/w/manifest.yaml", WS) == "register"
+    assert edit_target("/elsewhere/manifest.yaml", WS) == "other"
+    assert edit_target("/w/sub/manifest.yaml", WS) == "other"
+    assert edit_target("/w/draft/draft-x.md", WS) == "prose"
+    assert edit_target("/elsewhere/draft/draft-x.md", WS) == "other"
+    assert edit_target("/w/notes/draft/x.md", WS) == "other"
+    assert edit_target("/w/draft/Makefile", WS) == "other"
+    assert edit_target("", WS) == "other"
 
 
 def test_audit_events_flags_an_executed_out_of_arm_call():
@@ -59,10 +89,10 @@ def test_audit_events_flags_an_executed_out_of_arm_call():
         '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","is_error":false,"content":"{}"}]}}\n'
         '{"type":"result","subtype":"success","total_cost_usd":0.1,"usage":{},"permission_denials":[]}\n'
     )
-    audit = audit_events(events, "A")
+    audit = audit_events(events, "A", WS)
     assert audit["integrity"] is False
     assert audit["executed_out_of_arm"][0]["surface"] == "bash:arfc"
-    assert audit_events(events, "B")["integrity"] is True
+    assert audit_events(events, "B", WS)["integrity"] is True
 
 
 def test_a_denial_is_recognised_from_its_id_alone():
@@ -73,7 +103,7 @@ def test_a_denial_is_recognised_from_its_id_alone():
         '{"type":"result","subtype":"success","total_cost_usd":0.1,"usage":{},'
         '"permission_denials":[{"tool_name":"Bash","tool_input":{"command":"echo probe"},"tool_use_id":"t1"}]}\n'
     )
-    audit = audit_events(events, "C")
+    audit = audit_events(events, "C", WS)
     assert audit["bypass_attempts"]["count"] == 1
     assert audit["integrity"] is True and audit["errors"]["class2"] == 0
 
@@ -84,7 +114,7 @@ def test_a_denial_that_never_reached_the_result_event_falls_back_to_its_text():
         '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","is_error":true,"content":"Permission denied: tool is not available in this session"}]}}\n'
         '{"type":"result","subtype":"success","total_cost_usd":0.1,"usage":{},"permission_denials":[]}\n'
     )
-    audit = audit_events(events, "B")
+    audit = audit_events(events, "B", WS)
     assert audit["bypass_attempts"]["count"] == 1 and audit["errors"]["class1"] == 0
 
 
