@@ -1,0 +1,3553 @@
+{
+  "arms": {
+    "A": {
+      "artifacts_fraction_mean": 1.0,
+      "auc_mean": 0.5945499967077927,
+      "bypass_attempts": 0,
+      "completed_fraction_mean": 1.0,
+      "completed_fraction_min": 1.0,
+      "cost_mean": 19.04002,
+      "cost_per_completed_cluster": 1.9040019999999998,
+      "cost_total": 38.08004,
+      "errors_class1": 8,
+      "errors_class2": 0,
+      "failure_cost_share": 0.0,
+      "gates_clean_runs": 2,
+      "hand_edits": 0,
+      "integrity_rate": 1.0,
+      "nonzero_exit_runs": 0,
+      "pass_k": {
+        "c0002-pr-60258445de47": true,
+        "c0003-epoch-f731035b44b5": true,
+        "c0004-pr-2742b2761af4": true,
+        "c0005-epoch-79f631193bdf": true,
+        "c0006-pr-3c09d9d9397f": true,
+        "c0007-epoch-e48f62850cdb": true,
+        "c0008-pr-5d57a3b2d5ad": true,
+        "c0009-epoch-993790505b6e": true,
+        "c0010-pr-1a83d7684ff2": true,
+        "c0011-epoch-d290ebea69fd": true
+      },
+      "pass_k_mean": 1.0,
+      "runs": 2,
+      "timed_out_runs": 0,
+      "tokens_to_first_completion_mean": 589373.0
+    },
+    "B": {
+      "artifacts_fraction_mean": 1.0,
+      "auc_mean": 0.5226370654462705,
+      "bypass_attempts": 6,
+      "completed_fraction_mean": 1.0,
+      "completed_fraction_min": 1.0,
+      "cost_mean": 22.734006749999995,
+      "cost_per_completed_cluster": 2.2734006749999995,
+      "cost_total": 45.46801349999999,
+      "errors_class1": 0,
+      "errors_class2": 2,
+      "failure_cost_share": 0.0,
+      "gates_clean_runs": 2,
+      "hand_edits": 1,
+      "integrity_rate": 1.0,
+      "nonzero_exit_runs": 0,
+      "pass_k": {
+        "c0002-pr-60258445de47": true,
+        "c0003-epoch-f731035b44b5": true,
+        "c0004-pr-2742b2761af4": true,
+        "c0005-epoch-79f631193bdf": true,
+        "c0006-pr-3c09d9d9397f": true,
+        "c0007-epoch-e48f62850cdb": true,
+        "c0008-pr-5d57a3b2d5ad": true,
+        "c0009-epoch-993790505b6e": true,
+        "c0010-pr-1a83d7684ff2": true,
+        "c0011-epoch-d290ebea69fd": true
+      },
+      "pass_k_mean": 1.0,
+      "runs": 2,
+      "timed_out_runs": 0,
+      "tokens_to_first_completion_mean": 1345138.5
+    },
+    "C": {
+      "artifacts_fraction_mean": 1.0,
+      "auc_mean": 0.4755847082998149,
+      "bypass_attempts": 8,
+      "completed_fraction_mean": 1.0,
+      "completed_fraction_min": 1.0,
+      "cost_mean": 23.61468874999999,
+      "cost_per_completed_cluster": 2.361468874999999,
+      "cost_total": 47.22937749999998,
+      "errors_class1": 0,
+      "errors_class2": 5,
+      "failure_cost_share": 0.0,
+      "gates_clean_runs": 2,
+      "hand_edits": 87,
+      "integrity_rate": 1.0,
+      "nonzero_exit_runs": 0,
+      "pass_k": {
+        "c0002-pr-60258445de47": true,
+        "c0003-epoch-f731035b44b5": true,
+        "c0004-pr-2742b2761af4": true,
+        "c0005-epoch-79f631193bdf": true,
+        "c0006-pr-3c09d9d9397f": true,
+        "c0007-epoch-e48f62850cdb": true,
+        "c0008-pr-5d57a3b2d5ad": true,
+        "c0009-epoch-993790505b6e": true,
+        "c0010-pr-1a83d7684ff2": true,
+        "c0011-epoch-d290ebea69fd": true
+      },
+      "pass_k_mean": 1.0,
+      "runs": 2,
+      "timed_out_runs": 0,
+      "tokens_to_first_completion_mean": 3958540.0
+    }
+  },
+  "campaign": "pilot-aioquic-w02-11-20260831",
+  "claude_version": "2.1.251 (Claude Code)",
+  "definitions": {
+    "artifacts": "checkpoint exists without a harness marker AND a revisions.yaml entry names the cluster AND that entry's tag exists in draft/",
+    "auc": "integral over normalized cumulative tokens of completed_so_far/window_size, as a right-continuous step function",
+    "checked_fraction": "the substrate's honesty metric, reported per checkpoint; expected 0.0 without interviews or runtime anchors",
+    "completed": "artifacts AND both strict gates exit 0 when the harness re-runs them on the final workspace (run-level)",
+    "completed_fraction": "completed clusters / window size (primary outcome, D23)",
+    "cost_per_completed_cluster": "sum of total_cost_usd / sum of completed clusters (None when nothing completed)",
+    "failure_cost_share": "sum of total_cost_usd over runs with zero completed clusters / sum over all runs of the arm",
+    "integrity_rate": "runs whose audit found no executed out-of-arm call / runs",
+    "pass_k": "per cluster: completed in every repeat of the arm; null until the arm has run every repeat; pass_k_mean averages the decided ones",
+    "tokens_to_first_completion": "cumulative tokens (input+output+cache_creation+cache_read) at the checkpoint call of the first cluster that ends up completed"
+  },
+  "effort": "high",
+  "git": {
+    "ai_rfc": "fa51cec",
+    "panther": "v1.1.3-839-g226608938"
+  },
+  "model": "claude-opus-5",
+  "parity_pre_run": {
+    "passed": true,
+    "summary": "============================== 7 passed in 3.56s ==============================="
+  },
+  "run_order": [
+    "B1",
+    "A1",
+    "C1",
+    "A2",
+    "C2",
+    "B2"
+  ],
+  "runs": {
+    "A1": {
+      "arm": "A",
+      "artifacts_fraction": 1.0,
+      "audit": {
+        "api_errors": 0,
+        "arm": "A",
+        "bypass_attempts": {
+          "by_surface": {},
+          "count": 0,
+          "items": [],
+          "result_permission_denials": 0
+        },
+        "compaction_events": 0,
+        "errors": {
+          "class1": 2,
+          "class2": 0,
+          "first_failure_index": 59
+        },
+        "event_count": 854,
+        "executed_out_of_arm": [],
+        "guard": {
+          "bash_calls": 0,
+          "digest_recorded": true,
+          "expected_no_bash": true,
+          "fired_for_every_bash_call": true,
+          "mounted_sha256": "ab8ec0f07b7bf200fabc99288605a6cd75607ec48ed0f2d631b3fab7c2a742e7",
+          "pretooluse_hook_starts": 0,
+          "recorded_sha256": "ab8ec0f07b7bf200fabc99288605a6cd75607ec48ed0f2d631b3fab7c2a742e7",
+          "unmodified": true
+        },
+        "hand_edits": {
+          "manifest.yaml": 0,
+          "questions.yaml": 0,
+          "revisions.yaml": 0
+        },
+        "integrity": true,
+        "prose_edits": 13,
+        "run_id": "A1",
+        "tool_calls": {
+          "by_surface": {
+            "edit": 16,
+            "mcp": 170,
+            "read": 7
+          },
+          "total": 193
+        }
+      },
+      "claims": {
+        "c0002-pr-60258445de47": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 1,
+          "count_by_status": {
+            "confirmed": 1,
+            "gap": 0,
+            "inferred": 0
+          },
+          "count_by_supported": {
+            "confirmed": 1
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        },
+        "c0003-epoch-f731035b44b5": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 11,
+          "count_by_status": {
+            "confirmed": 10,
+            "gap": 0,
+            "inferred": 1
+          },
+          "count_by_supported": {
+            "confirmed": 10,
+            "inferred": 1
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        },
+        "c0004-pr-2742b2761af4": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 12,
+          "count_by_status": {
+            "confirmed": 10,
+            "gap": 0,
+            "inferred": 2
+          },
+          "count_by_supported": {
+            "confirmed": 10,
+            "inferred": 2
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        },
+        "c0005-epoch-79f631193bdf": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 26,
+          "count_by_status": {
+            "confirmed": 23,
+            "gap": 0,
+            "inferred": 3
+          },
+          "count_by_supported": {
+            "confirmed": 23,
+            "inferred": 3
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        },
+        "c0006-pr-3c09d9d9397f": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 32,
+          "count_by_status": {
+            "confirmed": 29,
+            "gap": 0,
+            "inferred": 3
+          },
+          "count_by_supported": {
+            "confirmed": 29,
+            "inferred": 3
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        },
+        "c0007-epoch-e48f62850cdb": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 34,
+          "count_by_status": {
+            "confirmed": 31,
+            "gap": 0,
+            "inferred": 3
+          },
+          "count_by_supported": {
+            "confirmed": 31,
+            "inferred": 3
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        },
+        "c0008-pr-5d57a3b2d5ad": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 35,
+          "count_by_status": {
+            "confirmed": 32,
+            "gap": 0,
+            "inferred": 3
+          },
+          "count_by_supported": {
+            "confirmed": 32,
+            "inferred": 3
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        },
+        "c0009-epoch-993790505b6e": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 36,
+          "count_by_status": {
+            "confirmed": 33,
+            "gap": 0,
+            "inferred": 3
+          },
+          "count_by_supported": {
+            "confirmed": 33,
+            "inferred": 3
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        },
+        "c0010-pr-1a83d7684ff2": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 38,
+          "count_by_status": {
+            "confirmed": 33,
+            "gap": 0,
+            "inferred": 5
+          },
+          "count_by_supported": {
+            "confirmed": 33,
+            "inferred": 5
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        },
+        "c0011-epoch-d290ebea69fd": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 40,
+          "count_by_status": {
+            "confirmed": 34,
+            "gap": 0,
+            "inferred": 6
+          },
+          "count_by_supported": {
+            "confirmed": 34,
+            "inferred": 6
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        }
+      },
+      "clusters": [
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0002-pr-60258445de47",
+          "completed": true,
+          "kind": "pr",
+          "normative_change": true,
+          "ordinal": 2,
+          "pre_seeded": false,
+          "provenance": "merge_commit",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-01",
+          "tag_exists": true
+        },
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0003-epoch-f731035b44b5",
+          "completed": true,
+          "kind": "epoch",
+          "normative_change": true,
+          "ordinal": 3,
+          "pre_seeded": false,
+          "provenance": "epoch",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-02",
+          "tag_exists": true
+        },
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0004-pr-2742b2761af4",
+          "completed": true,
+          "kind": "pr",
+          "normative_change": false,
+          "ordinal": 4,
+          "pre_seeded": false,
+          "provenance": "merge_commit",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-03",
+          "tag_exists": true
+        },
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0005-epoch-79f631193bdf",
+          "completed": true,
+          "kind": "epoch",
+          "normative_change": true,
+          "ordinal": 5,
+          "pre_seeded": false,
+          "provenance": "epoch",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-04",
+          "tag_exists": true
+        },
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0006-pr-3c09d9d9397f",
+          "completed": true,
+          "kind": "pr",
+          "normative_change": true,
+          "ordinal": 6,
+          "pre_seeded": false,
+          "provenance": "merge_commit",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-05",
+          "tag_exists": true
+        },
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0007-epoch-e48f62850cdb",
+          "completed": true,
+          "kind": "epoch",
+          "normative_change": true,
+          "ordinal": 7,
+          "pre_seeded": false,
+          "provenance": "epoch",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-06",
+          "tag_exists": true
+        },
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0008-pr-5d57a3b2d5ad",
+          "completed": true,
+          "kind": "pr",
+          "normative_change": true,
+          "ordinal": 8,
+          "pre_seeded": false,
+          "provenance": "forge_squash",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-07",
+          "tag_exists": true
+        },
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0009-epoch-993790505b6e",
+          "completed": true,
+          "kind": "epoch",
+          "normative_change": true,
+          "ordinal": 9,
+          "pre_seeded": false,
+          "provenance": "epoch",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-08",
+          "tag_exists": true
+        },
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0010-pr-1a83d7684ff2",
+          "completed": true,
+          "kind": "pr",
+          "normative_change": true,
+          "ordinal": 10,
+          "pre_seeded": false,
+          "provenance": "forge_squash",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-09",
+          "tag_exists": true
+        },
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0011-epoch-d290ebea69fd",
+          "completed": true,
+          "kind": "epoch",
+          "normative_change": true,
+          "ordinal": 11,
+          "pre_seeded": false,
+          "provenance": "epoch",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-10",
+          "tag_exists": true
+        }
+      ],
+      "completed_fraction": 1.0,
+      "cost": {
+        "duration_api_ms": 1258348,
+        "duration_ms": 1318071,
+        "model_usage": {
+          "claude-haiku-4-5-20251001": {
+            "cacheCreationInputTokens": 0,
+            "cacheReadInputTokens": 0,
+            "canonicalModel": "claude-haiku-4-5",
+            "contextWindow": 200000,
+            "costBasis": "list",
+            "costUSD": 0.001163,
+            "inputTokens": 1108,
+            "maxOutputTokens": 32000,
+            "outputTokens": 11,
+            "provider": "firstParty",
+            "webSearchRequests": 0
+          },
+          "claude-opus-5": {
+            "cacheCreationInputTokens": 291919,
+            "cacheReadInputTokens": 26203590,
+            "canonicalModel": "claude-opus-5",
+            "contextWindow": 1000000,
+            "costBasis": "list",
+            "costUSD": 18.338519999999995,
+            "inputTokens": 292,
+            "maxOutputTokens": 64000,
+            "outputTokens": 92643,
+            "provider": "firstParty",
+            "webSearchRequests": 0
+          }
+        },
+        "num_turns": 194,
+        "subtype": "success",
+        "total_cost_usd": 18.339682999999997,
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 291919,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "cache_creation_input_tokens": 291919,
+          "cache_read_input_tokens": 26203590,
+          "inference_geo": "not_available",
+          "input_tokens": 292,
+          "iterations": [
+            {
+              "cache_creation": {
+                "ephemeral_1h_input_tokens": 1417,
+                "ephemeral_5m_input_tokens": 0
+              },
+              "cache_creation_input_tokens": 1417,
+              "cache_read_input_tokens": 290502,
+              "input_tokens": 2,
+              "output_tokens": 1194,
+              "type": "message"
+            }
+          ],
+          "output_tokens": 92643,
+          "output_tokens_details": {
+            "thinking_tokens": 48688
+          },
+          "server_tool_use": {
+            "web_fetch_requests": 0,
+            "web_search_requests": 0
+          },
+          "service_tier": "standard",
+          "speed": "standard"
+        }
+      },
+      "gates": {
+        "citation_exit": 0,
+        "citation_findings": [],
+        "clean": true,
+        "manifest_exit": 0,
+        "manifest_findings": []
+      },
+      "repeat": 1,
+      "run_id": "A1",
+      "status": {
+        "arm": "A",
+        "budget_hit": false,
+        "claude_version": "2.1.251 (Claude Code)",
+        "exit_code": 0,
+        "finished_at": "2026-08-31T10:07:20+00:00",
+        "guard_sha256": "ab8ec0f07b7bf200fabc99288605a6cd75607ec48ed0f2d631b3fab7c2a742e7",
+        "repeat": 1,
+        "run_id": "A1",
+        "started_at": "2026-08-31T09:45:21+00:00",
+        "timed_out": false
+      },
+      "trajectory": {
+        "auc": 0.5761443150057817,
+        "points": [
+          {
+            "cluster_id": "c0002-pr-60258445de47",
+            "completed_so_far": 1,
+            "cumulative_tokens": 708785,
+            "index": 91
+          },
+          {
+            "cluster_id": "c0003-epoch-f731035b44b5",
+            "completed_so_far": 2,
+            "cumulative_tokens": 2124082,
+            "index": 262
+          },
+          {
+            "cluster_id": "c0004-pr-2742b2761af4",
+            "completed_so_far": 3,
+            "cumulative_tokens": 3283035,
+            "index": 304
+          },
+          {
+            "cluster_id": "c0005-epoch-79f631193bdf",
+            "completed_so_far": 4,
+            "cumulative_tokens": 6538855,
+            "index": 526
+          },
+          {
+            "cluster_id": "c0006-pr-3c09d9d9397f",
+            "completed_so_far": 5,
+            "cumulative_tokens": 9427588,
+            "index": 601
+          },
+          {
+            "cluster_id": "c0007-epoch-e48f62850cdb",
+            "completed_so_far": 6,
+            "cumulative_tokens": 12174187,
+            "index": 644
+          },
+          {
+            "cluster_id": "c0008-pr-5d57a3b2d5ad",
+            "completed_so_far": 7,
+            "cumulative_tokens": 14847919,
+            "index": 686
+          },
+          {
+            "cluster_id": "c0009-epoch-993790505b6e",
+            "completed_so_far": 8,
+            "cumulative_tokens": 17907728,
+            "index": 728
+          },
+          {
+            "cluster_id": "c0010-pr-1a83d7684ff2",
+            "completed_so_far": 9,
+            "cumulative_tokens": 20832776,
+            "index": 771
+          },
+          {
+            "cluster_id": "c0011-epoch-d290ebea69fd",
+            "completed_so_far": 10,
+            "cumulative_tokens": 24471995,
+            "index": 828
+          }
+        ],
+        "tokens_to_first_completion": 708785,
+        "total_tokens": 26498866
+      },
+      "window_size": 10
+    },
+    "A2": {
+      "arm": "A",
+      "artifacts_fraction": 1.0,
+      "audit": {
+        "api_errors": 0,
+        "arm": "A",
+        "bypass_attempts": {
+          "by_surface": {},
+          "count": 0,
+          "items": [],
+          "result_permission_denials": 0
+        },
+        "compaction_events": 0,
+        "errors": {
+          "class1": 6,
+          "class2": 0,
+          "first_failure_index": 232
+        },
+        "event_count": 1041,
+        "executed_out_of_arm": [],
+        "guard": {
+          "bash_calls": 0,
+          "digest_recorded": true,
+          "expected_no_bash": true,
+          "fired_for_every_bash_call": true,
+          "mounted_sha256": "ab8ec0f07b7bf200fabc99288605a6cd75607ec48ed0f2d631b3fab7c2a742e7",
+          "pretooluse_hook_starts": 0,
+          "recorded_sha256": "ab8ec0f07b7bf200fabc99288605a6cd75607ec48ed0f2d631b3fab7c2a742e7",
+          "unmodified": true
+        },
+        "hand_edits": {
+          "manifest.yaml": 0,
+          "questions.yaml": 0,
+          "revisions.yaml": 0
+        },
+        "integrity": true,
+        "prose_edits": 10,
+        "run_id": "A2",
+        "tool_calls": {
+          "by_surface": {
+            "edit": 13,
+            "mcp": 174,
+            "read": 11
+          },
+          "total": 198
+        }
+      },
+      "claims": {
+        "c0002-pr-60258445de47": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 0,
+          "count_by_status": {
+            "confirmed": 0,
+            "gap": 0,
+            "inferred": 0
+          },
+          "count_by_supported": {},
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        },
+        "c0003-epoch-f731035b44b5": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 11,
+          "count_by_status": {
+            "confirmed": 9,
+            "gap": 0,
+            "inferred": 2
+          },
+          "count_by_supported": {
+            "confirmed": 9,
+            "inferred": 2
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        },
+        "c0004-pr-2742b2761af4": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 11,
+          "count_by_status": {
+            "confirmed": 9,
+            "gap": 0,
+            "inferred": 2
+          },
+          "count_by_supported": {
+            "confirmed": 9,
+            "inferred": 2
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        },
+        "c0005-epoch-79f631193bdf": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 26,
+          "count_by_status": {
+            "confirmed": 23,
+            "gap": 0,
+            "inferred": 3
+          },
+          "count_by_supported": {
+            "confirmed": 23,
+            "inferred": 3
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        },
+        "c0006-pr-3c09d9d9397f": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 31,
+          "count_by_status": {
+            "confirmed": 28,
+            "gap": 0,
+            "inferred": 3
+          },
+          "count_by_supported": {
+            "confirmed": 28,
+            "inferred": 3
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        },
+        "c0007-epoch-e48f62850cdb": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 33,
+          "count_by_status": {
+            "confirmed": 30,
+            "gap": 0,
+            "inferred": 3
+          },
+          "count_by_supported": {
+            "confirmed": 30,
+            "inferred": 3
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        },
+        "c0008-pr-5d57a3b2d5ad": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 34,
+          "count_by_status": {
+            "confirmed": 31,
+            "gap": 0,
+            "inferred": 3
+          },
+          "count_by_supported": {
+            "confirmed": 31,
+            "inferred": 3
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        },
+        "c0009-epoch-993790505b6e": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 35,
+          "count_by_status": {
+            "confirmed": 32,
+            "gap": 0,
+            "inferred": 3
+          },
+          "count_by_supported": {
+            "confirmed": 32,
+            "inferred": 3
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        },
+        "c0010-pr-1a83d7684ff2": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 36,
+          "count_by_status": {
+            "confirmed": 32,
+            "gap": 0,
+            "inferred": 4
+          },
+          "count_by_supported": {
+            "confirmed": 32,
+            "inferred": 4
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        },
+        "c0011-epoch-d290ebea69fd": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 38,
+          "count_by_status": {
+            "confirmed": 34,
+            "gap": 0,
+            "inferred": 4
+          },
+          "count_by_supported": {
+            "confirmed": 34,
+            "inferred": 4
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        }
+      },
+      "clusters": [
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0002-pr-60258445de47",
+          "completed": true,
+          "kind": "pr",
+          "normative_change": false,
+          "ordinal": 2,
+          "pre_seeded": false,
+          "provenance": "merge_commit",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-02",
+          "tag_exists": true
+        },
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0003-epoch-f731035b44b5",
+          "completed": true,
+          "kind": "epoch",
+          "normative_change": true,
+          "ordinal": 3,
+          "pre_seeded": false,
+          "provenance": "epoch",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-03",
+          "tag_exists": true
+        },
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0004-pr-2742b2761af4",
+          "completed": true,
+          "kind": "pr",
+          "normative_change": false,
+          "ordinal": 4,
+          "pre_seeded": false,
+          "provenance": "merge_commit",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-04",
+          "tag_exists": true
+        },
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0005-epoch-79f631193bdf",
+          "completed": true,
+          "kind": "epoch",
+          "normative_change": true,
+          "ordinal": 5,
+          "pre_seeded": false,
+          "provenance": "epoch",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-05",
+          "tag_exists": true
+        },
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0006-pr-3c09d9d9397f",
+          "completed": true,
+          "kind": "pr",
+          "normative_change": true,
+          "ordinal": 6,
+          "pre_seeded": false,
+          "provenance": "merge_commit",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-06",
+          "tag_exists": true
+        },
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0007-epoch-e48f62850cdb",
+          "completed": true,
+          "kind": "epoch",
+          "normative_change": true,
+          "ordinal": 7,
+          "pre_seeded": false,
+          "provenance": "epoch",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-07",
+          "tag_exists": true
+        },
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0008-pr-5d57a3b2d5ad",
+          "completed": true,
+          "kind": "pr",
+          "normative_change": true,
+          "ordinal": 8,
+          "pre_seeded": false,
+          "provenance": "forge_squash",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-08",
+          "tag_exists": true
+        },
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0009-epoch-993790505b6e",
+          "completed": true,
+          "kind": "epoch",
+          "normative_change": true,
+          "ordinal": 9,
+          "pre_seeded": false,
+          "provenance": "epoch",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-09",
+          "tag_exists": true
+        },
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0010-pr-1a83d7684ff2",
+          "completed": true,
+          "kind": "pr",
+          "normative_change": true,
+          "ordinal": 10,
+          "pre_seeded": false,
+          "provenance": "forge_squash",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-10",
+          "tag_exists": true
+        },
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0011-epoch-d290ebea69fd",
+          "completed": true,
+          "kind": "epoch",
+          "normative_change": true,
+          "ordinal": 11,
+          "pre_seeded": false,
+          "provenance": "epoch",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-11",
+          "tag_exists": true
+        }
+      ],
+      "completed_fraction": 1.0,
+      "cost": {
+        "duration_api_ms": 1531595,
+        "duration_ms": 1596595,
+        "model_usage": {
+          "claude-haiku-4-5-20251001": {
+            "cacheCreationInputTokens": 0,
+            "cacheReadInputTokens": 0,
+            "canonicalModel": "claude-haiku-4-5",
+            "contextWindow": 200000,
+            "costBasis": "list",
+            "costUSD": 0.001163,
+            "inputTokens": 1108,
+            "maxOutputTokens": 32000,
+            "outputTokens": 11,
+            "provider": "firstParty",
+            "webSearchRequests": 0
+          },
+          "claude-opus-5": {
+            "cacheCreationInputTokens": 313280,
+            "cacheReadInputTokens": 27208438,
+            "canonicalModel": "claude-opus-5",
+            "contextWindow": 1000000,
+            "costBasis": "list",
+            "costUSD": 19.739194,
+            "inputTokens": 270,
+            "maxOutputTokens": 64000,
+            "outputTokens": 120033,
+            "provider": "firstParty",
+            "webSearchRequests": 0
+          }
+        },
+        "num_turns": 199,
+        "subtype": "success",
+        "total_cost_usd": 19.740357000000003,
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 313280,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "cache_creation_input_tokens": 313280,
+          "cache_read_input_tokens": 27208438,
+          "inference_geo": "not_available",
+          "input_tokens": 270,
+          "iterations": [
+            {
+              "cache_creation": {
+                "ephemeral_1h_input_tokens": 447,
+                "ephemeral_5m_input_tokens": 0
+              },
+              "cache_creation_input_tokens": 447,
+              "cache_read_input_tokens": 318623,
+              "input_tokens": 2,
+              "output_tokens": 1248,
+              "type": "message"
+            }
+          ],
+          "output_tokens": 120033,
+          "output_tokens_details": {
+            "thinking_tokens": 72986
+          },
+          "server_tool_use": {
+            "web_fetch_requests": 0,
+            "web_search_requests": 0
+          },
+          "service_tier": "standard",
+          "speed": "standard"
+        }
+      },
+      "gates": {
+        "citation_exit": 0,
+        "citation_findings": [],
+        "clean": true,
+        "manifest_exit": 0,
+        "manifest_findings": []
+      },
+      "repeat": 2,
+      "run_id": "A2",
+      "status": {
+        "arm": "A",
+        "budget_hit": false,
+        "claude_version": "2.1.251 (Claude Code)",
+        "exit_code": 0,
+        "finished_at": "2026-08-31T10:57:44+00:00",
+        "guard_sha256": "ab8ec0f07b7bf200fabc99288605a6cd75607ec48ed0f2d631b3fab7c2a742e7",
+        "repeat": 2,
+        "run_id": "A2",
+        "started_at": "2026-08-31T10:31:06+00:00",
+        "timed_out": false
+      },
+      "trajectory": {
+        "auc": 0.6129556784098039,
+        "points": [
+          {
+            "cluster_id": "c0002-pr-60258445de47",
+            "completed_so_far": 1,
+            "cumulative_tokens": 469961,
+            "index": 63
+          },
+          {
+            "cluster_id": "c0003-epoch-f731035b44b5",
+            "completed_so_far": 2,
+            "cumulative_tokens": 1989663,
+            "index": 298
+          },
+          {
+            "cluster_id": "c0004-pr-2742b2761af4",
+            "completed_so_far": 3,
+            "cumulative_tokens": 2630964,
+            "index": 323
+          },
+          {
+            "cluster_id": "c0005-epoch-79f631193bdf",
+            "completed_so_far": 4,
+            "cumulative_tokens": 5553622,
+            "index": 596
+          },
+          {
+            "cluster_id": "c0006-pr-3c09d9d9397f",
+            "completed_so_far": 5,
+            "cumulative_tokens": 8178441,
+            "index": 712
+          },
+          {
+            "cluster_id": "c0007-epoch-e48f62850cdb",
+            "completed_so_far": 6,
+            "cumulative_tokens": 11375024,
+            "index": 764
+          },
+          {
+            "cluster_id": "c0008-pr-5d57a3b2d5ad",
+            "completed_so_far": 7,
+            "cumulative_tokens": 14254125,
+            "index": 813
+          },
+          {
+            "cluster_id": "c0009-epoch-993790505b6e",
+            "completed_so_far": 8,
+            "cumulative_tokens": 17279849,
+            "index": 864
+          },
+          {
+            "cluster_id": "c0010-pr-1a83d7684ff2",
+            "completed_so_far": 9,
+            "cumulative_tokens": 20431450,
+            "index": 907
+          },
+          {
+            "cluster_id": "c0011-epoch-d290ebea69fd",
+            "completed_so_far": 10,
+            "cumulative_tokens": 24369910,
+            "index": 999
+          }
+        ],
+        "tokens_to_first_completion": 469961,
+        "total_tokens": 27524757
+      },
+      "window_size": 10
+    },
+    "B1": {
+      "arm": "B",
+      "artifacts_fraction": 1.0,
+      "audit": {
+        "api_errors": 0,
+        "arm": "B",
+        "bypass_attempts": {
+          "by_surface": {
+            "bash:mixed": 1,
+            "bash:other": 2
+          },
+          "count": 3,
+          "items": [
+            {
+              "denied": true,
+              "errored": true,
+              "family": "echo",
+              "in_arm": false,
+              "index": 3,
+              "name": "Bash",
+              "path": "",
+              "summary": "command=echo \"PANTHER_REPO=$PANTHER_REPO\"; echo \"ARFC_WORKSPACE=$ARFC_WORKSPACE\"; which arfc; ls /Users/elniak/arfc-experiments/",
+              "surface": "bash:other",
+              "target": ""
+            },
+            {
+              "denied": true,
+              "errored": true,
+              "family": "ls",
+              "in_arm": false,
+              "index": 7,
+              "name": "Bash",
+              "path": "",
+              "summary": "command=ls /Users/elniak/arfc-experiments/profile/projects/-Users-elniak-arfc-experiments-campaigns-pilot-aioquic-w02-11-2026083",
+              "surface": "bash:other",
+              "target": ""
+            },
+            {
+              "denied": true,
+              "errored": true,
+              "family": "arfc",
+              "in_arm": false,
+              "index": 55,
+              "name": "Bash",
+              "path": "",
+              "summary": "command=arfc claim-upsert --help; echo ---; arfc checkpoint --help; echo ---; arfc revision-record --help; echo ---; arfc revisi",
+              "surface": "bash:mixed",
+              "target": ""
+            }
+          ],
+          "result_permission_denials": 3
+        },
+        "compaction_events": 0,
+        "errors": {
+          "class1": 0,
+          "class2": 0,
+          "first_failure_index": null
+        },
+        "event_count": 1312,
+        "executed_out_of_arm": [],
+        "guard": {
+          "bash_calls": 180,
+          "digest_recorded": true,
+          "expected_no_bash": false,
+          "fired_for_every_bash_call": true,
+          "mounted_sha256": "517de01069e016bd38424613ab26b43e2ca8c3afeaaea646c27dce11ed0888ef",
+          "pretooluse_hook_starts": 180,
+          "recorded_sha256": "517de01069e016bd38424613ab26b43e2ca8c3afeaaea646c27dce11ed0888ef",
+          "unmodified": true
+        },
+        "hand_edits": {
+          "manifest.yaml": 0,
+          "questions.yaml": 0,
+          "revisions.yaml": 0
+        },
+        "integrity": true,
+        "prose_edits": 12,
+        "run_id": "B1",
+        "tool_calls": {
+          "by_surface": {
+            "bash:arfc": 177,
+            "bash:mixed": 1,
+            "bash:other": 2,
+            "edit": 14,
+            "read": 25
+          },
+          "total": 219
+        }
+      },
+      "claims": {
+        "c0002-pr-60258445de47": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 2,
+          "count_by_status": {
+            "confirmed": 0,
+            "gap": 0,
+            "inferred": 2
+          },
+          "count_by_supported": {
+            "inferred": 2
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        },
+        "c0003-epoch-f731035b44b5": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 16,
+          "count_by_status": {
+            "confirmed": 0,
+            "gap": 0,
+            "inferred": 16
+          },
+          "count_by_supported": {
+            "inferred": 16
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        },
+        "c0004-pr-2742b2761af4": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 17,
+          "count_by_status": {
+            "confirmed": 0,
+            "gap": 0,
+            "inferred": 17
+          },
+          "count_by_supported": {
+            "inferred": 17
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        },
+        "c0005-epoch-79f631193bdf": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 30,
+          "count_by_status": {
+            "confirmed": 0,
+            "gap": 0,
+            "inferred": 30
+          },
+          "count_by_supported": {
+            "inferred": 30
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        },
+        "c0006-pr-3c09d9d9397f": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 37,
+          "count_by_status": {
+            "confirmed": 0,
+            "gap": 0,
+            "inferred": 37
+          },
+          "count_by_supported": {
+            "inferred": 37
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        },
+        "c0007-epoch-e48f62850cdb": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 41,
+          "count_by_status": {
+            "confirmed": 0,
+            "gap": 0,
+            "inferred": 41
+          },
+          "count_by_supported": {
+            "inferred": 41
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        },
+        "c0008-pr-5d57a3b2d5ad": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 44,
+          "count_by_status": {
+            "confirmed": 0,
+            "gap": 0,
+            "inferred": 44
+          },
+          "count_by_supported": {
+            "inferred": 44
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        },
+        "c0009-epoch-993790505b6e": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 45,
+          "count_by_status": {
+            "confirmed": 0,
+            "gap": 0,
+            "inferred": 45
+          },
+          "count_by_supported": {
+            "inferred": 45
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        },
+        "c0010-pr-1a83d7684ff2": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 49,
+          "count_by_status": {
+            "confirmed": 0,
+            "gap": 0,
+            "inferred": 49
+          },
+          "count_by_supported": {
+            "inferred": 49
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        },
+        "c0011-epoch-d290ebea69fd": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 52,
+          "count_by_status": {
+            "confirmed": 0,
+            "gap": 0,
+            "inferred": 52
+          },
+          "count_by_supported": {
+            "inferred": 52
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        }
+      },
+      "clusters": [
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0002-pr-60258445de47",
+          "completed": true,
+          "kind": "pr",
+          "normative_change": true,
+          "ordinal": 2,
+          "pre_seeded": false,
+          "provenance": "merge_commit",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-02",
+          "tag_exists": true
+        },
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0003-epoch-f731035b44b5",
+          "completed": true,
+          "kind": "epoch",
+          "normative_change": true,
+          "ordinal": 3,
+          "pre_seeded": false,
+          "provenance": "epoch",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-03",
+          "tag_exists": true
+        },
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0004-pr-2742b2761af4",
+          "completed": true,
+          "kind": "pr",
+          "normative_change": true,
+          "ordinal": 4,
+          "pre_seeded": false,
+          "provenance": "merge_commit",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-04",
+          "tag_exists": true
+        },
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0005-epoch-79f631193bdf",
+          "completed": true,
+          "kind": "epoch",
+          "normative_change": true,
+          "ordinal": 5,
+          "pre_seeded": false,
+          "provenance": "epoch",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-05",
+          "tag_exists": true
+        },
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0006-pr-3c09d9d9397f",
+          "completed": true,
+          "kind": "pr",
+          "normative_change": true,
+          "ordinal": 6,
+          "pre_seeded": false,
+          "provenance": "merge_commit",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-06",
+          "tag_exists": true
+        },
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0007-epoch-e48f62850cdb",
+          "completed": true,
+          "kind": "epoch",
+          "normative_change": true,
+          "ordinal": 7,
+          "pre_seeded": false,
+          "provenance": "epoch",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-07",
+          "tag_exists": true
+        },
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0008-pr-5d57a3b2d5ad",
+          "completed": true,
+          "kind": "pr",
+          "normative_change": true,
+          "ordinal": 8,
+          "pre_seeded": false,
+          "provenance": "forge_squash",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-08",
+          "tag_exists": true
+        },
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0009-epoch-993790505b6e",
+          "completed": true,
+          "kind": "epoch",
+          "normative_change": true,
+          "ordinal": 9,
+          "pre_seeded": false,
+          "provenance": "epoch",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-09",
+          "tag_exists": true
+        },
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0010-pr-1a83d7684ff2",
+          "completed": true,
+          "kind": "pr",
+          "normative_change": true,
+          "ordinal": 10,
+          "pre_seeded": false,
+          "provenance": "forge_squash",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-10",
+          "tag_exists": true
+        },
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0011-epoch-d290ebea69fd",
+          "completed": true,
+          "kind": "epoch",
+          "normative_change": true,
+          "ordinal": 11,
+          "pre_seeded": false,
+          "provenance": "epoch",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-11",
+          "tag_exists": true
+        }
+      ],
+      "completed_fraction": 1.0,
+      "cost": {
+        "duration_api_ms": 1429172,
+        "duration_ms": 1508656,
+        "model_usage": {
+          "claude-haiku-4-5-20251001": {
+            "cacheCreationInputTokens": 0,
+            "cacheReadInputTokens": 0,
+            "canonicalModel": "claude-haiku-4-5",
+            "contextWindow": 200000,
+            "costBasis": "list",
+            "costUSD": 0.001163,
+            "inputTokens": 1108,
+            "maxOutputTokens": 32000,
+            "outputTokens": 11,
+            "provider": "firstParty",
+            "webSearchRequests": 0
+          },
+          "claude-opus-5": {
+            "cacheCreationInputTokens": 320602,
+            "cacheReadInputTokens": 31062602,
+            "canonicalModel": "claude-opus-5",
+            "contextWindow": 1000000,
+            "costBasis": "list",
+            "costUSD": 21.366666000000002,
+            "inputTokens": 314,
+            "maxOutputTokens": 64000,
+            "outputTokens": 105111,
+            "provider": "firstParty",
+            "webSearchRequests": 0
+          }
+        },
+        "num_turns": 220,
+        "subtype": "success",
+        "total_cost_usd": 21.367829,
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 320602,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "cache_creation_input_tokens": 320602,
+          "cache_read_input_tokens": 31062602,
+          "inference_geo": "not_available",
+          "input_tokens": 314,
+          "iterations": [
+            {
+              "cache_creation": {
+                "ephemeral_1h_input_tokens": 876,
+                "ephemeral_5m_input_tokens": 0
+              },
+              "cache_creation_input_tokens": 876,
+              "cache_read_input_tokens": 324195,
+              "input_tokens": 2,
+              "output_tokens": 1492,
+              "type": "message"
+            }
+          ],
+          "output_tokens": 105111,
+          "output_tokens_details": {
+            "thinking_tokens": 54678
+          },
+          "server_tool_use": {
+            "web_fetch_requests": 0,
+            "web_search_requests": 0
+          },
+          "service_tier": "standard",
+          "speed": "standard"
+        }
+      },
+      "gates": {
+        "citation_exit": 0,
+        "citation_findings": [],
+        "clean": true,
+        "manifest_exit": 0,
+        "manifest_findings": []
+      },
+      "repeat": 1,
+      "run_id": "B1",
+      "status": {
+        "arm": "B",
+        "budget_hit": false,
+        "claude_version": "2.1.251 (Claude Code)",
+        "exit_code": 0,
+        "finished_at": "2026-08-31T09:45:20+00:00",
+        "guard_sha256": "517de01069e016bd38424613ab26b43e2ca8c3afeaaea646c27dce11ed0888ef",
+        "repeat": 1,
+        "run_id": "B1",
+        "started_at": "2026-08-31T09:20:11+00:00",
+        "timed_out": false
+      },
+      "trajectory": {
+        "auc": 0.5291876243729894,
+        "points": [
+          {
+            "cluster_id": "--help",
+            "completed_so_far": 0,
+            "cumulative_tokens": 270015,
+            "index": 64
+          },
+          {
+            "cluster_id": "c0002-pr-60258445de47",
+            "completed_so_far": 1,
+            "cumulative_tokens": 1789320,
+            "index": 229
+          },
+          {
+            "cluster_id": "c0003-epoch-f731035b44b5",
+            "completed_so_far": 2,
+            "cumulative_tokens": 4333319,
+            "index": 498
+          },
+          {
+            "cluster_id": "c0004-pr-2742b2761af4",
+            "completed_so_far": 3,
+            "cumulative_tokens": 6329636,
+            "index": 563
+          },
+          {
+            "cluster_id": "c0005-epoch-79f631193bdf",
+            "completed_so_far": 4,
+            "cumulative_tokens": 10176241,
+            "index": 775
+          },
+          {
+            "cluster_id": "c0006-pr-3c09d9d9397f",
+            "completed_so_far": 5,
+            "cumulative_tokens": 12980036,
+            "index": 883
+          },
+          {
+            "cluster_id": "c0007-epoch-e48f62850cdb",
+            "completed_so_far": 6,
+            "cumulative_tokens": 16288733,
+            "index": 968
+          },
+          {
+            "cluster_id": "c0008-pr-5d57a3b2d5ad",
+            "completed_so_far": 7,
+            "cumulative_tokens": 19271997,
+            "index": 1039
+          },
+          {
+            "cluster_id": "c0009-epoch-993790505b6e",
+            "completed_so_far": 8,
+            "cumulative_tokens": 22107970,
+            "index": 1098
+          },
+          {
+            "cluster_id": "c0010-pr-1a83d7684ff2",
+            "completed_so_far": 9,
+            "cumulative_tokens": 25366501,
+            "index": 1174
+          },
+          {
+            "cluster_id": "c0011-epoch-d290ebea69fd",
+            "completed_so_far": 10,
+            "cumulative_tokens": 29122745,
+            "index": 1261
+          }
+        ],
+        "tokens_to_first_completion": 1789320,
+        "total_tokens": 31385432
+      },
+      "window_size": 10
+    },
+    "B2": {
+      "arm": "B",
+      "artifacts_fraction": 1.0,
+      "audit": {
+        "api_errors": 0,
+        "arm": "B",
+        "bypass_attempts": {
+          "by_surface": {
+            "bash:mixed": 1,
+            "bash:other": 2
+          },
+          "count": 3,
+          "items": [
+            {
+              "denied": true,
+              "errored": true,
+              "family": "echo",
+              "in_arm": false,
+              "index": 3,
+              "name": "Bash",
+              "path": "",
+              "summary": "command=echo \"PANTHER_REPO=$PANTHER_REPO\"; echo \"ARFC_WORKSPACE=$ARFC_WORKSPACE\"; which arfc; ls /Users/elniak/arfc-experiments/",
+              "surface": "bash:other",
+              "target": ""
+            },
+            {
+              "denied": true,
+              "errored": true,
+              "family": "ls",
+              "in_arm": false,
+              "index": 7,
+              "name": "Bash",
+              "path": "",
+              "summary": "command=ls /Users/elniak/arfc-experiments/profile/projects/-Users-elniak-arfc-experiments-campaigns-pilot-aioquic-w02-11-2026083",
+              "surface": "bash:other",
+              "target": ""
+            },
+            {
+              "denied": true,
+              "errored": true,
+              "family": "arfc",
+              "in_arm": false,
+              "index": 73,
+              "name": "Bash",
+              "path": "",
+              "summary": "command=arfc claim-upsert --help; echo ---; arfc gate --help; echo ---; arfc revision-record --help; echo ---; arfc checkpoint -",
+              "surface": "bash:mixed",
+              "target": ""
+            }
+          ],
+          "result_permission_denials": 3
+        },
+        "compaction_events": 0,
+        "errors": {
+          "class1": 0,
+          "class2": 2,
+          "first_failure_index": 108
+        },
+        "event_count": 1318,
+        "executed_out_of_arm": [],
+        "guard": {
+          "bash_calls": 178,
+          "digest_recorded": true,
+          "expected_no_bash": false,
+          "fired_for_every_bash_call": true,
+          "mounted_sha256": "517de01069e016bd38424613ab26b43e2ca8c3afeaaea646c27dce11ed0888ef",
+          "pretooluse_hook_starts": 178,
+          "recorded_sha256": "517de01069e016bd38424613ab26b43e2ca8c3afeaaea646c27dce11ed0888ef",
+          "unmodified": true
+        },
+        "hand_edits": {
+          "manifest.yaml": 0,
+          "questions.yaml": 0,
+          "revisions.yaml": 1
+        },
+        "integrity": true,
+        "prose_edits": 12,
+        "run_id": "B2",
+        "tool_calls": {
+          "by_surface": {
+            "bash:arfc": 175,
+            "bash:mixed": 1,
+            "bash:other": 2,
+            "edit": 17,
+            "read": 14
+          },
+          "total": 209
+        }
+      },
+      "claims": {
+        "c0002-pr-60258445de47": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 1,
+          "count_by_status": {
+            "confirmed": 0,
+            "gap": 0,
+            "inferred": 1
+          },
+          "count_by_supported": {
+            "inferred": 1
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        },
+        "c0003-epoch-f731035b44b5": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 11,
+          "count_by_status": {
+            "confirmed": 0,
+            "gap": 0,
+            "inferred": 11
+          },
+          "count_by_supported": {
+            "inferred": 11
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        },
+        "c0004-pr-2742b2761af4": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 12,
+          "count_by_status": {
+            "confirmed": 0,
+            "gap": 0,
+            "inferred": 12
+          },
+          "count_by_supported": {
+            "inferred": 12
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        },
+        "c0005-epoch-79f631193bdf": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 21,
+          "count_by_status": {
+            "confirmed": 0,
+            "gap": 0,
+            "inferred": 21
+          },
+          "count_by_supported": {
+            "inferred": 21
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        },
+        "c0006-pr-3c09d9d9397f": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 25,
+          "count_by_status": {
+            "confirmed": 0,
+            "gap": 0,
+            "inferred": 25
+          },
+          "count_by_supported": {
+            "inferred": 25
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        },
+        "c0007-epoch-e48f62850cdb": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 27,
+          "count_by_status": {
+            "confirmed": 0,
+            "gap": 0,
+            "inferred": 27
+          },
+          "count_by_supported": {
+            "inferred": 27
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        },
+        "c0008-pr-5d57a3b2d5ad": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 28,
+          "count_by_status": {
+            "confirmed": 0,
+            "gap": 0,
+            "inferred": 28
+          },
+          "count_by_supported": {
+            "inferred": 28
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        },
+        "c0009-epoch-993790505b6e": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 29,
+          "count_by_status": {
+            "confirmed": 0,
+            "gap": 0,
+            "inferred": 29
+          },
+          "count_by_supported": {
+            "inferred": 29
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        },
+        "c0010-pr-1a83d7684ff2": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 30,
+          "count_by_status": {
+            "confirmed": 0,
+            "gap": 0,
+            "inferred": 30
+          },
+          "count_by_supported": {
+            "inferred": 30
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        },
+        "c0011-epoch-d290ebea69fd": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 31,
+          "count_by_status": {
+            "confirmed": 0,
+            "gap": 0,
+            "inferred": 31
+          },
+          "count_by_supported": {
+            "inferred": 31
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        }
+      },
+      "clusters": [
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0002-pr-60258445de47",
+          "completed": true,
+          "kind": "pr",
+          "normative_change": true,
+          "ordinal": 2,
+          "pre_seeded": false,
+          "provenance": "merge_commit",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-02",
+          "tag_exists": true
+        },
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0003-epoch-f731035b44b5",
+          "completed": true,
+          "kind": "epoch",
+          "normative_change": true,
+          "ordinal": 3,
+          "pre_seeded": false,
+          "provenance": "epoch",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-03",
+          "tag_exists": true
+        },
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0004-pr-2742b2761af4",
+          "completed": true,
+          "kind": "pr",
+          "normative_change": false,
+          "ordinal": 4,
+          "pre_seeded": false,
+          "provenance": "merge_commit",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-04",
+          "tag_exists": true
+        },
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0005-epoch-79f631193bdf",
+          "completed": true,
+          "kind": "epoch",
+          "normative_change": true,
+          "ordinal": 5,
+          "pre_seeded": false,
+          "provenance": "epoch",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-05",
+          "tag_exists": true
+        },
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0006-pr-3c09d9d9397f",
+          "completed": true,
+          "kind": "pr",
+          "normative_change": true,
+          "ordinal": 6,
+          "pre_seeded": false,
+          "provenance": "merge_commit",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-06",
+          "tag_exists": true
+        },
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0007-epoch-e48f62850cdb",
+          "completed": true,
+          "kind": "epoch",
+          "normative_change": true,
+          "ordinal": 7,
+          "pre_seeded": false,
+          "provenance": "epoch",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-07",
+          "tag_exists": true
+        },
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0008-pr-5d57a3b2d5ad",
+          "completed": true,
+          "kind": "pr",
+          "normative_change": true,
+          "ordinal": 8,
+          "pre_seeded": false,
+          "provenance": "forge_squash",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-08",
+          "tag_exists": true
+        },
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0009-epoch-993790505b6e",
+          "completed": true,
+          "kind": "epoch",
+          "normative_change": true,
+          "ordinal": 9,
+          "pre_seeded": false,
+          "provenance": "epoch",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-09",
+          "tag_exists": true
+        },
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0010-pr-1a83d7684ff2",
+          "completed": true,
+          "kind": "pr",
+          "normative_change": true,
+          "ordinal": 10,
+          "pre_seeded": false,
+          "provenance": "forge_squash",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-10",
+          "tag_exists": true
+        },
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0011-epoch-d290ebea69fd",
+          "completed": true,
+          "kind": "epoch",
+          "normative_change": true,
+          "ordinal": 11,
+          "pre_seeded": false,
+          "provenance": "epoch",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-11",
+          "tag_exists": true
+        }
+      ],
+      "completed_fraction": 1.0,
+      "cost": {
+        "duration_api_ms": 1478860,
+        "duration_ms": 1577752,
+        "model_usage": {
+          "claude-haiku-4-5-20251001": {
+            "cacheCreationInputTokens": 0,
+            "cacheReadInputTokens": 0,
+            "canonicalModel": "claude-haiku-4-5",
+            "contextWindow": 200000,
+            "costBasis": "list",
+            "costUSD": 0.001163,
+            "inputTokens": 1108,
+            "maxOutputTokens": 32000,
+            "outputTokens": 11,
+            "provider": "firstParty",
+            "webSearchRequests": 0
+          },
+          "claude-opus-5": {
+            "cacheCreationInputTokens": 294254,
+            "cacheReadInputTokens": 37047483,
+            "canonicalModel": "claude-opus-5",
+            "contextWindow": 1000000,
+            "costBasis": "list",
+            "costUSD": 24.099021499999992,
+            "inputTokens": 398,
+            "maxOutputTokens": 64000,
+            "outputTokens": 105230,
+            "provider": "firstParty",
+            "webSearchRequests": 0
+          }
+        },
+        "num_turns": 210,
+        "subtype": "success",
+        "total_cost_usd": 24.10018449999999,
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 294254,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "cache_creation_input_tokens": 294254,
+          "cache_read_input_tokens": 37047483,
+          "inference_geo": "not_available",
+          "input_tokens": 398,
+          "iterations": [
+            {
+              "cache_creation": {
+                "ephemeral_1h_input_tokens": 143,
+                "ephemeral_5m_input_tokens": 0
+              },
+              "cache_creation_input_tokens": 143,
+              "cache_read_input_tokens": 298580,
+              "input_tokens": 2,
+              "output_tokens": 2242,
+              "type": "message"
+            }
+          ],
+          "output_tokens": 105230,
+          "output_tokens_details": {
+            "thinking_tokens": 55101
+          },
+          "server_tool_use": {
+            "web_fetch_requests": 0,
+            "web_search_requests": 0
+          },
+          "service_tier": "standard",
+          "speed": "standard"
+        }
+      },
+      "gates": {
+        "citation_exit": 0,
+        "citation_findings": [],
+        "clean": true,
+        "manifest_exit": 0,
+        "manifest_findings": []
+      },
+      "repeat": 2,
+      "run_id": "B2",
+      "status": {
+        "arm": "B",
+        "budget_hit": false,
+        "claude_version": "2.1.251 (Claude Code)",
+        "exit_code": 0,
+        "finished_at": "2026-08-31T11:49:14+00:00",
+        "guard_sha256": "517de01069e016bd38424613ab26b43e2ca8c3afeaaea646c27dce11ed0888ef",
+        "repeat": 2,
+        "run_id": "B2",
+        "started_at": "2026-08-31T11:22:56+00:00",
+        "timed_out": false
+      },
+      "trajectory": {
+        "auc": 0.5160865065195517,
+        "points": [
+          {
+            "cluster_id": "c0002-pr-60258445de47",
+            "completed_so_far": 1,
+            "cumulative_tokens": 900957,
+            "index": 154
+          },
+          {
+            "cluster_id": "c0003-epoch-f731035b44b5",
+            "completed_so_far": 2,
+            "cumulative_tokens": 3381422,
+            "index": 384
+          },
+          {
+            "cluster_id": "c0004-pr-2742b2761af4",
+            "completed_so_far": 3,
+            "cumulative_tokens": 4864425,
+            "index": 451
+          },
+          {
+            "cluster_id": "c0005-epoch-79f631193bdf",
+            "completed_so_far": 4,
+            "cumulative_tokens": 14582478,
+            "index": 836
+          },
+          {
+            "cluster_id": "c0006-pr-3c09d9d9397f",
+            "completed_so_far": 5,
+            "cumulative_tokens": 18013633,
+            "index": 927
+          },
+          {
+            "cluster_id": "c0007-epoch-e48f62850cdb",
+            "completed_so_far": 6,
+            "cumulative_tokens": 21212054,
+            "index": 997
+          },
+          {
+            "cluster_id": "c0008-pr-5d57a3b2d5ad",
+            "completed_so_far": 7,
+            "cumulative_tokens": 24330637,
+            "index": 1063
+          },
+          {
+            "cluster_id": "c0009-epoch-993790505b6e",
+            "completed_so_far": 8,
+            "cumulative_tokens": 27849893,
+            "index": 1129
+          },
+          {
+            "cluster_id": "c0010-pr-1a83d7684ff2",
+            "completed_so_far": 9,
+            "cumulative_tokens": 31204091,
+            "index": 1191
+          },
+          {
+            "cluster_id": "c0011-epoch-d290ebea69fd",
+            "completed_so_far": 10,
+            "cumulative_tokens": 34376675,
+            "index": 1256
+          }
+        ],
+        "tokens_to_first_completion": 900957,
+        "total_tokens": 37344746
+      },
+      "window_size": 10
+    },
+    "C1": {
+      "arm": "C",
+      "artifacts_fraction": 1.0,
+      "audit": {
+        "api_errors": 0,
+        "arm": "C",
+        "bypass_attempts": {
+          "by_surface": {
+            "bash:mixed": 2,
+            "bash:other": 3
+          },
+          "count": 5,
+          "items": [
+            {
+              "denied": true,
+              "errored": true,
+              "family": "echo",
+              "in_arm": false,
+              "index": 3,
+              "name": "Bash",
+              "path": "",
+              "summary": "command=echo \"PANTHER_REPO=$PANTHER_REPO\"; echo \"ARFC_WORKSPACE=$ARFC_WORKSPACE\"; ls /Users/elniak/arfc-experiments/campaigns/pi",
+              "surface": "bash:other",
+              "target": ""
+            },
+            {
+              "denied": true,
+              "errored": true,
+              "family": "ls",
+              "in_arm": false,
+              "index": 7,
+              "name": "Bash",
+              "path": "",
+              "summary": "command=ls /Users/elniak/arfc-experiments/profile/projects/-Users-elniak-arfc-experiments-campaigns-pilot-aioquic-w02-11-2026083",
+              "surface": "bash:other",
+              "target": ""
+            },
+            {
+              "denied": true,
+              "errored": true,
+              "family": "head",
+              "in_arm": false,
+              "index": 26,
+              "name": "Bash",
+              "path": "",
+              "summary": "command=head -c 4000 /Users/elniak/arfc-experiments/campaigns/pilot-aioquic-w02-11-20260831/runs/C1/workspace/timeline/clusters.",
+              "surface": "bash:other",
+              "target": ""
+            },
+            {
+              "denied": true,
+              "errored": true,
+              "family": "git",
+              "in_arm": false,
+              "index": 51,
+              "name": "Bash",
+              "path": "",
+              "summary": "command=git -C /Users/elniak/arfc-experiments/campaigns/pilot-aioquic-w02-11-20260831/runs/C1/workspace/draft log --oneline -5; ",
+              "surface": "bash:mixed",
+              "target": ""
+            },
+            {
+              "denied": true,
+              "errored": true,
+              "family": "git",
+              "in_arm": false,
+              "index": 143,
+              "name": "Bash",
+              "path": "",
+              "summary": "command=git -C /Users/elniak/arfc-experiments/campaigns/pilot-aioquic-w02-11-20260831/runs/C1/workspace/clone show 60258445de472",
+              "surface": "bash:mixed",
+              "target": ""
+            }
+          ],
+          "result_permission_denials": 5
+        },
+        "compaction_events": 0,
+        "errors": {
+          "class1": 0,
+          "class2": 2,
+          "first_failure_index": 174
+        },
+        "event_count": 1139,
+        "executed_out_of_arm": [],
+        "guard": {
+          "bash_calls": 120,
+          "digest_recorded": true,
+          "expected_no_bash": false,
+          "fired_for_every_bash_call": true,
+          "mounted_sha256": "e1fa05c6866682caa1a2c6fea14cdbc9a2bff19520f8db23ad19aebdf8cf412d",
+          "pretooluse_hook_starts": 120,
+          "recorded_sha256": "e1fa05c6866682caa1a2c6fea14cdbc9a2bff19520f8db23ad19aebdf8cf412d",
+          "unmodified": true
+        },
+        "hand_edits": {
+          "manifest.yaml": 30,
+          "questions.yaml": 1,
+          "revisions.yaml": 10
+        },
+        "integrity": true,
+        "prose_edits": 9,
+        "run_id": "C1",
+        "tool_calls": {
+          "by_surface": {
+            "bash:git": 73,
+            "bash:mixed": 3,
+            "bash:other": 3,
+            "bash:python_a_rfc": 41,
+            "edit": 53,
+            "read": 82
+          },
+          "total": 255
+        }
+      },
+      "claims": {
+        "c0002-pr-60258445de47": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 1,
+          "count_by_status": {
+            "confirmed": 1,
+            "gap": 0,
+            "inferred": 0
+          },
+          "count_by_supported": {
+            "confirmed": 1
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        },
+        "c0003-epoch-f731035b44b5": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 3,
+          "count_by_status": {
+            "confirmed": 3,
+            "gap": 0,
+            "inferred": 0
+          },
+          "count_by_supported": {
+            "confirmed": 3
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        },
+        "c0004-pr-2742b2761af4": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 4,
+          "count_by_status": {
+            "confirmed": 4,
+            "gap": 0,
+            "inferred": 0
+          },
+          "count_by_supported": {
+            "confirmed": 4
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        },
+        "c0005-epoch-79f631193bdf": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 8,
+          "count_by_status": {
+            "confirmed": 7,
+            "gap": 0,
+            "inferred": 1
+          },
+          "count_by_supported": {
+            "confirmed": 7,
+            "inferred": 1
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        },
+        "c0006-pr-3c09d9d9397f": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 12,
+          "count_by_status": {
+            "confirmed": 11,
+            "gap": 0,
+            "inferred": 1
+          },
+          "count_by_supported": {
+            "confirmed": 11,
+            "inferred": 1
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        },
+        "c0007-epoch-e48f62850cdb": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 14,
+          "count_by_status": {
+            "confirmed": 13,
+            "gap": 0,
+            "inferred": 1
+          },
+          "count_by_supported": {
+            "confirmed": 13,
+            "inferred": 1
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        },
+        "c0008-pr-5d57a3b2d5ad": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 16,
+          "count_by_status": {
+            "confirmed": 14,
+            "gap": 0,
+            "inferred": 2
+          },
+          "count_by_supported": {
+            "confirmed": 14,
+            "inferred": 2
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        },
+        "c0009-epoch-993790505b6e": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 17,
+          "count_by_status": {
+            "confirmed": 15,
+            "gap": 0,
+            "inferred": 2
+          },
+          "count_by_supported": {
+            "confirmed": 15,
+            "inferred": 2
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        },
+        "c0010-pr-1a83d7684ff2": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 18,
+          "count_by_status": {
+            "confirmed": 16,
+            "gap": 0,
+            "inferred": 2
+          },
+          "count_by_supported": {
+            "confirmed": 16,
+            "inferred": 2
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        },
+        "c0011-epoch-d290ebea69fd": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 18,
+          "count_by_status": {
+            "confirmed": 16,
+            "gap": 0,
+            "inferred": 2
+          },
+          "count_by_supported": {
+            "confirmed": 16,
+            "inferred": 2
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        }
+      },
+      "clusters": [
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0002-pr-60258445de47",
+          "completed": true,
+          "kind": "pr",
+          "normative_change": false,
+          "ordinal": 2,
+          "pre_seeded": false,
+          "provenance": "merge_commit",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-02",
+          "tag_exists": true
+        },
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0003-epoch-f731035b44b5",
+          "completed": true,
+          "kind": "epoch",
+          "normative_change": true,
+          "ordinal": 3,
+          "pre_seeded": false,
+          "provenance": "epoch",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-03",
+          "tag_exists": true
+        },
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0004-pr-2742b2761af4",
+          "completed": true,
+          "kind": "pr",
+          "normative_change": true,
+          "ordinal": 4,
+          "pre_seeded": false,
+          "provenance": "merge_commit",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-04",
+          "tag_exists": true
+        },
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0005-epoch-79f631193bdf",
+          "completed": true,
+          "kind": "epoch",
+          "normative_change": true,
+          "ordinal": 5,
+          "pre_seeded": false,
+          "provenance": "epoch",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-05",
+          "tag_exists": true
+        },
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0006-pr-3c09d9d9397f",
+          "completed": true,
+          "kind": "pr",
+          "normative_change": true,
+          "ordinal": 6,
+          "pre_seeded": false,
+          "provenance": "merge_commit",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-06",
+          "tag_exists": true
+        },
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0007-epoch-e48f62850cdb",
+          "completed": true,
+          "kind": "epoch",
+          "normative_change": true,
+          "ordinal": 7,
+          "pre_seeded": false,
+          "provenance": "epoch",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-07",
+          "tag_exists": true
+        },
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0008-pr-5d57a3b2d5ad",
+          "completed": true,
+          "kind": "pr",
+          "normative_change": true,
+          "ordinal": 8,
+          "pre_seeded": false,
+          "provenance": "forge_squash",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-08",
+          "tag_exists": true
+        },
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0009-epoch-993790505b6e",
+          "completed": true,
+          "kind": "epoch",
+          "normative_change": true,
+          "ordinal": 9,
+          "pre_seeded": false,
+          "provenance": "epoch",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-09",
+          "tag_exists": true
+        },
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0010-pr-1a83d7684ff2",
+          "completed": true,
+          "kind": "pr",
+          "normative_change": true,
+          "ordinal": 10,
+          "pre_seeded": false,
+          "provenance": "forge_squash",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-10",
+          "tag_exists": true
+        },
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0011-epoch-d290ebea69fd",
+          "completed": true,
+          "kind": "epoch",
+          "normative_change": false,
+          "ordinal": 11,
+          "pre_seeded": false,
+          "provenance": "epoch",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-11",
+          "tag_exists": true
+        }
+      ],
+      "completed_fraction": 1.0,
+      "cost": {
+        "duration_api_ms": 1380374,
+        "duration_ms": 1424243,
+        "model_usage": {
+          "claude-haiku-4-5-20251001": {
+            "cacheCreationInputTokens": 0,
+            "cacheReadInputTokens": 0,
+            "canonicalModel": "claude-haiku-4-5",
+            "contextWindow": 200000,
+            "costBasis": "list",
+            "costUSD": 0.001173,
+            "inputTokens": 1108,
+            "maxOutputTokens": 32000,
+            "outputTokens": 13,
+            "provider": "firstParty",
+            "webSearchRequests": 0
+          },
+          "claude-opus-5": {
+            "cacheCreationInputTokens": 238354,
+            "cacheReadInputTokens": 36260054,
+            "canonicalModel": "claude-opus-5",
+            "contextWindow": 1000000,
+            "costBasis": "list",
+            "costUSD": 22.814851999999973,
+            "inputTokens": 432,
+            "maxOutputTokens": 64000,
+            "outputTokens": 91965,
+            "provider": "firstParty",
+            "webSearchRequests": 0
+          }
+        },
+        "num_turns": 256,
+        "subtype": "success",
+        "total_cost_usd": 22.816024999999975,
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 238354,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "cache_creation_input_tokens": 238354,
+          "cache_read_input_tokens": 36260054,
+          "inference_geo": "not_available",
+          "input_tokens": 432,
+          "iterations": [
+            {
+              "cache_creation": {
+                "ephemeral_1h_input_tokens": 484,
+                "ephemeral_5m_input_tokens": 0
+              },
+              "cache_creation_input_tokens": 484,
+              "cache_read_input_tokens": 242339,
+              "input_tokens": 2,
+              "output_tokens": 1800,
+              "type": "message"
+            }
+          ],
+          "output_tokens": 91965,
+          "output_tokens_details": {
+            "thinking_tokens": 27949
+          },
+          "server_tool_use": {
+            "web_fetch_requests": 0,
+            "web_search_requests": 0
+          },
+          "service_tier": "standard",
+          "speed": "standard"
+        }
+      },
+      "gates": {
+        "citation_exit": 0,
+        "citation_findings": [],
+        "clean": true,
+        "manifest_exit": 0,
+        "manifest_findings": []
+      },
+      "repeat": 1,
+      "run_id": "C1",
+      "status": {
+        "arm": "C",
+        "budget_hit": false,
+        "claude_version": "2.1.251 (Claude Code)",
+        "exit_code": 0,
+        "finished_at": "2026-08-31T10:31:05+00:00",
+        "guard_sha256": "e1fa05c6866682caa1a2c6fea14cdbc9a2bff19520f8db23ad19aebdf8cf412d",
+        "repeat": 1,
+        "run_id": "C1",
+        "started_at": "2026-08-31T10:07:21+00:00",
+        "timed_out": false
+      },
+      "trajectory": {
+        "auc": 0.47130276199332716,
+        "points": [
+          {
+            "cluster_id": "c0002-pr-60258445de47",
+            "completed_so_far": 1,
+            "cumulative_tokens": 4671608,
+            "index": 414
+          },
+          {
+            "cluster_id": "c0003-epoch-f731035b44b5",
+            "completed_so_far": 2,
+            "cumulative_tokens": 7052898,
+            "index": 525
+          },
+          {
+            "cluster_id": "c0004-pr-2742b2761af4",
+            "completed_so_far": 3,
+            "cumulative_tokens": 9654573,
+            "index": 592
+          },
+          {
+            "cluster_id": "c0005-epoch-79f631193bdf",
+            "completed_so_far": 4,
+            "cumulative_tokens": 13645792,
+            "index": 707
+          },
+          {
+            "cluster_id": "c0006-pr-3c09d9d9397f",
+            "completed_so_far": 5,
+            "cumulative_tokens": 17017224,
+            "index": 781
+          },
+          {
+            "cluster_id": "c0007-epoch-e48f62850cdb",
+            "completed_so_far": 6,
+            "cumulative_tokens": 20453212,
+            "index": 850
+          },
+          {
+            "cluster_id": "c0008-pr-5d57a3b2d5ad",
+            "completed_so_far": 7,
+            "cumulative_tokens": 24716789,
+            "index": 931
+          },
+          {
+            "cluster_id": "c0009-epoch-993790505b6e",
+            "completed_so_far": 8,
+            "cumulative_tokens": 28282607,
+            "index": 992
+          },
+          {
+            "cluster_id": "c0010-pr-1a83d7684ff2",
+            "completed_so_far": 9,
+            "cumulative_tokens": 32436573,
+            "index": 1060
+          },
+          {
+            "cluster_id": "c0011-epoch-d290ebea69fd",
+            "completed_so_far": 10,
+            "cumulative_tokens": 35050956,
+            "index": 1114
+          }
+        ],
+        "tokens_to_first_completion": 4671608,
+        "total_tokens": 36501464
+      },
+      "window_size": 10
+    },
+    "C2": {
+      "arm": "C",
+      "artifacts_fraction": 1.0,
+      "audit": {
+        "api_errors": 0,
+        "arm": "C",
+        "bypass_attempts": {
+          "by_surface": {
+            "bash:mixed": 1,
+            "bash:other": 2
+          },
+          "count": 3,
+          "items": [
+            {
+              "denied": true,
+              "errored": true,
+              "family": "echo",
+              "in_arm": false,
+              "index": 3,
+              "name": "Bash",
+              "path": "",
+              "summary": "command=echo \"PANTHER_REPO=$PANTHER_REPO\"; echo \"ARFC_WORKSPACE=$ARFC_WORKSPACE\"; ls -la /Users/elniak/arfc-experiments/campaign",
+              "surface": "bash:other",
+              "target": ""
+            },
+            {
+              "denied": true,
+              "errored": true,
+              "family": "cat",
+              "in_arm": false,
+              "index": 7,
+              "name": "Bash",
+              "path": "",
+              "summary": "command=cat /Users/elniak/arfc-experiments/profile/projects/-Users-elniak-arfc-experiments-campaigns-pilot-aioquic-w02-11-202608",
+              "surface": "bash:other",
+              "target": ""
+            },
+            {
+              "denied": true,
+              "errored": true,
+              "family": "python",
+              "in_arm": false,
+              "index": 125,
+              "name": "Bash",
+              "path": "",
+              "summary": "command=python -m panther.plugins.services.testers.a_rfc manifest.yaml --out out --repo clone; echo \"EXIT=$?\"",
+              "surface": "bash:mixed",
+              "target": ""
+            }
+          ],
+          "result_permission_denials": 3
+        },
+        "compaction_events": 0,
+        "errors": {
+          "class1": 0,
+          "class2": 3,
+          "first_failure_index": 132
+        },
+        "event_count": 1098,
+        "executed_out_of_arm": [],
+        "guard": {
+          "bash_calls": 110,
+          "digest_recorded": true,
+          "expected_no_bash": false,
+          "fired_for_every_bash_call": true,
+          "mounted_sha256": "e1fa05c6866682caa1a2c6fea14cdbc9a2bff19520f8db23ad19aebdf8cf412d",
+          "pretooluse_hook_starts": 110,
+          "recorded_sha256": "e1fa05c6866682caa1a2c6fea14cdbc9a2bff19520f8db23ad19aebdf8cf412d",
+          "unmodified": true
+        },
+        "hand_edits": {
+          "manifest.yaml": 33,
+          "questions.yaml": 3,
+          "revisions.yaml": 10
+        },
+        "integrity": true,
+        "prose_edits": 10,
+        "run_id": "C2",
+        "tool_calls": {
+          "by_surface": {
+            "bash:git": 66,
+            "bash:mixed": 1,
+            "bash:other": 2,
+            "bash:python_a_rfc": 39,
+            "bash:sqlite3": 2,
+            "edit": 60,
+            "read": 79
+          },
+          "total": 249
+        }
+      },
+      "claims": {
+        "c0002-pr-60258445de47": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 0,
+          "count_by_status": {
+            "confirmed": 0,
+            "gap": 0,
+            "inferred": 0
+          },
+          "count_by_supported": {},
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        },
+        "c0003-epoch-f731035b44b5": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 8,
+          "count_by_status": {
+            "confirmed": 7,
+            "gap": 0,
+            "inferred": 1
+          },
+          "count_by_supported": {
+            "confirmed": 7,
+            "inferred": 1
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        },
+        "c0004-pr-2742b2761af4": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 8,
+          "count_by_status": {
+            "confirmed": 7,
+            "gap": 0,
+            "inferred": 1
+          },
+          "count_by_supported": {
+            "confirmed": 7,
+            "inferred": 1
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        },
+        "c0005-epoch-79f631193bdf": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 18,
+          "count_by_status": {
+            "confirmed": 17,
+            "gap": 0,
+            "inferred": 1
+          },
+          "count_by_supported": {
+            "confirmed": 17,
+            "inferred": 1
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        },
+        "c0006-pr-3c09d9d9397f": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 25,
+          "count_by_status": {
+            "confirmed": 24,
+            "gap": 0,
+            "inferred": 1
+          },
+          "count_by_supported": {
+            "confirmed": 24,
+            "inferred": 1
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        },
+        "c0007-epoch-e48f62850cdb": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 28,
+          "count_by_status": {
+            "confirmed": 26,
+            "gap": 0,
+            "inferred": 2
+          },
+          "count_by_supported": {
+            "confirmed": 26,
+            "inferred": 2
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        },
+        "c0008-pr-5d57a3b2d5ad": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 29,
+          "count_by_status": {
+            "confirmed": 27,
+            "gap": 0,
+            "inferred": 2
+          },
+          "count_by_supported": {
+            "confirmed": 27,
+            "inferred": 2
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        },
+        "c0009-epoch-993790505b6e": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 30,
+          "count_by_status": {
+            "confirmed": 28,
+            "gap": 0,
+            "inferred": 2
+          },
+          "count_by_supported": {
+            "confirmed": 28,
+            "inferred": 2
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        },
+        "c0010-pr-1a83d7684ff2": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 31,
+          "count_by_status": {
+            "confirmed": 29,
+            "gap": 0,
+            "inferred": 2
+          },
+          "count_by_supported": {
+            "confirmed": 29,
+            "inferred": 2
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        },
+        "c0011-epoch-d290ebea69fd": {
+          "checked_fraction_by_req_class": {
+            "algorithmic": 0.0,
+            "data-model": 0.0,
+            "protocol-behavioral": 0.0
+          },
+          "claim_count": 31,
+          "count_by_status": {
+            "confirmed": 29,
+            "gap": 0,
+            "inferred": 2
+          },
+          "count_by_supported": {
+            "confirmed": 29,
+            "inferred": 2
+          },
+          "promotable_count": 0,
+          "unverified_anchors": 0,
+          "violations": 0
+        }
+      },
+      "clusters": [
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0002-pr-60258445de47",
+          "completed": true,
+          "kind": "pr",
+          "normative_change": false,
+          "ordinal": 2,
+          "pre_seeded": false,
+          "provenance": "merge_commit",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-02",
+          "tag_exists": true
+        },
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0003-epoch-f731035b44b5",
+          "completed": true,
+          "kind": "epoch",
+          "normative_change": true,
+          "ordinal": 3,
+          "pre_seeded": false,
+          "provenance": "epoch",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-03",
+          "tag_exists": true
+        },
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0004-pr-2742b2761af4",
+          "completed": true,
+          "kind": "pr",
+          "normative_change": false,
+          "ordinal": 4,
+          "pre_seeded": false,
+          "provenance": "merge_commit",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-04",
+          "tag_exists": true
+        },
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0005-epoch-79f631193bdf",
+          "completed": true,
+          "kind": "epoch",
+          "normative_change": true,
+          "ordinal": 5,
+          "pre_seeded": false,
+          "provenance": "epoch",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-05",
+          "tag_exists": true
+        },
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0006-pr-3c09d9d9397f",
+          "completed": true,
+          "kind": "pr",
+          "normative_change": true,
+          "ordinal": 6,
+          "pre_seeded": false,
+          "provenance": "merge_commit",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-06",
+          "tag_exists": true
+        },
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0007-epoch-e48f62850cdb",
+          "completed": true,
+          "kind": "epoch",
+          "normative_change": true,
+          "ordinal": 7,
+          "pre_seeded": false,
+          "provenance": "epoch",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-07",
+          "tag_exists": true
+        },
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0008-pr-5d57a3b2d5ad",
+          "completed": true,
+          "kind": "pr",
+          "normative_change": true,
+          "ordinal": 8,
+          "pre_seeded": false,
+          "provenance": "forge_squash",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-08",
+          "tag_exists": true
+        },
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0009-epoch-993790505b6e",
+          "completed": true,
+          "kind": "epoch",
+          "normative_change": true,
+          "ordinal": 9,
+          "pre_seeded": false,
+          "provenance": "epoch",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-09",
+          "tag_exists": true
+        },
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0010-pr-1a83d7684ff2",
+          "completed": true,
+          "kind": "pr",
+          "normative_change": true,
+          "ordinal": 10,
+          "pre_seeded": false,
+          "provenance": "forge_squash",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-10",
+          "tag_exists": true
+        },
+        {
+          "artifacts": true,
+          "checkpoint": true,
+          "cluster_id": "c0011-epoch-d290ebea69fd",
+          "completed": true,
+          "kind": "epoch",
+          "normative_change": false,
+          "ordinal": 11,
+          "pre_seeded": false,
+          "provenance": "epoch",
+          "revision_tag": "draft-elniak-aioquic-reconstructed-11",
+          "tag_exists": true
+        }
+      ],
+      "completed_fraction": 1.0,
+      "cost": {
+        "duration_api_ms": 1460178,
+        "duration_ms": 1510537,
+        "model_usage": {
+          "claude-haiku-4-5-20251001": {
+            "cacheCreationInputTokens": 0,
+            "cacheReadInputTokens": 0,
+            "canonicalModel": "claude-haiku-4-5",
+            "contextWindow": 200000,
+            "costBasis": "list",
+            "costUSD": 0.001163,
+            "inputTokens": 1108,
+            "maxOutputTokens": 32000,
+            "outputTokens": 11,
+            "provider": "firstParty",
+            "webSearchRequests": 0
+          },
+          "claude-opus-5": {
+            "cacheCreationInputTokens": 264045,
+            "cacheReadInputTokens": 38692629,
+            "canonicalModel": "claude-opus-5",
+            "contextWindow": 1000000,
+            "costBasis": "list",
+            "costUSD": 24.412189499999997,
+            "inputTokens": 420,
+            "maxOutputTokens": 64000,
+            "outputTokens": 96933,
+            "provider": "firstParty",
+            "webSearchRequests": 0
+          }
+        },
+        "num_turns": 250,
+        "subtype": "success",
+        "total_cost_usd": 24.413352500000002,
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 264045,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "cache_creation_input_tokens": 264045,
+          "cache_read_input_tokens": 38692629,
+          "inference_geo": "not_available",
+          "input_tokens": 420,
+          "iterations": [
+            {
+              "cache_creation": {
+                "ephemeral_1h_input_tokens": 316,
+                "ephemeral_5m_input_tokens": 0
+              },
+              "cache_creation_input_tokens": 316,
+              "cache_read_input_tokens": 268198,
+              "input_tokens": 2,
+              "output_tokens": 1502,
+              "type": "message"
+            }
+          ],
+          "output_tokens": 96933,
+          "output_tokens_details": {
+            "thinking_tokens": 24675
+          },
+          "server_tool_use": {
+            "web_fetch_requests": 0,
+            "web_search_requests": 0
+          },
+          "service_tier": "standard",
+          "speed": "standard"
+        }
+      },
+      "gates": {
+        "citation_exit": 0,
+        "citation_findings": [],
+        "clean": true,
+        "manifest_exit": 0,
+        "manifest_findings": []
+      },
+      "repeat": 2,
+      "run_id": "C2",
+      "status": {
+        "arm": "C",
+        "budget_hit": false,
+        "claude_version": "2.1.251 (Claude Code)",
+        "exit_code": 0,
+        "finished_at": "2026-08-31T11:22:55+00:00",
+        "guard_sha256": "e1fa05c6866682caa1a2c6fea14cdbc9a2bff19520f8db23ad19aebdf8cf412d",
+        "repeat": 2,
+        "run_id": "C2",
+        "started_at": "2026-08-31T10:57:44+00:00",
+        "timed_out": false
+      },
+      "trajectory": {
+        "auc": 0.47986665460630273,
+        "points": [
+          {
+            "cluster_id": "c0002-pr-60258445de47",
+            "completed_so_far": 1,
+            "cumulative_tokens": 3245472,
+            "index": 260
+          },
+          {
+            "cluster_id": "c0003-epoch-f731035b44b5",
+            "completed_so_far": 2,
+            "cumulative_tokens": 7179848,
+            "index": 441
+          },
+          {
+            "cluster_id": "c0004-pr-2742b2761af4",
+            "completed_so_far": 3,
+            "cumulative_tokens": 9177635,
+            "index": 499
+          },
+          {
+            "cluster_id": "c0005-epoch-79f631193bdf",
+            "completed_so_far": 4,
+            "cumulative_tokens": 14731102,
+            "index": 675
+          },
+          {
+            "cluster_id": "c0006-pr-3c09d9d9397f",
+            "completed_so_far": 5,
+            "cumulative_tokens": 17730228,
+            "index": 744
+          },
+          {
+            "cluster_id": "c0007-epoch-e48f62850cdb",
+            "completed_so_far": 6,
+            "cumulative_tokens": 22400687,
+            "index": 836
+          },
+          {
+            "cluster_id": "c0008-pr-5d57a3b2d5ad",
+            "completed_so_far": 7,
+            "cumulative_tokens": 25956359,
+            "index": 895
+          },
+          {
+            "cluster_id": "c0009-epoch-993790505b6e",
+            "completed_so_far": 8,
+            "cumulative_tokens": 30393496,
+            "index": 964
+          },
+          {
+            "cluster_id": "c0010-pr-1a83d7684ff2",
+            "completed_so_far": 9,
+            "cumulative_tokens": 34472528,
+            "index": 1024
+          },
+          {
+            "cluster_id": "c0011-epoch-d290ebea69fd",
+            "completed_so_far": 10,
+            "cumulative_tokens": 37354391,
+            "index": 1073
+          }
+        ],
+        "tokens_to_first_completion": 3245472,
+        "total_tokens": 38959576
+      },
+      "window_size": 10
+    }
+  },
+  "target": "aioquic",
+  "window": [
+    2,
+    11
+  ]
+}

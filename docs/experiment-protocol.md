@@ -95,6 +95,45 @@ Expectation-setting, so the headline is honest before the first run: the coded e
 - [ ] Statistical plan: non-parametric tests, effect sizes, multiplicity handling.
 - [ ] Cache-accounting method and cost-computation formula.
 - [ ] Parity-suite results attached (pre-run); commitment to re-run post-experiment.
+
+### Pilot-derived defaults (2026-08-31)
+
+From the aioquic pilot, `pilot-aioquic-w02-11-20260831`; full report at
+`docs/experiments/2026-08-31-pilot-aioquic.md`. Each entry is marked **from the pilot** or
+**unchanged from the protocol**.
+
+- **k (repeats per cell)**: 3 — *from the pilot*, provisionally. At k = 2 the primary
+  outcome had zero variance (see the task window entry), so k buys precision only on the
+  cost metrics until the primary metric is reconsidered.
+- **Per-run budget cap**: raise above $25 — *from the pilot*. Mean spend was $21.80 and two
+  of six runs landed within $1 of the cap without hitting it.
+- **Timeout**: 7200 s — *unchanged from the protocol*. The slowest run used 22% of it.
+- **Task window(s)**: cluster ordinals 2–11 on aioquic was **too easy to discriminate arms**
+  — *from the pilot*. All three arms completed 10/10 in both repeats, so
+  `completed_fraction` was 1.000 with zero variance. The main run must widen the window,
+  pick a denser target, or promote a metric that did vary (`cost_per_completed_cluster`,
+  `tokens_to_first_completion`, AUC, hand-edit count) to primary.
+- **Exclusion rule for integrity-violated runs**: *unchanged from the protocol*, with one
+  addition *from the pilot* — a run is excluded only after the guard's verdict and the
+  audit's verdict are confirmed to agree on the offending call. The pilot's one apparent
+  violation was an instrument defect, not a run defect.
+- **Enforcement configuration per arm**: *unchanged from the protocol*. A: read tools plus
+  16 `mcp__arfc__*`, no Bash. B: read tools plus `Bash(arfc *)`. C: read tools plus
+  `Bash(python -m panther…a_rfc*)`, `Bash(git *)`, `Bash(sqlite3 *)`. Enforced by a
+  `PreToolUse` hook, because `--allowedTools` does not confine a built-in tool.
+- **Model and harness**: `claude-opus-5`, effort `high`, `claude --version`
+  **2.1.251 (Claude Code)** — *from the pilot*. Re-run the S0 spike whenever the CLI moves;
+  the enforcement mechanism is a measured property of the CLI, not a contract.
+- **Prompt digests** (sha256, frozen): `arm-A.md` `15dd983b…2552ba`, `arm-B.md`
+  `a3128ee4…9d3aa`, `arm-C.md` `967a434b…8ead33`, `task.md` `05e731d3…f84539` — *from the
+  pilot*. No prompt change is indicated, so no re-freeze is required.
+- **Parity pre/post**: passed both — `7 passed in 3.56s` before, `7 passed in 3.77s` after —
+  *from the pilot*. Treat as weak evidence pending better coverage: the suite's completeness
+  check is a name-grep and only 5 of 16 documented rows carry a cross-arm behavioural
+  assertion.
+- **Cache accounting**: cache reads and creation were **99.68%** of 198.8 M tokens — *from
+  the pilot*. Confirms cache-adjusted billed cost as the primary cost metric and raw token
+  counts as secondary.
 - [ ] Reporting commitments: assignment-integrity rate per cell, failure-cost share per arm, bypass-attempt taxonomy, raw gate-exit counts with uncertainty, API-condition log.
 
 ---

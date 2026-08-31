@@ -1,0 +1,63 @@
+--- arm-A
++++ arm-B
+@@ -6,11 +6,11 @@
+ 
+ The evidence-hygiene, RFC-style and claim-citation rules follow this procedure; apply them throughout.
+ 
+-This session has no shell: drive the workspace with the `arfc_*` MCP tools, exactly as named below, and edit prose with the Edit/Write tools.
++This session has no MCP server: drive the workspace with the `arfc` command through Bash, exactly as written below.
+ 
+ ## Preconditions
+ 
+-- `PANTHER_REPO` and `ARFC_WORKSPACE` are set; the `arfc` MCP server is connected and reads both variables.
++- `PANTHER_REPO` and `ARFC_WORKSPACE` are set; `arfc` is on `PATH` and reads both variables.
+ - The workspace holds `corpus/`, `timeline/`, `clusters/` and the pinned
+   `clone/`. When a forge snapshot exists, the timeline MUST have been built
+   with `--forge` **before any checkpoint is written** — forge data
+@@ -18,33 +18,33 @@
+ 
+ ## One iteration
+ 
+-1. **Pick the next cluster**: `arfc_cluster_next` (returns the lowest-ordinal cluster with neither checkpoint nor revision entry, or null).
+-2. **Read its evidence**: `arfc_cluster_get(cluster_id, include_patch=true)` (page long diffs with `patch_offset`/`patch_limit`). For context beyond the cluster,
++1. **Pick the next cluster**: `arfc cluster-next` (prints the lowest-ordinal cluster with neither checkpoint nor revision entry, or `null`).
++2. **Read its evidence**: `arfc cluster-get <id> --patch` (add `--patch-offset N --patch-limit N` to page through long diffs). For context beyond the cluster,
+    query the corpus index — churn-ranked reading beats the directory tree:
+-   `arfc_corpus_query(sql="SELECT path, COUNT(*) c FROM file_changes GROUP BY path ORDER BY c DESC LIMIT 20")`.
++   `arfc corpus-query "SELECT path, COUNT(*) c FROM file_changes GROUP BY path ORDER BY c DESC LIMIT 20"`.
+ 3. **Mine claims**: behaviours the cluster introduces or changes, each with
+    pinned anchors (the cluster's member commits are the natural pins) and
+-   NO `status`: `arfc_claim_upsert(claim_id, fields)` with `text`, `section`, `level`, `layer`, optional `intent`/`req_class`, and `anchors` as a list of `{evidence_class, locator, commit, line}` (the tool refuses `status`). A commit message stating a decision is an
++   NO `status`: `arfc claim-upsert <id> --text … --section … --level … --layer … [--field intent=…] [--anchor '{"evidence_class": "code", "locator": "…", "commit": "<sha>", "line": N}']` (repeat `--anchor`; the verb refuses `status`). A commit message stating a decision is an
+    `adr` anchor; PR discussion explaining intent supports `intent:` but is
+    not itself an anchor class.
+-4. **Lint**: `arfc_gate(strict=false)` (the linter; fix every entry under `unverified_anchors`) — fix every unverified anchor (wrong paths, wrong
++4. **Lint**: `arfc gate` (the linter; fix every entry under `unverified_anchors`) — fix every unverified anchor (wrong paths, wrong
+    commits, wrong lines) BEFORE anything is built on top.
+-5. **Record statuses**: `arfc_claim_adjudicate()` to see stored vs supported, then `arfc_claim_record_status()`. Then the strict gate:
+-   `arfc_gate(strict=true)` — exit 0 is the bar.
++5. **Record statuses**: `arfc claim-adjudicate` to see stored vs supported, then `arfc claim-record-status`. Then the strict gate:
++   `arfc gate --strict` — exit 0 is the bar.
+ 6. **Decide spec relevance**:
+    - Normative behaviour changed → update the draft per the RFC-style
+      rules, citing the new/changed claims.
+    - Nothing normative → no prose edit; the revision entry will say so.
+-7. **Checkpoint**: `arfc_checkpoint(cluster_id)`.
+-8. **Record and tag the revision**: `arfc_revision_record(tag="draft-<name>-NN", cluster_id, normative_change, note)` — the tag
++7. **Checkpoint**: `arfc checkpoint <id>`.
++8. **Record and tag the revision**: `arfc revision-record draft-<name>-NN --cluster <id> --normative|--no-normative --note "…"` — the tag
+    `draft-<name>-NN` (two digits, monotone in cluster ordinal), the cluster
+    id, an explicit `normative_change`, a one-line note. Commit any prose
+-   change (`arfc_draft_commit(message)`), then create the annotated tag
+-   (`arfc_revision_tag(tag, message)` — it runs the strict manifest gate, creates the tag, runs the strict citation gate and deletes the tag again on findings). Every revision entry needs its tag, no-change
++   change (`arfc draft-commit -m "<message>"`), then create the annotated tag
++   (`arfc revision-tag draft-<name>-NN -m "<message>"` — it runs the strict manifest gate, creates the tag, runs the strict citation gate and deletes the tag again on findings). Every revision entry needs its tag, no-change
+    revisions included.
+-9. **Gate**: `arfc_citation_gate(strict=true)` — exit 0 before advancing.
++9. **Gate**: `arfc citation-gate --strict` — exit 0 before advancing.
+ 10. **Open questions**: any claim stuck at `gap`/`inferred` that blocks a
+-    section gets a question: `arfc_question_draft(question="<question quoting the claim text verbatim>", claim_ids=[<id>])`.
++    section gets a question: `arfc question-draft "<question quoting the claim text verbatim>" --claim <id>`.
+ 
+ ## Failure recovery
+ 

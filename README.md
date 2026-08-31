@@ -63,3 +63,9 @@ pristine reconstruction workspace, and the campaign commands (see the
 harness plan) launch, audit and analyze runs. State lives under
 `ARFC_EXPERIMENTS_ROOT` (default `~/arfc-experiments`), never inside a
 repository.
+
+The first full campaign is reported in
+[`docs/experiments/2026-08-31-pilot-aioquic.md`](docs/experiments/2026-08-31-pilot-aioquic.md)
+— six runs over aioquic, all three arms completing the whole window, with the
+cost, bypass and hand-edit differences between them, and the defaults it
+settles for the main run.
