@@ -25,7 +25,8 @@ from .stream import (
     is_denial,
     parse_stream,
     pretooluse_hook_starts,
-    result_event,
+    merge_results,
+    result_events,
     tool_results,
     tool_uses,
 )
@@ -218,7 +219,7 @@ def _denied_ids(events: list[dict[str, Any]]) -> set[str]:
     Returns:
         The denied calls' ids.
     """
-    final = result_event(events) or {}
+    final = merge_results(result_events(events)) or {}
     return {
         str(denial["tool_use_id"])
         for denial in final.get("permission_denials") or []
@@ -316,7 +317,7 @@ def audit_events(
         c for c in calls if c.errored and not c.denied and c.surface.startswith("bash")
     ]
     failures = sorted(c.index for c in class1 + class2)
-    final = result_event(events) or {}
+    final = merge_results(result_events(events)) or {}
     return {
         "arm": arm,
         "integrity": not violations,

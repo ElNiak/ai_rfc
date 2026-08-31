@@ -21,7 +21,7 @@ from . import ExperimentError
 from .arms import build_argv, mcp_config, profile
 from .config import Campaign
 from .enforcement import bash_families, render_settings
-from .stream import parse_stream, result_event
+from .stream import merge_results, parse_stream, result_events
 
 EVENTS_FILE = "events.jsonl"
 RESULT_FILE = "result.json"
@@ -248,8 +248,13 @@ def launch(campaign: Campaign, spec: RunSpec) -> RunStatus:
                 os.killpg(process.pid, signal.SIGKILL)
                 process.wait()
     try:
-        final = result_event(
-            parse_stream((spec.run_dir / EVENTS_FILE).read_text(errors="replace"))
+        # Merged rather than taken from the tail: a run that spawns an agent
+        # per cluster writes one result event per session, and the last one's
+        # cost is that cluster's, not the run's.
+        final = merge_results(
+            result_events(
+                parse_stream((spec.run_dir / EVENTS_FILE).read_text(errors="replace"))
+            )
         )
     except ExperimentError:
         final = None

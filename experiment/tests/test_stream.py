@@ -11,7 +11,9 @@ from experiment.stream import (
     denials,
     init_event,
     parse_stream,
+    merge_results,
     result_event,
+    result_events,
     tool_results,
     tool_uses,
     usage_series,
@@ -110,3 +112,81 @@ def test_usage_series_counts_each_message_once():
         '{"type":"assistant","message":{"id":"m1","content":[{"type":"text","text":"b"}],"usage":{"input_tokens":5,"output_tokens":1}}}\n'
     )
     assert [s["total"] for s in usage_series(events)] == [6]
+
+
+def _result(cost, *, denials_=(), subtype="success", tokens=10, model="opus"):
+    return {
+        "type": "result",
+        "subtype": subtype,
+        "is_error": subtype != "success",
+        "total_cost_usd": cost,
+        "num_turns": 3,
+        "duration_ms": 1000,
+        "duration_api_ms": 900,
+        "usage": {"input_tokens": tokens, "service_tier": "standard"},
+        "modelUsage": {model: {"inputTokens": tokens}},
+        "permission_denials": list(denials_),
+        "session_id": f"s-{cost}",
+    }
+
+
+def test_result_events_returns_one_per_session():
+    events = [_result(1.0), {"type": "assistant"}, _result(2.0)]
+    assert [r["total_cost_usd"] for r in result_events(events)] == [1.0, 2.0]
+    assert result_event(events)["total_cost_usd"] == 2.0
+
+
+def test_merging_one_session_returns_it_unchanged():
+    """Nothing downstream may be able to tell how many sessions ran.
+
+    The cost table, the denial count and the campaign report all read this one
+    record, so the single-session case has to be the identity — including the
+    fields nothing here interprets.
+    """
+    only = _result(1.5)
+    assert merge_results([only]) == only
+    assert merge_results([]) is None
+
+
+def test_merging_sums_cost_rather_than_reporting_the_last_session():
+    """Taking the last would report a whole run's spend as its final cluster's."""
+    merged = merge_results([_result(1.0), _result(2.0), _result(4.0)])
+    assert merged["total_cost_usd"] == 7.0
+    assert merged["num_turns"] == 9
+    assert merged["duration_ms"] == 3000
+    assert merged["session_count"] == 3
+
+
+def test_merging_sums_usage_leaves_and_keeps_labels():
+    merged = merge_results([_result(1.0, tokens=10), _result(2.0, tokens=5)])
+    assert merged["usage"]["input_tokens"] == 15
+    assert merged["usage"]["service_tier"] == "standard"
+    assert merged["modelUsage"]["opus"]["inputTokens"] == 15
+
+
+def test_merging_keeps_per_model_usage_separate():
+    merged = merge_results(
+        [_result(1.0, tokens=10, model="opus"), _result(2.0, tokens=5, model="haiku")]
+    )
+    assert merged["modelUsage"]["opus"]["inputTokens"] == 10
+    assert merged["modelUsage"]["haiku"]["inputTokens"] == 5
+
+
+def test_merging_concatenates_denials_from_every_session():
+    """A denial in session one is a bypass attempt whatever session nine did."""
+    merged = merge_results(
+        [
+            _result(1.0, denials_=[{"tool_use_id": "t1"}]),
+            _result(2.0),
+            _result(3.0, denials_=[{"tool_use_id": "t9"}]),
+        ]
+    )
+    assert [d["tool_use_id"] for d in merged["permission_denials"]] == ["t1", "t9"]
+
+
+def test_one_failed_session_makes_the_run_a_failure():
+    merged = merge_results(
+        [_result(1.0), _result(2.0, subtype="error_max_budget"), _result(3.0)]
+    )
+    assert merged["subtype"] == "error_max_budget"
+    assert merged["is_error"] is True

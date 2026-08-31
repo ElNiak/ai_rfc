@@ -56,11 +56,110 @@ def init_event(events: list[dict[str, Any]]) -> dict[str, Any] | None:
 
 
 def result_event(events: list[dict[str, Any]]) -> dict[str, Any] | None:
-    """The final result event, if any."""
+    """The final result event, if any.
+
+    A transcript stitched from several sessions carries one result event each,
+    and this returns only the last. Use :func:`result_events` for anything that
+    must account for all of them — cost and permission denials above all, where
+    taking the last silently reports one session's figure as the run's.
+    """
     for event in reversed(events):
         if event.get("type") == "result":
             return event
     return None
+
+
+def result_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Every result event, in stream order.
+
+    One per session. A run that spawns an agent per cluster produces as many as
+    it has clusters.
+
+    Args:
+        events: The parsed transcript.
+
+    Returns:
+        The result events; empty when the transcript has none.
+    """
+    return [event for event in events if event.get("type") == "result"]
+
+
+#: Fields summed across a run's sessions. Everything else is carried from the
+#: last session, which is what describes how the run ended.
+_SUMMED = ("total_cost_usd", "num_turns", "duration_ms", "duration_api_ms")
+
+#: Fields whose numeric leaves are summed recursively. Both are nested and
+#: mix counts with labels: ``usage`` holds token counts beside strings like
+#: ``service_tier``, and ``modelUsage`` holds per-model counts keyed by id.
+_SUMMED_TREES = ("usage", "modelUsage")
+
+
+def _sum_tree(left: Any, right: Any) -> Any:
+    """Add two usage trees, summing numeric leaves and keeping labels."""
+    if isinstance(left, bool) or isinstance(right, bool):
+        return bool(left) or bool(right)
+    if isinstance(left, (int, float)) and isinstance(right, (int, float)):
+        return left + right
+    if isinstance(left, dict) and isinstance(right, dict):
+        return {
+            key: (
+                _sum_tree(left[key], right[key])
+                if key in left and key in right
+                else left.get(key, right.get(key))
+            )
+            for key in {**left, **right}
+        }
+    if isinstance(left, list) and isinstance(right, list):
+        return left + right
+    return left if left is not None else right
+
+
+def merge_results(results: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Fold a run's per-session result events into one record.
+
+    A single session is the identity case: the record is returned unchanged,
+    down to the fields nothing here interprets. That matters because everything
+    downstream — the cost table, the denial count, the campaign report — reads
+    this one record and must not be able to tell how many sessions produced it.
+
+    Costs and turn counts are summed, usage trees are summed leaf by leaf, and
+    permission denials are concatenated. Taking the last session's figures
+    instead would report a whole campaign's spend as its final cluster's.
+
+    Args:
+        results: The result events, in stream order.
+
+    Returns:
+        The merged record, or ``None`` when there are no results.
+    """
+    if not results:
+        return None
+    merged = dict(results[-1])
+    if len(results) == 1:
+        return merged
+
+    for field in _SUMMED:
+        values = [
+            r.get(field) for r in results if isinstance(r.get(field), (int, float))
+        ]
+        merged[field] = sum(values) if values else None
+    for field in _SUMMED_TREES:
+        trees = [r[field] for r in results if isinstance(r.get(field), dict)]
+        if trees:
+            total = trees[0]
+            for tree in trees[1:]:
+                total = _sum_tree(total, tree)
+            merged[field] = total
+    merged["permission_denials"] = [
+        denial
+        for result in results
+        for denial in (result.get("permission_denials") or [])
+    ]
+    merged["is_error"] = any(bool(r.get("is_error")) for r in results)
+    failed = [r.get("subtype") for r in results if r.get("subtype") != "success"]
+    merged["subtype"] = failed[0] if failed else "success"
+    merged["session_count"] = len(results)
+    return merged
 
 
 def _blocks(event: dict[str, Any]) -> list[Any]:
