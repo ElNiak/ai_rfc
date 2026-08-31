@@ -110,8 +110,10 @@ The fix makes the audit's Bash decision call `enforcement.is_allowed` — the sa
 the live guard runs — so the two cannot drift again, and keeps the label purely as reporting
 detail. Re-running the audit changed **exactly two fields on exactly one run**: C1's
 `integrity` and its `executed_out_of_arm`. Every other value in all six audits is
-byte-identical, verified by diff. The superseded audit is preserved at
-`campaigns/…/audit.pre-mixed-family-fix/`.
+byte-identical, verified by diff. **C1's original audit ships beside this report** as
+`2026-08-31-pilot-aioquic/C1-audit-before-fix.json`, so the "before" value above can be
+checked rather than taken on trust; `aggregate.json` carries the corrected audits. The full
+superseded set is also kept at `campaigns/…/audit.pre-mixed-family-fix/`.
 
 Why this is a correction and not a result-improving edit: the guard — the thing that
 actually enforced arm separation during the run — never permitted a breach; entitlement is
