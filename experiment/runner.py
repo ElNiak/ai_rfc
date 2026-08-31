@@ -11,8 +11,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import signal
-import subprocess
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -21,6 +19,7 @@ from . import ExperimentError
 from .arms import build_argv, mcp_config, profile
 from .config import Campaign
 from .enforcement import bash_families, render_settings
+from .spawn import spawn
 from .stream import merge_results, parse_stream, result_events
 
 EVENTS_FILE = "events.jsonl"
@@ -33,7 +32,6 @@ PROMPT_FILE = "prompt.md"
 MCP_FILE = "arfc.json"
 GUARD_FILE = "guard.json"
 GUARD = Path(__file__).parent / "guard.py"
-_KILL_GRACE_S = 30
 
 
 @dataclass(frozen=True)
@@ -223,30 +221,14 @@ def launch(campaign: Campaign, spec: RunSpec) -> RunStatus:
         + (campaign.prompts_dir / "task.md").read_text()
     )
     started = _now()
-    timed_out = False
-    exit_code: int | None = None
-    with open(spec.run_dir / EVENTS_FILE, "wb") as events, open(
-        spec.run_dir / STDERR_FILE, "wb"
-    ) as stderr:
-        process = subprocess.Popen(
-            argv,
-            cwd=spec.workspace,
-            env=env,
-            stdin=subprocess.DEVNULL,
-            stdout=events,
-            stderr=stderr,
-            start_new_session=True,
-        )
-        try:
-            exit_code = process.wait(timeout=campaign.timeout_s)
-        except subprocess.TimeoutExpired:
-            timed_out = True
-            os.killpg(process.pid, signal.SIGTERM)
-            try:
-                process.wait(timeout=_KILL_GRACE_S)
-            except subprocess.TimeoutExpired:
-                os.killpg(process.pid, signal.SIGKILL)
-                process.wait()
+    exit_code, timed_out = spawn(
+        argv,
+        cwd=spec.workspace,
+        env=env,
+        events_path=spec.run_dir / EVENTS_FILE,
+        stderr_path=spec.run_dir / STDERR_FILE,
+        timeout_s=campaign.timeout_s,
+    )
     try:
         # Merged rather than taken from the tail: a run that spawns an agent
         # per cluster writes one result event per session, and the last one's
