@@ -154,6 +154,43 @@ def denials(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return found
 
 
+def hook_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Every hook activity event the CLI reported, in stream order.
+
+    The CLI reports hook activity as ``system`` events carrying a ``hook_``
+    subtype and a ``hook_event`` name, never as a dedicated top-level type.
+    They arrive only when the launch passed ``--include-hook-events``.
+
+    Args:
+        events: The parsed transcript.
+
+    Returns:
+        The hook events, unfiltered by which hook fired.
+    """
+    return [
+        event
+        for event in events
+        if str(event.get("subtype", "")).startswith("hook_") or "hook_event" in event
+    ]
+
+
+def pretooluse_hook_starts(events: list[dict[str, Any]]) -> int:
+    """How many times a ``PreToolUse`` hook began running.
+
+    Args:
+        events: The parsed transcript.
+
+    Returns:
+        The count of ``hook_started`` events naming ``PreToolUse``.
+    """
+    return sum(
+        1
+        for event in hook_events(events)
+        if event.get("subtype") == "hook_started"
+        and str(event.get("hook_event", "")) == "PreToolUse"
+    )
+
+
 def assistant_text(events: list[dict[str, Any]]) -> str:
     """The model's visible text, joined in stream order."""
     parts = []

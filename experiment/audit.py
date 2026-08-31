@@ -9,16 +9,24 @@ two-sided taxonomy asks.
 
 from __future__ import annotations
 
+import hashlib
 import json
-import re
 from collections import Counter
 from dataclasses import asdict, dataclass
 from typing import Any
 
 from . import ExperimentError
 from .config import Campaign
-from .runner import EVENTS_FILE, load_status
-from .stream import is_denial, parse_stream, result_event, tool_results, tool_uses
+from .enforcement import PAGERS, command_groups
+from .runner import EVENTS_FILE, GUARD_FILE, load_status
+from .stream import (
+    is_denial,
+    parse_stream,
+    pretooluse_hook_starts,
+    result_event,
+    tool_results,
+    tool_uses,
+)
 
 RAW_PREFIX = "python -m panther.plugins.services.testers.a_rfc"
 REGISTERS = ("manifest.yaml", "questions.yaml", "revisions.yaml")
@@ -27,7 +35,6 @@ ALLOWED: dict[str, set[str]] = {
     "B": {"bash:arfc", "edit", "read"},
     "C": {"bash:python_a_rfc", "bash:git", "bash:sqlite3", "edit", "read"},
 }
-_SEGMENT = re.compile(r"&&|\|\||;|\|")
 
 
 @dataclass(frozen=True)
@@ -45,8 +52,28 @@ class ToolCall:
     path: str = ""
 
 
+def _stage_family(stage: str) -> str:
+    """The family one pipe stage reaches for."""
+    if stage.startswith("arfc "):
+        return "bash:arfc"
+    if stage.startswith(RAW_PREFIX):
+        return "bash:python_a_rfc"
+    if stage.startswith("git "):
+        return "bash:git"
+    if stage.startswith("sqlite3 "):
+        return "bash:sqlite3"
+    return "bash:other"
+
+
 def bash_family(command: str) -> str:
     """The command family of a shell line; mixed families are named as such.
+
+    The split is the guard's own, so the audit reads a command the same way
+    the enforcement did. Reading it any other way makes the two disagree: a
+    quoted SQL argument holding ``;`` or ``||``, or a command paging its own
+    output through ``| head``, is one in-family command to the guard, and
+    counting it as ``bash:mixed`` would report an integrity violation for a
+    call the arm was entitled to make.
 
     Args:
         command: The raw ``tool_input.command`` string.
@@ -55,20 +82,19 @@ def bash_family(command: str) -> str:
         One of ``bash:arfc``, ``bash:python_a_rfc``, ``bash:git``,
         ``bash:sqlite3``, ``bash:other`` or ``bash:mixed``.
     """
+    try:
+        groups = command_groups(command)
+    except ValueError:
+        return "bash:other"
     families = set()
-    for segment in (part.strip() for part in _SEGMENT.split(command)):
-        if not segment:
-            continue
-        if segment.startswith("arfc "):
-            families.add("bash:arfc")
-        elif segment.startswith(RAW_PREFIX):
-            families.add("bash:python_a_rfc")
-        elif segment.startswith("git "):
-            families.add("bash:git")
-        elif segment.startswith("sqlite3 "):
-            families.add("bash:sqlite3")
-        else:
-            families.add("bash:other")
+    for stages in groups:
+        families.add(_stage_family(stages[0]))
+        # A pager reads the group's output; it reaches no new surface.
+        families.update(
+            _stage_family(stage)
+            for stage in stages[1:]
+            if stage.split()[0] not in PAGERS
+        )
     if not families:
         return "bash:other"
     return families.pop() if len(families) == 1 else "bash:mixed"
@@ -141,6 +167,45 @@ def _denied_ids(events: list[dict[str, Any]]) -> set[str]:
         str(denial["tool_use_id"])
         for denial in final.get("permission_denials") or []
         if isinstance(denial, dict) and denial.get("tool_use_id")
+    }
+
+
+def guard_report(
+    events: list[dict[str, Any]], arm: str, recorded: str, mounted: str
+) -> dict[str, Any]:
+    """Whether the guard was mounted unmodified and actually ran.
+
+    Two independent halves, because they fail differently. The digest catches
+    a settings file edited after the run began; the hook count catches a guard
+    that was never consulted at all. Neither is folded into ``integrity``: an
+    unfired guard is not the same finding as an executed out-of-arm call, and
+    a report that conflated them could not say which happened.
+
+    Arm A declares no Bash family, so it has no Bash calls and fires no
+    PreToolUse hook. That is the expected state for arm A, not a missing
+    guard, and ``fired_for_every_bash_call`` is vacuously true there.
+
+    Args:
+        events: The parsed transcript.
+        arm: The arm the run was launched as.
+        recorded: The digest ``status.json`` recorded when the guard was
+            written, or ``""`` for a run predating the field.
+        mounted: The digest of the settings file as it stands now.
+
+    Returns:
+        The guard section of the audit record.
+    """
+    bash_calls = sum(1 for use in tool_uses(events) if use["name"] == "Bash")
+    starts = pretooluse_hook_starts(events)
+    return {
+        "recorded_sha256": recorded,
+        "mounted_sha256": mounted,
+        "unmodified": bool(recorded) and recorded == mounted,
+        "digest_recorded": bool(recorded),
+        "bash_calls": bash_calls,
+        "pretooluse_hook_starts": starts,
+        "fired_for_every_bash_call": starts >= bash_calls,
+        "expected_no_bash": arm == "A",
     }
 
 
@@ -248,7 +313,17 @@ def audit_run(campaign: Campaign, run_id: str) -> dict[str, Any]:
     if status is None:
         raise ExperimentError(f"{run_id} has no status record; nothing to audit")
     events = parse_stream((run_dir / EVENTS_FILE).read_text(errors="replace"))
-    audit = {"run_id": run_id, **audit_events(events, status.arm)}
+    guard_path = run_dir / GUARD_FILE
+    mounted = (
+        hashlib.sha256(guard_path.read_bytes()).hexdigest()
+        if guard_path.exists()
+        else ""
+    )
+    audit = {
+        "run_id": run_id,
+        **audit_events(events, status.arm),
+        "guard": guard_report(events, status.arm, status.guard_sha256, mounted),
+    }
     campaign.audit_dir.mkdir(exist_ok=True)
     (campaign.audit_dir / f"{run_id}.json").write_text(
         json.dumps(audit, indent=2, sort_keys=True) + "\n"

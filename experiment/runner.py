@@ -8,6 +8,7 @@ exactly once — a run is never relaunched in place.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import signal
@@ -63,6 +64,7 @@ class RunStatus:
     timed_out: bool
     budget_hit: bool
     claude_version: str
+    guard_sha256: str = ""
 
     @property
     def complete(self) -> bool:
@@ -207,6 +209,9 @@ def launch(campaign: Campaign, spec: RunSpec) -> RunStatus:
             f"{spec.run_id} already ran; a run is never relaunched in place"
         )
     argv = build_run_argv(campaign, spec)
+    # Digest the settings the guard is mounted from, before the process that
+    # could edit them exists. The audit re-hashes the file and compares.
+    guard_digest = hashlib.sha256((spec.run_dir / GUARD_FILE).read_bytes()).hexdigest()
     env = build_env(campaign, spec)
     (spec.run_dir / ARGV_FILE).write_text(json.dumps(argv, indent=2) + "\n")
     (spec.run_dir / ENV_FILE).write_text(
@@ -262,6 +267,7 @@ def launch(campaign: Campaign, spec: RunSpec) -> RunStatus:
         timed_out=timed_out,
         budget_hit="budget" in subtype,
         claude_version=campaign.claude_version,
+        guard_sha256=guard_digest,
     )
     (spec.run_dir / STATUS_FILE).write_text(
         json.dumps(asdict(status), indent=2, sort_keys=True) + "\n"

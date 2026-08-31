@@ -1,6 +1,12 @@
 import json
 
-from experiment.audit import audit_campaign, audit_events, bash_family, classify
+from experiment.audit import (
+    audit_campaign,
+    audit_events,
+    bash_family,
+    classify,
+    guard_report,
+)
 from experiment.matrix import execute
 from experiment.stream import parse_stream
 
@@ -141,3 +147,93 @@ def test_audit_over_fake_runs_counts_bypasses_and_errors(campaign, write_scenari
     assert a["tool_calls"]["by_surface"]["mcp"] >= 6
     stored = json.loads((campaign.audit_dir / "A1.json").read_text())
     assert stored == a
+    # The guard evidence is recorded at launch and re-checked here, so a run
+    # carries its own proof that the settings it was confined by are the ones
+    # still on disk.
+    for arm, audit in (("A", a), ("B", b), ("C", c)):
+        assert audit["guard"]["digest_recorded"] is True
+        assert audit["guard"]["unmodified"] is True
+        assert audit["guard"]["expected_no_bash"] is (arm == "A")
+
+
+def test_bash_family_reads_a_command_the_way_the_guard_does():
+    """A guard-legal command must not be classified out of its own arm.
+
+    Both quoted shapes below are one in-family command to the guard, as is a
+    command paging its own output. Classifying any of them as ``bash:mixed``
+    would report an integrity violation for a call the arm was entitled to
+    make.
+    """
+    assert (
+        bash_family('arfc corpus-query "SELECT sha FROM commits; SELECT 1"')
+        == "bash:arfc"
+    )
+    assert bash_family('arfc corpus-query "SELECT a || b FROM c"') == "bash:arfc"
+    assert (
+        bash_family("arfc cluster-get c1 --patch 2>&1 | head -c 20000") == "bash:arfc"
+    )
+    assert bash_family('sqlite3 c.db "SELECT 1; SELECT 2"') == "bash:sqlite3"
+    # Leaving the family through a pipe is still mixed.
+    assert bash_family("arfc status | sh") == "bash:mixed"
+    assert bash_family("arfc status | tee /tmp/x") == "bash:mixed"
+    # A command that cannot be read at all is not credited to any family.
+    assert bash_family('arfc corpus-query "unterminated') == "bash:other"
+
+
+def _hook_start(name="PreToolUse"):
+    return {"type": "system", "subtype": "hook_started", "hook_event": name}
+
+
+def _bash_call(index, command):
+    return {
+        "type": "assistant",
+        "message": {
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": f"t{index}",
+                    "name": "Bash",
+                    "input": {"command": command},
+                }
+            ]
+        },
+    }
+
+
+def test_guard_report_pairs_the_digest_with_the_hook_evidence():
+    events = [_bash_call(1, "arfc status"), _hook_start()]
+    report = guard_report(events, "B", "abc", "abc")
+    assert report["unmodified"] is True
+    assert report["bash_calls"] == 1 and report["pretooluse_hook_starts"] == 1
+    assert report["fired_for_every_bash_call"] is True
+
+
+def test_guard_report_catches_a_settings_file_edited_after_mount():
+    events = [_bash_call(1, "arfc status"), _hook_start()]
+    report = guard_report(events, "B", "abc", "def")
+    assert report["unmodified"] is False
+    # The hook still fired; the two halves fail independently.
+    assert report["fired_for_every_bash_call"] is True
+
+
+def test_guard_report_catches_a_guard_that_never_ran():
+    events = [_bash_call(1, "arfc status"), _bash_call(2, "arfc gate")]
+    report = guard_report(events, "B", "abc", "abc")
+    assert report["unmodified"] is True
+    assert report["pretooluse_hook_starts"] == 0
+    assert report["fired_for_every_bash_call"] is False
+
+
+def test_guard_report_treats_arm_a_silence_as_the_expected_state():
+    """Arm A has no Bash surface, so firing no PreToolUse hook is correct."""
+    report = guard_report([], "A", "abc", "abc")
+    assert report["expected_no_bash"] is True
+    assert report["bash_calls"] == 0 and report["pretooluse_hook_starts"] == 0
+    assert report["fired_for_every_bash_call"] is True
+
+
+def test_guard_report_flags_a_run_that_recorded_no_digest():
+    """A run from before the digest existed must not read as verified."""
+    report = guard_report([], "B", "", "abc")
+    assert report["digest_recorded"] is False
+    assert report["unmodified"] is False
