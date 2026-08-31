@@ -1,12 +1,16 @@
 """Confine each arm's Bash tool to its declared command families.
 
-Measured on Claude Code 2.1.247: ``--allowedTools`` does not constrain a
-built-in tool that ``--tools`` has enabled, and permission deny rules cannot
-express "only this family" — denying ``Bash`` and re-allowing one family blocks
-the allowed command too. A ``PreToolUse`` hook can express it, but only through
-the **exit-2 blocking path**; returning the documented
+Measured on Claude Code 2.1.247 and re-measured on 2.1.251: ``--allowedTools``
+does not constrain a built-in tool that ``--tools`` has enabled, and permission
+deny rules cannot express "only this family" — denying ``Bash`` and re-allowing
+one family blocks the allowed command too. A ``PreToolUse`` hook can express it,
+but only through the **exit-2 blocking path**; returning the documented
 ``hookSpecificOutput.permissionDecision = "deny"`` is silently ignored and the
 command runs.
+
+This is a property of the installed CLI, not a contract it offers. Re-run
+``python -m experiment spike`` and check its ``denial`` control whenever the
+CLI moves, before spending anything on a campaign.
 
 The families come from each arm's existing ``allowed_tools`` declaration, so
 this module adds enforcement without adding a second source of truth.

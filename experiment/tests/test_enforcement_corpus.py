@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 
+from experiment.audit import ALLOWED, bash_family
 from experiment.enforcement import is_allowed
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "enforcement"
@@ -107,3 +108,20 @@ def test_arm_a_has_no_bash_surface_so_nothing_is_allowed():
     """Arm A declares no Bash family; an empty family list must refuse all."""
     assert is_allowed("arfc status", ()) is False
     assert is_allowed("echo hello", ()) is False
+
+
+@pytest.mark.parametrize("command,allowed,why,families", _corpus())
+def test_the_audit_reads_a_command_the_way_the_guard_did(
+    command, allowed, why, families
+):
+    """The enforcement and the measurement must not disagree about a command.
+
+    They are separate readers of the same string, coupled only by convention,
+    and they have drifted before: the audit once split on operators wherever
+    they appeared, so a command the guard permitted could be classified out of
+    its own arm and reported as an integrity violation. Whatever the guard
+    lets through must land inside the arm's allowed surfaces, and whatever it
+    refuses must not.
+    """
+    surface = bash_family(command)
+    assert (surface in ALLOWED["B"]) is allowed, why

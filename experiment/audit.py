@@ -185,6 +185,12 @@ def guard_report(
     PreToolUse hook. That is the expected state for arm A, not a missing
     guard, and ``fired_for_every_bash_call`` is vacuously true there.
 
+    ``fired_for_every_bash_call`` compares counts, not pairings: it asks
+    whether at least as many PreToolUse hooks began as there were Bash calls.
+    It therefore catches a guard that never ran, and cannot by itself catch a
+    guard that ran for most calls and was somehow skipped for one. Both raw
+    counts are reported so a reader can check the equality the pilot expects.
+
     Args:
         events: The parsed transcript.
         arm: The arm the run was launched as.
