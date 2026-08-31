@@ -26,10 +26,6 @@ SUBSTITUTION = ("$(", "`", "<(", ">(", "${")
 PAGERS = ("head", "tail", "wc", "cut")
 #: A backslash-newline continues one command; it does not start a second.
 _CONTINUATION = re.compile(r"\\\r?\n")
-#: Operators that separate whole commands. ``&`` is one of them only when it is
-#: not part of a redirection: ``2>&1`` and ``&>log`` redirect, they do not run
-#: anything. ``|`` is absent on purpose — pipes are handled per group below.
-_GROUP_OPERATORS = re.compile(r"\|\||&&|(?<!>)&(?!>)|[;\n]")
 _BASH_ENTRY = re.compile(r"^Bash\((?P<family>.*?)\*?\)$")
 
 
@@ -51,8 +47,29 @@ def bash_families(arm_profile: ArmProfile) -> tuple[str, ...]:
     return tuple(families)
 
 
+def _redirects(text: str, index: int) -> bool:
+    """Whether the ``&`` at ``index`` redirects rather than separates commands.
+
+    Args:
+        text: The command being scanned.
+        index: Offset of the ``&``.
+
+    Returns:
+        True for the redirection forms ``2>&1`` and ``&>log``.
+    """
+    before = text[index - 1] if index else ""
+    after = text[index + 1] if index + 1 < len(text) else ""
+    return before == ">" or after == ">"
+
+
 def command_groups(command: str) -> list[list[str]]:
     """Split a shell command into command groups, each a list of pipe stages.
+
+    The scan is quote-aware: ``;``, ``|``, ``&&`` and ``||`` inside a quoted
+    argument belong to that argument and separate nothing. An arm holding a SQL
+    surface writes both routinely — ``SELECT a || b`` concatenates and
+    ``SELECT 1; SELECT 2`` terminates — so splitting on them would refuse a
+    command that runs one in-family program.
 
     Line continuations are joined first, so a command written across several
     lines stays one command. Redirections are not operators.
@@ -62,13 +79,68 @@ def command_groups(command: str) -> list[list[str]]:
 
     Returns:
         One list of stripped, non-empty pipe stages per command group.
+
+    Raises:
+        ValueError: The command ends inside an unterminated quote, so what it
+            would run cannot be read off it.
     """
-    joined = _CONTINUATION.sub(" ", command)
-    groups = []
-    for part in _GROUP_OPERATORS.split(joined):
-        stages = [stage.strip() for stage in part.split("|") if stage.strip()]
+    text = _CONTINUATION.sub(" ", command)
+    groups: list[list[str]] = []
+    stages: list[str] = []
+    token: list[str] = []
+
+    def end_stage() -> None:
+        stage = "".join(token).strip()
+        token.clear()
+        if stage:
+            stages.append(stage)
+
+    def end_group() -> None:
+        end_stage()
         if stages:
-            groups.append(stages)
+            groups.append(list(stages))
+            stages.clear()
+
+    quote = ""
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if quote:
+            # Only double quotes honour a backslash escape; inside single
+            # quotes a backslash is an ordinary character.
+            if char == "\\" and quote == '"' and index + 1 < len(text):
+                token.append(char)
+                token.append(text[index + 1])
+                index += 2
+                continue
+            token.append(char)
+            if char == quote:
+                quote = ""
+            index += 1
+            continue
+        if char in "'\"":
+            quote = char
+            token.append(char)
+        elif char == "\\" and index + 1 < len(text):
+            token.append(char)
+            token.append(text[index + 1])
+            index += 1
+        elif text[index : index + 2] in ("||", "&&"):
+            end_group()
+            index += 1
+        elif char in ";\n":
+            end_group()
+        elif char == "&" and not _redirects(text, index):
+            end_group()
+        elif char == "|":
+            end_stage()
+        else:
+            token.append(char)
+        index += 1
+
+    if quote:
+        raise ValueError(f"unterminated {quote} quote")
+    end_group()
     return groups
 
 
@@ -76,7 +148,8 @@ def is_allowed(command: str, families: Sequence[str]) -> bool:
     """Whether every command in ``command`` falls inside ``families``.
 
     Fails closed on command substitution: a prefix check cannot see what
-    ``$(...)`` or a backtick would run, so such a command is never allowed.
+    ``$(...)`` or a backtick would run, so such a command is never allowed. It
+    fails closed on an unterminated quote for the same reason.
 
     Each command group must *begin* with an in-family command. A group may
     then pipe into :data:`PAGERS` and nothing else, so an arm can page long
@@ -94,7 +167,10 @@ def is_allowed(command: str, families: Sequence[str]) -> bool:
         return False
     if any(token in command for token in SUBSTITUTION):
         return False
-    groups = command_groups(command)
+    try:
+        groups = command_groups(command)
+    except ValueError:
+        return False
     if not groups:
         return False
     for stages in groups:
