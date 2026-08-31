@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from . import ExperimentError
+from . import DEFAULT_MODEL, ExperimentError
 from .arms import ARMS, arm_flags, mcp_config, profile
 from .enforcement import bash_families, render_settings
 from .paths import profile_dir
@@ -112,7 +112,7 @@ def build_invocations(
     plugin_dir: Path,
     workspace: Path,
     claude_bin: str = "claude",
-    model: str = "claude-opus-5",
+    model: str = DEFAULT_MODEL,
 ) -> list[Invocation]:
     """Every call the spike makes, in order. Pure: nothing runs here."""
     scratch = _scratch(root)
@@ -561,7 +561,7 @@ def run_spike(
     panther_repo: Path,
     plugin_dir: Path,
     claude_bin: str = "claude",
-    model: str = "claude-opus-5",
+    model: str = DEFAULT_MODEL,
     timeout_s: int = 300,
 ) -> dict[str, Any]:
     """Prepare the scratch tree, make every call, evaluate, write the report.

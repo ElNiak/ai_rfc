@@ -1,6 +1,8 @@
 import json
 import sys
 
+import pytest
+
 from experiment import cli
 
 from .conftest import COMPLETE_STEPS, FAKE_CLAUDE
@@ -63,6 +65,68 @@ def test_campaign_init_run_audit_analyze_round_trip(
     assert (campaign_dir / "analysis" / "aggregate.json").exists()
     report = (campaign_dir / "analysis" / "report.md").read_text()
     assert "# Campaign pilot-test" in report and "| A |" in report
+
+
+def test_run_returns_nonzero_when_a_launched_run_failed(
+    tmp_path, pristine, panther_repo, write_scenario, capsys
+):
+    """A campaign driver must be able to branch on `run`'s exit code.
+
+    Every run's exit code was printed and then discarded, so a script could not
+    tell a campaign where every run failed from one where every run passed.
+    """
+    _, _, campaign_dir = _init(tmp_path, pristine, panther_repo, capsys)
+    order = json.loads((campaign_dir / "campaign.json").read_text())["run_order"]
+    for run_id in order:
+        write_scenario(
+            tmp_path / "root" / "profile",
+            run_id,
+            {"arm": run_id[0], "cost": 1.0, "steps": COMPLETE_STEPS, "exit_code": 1},
+        )
+    assert cli.main(["run", str(campaign_dir)]) == 1
+    assert "exit=1" in capsys.readouterr().out
+
+
+def test_unknown_arm_is_refused_at_parse_time(capsys):
+    """Catching it here saves the parity suite's runtime, which init runs first."""
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main(["campaign", "init", "--arms", "A,Z"])
+    assert exit_info.value.code == 2
+    assert "unknown arm(s) Z" in capsys.readouterr().err
+
+
+def test_repeated_arm_is_refused_at_parse_time(capsys):
+    with pytest.raises(SystemExit):
+        cli.main(["campaign", "init", "--arms", "A,A"])
+    assert "repeated arm" in capsys.readouterr().err
+
+
+def test_unknown_effort_is_refused_at_parse_time(capsys):
+    with pytest.raises(SystemExit):
+        cli.main(["campaign", "init", "--effort", "hihg"])
+    assert "invalid choice" in capsys.readouterr().err
+
+
+def test_empty_model_is_refused_but_an_unknown_one_is_not(capsys):
+    """The harness does not own the model vocabulary, only rejects a blank."""
+    with pytest.raises(SystemExit):
+        cli.main(["campaign", "init", "--model", "  "])
+    assert "cannot be empty" in capsys.readouterr().err
+    parsed = cli._parser().parse_args(
+        [
+            "campaign",
+            "init",
+            "--id",
+            "x",
+            "--pristine",
+            "p",
+            "--panther-repo",
+            ".",
+            "--model",
+            "some-model-released-next-year",
+        ]
+    )
+    assert parsed.model == "some-model-released-next-year"
 
 
 def test_run_parity_reports_the_suite(plugin_root):
