@@ -66,7 +66,7 @@ def test_gate_failure_after_tagging_zeroes_completion(campaign, write_scenario):
     result = analyze_run(campaign, "C1")
     (cluster,) = result["clusters"]
     assert cluster["artifacts"] and not cluster["completed"]
-    assert result["gates"]["manifest_exit"] == 2 and not result["gates"]["clean"]
+    assert result["gates"]["manifest_exit"] == 3 and not result["gates"]["clean"]
     assert result["artifacts_fraction"] == 1.0 and result["completed_fraction"] == 0.0
     assert result["audit"]["hand_edits"]["manifest.yaml"] == 3
 
