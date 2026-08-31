@@ -13,6 +13,12 @@ from ..paths import Context
 from . import CoreError, GuardrailError
 
 _SELECT_ONLY = re.compile(r"^\s*select\b", re.IGNORECASE)
+#: Rows a single corpus query may return. The cap exists because the result
+#: goes into an agent's context window, not because the index cannot serve
+#: more: an unbounded ``SELECT`` over a corpus of a thousand commits would
+#: crowd out the evidence the query was meant to find. Truncation is silent by
+#: design — a query needing more rows is a query that should be narrowed — so
+#: raising this trades context for recall rather than fixing a limitation.
 _ROW_CAP = 200
 
 
@@ -24,7 +30,7 @@ def corpus_query(ctx: Context, sql: str) -> list[dict[str, Any]]:
         sql: A single SELECT statement.
 
     Returns:
-        At most 200 rows as dicts.
+        At most ``_ROW_CAP`` rows as dicts, truncated without notice.
 
     Raises:
         GuardrailError: If the statement is not a lone SELECT.
@@ -68,9 +74,7 @@ def _processed_cluster_ids(ctx: Context) -> set[str]:
         else set()
     )
     revisions = (
-        yaml.safe_load(ctx.revisions.read_text())
-        if ctx.revisions.exists()
-        else None
+        yaml.safe_load(ctx.revisions.read_text()) if ctx.revisions.exists() else None
     )
     if isinstance(revisions, dict):
         for body in (revisions.get("revisions") or {}).values():
@@ -132,9 +136,7 @@ def cluster_get(
 def status(ctx: Context) -> dict[str, Any]:
     """One composite status view, quoted from the substrate's artifacts."""
     timeline_path = ctx.workspace / "timeline" / "timeline.json"
-    timeline = (
-        json.loads(timeline_path.read_text()) if timeline_path.exists() else None
-    )
+    timeline = json.loads(timeline_path.read_text()) if timeline_path.exists() else None
     clusters = _clusters(ctx) if timeline else []
     processed = _processed_cluster_ids(ctx) if timeline else set()
     report_path = ctx.workspace / "out" / "report.json"

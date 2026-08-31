@@ -126,26 +126,28 @@ COMPLETE_STEPS = [
 @pytest.fixture
 def campaign(pristine, panther_repo, plugin_root, tmp_path):
     """A frozen three-arm campaign whose launches go through the fake claude."""
-    from experiment.config import init_campaign
+    from experiment.config import CampaignRequest, init_campaign
 
     return init_campaign(
-        root=tmp_path / "root",
-        campaign_id="test",
-        pristine_dir=pristine,
-        arms=("A", "B", "C"),
-        repeats=1,
-        seed=7,
-        model="fake-model",
-        effort="high",
-        budget_usd=1.0,
-        # Generous on purpose: the fake finishes in about a second, but a loaded
-        # machine can starve it well past a tight cap and the failure then looks
-        # like a harness defect. The timeout path has its own test, which sets
-        # timeout_s=1 explicitly.
-        timeout_s=900,
-        panther_repo=panther_repo,
-        plugin_root=plugin_root,
-        python=sys.executable,
-        claude_bin=str(FAKE_CLAUDE),
-        parity={"passed": True, "summary": "test"},
+        CampaignRequest(
+            root=tmp_path / "root",
+            campaign_id="test",
+            pristine_dir=pristine,
+            arms=("A", "B", "C"),
+            repeats=1,
+            seed=7,
+            model="fake-model",
+            effort="high",
+            budget_usd=1.0,
+            # Generous on purpose: the fake finishes in about a second, but a
+            # loaded machine can starve it well past a tight cap and the failure
+            # then looks like a harness defect. The timeout path has its own
+            # test, which sets timeout_s=1 explicitly.
+            timeout_s=900,
+            panther_repo=panther_repo,
+            plugin_root=plugin_root,
+            python=sys.executable,
+            claude_bin=str(FAKE_CLAUDE),
+            parity={"passed": True, "summary": "test"},
+        )
     )

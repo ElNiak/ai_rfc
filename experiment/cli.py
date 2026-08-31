@@ -343,7 +343,7 @@ def main(argv: list[str] | None = None) -> int:
                 f"window: {record['window']}"
             )
         elif args.command == "campaign" and args.verb == "init":
-            from .config import init_campaign
+            from .config import CampaignRequest, init_campaign
 
             plugin_dir = (args.plugin_dir or _default_plugin_dir()).resolve()
             pristine = Path(args.pristine)
@@ -351,21 +351,23 @@ def main(argv: list[str] | None = None) -> int:
                 pristine = root / "pristine" / args.pristine
             parity = None if args.skip_parity else _run_parity(plugin_dir, args.python)
             campaign = init_campaign(
-                root=root,
-                campaign_id=args.id,
-                pristine_dir=pristine,
-                arms=args.arms,
-                repeats=args.repeats,
-                seed=args.seed,
-                model=args.model,
-                effort=args.effort,
-                budget_usd=args.budget,
-                timeout_s=args.timeout,
-                panther_repo=args.panther_repo.resolve(),
-                plugin_root=plugin_dir,
-                python=args.python,
-                claude_bin=args.claude,
-                parity=parity,
+                CampaignRequest(
+                    root=root,
+                    campaign_id=args.id,
+                    pristine_dir=pristine,
+                    arms=args.arms,
+                    repeats=args.repeats,
+                    seed=args.seed,
+                    model=args.model,
+                    effort=args.effort,
+                    budget_usd=args.budget,
+                    timeout_s=args.timeout,
+                    panther_repo=args.panther_repo.resolve(),
+                    plugin_root=plugin_dir,
+                    python=args.python,
+                    claude_bin=args.claude,
+                    parity=parity,
+                )
             )
             print(f"campaign: {campaign.dir}")
             print(f"run order: {' '.join(campaign.run_order)}")

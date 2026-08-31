@@ -34,6 +34,34 @@ exec "{python}" -c "import sys; sys.path.insert(0, '{server_src}'); from ai_rfc_
 
 
 @dataclass(frozen=True)
+class CampaignRequest:
+    """What a caller asks for, before anything is resolved or frozen.
+
+    Distinct from :class:`Campaign`, which is the *record*: it also holds the
+    resolved binary, the claude version, the frozen run order and the digests,
+    none of which a caller supplies. Keeping the ask and the record apart is
+    what lets :func:`init_campaign` take one argument instead of sixteen
+    positional-order-sensitive ones.
+    """
+
+    root: Path
+    campaign_id: str
+    pristine_dir: Path
+    arms: tuple[str, ...]
+    repeats: int
+    seed: int
+    model: str
+    effort: str
+    budget_usd: float
+    timeout_s: int
+    panther_repo: Path
+    plugin_root: Path
+    python: str
+    claude_bin: str
+    parity: dict[str, Any] | None
+
+
+@dataclass(frozen=True)
 class Campaign:
     """One frozen run matrix and everything needed to launch and analyze it."""
 
@@ -177,42 +205,11 @@ def _sha256(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
 
 
-def init_campaign(
-    *,
-    root: Path,
-    campaign_id: str,
-    pristine_dir: Path,
-    arms: tuple[str, ...],
-    repeats: int,
-    seed: int,
-    model: str,
-    effort: str,
-    budget_usd: float,
-    timeout_s: int,
-    panther_repo: Path,
-    plugin_root: Path,
-    python: str,
-    claude_bin: str,
-    parity: dict[str, Any] | None,
-) -> Campaign:
+def init_campaign(request: CampaignRequest) -> Campaign:
     """Freeze a campaign on disk.
 
     Args:
-        root: The experiments root holding ``campaigns/``.
-        campaign_id: Directory name; must not already exist.
-        pristine_dir: A prepared pristine workspace with its digest and record.
-        arms: Arm letters to run.
-        repeats: Repeat blocks per arm.
-        seed: Fixes the run order.
-        model: Model id passed to every launch.
-        effort: Reasoning effort passed to every launch.
-        budget_usd: Per-run spend cap.
-        timeout_s: Per-run wall cap.
-        panther_repo: The PANTHER checkout, recorded and passed to runs.
-        plugin_root: The ``ai-rfc`` plugin root.
-        python: Interpreter the ``arfc`` shim execs.
-        claude_bin: The CLI binary this campaign will launch.
-        parity: The parity pre-run's result, or None when it was skipped.
+        request: What to freeze. See :class:`CampaignRequest`.
 
     Returns:
         The frozen campaign.
@@ -222,6 +219,17 @@ def init_campaign(
             pristine workspace lacks its digest or record, or the claude
             binary cannot be found.
     """
+    root = request.root
+    campaign_id = request.campaign_id
+    pristine_dir = request.pristine_dir
+    arms = request.arms
+    repeats = request.repeats
+    seed = request.seed
+    python = request.python
+    plugin_root = request.plugin_root
+    panther_repo = request.panther_repo
+    claude_bin = request.claude_bin
+
     for arm in arms:
         if arm not in ARMS:
             raise ExperimentError(f"unknown arm {arm!r}")
@@ -280,10 +288,10 @@ def init_campaign(
         arms=tuple(arms),
         repeats=repeats,
         seed=seed,
-        model=model,
-        effort=effort,
-        budget_usd=budget_usd,
-        timeout_s=timeout_s,
+        model=request.model,
+        effort=request.effort,
+        budget_usd=request.budget_usd,
+        timeout_s=request.timeout_s,
         profile_dir=root / "profile",
         pristine_dir=pristine_dir,
         panther_repo=panther_repo,
@@ -298,7 +306,7 @@ def init_campaign(
             "panther": git_describe(panther_repo),
             "ai_rfc": git_describe(plugin_root),
         },
-        parity=parity,
+        parity=request.parity,
         created_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
     )
     (campaign_dir / CAMPAIGN_FILE).write_text(_dump(campaign))

@@ -64,6 +64,14 @@ harness plan) launch, audit and analyze runs. State lives under
 `ARFC_EXPERIMENTS_ROOT` (default `~/arfc-experiments`), never inside a
 repository.
 
+**Run every `python -m experiment` command from this directory.** This
+repository is nested inside PANTHER but is not a package of it: there is no
+`__init__.py` here, deliberately, because adding one would give `experiment` two
+import identities — `experiment` and the dotted path through PANTHER — and so
+two module objects with two sets of module-level state. `experiment` therefore
+resolves only when this directory is what Python searches, which means running
+from here or putting it on `PYTHONPATH` yourself.
+
 The first full campaign is reported in
 [`docs/experiments/2026-08-31-pilot-aioquic.md`](docs/experiments/2026-08-31-pilot-aioquic.md)
 — six runs over aioquic, all three arms completing the whole window, with the
