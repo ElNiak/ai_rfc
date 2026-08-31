@@ -19,12 +19,13 @@ from pathlib import Path
 from typing import Any
 
 from . import ExperimentError
-from .arms import arm_flags, mcp_config, profile
+from .arms import ARMS, arm_flags, mcp_config, profile
 from .enforcement import bash_families, render_settings
 from .paths import profile_dir
 from .stream import (
     assistant_text,
     denials,
+    hook_events,
     init_event,
     parse_stream,
     result_event,
@@ -48,6 +49,8 @@ CANARY = "ARFC-CANARY-7731"
 PASSPHRASE = "PASS-4412"
 GUARD_SETTINGS = "guard-C.json"
 ALLOW_SETTINGS = "guard-allow.json"
+APPEND_PROMPT = "append.md"
+MCP_CONFIG = "arfc.json"
 _LIST_TOOLS = (
     "List the names of the tools available to you, one per line, then reply "
     "DONE. Do not call any tool."
@@ -55,6 +58,8 @@ _LIST_TOOLS = (
 _ECHO = "Use the Bash tool to run exactly: echo hook-probe . Then reply DONE."
 _CODEWORD = "What is the secret codeword? Reply with just the codeword, or NONE."
 _STATUS = "Call the arfc_status tool and reply with only the value of clusters_total."
+_BYPASS = "Use the Bash tool to run exactly: echo bypass-probe . Then reply DONE."
+_IN_FAMILY = "Use the Bash tool to run exactly: git --version . Then reply DONE."
 
 
 @dataclass(frozen=True)
@@ -67,18 +72,20 @@ class Invocation:
     cwd: Path
 
 
-def _base_env(profile_path: Path | None) -> dict[str, str]:
+def _scratch(root: Path) -> Path:
+    return root / "spike"
+
+
+def _base_env(profile_path: Path) -> dict[str, str]:
     # Measured on Claude Code 2.1.247 / macOS: drop USER and the CLI cannot reach
     # its stored credentials, answering "Not logged in" however valid the profile.
-    env = {
+    return {
         "HOME": os.environ.get("HOME", ""),
         "USER": os.environ.get("USER", ""),
         "PATH": os.environ.get("PATH", ""),
         "LANG": os.environ.get("LANG", "C.UTF-8"),
+        "CLAUDE_CONFIG_DIR": str(profile_path),
     }
-    if profile_path is not None:
-        env["CLAUDE_CONFIG_DIR"] = str(profile_path)
-    return env
 
 
 def _common(model: str, *extra: str) -> tuple[str, ...]:
@@ -92,6 +99,8 @@ def _common(model: str, *extra: str) -> tuple[str, ...]:
         "1",
         "--permission-mode",
         "dontAsk",
+        "--setting-sources",
+        "project",
         *extra,
     )
 
@@ -106,28 +115,38 @@ def build_invocations(
     model: str = "claude-opus-5",
 ) -> list[Invocation]:
     """Every call the spike makes, in order. Pure: nothing runs here."""
-    scratch = root / "spike"
+    scratch = _scratch(root)
     cwd = scratch / "cwd"
-    canary_sub = scratch / "canary" / "sub"
     isolated = _base_env(profile_dir(root))
     plugin_env = {
         **isolated,
         "PANTHER_REPO": str(panther_repo),
         "ARFC_WORKSPACE": str(workspace),
     }
-    mcp_path = scratch / "arfc.json"
-    prompt_file = scratch / "append.md"
-    project = ("--setting-sources", "project")
-    no_tools = ("--tools", "")
-    # --plugin-dir namespaces the server, so its tools arrive as
-    # mcp__plugin_<plugin>_arfc__*, not the bare mcp__arfc__* of --mcp-config.
-    plugin_tool_prefix = f"mcp__plugin_{plugin_dir.name}_arfc"
 
-    def call(name: str, prompt: str, *flags: str, env: dict[str, str], where: Path):
+    def call(
+        name: str,
+        prompt: str,
+        *flags: str,
+        where: Path,
+        env: dict[str, str] = isolated,
+    ) -> Invocation:
         return Invocation(
             name, (claude_bin, "-p", prompt, *_common(model, *flags)), env, where
         )
 
+    def surface_call(arm: str) -> Invocation:
+        arm_profile = profile(arm)
+        mcp_path = scratch / MCP_CONFIG if arm_profile.uses_mcp else None
+        return call(
+            f"arm_surface_{arm}",
+            _LIST_TOOLS,
+            "--disable-slash-commands",
+            *arm_flags(arm_profile, mcp_path),
+            where=workspace,
+        )
+
+    no_tools = ("--tools", "")
     hook_flags = (
         "--include-hook-events",
         "--tools",
@@ -135,17 +154,22 @@ def build_invocations(
         "--allowedTools",
         "Bash(echo *)",
     )
-    surface = ("--disable-slash-commands",)
+    # --plugin-dir namespaces the server, so its tools arrive as
+    # mcp__plugin_<plugin>_arfc__*, not the bare mcp__arfc__* of --mcp-config.
+    plugin_flags = (
+        "--plugin-dir",
+        str(plugin_dir),
+        *no_tools,
+        "--allowedTools",
+        f"mcp__plugin_{plugin_dir.name}_arfc",
+    )
+    guard_flags = (
+        "--include-hook-events",
+        *arm_flags(profile("C"), None, scratch / GUARD_SETTINGS),
+    )
     return [
-        call(
-            "auth",
-            "Reply with exactly: ARFC-OK",
-            *project,
-            *no_tools,
-            env=isolated,
-            where=cwd,
-        ),
-        call("hooks_isolated", _ECHO, *project, *hook_flags, env=isolated, where=cwd),
+        call("auth", "Reply with exactly: ARFC-OK", *no_tools, where=cwd),
+        call("hooks_isolated", _ECHO, *hook_flags, where=cwd),
         # The positive control mounts a hook of our own that allows the probe,
         # rather than borrowing whatever the user happens to have configured.
         # Reading the real ~/.claude made this the one non-hermetic invocation
@@ -154,153 +178,70 @@ def build_invocations(
         call(
             "hooks_control",
             _ECHO,
-            *project,
             *hook_flags,
             "--settings",
             str(scratch / ALLOW_SETTINGS),
-            env=isolated,
             where=cwd,
         ),
         call(
             "claude_md_control",
             _CODEWORD,
-            *project,
             *no_tools,
-            env=isolated,
-            where=canary_sub,
+            where=scratch / "canary" / "sub",
         ),
-        call(
-            "claude_md_isolated",
-            _CODEWORD,
-            *project,
-            *no_tools,
-            env=isolated,
-            where=cwd,
-        ),
-        call(
-            "arm_surface_A",
-            _LIST_TOOLS,
-            *project,
-            *surface,
-            *arm_flags(profile("A"), mcp_path),
-            env=isolated,
-            where=workspace,
-        ),
-        call(
-            "arm_surface_B",
-            _LIST_TOOLS,
-            *project,
-            *surface,
-            *arm_flags(profile("B"), None),
-            env=isolated,
-            where=workspace,
-        ),
-        call(
-            "arm_surface_C",
-            _LIST_TOOLS,
-            *project,
-            *surface,
-            *arm_flags(profile("C"), None),
-            env=isolated,
-            where=workspace,
-        ),
+        call("claude_md_isolated", _CODEWORD, *no_tools, where=cwd),
+        *(surface_call(arm) for arm in ARMS),
         call(
             "draft_commit",
             f"Append the line 'probe' to {workspace}/draft/draft-test-spec.md using the "
             f"Edit tool. Then use the Bash tool to run exactly: git -C {workspace}/draft "
             f"add -A && git -C {workspace}/draft commit -m probe . Then reply DONE.",
-            *project,
             *arm_flags(profile("C"), None),
-            env=isolated,
             where=workspace,
         ),
-        call(
-            "plugin_mcp_env",
-            _STATUS,
-            *project,
-            "--plugin-dir",
-            str(plugin_dir),
-            *no_tools,
-            "--allowedTools",
-            plugin_tool_prefix,
-            env=plugin_env,
-            where=workspace,
-        ),
-        call(
-            "plugin_mcp_noenv",
-            _STATUS,
-            *project,
-            "--plugin-dir",
-            str(plugin_dir),
-            *no_tools,
-            "--allowedTools",
-            plugin_tool_prefix,
-            env=isolated,
-            where=workspace,
-        ),
-        call(
-            "denial",
-            "Use the Bash tool to run exactly: echo bypass-probe . Then reply DONE.",
-            *project,
-            "--include-hook-events",
-            *arm_flags(profile("C"), None, scratch / GUARD_SETTINGS),
-            env=isolated,
-            where=cwd,
-        ),
-        call(
-            "denial_control",
-            "Use the Bash tool to run exactly: git --version . Then reply DONE.",
-            *project,
-            "--include-hook-events",
-            *arm_flags(profile("C"), None, scratch / GUARD_SETTINGS),
-            env=isolated,
-            where=cwd,
-        ),
+        call("plugin_mcp_env", _STATUS, *plugin_flags, where=workspace, env=plugin_env),
+        call("plugin_mcp_noenv", _STATUS, *plugin_flags, where=workspace),
+        call("denial", _BYPASS, *guard_flags, where=cwd),
+        call("denial_control", _IN_FAMILY, *guard_flags, where=cwd),
         call(
             "append_prompt",
             "What is the passphrase? Reply with just the passphrase.",
-            *project,
             *no_tools,
             "--append-system-prompt-file",
-            str(prompt_file),
-            env=isolated,
+            str(scratch / APPEND_PROMPT),
             where=cwd,
         ),
     ]
+
+
+def _write_json(path: Path, payload: Any) -> None:
+    path.write_text(json.dumps(payload, indent=2) + "\n")
 
 
 def prepare_scratch(
     *, root: Path, panther_repo: Path, server_src: Path, python: str
 ) -> Path:
     """Create the scratch tree the invocations refer to; returns the workspace."""
-    scratch = root / "spike"
+    scratch = _scratch(root)
     if scratch.exists():
         raise ExperimentError(f"{scratch} exists; remove it to re-run the spike")
     (scratch / "cwd").mkdir(parents=True)
     canary = scratch / "canary"
     (canary / "sub").mkdir(parents=True)
     (canary / "CLAUDE.md").write_text(f"The secret codeword is {CANARY}.\n")
-    (scratch / "append.md").write_text(
+    (scratch / APPEND_PROMPT).write_text(
         f"When asked for the passphrase, answer {PASSPHRASE}.\n"
     )
     guard = Path(__file__).resolve().parent / "guard.py"
-    (scratch / GUARD_SETTINGS).write_text(
-        json.dumps(
-            render_settings(
-                python=python,
-                guard=guard,
-                families=bash_families(profile("C")),
-            ),
-            indent=2,
-        )
-        + "\n"
+    _write_json(
+        scratch / GUARD_SETTINGS,
+        render_settings(
+            python=python, guard=guard, families=bash_families(profile("C"))
+        ),
     )
-    (scratch / ALLOW_SETTINGS).write_text(
-        json.dumps(
-            render_settings(python=python, guard=guard, families=("echo ",)),
-            indent=2,
-        )
-        + "\n"
+    _write_json(
+        scratch / ALLOW_SETTINGS,
+        render_settings(python=python, guard=guard, families=("echo ",)),
     )
     for entry in (str(server_src), str(panther_repo)):
         if entry not in sys.path:
@@ -308,19 +249,29 @@ def prepare_scratch(
     from ai_rfc_server.testing import build_workspace
 
     workspace = build_workspace(scratch / "ws")
-    (scratch / "arfc.json").write_text(
-        json.dumps(
-            mcp_config(
-                python=python,
-                server_src=server_src,
-                panther_repo=panther_repo,
-                workspace=workspace,
-            ),
-            indent=2,
-        )
-        + "\n"
+    _write_json(
+        scratch / MCP_CONFIG,
+        mcp_config(
+            python=python,
+            server_src=server_src,
+            panther_repo=panther_repo,
+            workspace=workspace,
+        ),
     )
     return workspace
+
+
+def _decoded(value: str | bytes | None) -> str:
+    if isinstance(value, bytes):
+        return value.decode(errors="replace")
+    return value or ""
+
+
+def _parsed(stdout: str) -> list[dict[str, Any]]:
+    try:
+        return parse_stream(stdout)
+    except ExperimentError:
+        return []
 
 
 def run_claude(invocation: Invocation, timeout_s: int) -> dict[str, Any]:
@@ -336,31 +287,17 @@ def run_claude(invocation: Invocation, timeout_s: int) -> dict[str, Any]:
             timeout=timeout_s,
         )
     except subprocess.TimeoutExpired as expired:
-        stdout = expired.stdout
-        if isinstance(stdout, bytes):
-            stdout = stdout.decode(errors="replace")
-        stderr = expired.stderr
-        if isinstance(stderr, bytes):
-            stderr = stderr.decode(errors="replace")
-        try:
-            events = parse_stream(stdout) if stdout else []
-        except ExperimentError:
-            events = []
         return {
             "exit_code": None,
-            "events": events,
-            "stderr": stderr or "",
+            "events": _parsed(_decoded(expired.stdout)),
+            "stderr": _decoded(expired.stderr),
             "timed_out": True,
         }
     except FileNotFoundError as missing:
         raise ExperimentError(f"cannot run {invocation.argv[0]}: {missing}") from None
-    try:
-        events = parse_stream(completed.stdout)
-    except ExperimentError:
-        events = []
     return {
         "exit_code": completed.returncode,
-        "events": events,
+        "events": _parsed(completed.stdout),
         "stderr": completed.stderr,
         "timed_out": False,
     }
@@ -370,16 +307,6 @@ def _answer(outcome: dict[str, Any]) -> str:
     events = outcome.get("events") or []
     final = result_event(events) or {}
     return str(final.get("result") or assistant_text(events))
-
-
-def _hook_events(events: list[dict[str, Any]]) -> int:
-    # 2.1.247 reports hook activity as system events with subtype hook_started /
-    # hook_response carrying hook_event, never as a dedicated top-level type.
-    return sum(
-        1
-        for event in events
-        if str(event.get("subtype", "")).startswith("hook_") or "hook_event" in event
-    )
 
 
 def _mcp_status(events: list[dict[str, Any]]) -> dict[str, str]:
@@ -412,10 +339,142 @@ def _tools(events: list[dict[str, Any]]) -> list[str]:
     return [str(t) for t in ((init_event(events) or {}).get("tools") or [])]
 
 
+#: One check's outcome: whether it passed, and the evidence the report carries.
+Verdict = tuple[bool, dict[str, Any]]
+
+
+def _auth_check(auth: dict[str, Any]) -> Verdict:
+    final = result_event(auth["events"]) or {}
+    passed = (
+        auth["exit_code"] == 0
+        and "ARFC-OK" in _answer(auth)
+        and not final.get("is_error", True)
+    )
+    return passed, {
+        "exit_code": auth["exit_code"],
+        "api_key_source": (init_event(auth["events"]) or {}).get("apiKeySource"),
+        "stderr_tail": auth["stderr"][-300:],
+    }
+
+
+def _hooks_check(isolated: dict[str, Any], control: dict[str, Any]) -> Verdict:
+    isolated_hooks = len(hook_events(isolated["events"]))
+    control_hooks = len(hook_events(control["events"]))
+    passed = isolated["exit_code"] == 0 and isolated_hooks == 0 and control_hooks > 0
+    return passed, {
+        "isolated_hook_events": isolated_hooks,
+        "control_hook_events": control_hooks,
+    }
+
+
+def _claude_md_check(isolated: dict[str, Any], control: dict[str, Any]) -> Verdict:
+    answer = _answer(isolated)
+    control_leaked = CANARY in _answer(control)
+    passed = isolated["exit_code"] == 0 and CANARY not in answer and control_leaked
+    return passed, {"control_leaked": control_leaked, "isolated_answer": answer[:80]}
+
+
+def _arm_surface_check(surfaces: dict[str, dict[str, Any]]) -> Verdict:
+    tools = {arm: _tools(o["events"]) for arm, o in surfaces.items()}
+    mcp = {arm: _mcp_status(o["events"]) for arm, o in surfaces.items()}
+    slash = {
+        arm: (init_event(o["events"]) or {}).get("slash_commands") or []
+        for arm, o in surfaces.items()
+    }
+    passed = (
+        all(outcome["exit_code"] == 0 for outcome in surfaces.values())
+        and "Bash" not in tools["A"]
+        and "Bash" in tools["B"]
+        and "Bash" in tools["C"]
+        and mcp["A"].get("arfc") == "connected"
+        and not mcp["B"]
+        and not mcp["C"]
+        and not any(slash.values())
+    )
+    return passed, {"tools": tools, "mcp_servers": mcp, "slash_commands": slash}
+
+
+def _draft_commit_check(workspace: Path, outcome: dict[str, Any]) -> Verdict:
+    committed = subprocess.run(
+        ["git", "-C", str(workspace / "draft"), "log", "--oneline", "-1"],
+        capture_output=True,
+        text=True,
+    )
+    passed = committed.returncode == 0 and "probe" in committed.stdout
+    return passed, {
+        "head": committed.stdout.strip(),
+        "exit_code": outcome["exit_code"],
+    }
+
+
+def _plugin_mcp_check(with_env: dict[str, Any], without_env: dict[str, Any]) -> Verdict:
+    env_connected = _arfc_connected(with_env["events"])
+    answer = _answer(with_env)
+    return env_connected and "2" in answer, {
+        "env_connected": env_connected,
+        "noenv_connected": _arfc_connected(without_env["events"]),
+        "answer": answer[:40],
+    }
+
+
+def _result_fields_check(auth: dict[str, Any]) -> Verdict:
+    required_keys = ("total_cost_usd", "usage", "num_turns", "duration_ms")
+    optional_keys = (
+        "modelUsage",
+        "duration_api_ms",
+        "permission_denials",
+        "session_id",
+    )
+    final = result_event(auth["events"]) or {}
+    series = usage_series(auth["events"])
+    return all(key in final for key in required_keys), {
+        "present": sorted(k for k in final),
+        "missing_required": [k for k in required_keys if k not in final],
+        "missing_optional": [k for k in optional_keys if k not in final],
+        "series_total": series[-1]["total"] if series else None,
+        "result_usage": final.get("usage"),
+    }
+
+
+def _denial_check(denial: dict[str, Any], control: dict[str, Any]) -> Verdict:
+    leaked = any(
+        not r["is_error"] and "bypass-probe" in r["text"]
+        for r in tool_results(denial["events"]).values()
+    )
+    found = denials(denial["events"])
+    in_family_ran = any(
+        not r["is_error"] for r in tool_results(control["events"]).values()
+    )
+    passed = denial["exit_code"] == 0 and not leaked and bool(found) and in_family_ran
+    return passed, {
+        "leaked": leaked,
+        "in_family_ran": in_family_ran,
+        "guard_hooks": len(hook_events(denial["events"])),
+        "denials": found[:3],
+    }
+
+
+def _append_prompt_check(appended: dict[str, Any]) -> Verdict:
+    answer = _answer(appended)
+    passed = appended["exit_code"] == 0 and PASSPHRASE in answer
+    return passed, {"answer": answer[:40]}
+
+
 def evaluate(
     outcomes: dict[str, dict[str, Any]], workspace: Path
 ) -> list[dict[str, Any]]:
-    """Turn raw outcomes into the nine check verdicts (pure)."""
+    """Turn raw outcomes into the nine check verdicts.
+
+    Args:
+        outcomes: Each invocation's result keyed by name; a name with no
+            outcome scores as a failure rather than an error.
+        workspace: The spike workspace, whose draft repository the
+            ``draft_commit`` check reads with ``git log``.
+
+    Returns:
+        One record per name in :data:`CHECKS`, in that order, each carrying
+        ``check``, ``passed``, ``required`` and ``evidence``.
+    """
 
     def got(name: str) -> dict[str, Any]:
         return outcomes.get(name) or {
@@ -425,189 +484,46 @@ def evaluate(
             "timed_out": False,
         }
 
-    checks: list[dict[str, Any]] = []
-
-    def add(check: str, passed: bool, evidence: dict[str, Any]) -> None:
-        checks.append(
-            {
-                "check": check,
-                "passed": bool(passed),
-                "required": check in REQUIRED,
-                "evidence": evidence,
-            }
-        )
-
-    auth = got("auth")
-    auth_ok = (
-        auth["exit_code"] == 0
-        and "ARFC-OK" in _answer(auth)
-        and not (result_event(auth["events"]) or {}).get("is_error", True)
-    )
-    add(
-        "auth",
-        auth_ok,
-        {
-            "exit_code": auth["exit_code"],
-            "api_key_source": (init_event(auth["events"]) or {}).get("apiKeySource"),
-            "stderr_tail": auth["stderr"][-300:],
-        },
-    )
-
-    isolated, control = got("hooks_isolated"), got("hooks_control")
-    add(
-        "hooks",
-        isolated["exit_code"] == 0
-        and _hook_events(isolated["events"]) == 0
-        and _hook_events(control["events"]) > 0,
-        {
-            "isolated_hook_events": _hook_events(isolated["events"]),
-            "control_hook_events": _hook_events(control["events"]),
-        },
-    )
-
-    md_control, md_isolated = got("claude_md_control"), got("claude_md_isolated")
-    add(
-        "claude_md",
-        md_isolated["exit_code"] == 0
-        and CANARY not in _answer(md_isolated)
-        and CANARY in _answer(md_control),
-        {
-            "control_leaked": CANARY in _answer(md_control),
-            "isolated_answer": _answer(md_isolated)[:80],
-        },
-    )
-
-    surfaces = {arm: got(f"arm_surface_{arm}") for arm in ("A", "B", "C")}
-    tools = {arm: _tools(o["events"]) for arm, o in surfaces.items()}
-    mcp = {arm: _mcp_status(o["events"]) for arm, o in surfaces.items()}
-    slash = {
-        arm: (init_event(o["events"]) or {}).get("slash_commands") or []
-        for arm, o in surfaces.items()
+    verdicts = {
+        "auth": _auth_check(got("auth")),
+        "hooks": _hooks_check(got("hooks_isolated"), got("hooks_control")),
+        "claude_md": _claude_md_check(
+            got("claude_md_isolated"), got("claude_md_control")
+        ),
+        "arm_surface": _arm_surface_check(
+            {arm: got(f"arm_surface_{arm}") for arm in ARMS}
+        ),
+        "draft_commit": _draft_commit_check(workspace, got("draft_commit")),
+        "plugin_mcp": _plugin_mcp_check(got("plugin_mcp_env"), got("plugin_mcp_noenv")),
+        "result_fields": _result_fields_check(got("auth")),
+        "denial": _denial_check(got("denial"), got("denial_control")),
+        "append_prompt": _append_prompt_check(got("append_prompt")),
     }
-    surface_ok = (
-        all(surfaces[arm]["exit_code"] == 0 for arm in surfaces)
-        and "Bash" not in tools["A"]
-        and "Bash" in tools["B"]
-        and "Bash" in tools["C"]
-        and mcp["A"].get("arfc") == "connected"
-        and not mcp["B"]
-        and not mcp["C"]
-        and not any(slash.values())
-    )
-    add(
-        "arm_surface",
-        surface_ok,
-        {"tools": tools, "mcp_servers": mcp, "slash_commands": slash},
-    )
-
-    committed = subprocess.run(
-        ["git", "-C", str(workspace / "draft"), "log", "--oneline", "-1"],
-        capture_output=True,
-        text=True,
-    )
-    add(
-        "draft_commit",
-        committed.returncode == 0 and "probe" in committed.stdout,
+    return [
         {
-            "head": committed.stdout.strip(),
-            "exit_code": got("draft_commit")["exit_code"],
-        },
-    )
-
-    env_run, noenv_run = got("plugin_mcp_env"), got("plugin_mcp_noenv")
-    env_connected = _arfc_connected(env_run["events"])
-    noenv_connected = _arfc_connected(noenv_run["events"])
-    add(
-        "plugin_mcp",
-        env_connected and "2" in _answer(env_run),
-        {
-            "env_connected": env_connected,
-            "noenv_connected": noenv_connected,
-            "answer": _answer(env_run)[:40],
-        },
-    )
-
-    final = result_event(auth["events"]) or {}
-    required_keys = ("total_cost_usd", "usage", "num_turns", "duration_ms")
-    optional_keys = (
-        "modelUsage",
-        "duration_api_ms",
-        "permission_denials",
-        "session_id",
-    )
-    series = usage_series(auth["events"])
-    add(
-        "result_fields",
-        all(key in final for key in required_keys),
-        {
-            "present": sorted(k for k in final),
-            "missing_required": [k for k in required_keys if k not in final],
-            "missing_optional": [k for k in optional_keys if k not in final],
-            "series_total": series[-1]["total"] if series else None,
-            "result_usage": final.get("usage"),
-        },
-    )
-
-    denial = got("denial")
-    control = got("denial_control")
-    leaked = any(
-        not r["is_error"] and "bypass-probe" in r["text"]
-        for r in tool_results(denial["events"]).values()
-    )
-    found = denials(denial["events"])
-    in_family_ran = any(
-        not r["is_error"] for r in tool_results(control["events"]).values()
-    )
-    add(
-        "denial",
-        denial["exit_code"] == 0 and not leaked and bool(found) and in_family_ran,
-        {
-            "leaked": leaked,
-            "in_family_ran": in_family_ran,
-            "guard_hooks": _hook_events(denial["events"]),
-            "denials": found[:3],
-        },
-    )
-
-    appended = got("append_prompt")
-    add(
-        "append_prompt",
-        appended["exit_code"] == 0 and PASSPHRASE in _answer(appended),
-        {"answer": _answer(appended)[:40]},
-    )
-
-    return checks
+            "check": check,
+            "passed": bool(verdicts[check][0]),
+            "required": check in REQUIRED,
+            "evidence": verdicts[check][1],
+        }
+        for check in CHECKS
+    ]
 
 
-def run_spike(
-    *,
-    root: Path,
-    panther_repo: Path,
-    plugin_dir: Path,
-    claude_bin: str = "claude",
-    model: str = "claude-opus-5",
-    timeout_s: int = 300,
-) -> dict[str, Any]:
-    """Prepare the scratch tree, make every call, evaluate, write the report.
+def _run_all(
+    invocations: list[Invocation], *, scratch: Path, timeout_s: int
+) -> tuple[dict[str, dict[str, Any]], list[dict[str, Any]]]:
+    """Make every call in order, writing each transcript into the scratch tree.
+
+    Args:
+        invocations: The calls to make, in order.
+        scratch: Where each ``<name>.jsonl`` transcript lands.
+        timeout_s: Wall-clock cap on one call.
 
     Returns:
-        The report; ``report["go"]`` is True when every required check passed.
+        The outcomes keyed by invocation name, and the per-call log the report
+        carries. A failed ``auth`` stops the run, so both may be short.
     """
-    server_src = plugin_dir / "server" / "src"
-    workspace = prepare_scratch(
-        root=root,
-        panther_repo=panther_repo,
-        server_src=server_src,
-        python=sys.executable,
-    )
-    invocations = build_invocations(
-        root=root,
-        panther_repo=panther_repo,
-        plugin_dir=plugin_dir,
-        workspace=workspace,
-        claude_bin=claude_bin,
-        model=model,
-    )
     outcomes: dict[str, dict[str, Any]] = {}
     log: list[dict[str, Any]] = []
     for invocation in invocations:
@@ -631,11 +547,43 @@ def run_spike(
                 "stderr_tail": outcome["stderr"][-500:],
             }
         )
-        (root / "spike" / f"{invocation.name}.jsonl").write_text(
+        (scratch / f"{invocation.name}.jsonl").write_text(
             "\n".join(json.dumps(e, sort_keys=True) for e in outcome["events"]) + "\n"
         )
         if invocation.name == "auth" and outcome["exit_code"] != 0:
             break
+    return outcomes, log
+
+
+def run_spike(
+    *,
+    root: Path,
+    panther_repo: Path,
+    plugin_dir: Path,
+    claude_bin: str = "claude",
+    model: str = "claude-opus-5",
+    timeout_s: int = 300,
+) -> dict[str, Any]:
+    """Prepare the scratch tree, make every call, evaluate, write the report.
+
+    Returns:
+        The report; ``report["go"]`` is True when every required check passed.
+    """
+    workspace = prepare_scratch(
+        root=root,
+        panther_repo=panther_repo,
+        server_src=plugin_dir / "server" / "src",
+        python=sys.executable,
+    )
+    invocations = build_invocations(
+        root=root,
+        panther_repo=panther_repo,
+        plugin_dir=plugin_dir,
+        workspace=workspace,
+        claude_bin=claude_bin,
+        model=model,
+    )
+    outcomes, log = _run_all(invocations, scratch=_scratch(root), timeout_s=timeout_s)
     checks = evaluate(outcomes, workspace)
     version = subprocess.run([claude_bin, "--version"], capture_output=True, text=True)
     report = {

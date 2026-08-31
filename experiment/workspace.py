@@ -18,6 +18,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from types import ModuleType
 from typing import Any, Iterable
 
 import yaml
@@ -38,6 +39,7 @@ TEMPLATE_STRIP = (
     ".mcp.example.json",
     ".mcp.json",
 )
+SUBSTRATE_PARTS = ("clone", "corpus", "timeline")
 HARNESS_NAME = "arfc-harness"
 HARNESS_EMAIL = "arfc-harness@localhost"
 PINNED_DATE = "2026-08-26T00:00:00+00:00"
@@ -82,14 +84,16 @@ AIOQUIC = Target(
 TARGETS: dict[str, Target] = {"aioquic": AIOQUIC}
 
 
-def _git(repo: Path, *args: str, date: str | None = None) -> str:
+def _run_git(*args: str, date: str | None = None) -> subprocess.CompletedProcess[str]:
     env = dict(os.environ)
     if date is not None:
         env["GIT_AUTHOR_DATE"] = date
         env["GIT_COMMITTER_DATE"] = date
-    result = subprocess.run(
-        ["git", "-C", str(repo), *args], capture_output=True, text=True, env=env
-    )
+    return subprocess.run(["git", *args], capture_output=True, text=True, env=env)
+
+
+def _git(repo: Path, *args: str, date: str | None = None) -> str:
+    result = _run_git("-C", str(repo), *args, date=date)
     if result.returncode != 0:
         raise ExperimentError(
             f"git {' '.join(args)} in {repo} failed: {result.stderr.strip()}"
@@ -123,6 +127,23 @@ def out_of_window(ordinals: Iterable[int], window: tuple[int, int]) -> list[int]
     return [ordinal for ordinal in ordinals if ordinal < low or ordinal > high]
 
 
+def _strip_template(dest: Path) -> None:
+    for name in TEMPLATE_STRIP:
+        path = dest / name
+        if path.is_dir():
+            shutil.rmtree(path)
+        elif path.exists():
+            path.unlink()
+    ignore = dest / ".gitignore"
+    if ignore.exists():
+        kept = [
+            line
+            for line in ignore.read_text().splitlines()
+            if line.strip() != "draft-*"
+        ]
+        ignore.write_text("\n".join(kept) + "\n")
+
+
 def scaffold_draft(
     dest: Path, target: Target, *, template: str, template_commit: str
 ) -> str:
@@ -142,27 +163,12 @@ def scaffold_draft(
     """
     if dest.exists():
         raise ExperimentError(f"{dest} exists; a draft is scaffolded once")
-    cloned = subprocess.run(
-        ["git", "clone", "-q", template, str(dest)], capture_output=True, text=True
-    )
+    cloned = _run_git("clone", "-q", template, str(dest))
     if cloned.returncode != 0:
         raise ExperimentError(f"cloning {template} failed: {cloned.stderr.strip()}")
     _git(dest, "checkout", "-q", template_commit)
     shutil.rmtree(dest / ".git")
-    for name in TEMPLATE_STRIP:
-        path = dest / name
-        if path.is_dir():
-            shutil.rmtree(path)
-        elif path.exists():
-            path.unlink()
-    ignore = dest / ".gitignore"
-    if ignore.exists():
-        kept = [
-            line
-            for line in ignore.read_text().splitlines()
-            if line.strip() != "draft-*"
-        ]
-        ignore.write_text("\n".join(kept) + "\n")
+    _strip_template(dest)
     skeleton = string.Template(DRAFT_SKELETON.read_text()).substitute(
         title=target.title,
         abbrev=target.abbrev,
@@ -230,6 +236,15 @@ def _digests(root: Path) -> dict[str, str]:
     return found
 
 
+def _read_digest_manifest(path: Path) -> dict[str, str]:
+    expected: dict[str, str] = {}
+    for line in path.read_text().splitlines():
+        if line.strip():
+            digest, _, relative = line.partition("  ")
+            expected[relative] = digest
+    return expected
+
+
 def write_digest(root: Path) -> Path:
     """Write ``pristine.sha256`` over every regular file outside ``.git``.
 
@@ -258,11 +273,7 @@ def verify_digest(root: Path) -> list[str]:
     manifest_path = root / DIGEST_FILE
     if not manifest_path.exists():
         return [f"{DIGEST_FILE} is missing"]
-    expected: dict[str, str] = {}
-    for line in manifest_path.read_text().splitlines():
-        if line.strip():
-            digest, _, relative = line.partition("  ")
-            expected[relative] = digest
+    expected = _read_digest_manifest(manifest_path)
     actual = _digests(root)
     problems = []
     for relative in sorted(set(expected) | set(actual)):
@@ -277,6 +288,8 @@ def verify_digest(root: Path) -> list[str]:
 
 def copy_workspace(pristine: Path, dest: Path) -> Path:
     """Copy a pristine workspace for one run and verify the copy.
+
+    The copy is verified against the digest manifest copied along with it.
 
     Args:
         pristine: The sealed workspace to copy from.
@@ -306,9 +319,55 @@ def copy_workspace(pristine: Path, dest: Path) -> Path:
 
 
 def _git_version() -> str:
-    return subprocess.run(
-        ["git", "--version"], capture_output=True, text=True
-    ).stdout.strip()
+    return _run_git("--version").stdout.strip()
+
+
+def _copy_substrate(
+    source: Path, pristine: Path, forge_snapshot: Path | None
+) -> Path | None:
+    for part in SUBSTRATE_PARTS:
+        if not (source / part).is_dir():
+            raise ExperimentError(f"{source / part} is missing")
+    pristine.mkdir(parents=True)
+    for part in SUBSTRATE_PARTS:
+        shutil.copytree(source / part, pristine / part, symlinks=False)
+    if forge_snapshot is None:
+        return None
+    snapshot = pristine / forge_snapshot
+    shutil.copytree(source / forge_snapshot, snapshot, symlinks=False)
+    return snapshot
+
+
+def _emit_and_verify_views(
+    pristine: Path, snapshot: Path | None, views_cli: ModuleType
+) -> None:
+    args = [
+        str(pristine / "timeline"),
+        "--corpus",
+        str(pristine / "corpus"),
+        "--repo",
+        str(pristine / "clone"),
+        "--out",
+        str(pristine / "clusters"),
+    ]
+    if snapshot is not None:
+        args += ["--forge", str(snapshot)]
+    if views_cli.main(args) != 0:
+        raise ExperimentError("view emission failed; see stderr")
+    if views_cli.main(args + ["--verify"]) != 0:
+        raise ExperimentError("views do not reproduce byte-for-byte; see stderr")
+
+
+def _write_empty_state(pristine: Path, target: Target) -> None:
+    (pristine / "manifest.yaml").write_text(
+        yaml.safe_dump(
+            {"rfc": target.rfc_id, "title": target.title, "requirements": {}},
+            sort_keys=False,
+        )
+    )
+    (pristine / "questions.yaml").write_text("questions: {}\n")
+    (pristine / "revisions.yaml").write_text("revisions: {}\n")
+    (pristine / "interviews").mkdir()
 
 
 def prepare(
@@ -347,44 +406,12 @@ def prepare(
     source = (
         target.source if target.source.is_absolute() else panther_repo / target.source
     )
-    for part in ("clone", "corpus", "timeline"):
-        if not (source / part).is_dir():
-            raise ExperimentError(f"{source / part} is missing")
-    pristine.mkdir(parents=True)
-    for part in ("clone", "corpus", "timeline"):
-        shutil.copytree(source / part, pristine / part, symlinks=False)
-    snapshot = None
-    if target.forge_snapshot is not None:
-        snapshot = pristine / target.forge_snapshot
-        shutil.copytree(source / target.forge_snapshot, snapshot, symlinks=False)
+    snapshot = _copy_substrate(source, pristine, target.forge_snapshot)
     clone_head = _git(pristine / "clone", "rev-parse", "HEAD")
 
     _, read_clusters, views_cli = _substrate(panther_repo)
-    views_args = [
-        str(pristine / "timeline"),
-        "--corpus",
-        str(pristine / "corpus"),
-        "--repo",
-        str(pristine / "clone"),
-        "--out",
-        str(pristine / "clusters"),
-    ]
-    if snapshot is not None:
-        views_args += ["--forge", str(snapshot)]
-    if views_cli.main(views_args) != 0:
-        raise ExperimentError("view emission failed; see stderr")
-    if views_cli.main(views_args + ["--verify"]) != 0:
-        raise ExperimentError("views do not reproduce byte-for-byte; see stderr")
-
-    (pristine / "manifest.yaml").write_text(
-        yaml.safe_dump(
-            {"rfc": target.rfc_id, "title": target.title, "requirements": {}},
-            sort_keys=False,
-        )
-    )
-    (pristine / "questions.yaml").write_text("questions: {}\n")
-    (pristine / "revisions.yaml").write_text("revisions: {}\n")
-    (pristine / "interviews").mkdir()
+    _emit_and_verify_views(pristine, snapshot, views_cli)
+    _write_empty_state(pristine, target)
     draft_head = scaffold_draft(
         pristine / "draft", target, template=template, template_commit=template_commit
     )
