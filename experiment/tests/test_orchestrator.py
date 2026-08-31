@@ -169,6 +169,37 @@ def _clusters(count: int):
     return [{"ordinal": n, "id": f"c{n}"} for n in range(1, count + 1)]
 
 
+def _write_events(path, costs):
+    path.write_text(
+        "".join(
+            json.dumps({"type": "result", "total_cost_usd": c}) + "\n" for c in costs
+        )
+    )
+
+
+def test_a_killed_session_is_not_charged_the_previous_ones_cost(tmp_path):
+    """A session killed on its cap emits no result event.
+
+    Taking the transcript's tail would then re-read the previous session's
+    event, charging its cost twice — overstating the run and writing the wrong
+    figure into the per-session record, on exactly the path this design exists
+    to tolerate.
+    """
+    from experiment.orchestrator import _session_cost
+
+    events = tmp_path / "events.jsonl"
+
+    _write_events(events, [2.0])
+    assert _session_cost(events, 0) == (2.0, 1)
+
+    # The next session is killed: the transcript is unchanged.
+    assert _session_cost(events, 1) == (0.0, 1)
+
+    # A session that emits several results is summed, not sampled.
+    _write_events(events, [2.0, 1.0, 0.5])
+    assert _session_cost(events, 1) == (1.5, 3)
+
+
 def test_the_budget_caps_the_run_not_each_session(per_cluster_campaign, monkeypatch):
     """Otherwise sixty-nine clusters could spend sixty-nine times the flag.
 
@@ -181,7 +212,7 @@ def test_the_budget_caps_the_run_not_each_session(per_cluster_campaign, monkeypa
     calls = _stub_spawn(orchestrator, monkeypatch, sessions_per_cluster=1)
     monkeypatch.setattr(orchestrator, "window_clusters", lambda _ws: _clusters(10))
     # Each session spends the whole $1.00 campaign budget.
-    monkeypatch.setattr(orchestrator, "_session_cost", lambda _p: 1.0)
+    monkeypatch.setattr(orchestrator, "_session_cost", lambda _p, seen: (1.0, seen + 1))
 
     spec = _spec(per_cluster_campaign)
     exit_code, _, sessions = orchestrator.run_per_cluster(per_cluster_campaign, spec)
@@ -204,7 +235,9 @@ def test_each_session_is_given_only_what_the_run_has_left(
     _stub_spawn(orchestrator, monkeypatch, sessions_per_cluster=1)
     monkeypatch.setattr(orchestrator, "window_clusters", lambda _ws: _clusters(3))
     monkeypatch.setattr(orchestrator, "build_run_argv", capture)
-    monkeypatch.setattr(orchestrator, "_session_cost", lambda _p: 0.25)
+    monkeypatch.setattr(
+        orchestrator, "_session_cost", lambda _p, seen: (0.25, seen + 1)
+    )
 
     orchestrator.run_per_cluster(per_cluster_campaign, _spec(per_cluster_campaign))
     assert given == [1.0, 0.75, 0.5]
@@ -218,7 +251,7 @@ def test_every_session_records_the_argv_it_actually_ran(
 
     _stub_spawn(orchestrator, monkeypatch, sessions_per_cluster=1)
     monkeypatch.setattr(orchestrator, "window_clusters", lambda _ws: _clusters(2))
-    monkeypatch.setattr(orchestrator, "_session_cost", lambda _p: 0.1)
+    monkeypatch.setattr(orchestrator, "_session_cost", lambda _p, seen: (0.1, seen + 1))
 
     spec = _spec(per_cluster_campaign)
     orchestrator.run_per_cluster(per_cluster_campaign, spec)

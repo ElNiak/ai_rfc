@@ -69,29 +69,38 @@ def next_cluster(workspace: Path) -> dict[str, Any] | None:
     return None
 
 
-def _session_cost(events_path: Path) -> float:
-    """What the most recent session spent, from its own result event.
+def _session_cost(events_path: Path, seen: int) -> tuple[float, int]:
+    """What was spent by the result events appended since ``seen``.
 
     Read back off the transcript rather than tracked, for the same reason the
     next cluster is: the transcript is what survives, and a figure carried in
-    memory would be lost by the kill it exists to prevent.
+    memory would be lost by the kill it exists to tolerate.
+
+    Counting from ``seen`` rather than taking the last event matters on exactly
+    the path this design exists for. A session killed on its cap emits no result
+    event, so the tail of the transcript is still the *previous* session's — and
+    charging that a second time both overstates the run and writes the wrong
+    figure into the per-session record.
 
     Args:
         events_path: The run's transcript.
+        seen: How many result events the transcript held before this session.
 
     Returns:
-        The last result event's cost, or 0.0 when there is none to read. A
-        session that produced no result event reports nothing about its spend,
-        and guessing upward would halt runs that are fine.
+        ``(cost, total)`` — what the new events report, and the transcript's
+        new result-event count. A session that produced none reports 0.0,
+        because it said nothing about its own spend.
     """
     try:
         results = result_events(parse_stream(events_path.read_text(errors="replace")))
     except (ExperimentError, OSError):
-        return 0.0
-    if not results:
-        return 0.0
-    cost = results[-1].get("total_cost_usd")
-    return float(cost) if isinstance(cost, (int, float)) else 0.0
+        return 0.0, seen
+    cost = 0.0
+    for result in results[seen:]:
+        value = result.get("total_cost_usd")
+        if isinstance(value, (int, float)):
+            cost += float(value)
+    return cost, len(results)
 
 
 def run_per_cluster(
@@ -125,6 +134,7 @@ def run_per_cluster(
     sessions_path = spec.run_dir / SESSIONS_FILE
     sessions = 0
     spent = 0.0
+    results_seen = 0
     started = time.monotonic()
     exit_code: int | None = 0
     any_timeout = False
@@ -166,7 +176,7 @@ def run_per_cluster(
             )
             sessions += 1
             any_timeout = any_timeout or timed_out
-            cost = _session_cost(events_path)
+            cost, results_seen = _session_cost(events_path, results_seen)
             spent += cost
             # The run's argv.json holds the whole-window vector launch() built
             # before dispatching here, which is not what any session ran. Each
