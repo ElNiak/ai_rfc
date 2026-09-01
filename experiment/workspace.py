@@ -81,7 +81,23 @@ AIOQUIC = Target(
     title="aioquic: A Reconstructed Specification",
     abbrev="aioquic Reconstructed",
 )
-TARGETS: dict[str, Target] = {"aioquic": AIOQUIC}
+#: MARK across its whole timeline. A production sweep is this: a target whose
+#: window spans every cluster, run with ``session_mode="per-cluster"``. Nothing
+#: in the harness distinguishes it from an experiment arm — the window is the
+#: only thing that made the pilot a pilot.
+MARK = Target(
+    name="mark",
+    source=Path("reconstructions/mark"),
+    forge_snapshot=Path(
+        "forge/gitlab.cylab.be__cylab__mark/snapshot-2026-08-25T15-38-20Z"
+    ),
+    window=(1, 69),
+    draft_name="draft-elniak-mark-reconstructed",
+    rfc_id="MARK-RECON-1",
+    title="MARK: A Reconstructed Specification",
+    abbrev="MARK Reconstructed",
+)
+TARGETS: dict[str, Target] = {"aioquic": AIOQUIC, "mark": MARK}
 
 
 def _run_git(*args: str, date: str | None = None) -> subprocess.CompletedProcess[str]:
