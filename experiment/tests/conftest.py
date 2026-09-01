@@ -130,10 +130,10 @@ COMPLETE_STEPS = [
 @pytest.fixture
 def campaign(pristine, panther_repo, plugin_root, tmp_path):
     """A frozen three-arm campaign whose launches go through the fake claude."""
-    from experiment.config import CampaignRequest, init_campaign
+    from experiment.config import CampaignConfig, init_campaign
 
     return init_campaign(
-        CampaignRequest(
+        CampaignConfig(
             root=tmp_path / "root",
             campaign_id="test",
             pristine_dir=pristine,

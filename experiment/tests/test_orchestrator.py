@@ -3,7 +3,7 @@ import sys
 
 import pytest
 
-from experiment.config import CampaignRequest, init_campaign
+from experiment.config import CampaignConfig, init_campaign
 from experiment.matrix import execute
 from experiment.metrics import analyze_run
 from experiment.orchestrator import next_cluster
@@ -37,7 +37,7 @@ def wide_pristine(fixture_workspace, panther_repo, template_repo, tmp_path):
 def per_cluster_campaign(wide_pristine, panther_repo, plugin_root, tmp_path):
     """A one-arm campaign executed as one agent session per cluster."""
     return init_campaign(
-        CampaignRequest(
+        CampaignConfig(
             root=tmp_path / "root",
             campaign_id="per-cluster",
             pristine_dir=wide_pristine,
@@ -53,7 +53,7 @@ def per_cluster_campaign(wide_pristine, panther_repo, plugin_root, tmp_path):
             python=sys.executable,
             claude_bin=str(FAKE_CLAUDE),
             parity={"passed": True, "summary": "test"},
-            sessions="per-cluster",
+            session_mode="per-cluster",
         )
     )
 
@@ -61,12 +61,12 @@ def per_cluster_campaign(wide_pristine, panther_repo, plugin_root, tmp_path):
 def test_the_mode_is_frozen_into_the_campaign_record(per_cluster_campaign):
     """A run must say how it was executed, not only what it produced."""
     stored = json.loads((per_cluster_campaign.dir / "campaign.json").read_text())
-    assert stored["sessions"] == "per-cluster"
+    assert stored["session_mode"] == "per-cluster"
 
 
 def test_a_campaign_frozen_before_the_field_existed_still_loads(campaign):
     """The default is what keeps older campaign.json files readable."""
-    assert campaign.sessions == "single"
+    assert campaign.session_mode == "single"
 
 
 def test_next_cluster_is_read_from_the_workspace_not_remembered(

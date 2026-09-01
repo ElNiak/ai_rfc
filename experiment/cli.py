@@ -268,7 +268,7 @@ def _parser() -> argparse.ArgumentParser:
         help="Claude Code binary; frozen as a resolved path, not a name.",
     )
     init.add_argument(
-        "--sessions",
+        "--session-mode",
         choices=("single", "per-cluster"),
         default="single",
         help=(
@@ -354,7 +354,7 @@ def main(argv: list[str] | None = None) -> int:
                 f"window: {record['window']}"
             )
         elif args.command == "campaign" and args.verb == "init":
-            from .config import CampaignRequest, init_campaign
+            from .config import CampaignConfig, init_campaign
 
             plugin_dir = (args.plugin_dir or _default_plugin_dir()).resolve()
             pristine = Path(args.pristine)
@@ -362,7 +362,7 @@ def main(argv: list[str] | None = None) -> int:
                 pristine = root / "pristine" / args.pristine
             parity = None if args.skip_parity else _run_parity(plugin_dir, args.python)
             campaign = init_campaign(
-                CampaignRequest(
+                CampaignConfig(
                     root=root,
                     campaign_id=args.id,
                     pristine_dir=pristine,
@@ -378,7 +378,7 @@ def main(argv: list[str] | None = None) -> int:
                     python=args.python,
                     claude_bin=args.claude,
                     parity=parity,
-                    sessions=args.sessions,
+                    session_mode=args.session_mode,
                 )
             )
             print(f"campaign: {campaign.dir}")

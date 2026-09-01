@@ -34,7 +34,7 @@ exec "{python}" -c "import sys; sys.path.insert(0, '{server_src}'); from ai_rfc_
 
 
 @dataclass(frozen=True)
-class CampaignRequest:
+class CampaignConfig:
     """What a caller asks for, before anything is resolved or frozen.
 
     Distinct from :class:`Campaign`, which is the *record*: it also holds the
@@ -59,8 +59,8 @@ class CampaignRequest:
     python: str
     claude_bin: str
     parity: dict[str, Any] | None
-    #: ``single`` or ``per-cluster``; see :attr:`Campaign.sessions`.
-    sessions: str = "single"
+    #: ``single`` or ``per-cluster``; see :attr:`Campaign.session_mode`.
+    session_mode: str = "single"
 
 
 @dataclass(frozen=True)
@@ -97,7 +97,7 @@ class Campaign:
     #: reasons about late clusters from a summary, and a budget kill loses
     #: everything after it. Defaulted so campaigns frozen before this existed
     #: still load, and recorded so a run says how it was executed.
-    sessions: str = "single"
+    session_mode: str = "single"
 
     @property
     def dir(self) -> Path:
@@ -214,11 +214,11 @@ def _sha256(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
 
 
-def init_campaign(request: CampaignRequest) -> Campaign:
+def init_campaign(config: CampaignConfig) -> Campaign:
     """Freeze a campaign on disk.
 
     Args:
-        request: What to freeze. See :class:`CampaignRequest`.
+        config: What to freeze. See :class:`CampaignConfig`.
 
     Returns:
         The frozen campaign.
@@ -228,16 +228,16 @@ def init_campaign(request: CampaignRequest) -> Campaign:
             pristine workspace lacks its digest or record, or the claude
             binary cannot be found.
     """
-    root = request.root
-    campaign_id = request.campaign_id
-    pristine_dir = request.pristine_dir
-    arms = request.arms
-    repeats = request.repeats
-    seed = request.seed
-    python = request.python
-    plugin_root = request.plugin_root
-    panther_repo = request.panther_repo
-    claude_bin = request.claude_bin
+    root = config.root
+    campaign_id = config.campaign_id
+    pristine_dir = config.pristine_dir
+    arms = config.arms
+    repeats = config.repeats
+    seed = config.seed
+    python = config.python
+    plugin_root = config.plugin_root
+    panther_repo = config.panther_repo
+    claude_bin = config.claude_bin
 
     for arm in arms:
         if arm not in ARMS:
@@ -297,10 +297,10 @@ def init_campaign(request: CampaignRequest) -> Campaign:
         arms=tuple(arms),
         repeats=repeats,
         seed=seed,
-        model=request.model,
-        effort=request.effort,
-        budget_usd=request.budget_usd,
-        timeout_s=request.timeout_s,
+        model=config.model,
+        effort=config.effort,
+        budget_usd=config.budget_usd,
+        timeout_s=config.timeout_s,
         profile_dir=root / "profile",
         pristine_dir=pristine_dir,
         panther_repo=panther_repo,
@@ -315,9 +315,9 @@ def init_campaign(request: CampaignRequest) -> Campaign:
             "panther": git_describe(panther_repo),
             "ai_rfc": git_describe(plugin_root),
         },
-        parity=request.parity,
+        parity=config.parity,
         created_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        sessions=request.sessions,
+        session_mode=config.session_mode,
     )
     (campaign_dir / CAMPAIGN_FILE).write_text(_dump(campaign))
     return campaign

@@ -5,7 +5,7 @@ import pytest
 
 from experiment import ExperimentError
 from experiment.config import (
-    CampaignRequest,
+    CampaignConfig,
     git_describe,
     init_campaign,
     load_campaign,
@@ -66,7 +66,7 @@ def _init(tmp_path, pristine, panther_repo, plugin_root, **overrides):
         parity={"passed": True, "summary": "38 passed"},
     )
     kwargs.update(overrides)
-    return init_campaign(CampaignRequest(**kwargs))
+    return init_campaign(CampaignConfig(**kwargs))
 
 
 def test_init_campaign_freezes_everything(

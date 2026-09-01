@@ -236,7 +236,7 @@ def launch(campaign: Campaign, ref: RunRef) -> RunStatus:
         + (campaign.prompts_dir / "task.md").read_text()
     )
     started = _now()
-    if campaign.sessions == "per-cluster":
+    if campaign.session_mode == "per-cluster":
         # Imported here, not at module scope: the orchestrator needs this
         # module's env and argv builders, and importing it eagerly would make
         # that a cycle.
