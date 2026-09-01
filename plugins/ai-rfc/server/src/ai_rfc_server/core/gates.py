@@ -68,7 +68,7 @@ def manifest_gate(ctx: Context, strict: bool = False) -> dict[str, Any]:
 
     Args:
         ctx: The resolved context.
-        strict: Exit 2 on any finding.
+        strict: Exit 3 on any finding.
 
     Returns:
         ``{exit_code, stderr, report}`` — ``report`` is the summary slice
@@ -107,7 +107,7 @@ def citation_gate(ctx: Context, strict: bool = False) -> dict[str, Any]:
 
     Args:
         ctx: The resolved context.
-        strict: Exit 2 on any finding.
+        strict: Exit 3 on any finding.
 
     Returns:
         ``{exit_code, stderr, findings}`` — findings from
