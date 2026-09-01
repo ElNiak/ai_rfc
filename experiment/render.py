@@ -17,7 +17,7 @@ from . import ExperimentError
 
 PROMPTS = Path(__file__).parent / "prompts"
 TEMPLATE = PROMPTS / "loop.tmpl.md"
-SLOT = re.compile(r"\{\{([a-z_]+)\}\}")
+SLOT_RE = re.compile(r"\{\{([a-z_]+)\}\}")
 NEUTRAL_TEXTS = (
     ("skills", "arfc-rfc-style", "SKILL.md"),
     ("skills", "arfc-rfc-style", "references", "claim-citation.md"),
@@ -32,7 +32,7 @@ allowed-tools: Read, Grep, Glob, Edit, Write, Bash(python -m panther.plugins.ser
 
 """
 
-_CHURN = (
+_CHURN_SQL = (
     "SELECT path, COUNT(*) c FROM file_changes GROUP BY path ORDER BY c DESC LIMIT 20"
 )
 _EXPERIMENT_GUIDANCE = (
@@ -51,7 +51,7 @@ _RAW = {
         "`span.diff` (paginate long diffs with `sed -n`) and `evidence/pr.json` "
         "when present"
     ),
-    "corpus_query": f'`sqlite3 $ARFC_WORKSPACE/corpus/index.sqlite "{_CHURN}"`',
+    "corpus_query": f'`sqlite3 $ARFC_WORKSPACE/corpus/index.sqlite "{_CHURN_SQL}"`',
     "claim_upsert": (
         "edit `$ARFC_WORKSPACE/manifest.yaml` by hand — quote every id and "
         "section, never write `status`"
@@ -101,7 +101,7 @@ _RAW = {
     ),
 }
 
-INVOCATIONS: dict[str, dict[str, str]] = {
+SLOT_TABLES: dict[str, dict[str, str]] = {
     "interactive": {
         **_RAW,
         "guidance": (
@@ -149,7 +149,7 @@ INVOCATIONS: dict[str, dict[str, str]] = {
             "`arfc cluster-get <id> --patch` (add `--patch-offset N "
             "--patch-limit N` to page through long diffs)"
         ),
-        "corpus_query": f'`arfc corpus-query "{_CHURN}"`',
+        "corpus_query": f'`arfc corpus-query "{_CHURN_SQL}"`',
         "claim_upsert": (
             "`arfc claim-upsert <id> --text … --section … --level … --layer … "
             '[--field intent=…] [--anchor \'{"evidence_class": "code", '
@@ -195,7 +195,7 @@ INVOCATIONS: dict[str, dict[str, str]] = {
             "`arfc_cluster_get(cluster_id, include_patch=true)` (page long diffs "
             "with `patch_offset`/`patch_limit`)"
         ),
-        "corpus_query": f'`arfc_corpus_query(sql="{_CHURN}")`',
+        "corpus_query": f'`arfc_corpus_query(sql="{_CHURN_SQL}")`',
         "claim_upsert": (
             "`arfc_claim_upsert(claim_id, fields)` with `text`, `section`, "
             "`level`, `layer`, optional `intent`/`req_class`, and `anchors` as a "
@@ -237,16 +237,16 @@ def render_loop(arm: str) -> str:
     Raises:
         ExperimentError: If ``arm`` has no table or a slot stays unfilled.
     """
-    if arm not in INVOCATIONS:
+    if arm not in SLOT_TABLES:
         raise ExperimentError(
-            f"no invocation table for {arm!r}; tables: {', '.join(INVOCATIONS)}"
+            f"no invocation table for {arm!r}; tables: {', '.join(SLOT_TABLES)}"
         )
-    table = INVOCATIONS[arm]
+    table = SLOT_TABLES[arm]
     template = TEMPLATE.read_text()
-    missing = sorted(set(SLOT.findall(template)) - set(table))
+    missing = sorted(set(SLOT_RE.findall(template)) - set(table))
     if missing:
         raise ExperimentError(f"table {arm!r} leaves slots unfilled: {missing}")
-    return SLOT.sub(lambda match: table[match.group(1)], template)
+    return SLOT_RE.sub(lambda match: table[match.group(1)], template)
 
 
 def strip_frontmatter(text: str) -> str:

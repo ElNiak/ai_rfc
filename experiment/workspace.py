@@ -101,7 +101,9 @@ def _git(repo: Path, *args: str, date: str | None = None) -> str:
     return result.stdout.strip()
 
 
-def _substrate(panther_repo: Path):  # noqa: ANN202 - substrate modules, resolved lazily
+def _substrate_modules(
+    panther_repo: Path,
+):  # noqa: ANN202 - substrate modules, resolved lazily
     if str(panther_repo) not in sys.path:
         sys.path.insert(0, str(panther_repo))
     from panther.plugins.services.testers.a_rfc.draft.checkpoint import (
@@ -200,7 +202,7 @@ def preseed(workspace: Path, panther_repo: Path, ordinals: Iterable[int]) -> lis
     Raises:
         ExperimentError: If an ordinal has no cluster.
     """
-    write_checkpoint, read_clusters, _ = _substrate(panther_repo)
+    write_checkpoint, read_clusters, _ = _substrate_modules(panther_repo)
     by_ordinal = {
         row["ordinal"]: row["id"] for row in read_clusters(workspace / "timeline")
     }
@@ -255,9 +257,9 @@ def write_digest(root: Path) -> Path:
         The digest manifest's path.
     """
     lines = [f"{digest}  {relative}" for relative, digest in _digests(root).items()]
-    target = root / DIGEST_FILE
-    target.write_text("\n".join(lines) + "\n")
-    return target
+    digest_path = root / DIGEST_FILE
+    digest_path.write_text("\n".join(lines) + "\n")
+    return digest_path
 
 
 def verify_digest(root: Path) -> list[str]:
@@ -409,7 +411,7 @@ def prepare(
     snapshot = _copy_substrate(source, pristine, target.forge_snapshot)
     clone_head = _git(pristine / "clone", "rev-parse", "HEAD")
 
-    _, read_clusters, views_cli = _substrate(panther_repo)
+    _, read_clusters, views_cli = _substrate_modules(panther_repo)
     _emit_and_verify_views(pristine, snapshot, views_cli)
     _write_empty_state(pristine, target)
     draft_head = scaffold_draft(

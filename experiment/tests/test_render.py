@@ -2,7 +2,7 @@ import pytest
 
 from experiment import ExperimentError
 from experiment.render import (
-    INVOCATIONS,
+    SLOT_TABLES,
     SKILL_FRONTMATTER,
     arm_prompt,
     render_loop,
@@ -12,7 +12,7 @@ from experiment.render import (
 
 
 def test_every_table_fills_every_slot():
-    for arm in INVOCATIONS:
+    for arm in SLOT_TABLES:
         text = render_loop(arm)
         assert "{{" not in text and "}}" not in text, arm
 

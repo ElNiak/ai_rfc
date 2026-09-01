@@ -45,8 +45,8 @@ CHECKS = (
     "append_prompt",
 )
 REQUIRED = frozenset(CHECKS) - {"draft_commit", "plugin_mcp"}
-CANARY = "ARFC-CANARY-7731"
-PASSPHRASE = "PASS-4412"
+CLAUDE_MD_CANARY = "ARFC-CANARY-7731"
+APPEND_PROMPT_CANARY = "PASS-4412"
 GUARD_SETTINGS = "guard-C.json"
 ALLOW_SETTINGS = "guard-allow.json"
 APPEND_PROMPT = "append.md"
@@ -88,7 +88,7 @@ def _base_env(profile_path: Path) -> dict[str, str]:
     }
 
 
-def _common(model: str, *extra: str) -> tuple[str, ...]:
+def _spike_flags(model: str, *extra: str) -> tuple[str, ...]:
     return (
         "--output-format",
         "stream-json",
@@ -132,7 +132,7 @@ def build_invocations(
         env: dict[str, str] = isolated,
     ) -> Invocation:
         return Invocation(
-            name, (claude_bin, "-p", prompt, *_common(model, *flags)), env, where
+            name, (claude_bin, "-p", prompt, *_spike_flags(model, *flags)), env, where
         )
 
     def surface_call(arm: str) -> Invocation:
@@ -228,9 +228,9 @@ def prepare_scratch(
     (scratch / "cwd").mkdir(parents=True)
     canary = scratch / "canary"
     (canary / "sub").mkdir(parents=True)
-    (canary / "CLAUDE.md").write_text(f"The secret codeword is {CANARY}.\n")
+    (canary / "CLAUDE.md").write_text(f"The secret codeword is {CLAUDE_MD_CANARY}.\n")
     (scratch / APPEND_PROMPT).write_text(
-        f"When asked for the passphrase, answer {PASSPHRASE}.\n"
+        f"When asked for the passphrase, answer {APPEND_PROMPT_CANARY}.\n"
     )
     guard = Path(__file__).resolve().parent / "guard.py"
     _write_json(
@@ -274,7 +274,7 @@ def _parsed(stdout: str) -> list[dict[str, Any]]:
         return []
 
 
-def run_claude(invocation: Invocation, timeout_s: int) -> dict[str, Any]:
+def run_invocation(invocation: Invocation, timeout_s: int) -> dict[str, Any]:
     """Run one invocation; never raises on a non-zero exit."""
     try:
         completed = subprocess.run(
@@ -340,10 +340,10 @@ def _tools(events: list[dict[str, Any]]) -> list[str]:
 
 
 #: One check's outcome: whether it passed, and the evidence the report carries.
-Verdict = tuple[bool, dict[str, Any]]
+CheckResult = tuple[bool, dict[str, Any]]
 
 
-def _auth_check(auth: dict[str, Any]) -> Verdict:
+def _auth_check(auth: dict[str, Any]) -> CheckResult:
     final = result_event(auth["events"]) or {}
     passed = (
         auth["exit_code"] == 0
@@ -357,7 +357,7 @@ def _auth_check(auth: dict[str, Any]) -> Verdict:
     }
 
 
-def _hooks_check(isolated: dict[str, Any], control: dict[str, Any]) -> Verdict:
+def _hooks_check(isolated: dict[str, Any], control: dict[str, Any]) -> CheckResult:
     isolated_hooks = len(hook_events(isolated["events"]))
     control_hooks = len(hook_events(control["events"]))
     passed = isolated["exit_code"] == 0 and isolated_hooks == 0 and control_hooks > 0
@@ -367,14 +367,16 @@ def _hooks_check(isolated: dict[str, Any], control: dict[str, Any]) -> Verdict:
     }
 
 
-def _claude_md_check(isolated: dict[str, Any], control: dict[str, Any]) -> Verdict:
+def _claude_md_check(isolated: dict[str, Any], control: dict[str, Any]) -> CheckResult:
     answer = _answer(isolated)
-    control_leaked = CANARY in _answer(control)
-    passed = isolated["exit_code"] == 0 and CANARY not in answer and control_leaked
+    control_leaked = CLAUDE_MD_CANARY in _answer(control)
+    passed = (
+        isolated["exit_code"] == 0 and CLAUDE_MD_CANARY not in answer and control_leaked
+    )
     return passed, {"control_leaked": control_leaked, "isolated_answer": answer[:80]}
 
 
-def _arm_surface_check(surfaces: dict[str, dict[str, Any]]) -> Verdict:
+def _arm_surface_check(surfaces: dict[str, dict[str, Any]]) -> CheckResult:
     tools = {arm: _tools(o["events"]) for arm, o in surfaces.items()}
     mcp = {arm: _mcp_status(o["events"]) for arm, o in surfaces.items()}
     slash = {
@@ -394,7 +396,7 @@ def _arm_surface_check(surfaces: dict[str, dict[str, Any]]) -> Verdict:
     return passed, {"tools": tools, "mcp_servers": mcp, "slash_commands": slash}
 
 
-def _draft_commit_check(workspace: Path, outcome: dict[str, Any]) -> Verdict:
+def _draft_commit_check(workspace: Path, outcome: dict[str, Any]) -> CheckResult:
     committed = subprocess.run(
         ["git", "-C", str(workspace / "draft"), "log", "--oneline", "-1"],
         capture_output=True,
@@ -407,7 +409,9 @@ def _draft_commit_check(workspace: Path, outcome: dict[str, Any]) -> Verdict:
     }
 
 
-def _plugin_mcp_check(with_env: dict[str, Any], without_env: dict[str, Any]) -> Verdict:
+def _plugin_mcp_check(
+    with_env: dict[str, Any], without_env: dict[str, Any]
+) -> CheckResult:
     env_connected = _arfc_connected(with_env["events"])
     answer = _answer(with_env)
     return env_connected and "2" in answer, {
@@ -417,7 +421,7 @@ def _plugin_mcp_check(with_env: dict[str, Any], without_env: dict[str, Any]) -> 
     }
 
 
-def _result_fields_check(auth: dict[str, Any]) -> Verdict:
+def _result_fields_check(auth: dict[str, Any]) -> CheckResult:
     required_keys = ("total_cost_usd", "usage", "num_turns", "duration_ms")
     optional_keys = (
         "modelUsage",
@@ -436,7 +440,7 @@ def _result_fields_check(auth: dict[str, Any]) -> Verdict:
     }
 
 
-def _denial_check(denial: dict[str, Any], control: dict[str, Any]) -> Verdict:
+def _denial_check(denial: dict[str, Any], control: dict[str, Any]) -> CheckResult:
     leaked = any(
         not r["is_error"] and "bypass-probe" in r["text"]
         for r in tool_results(denial["events"]).values()
@@ -456,9 +460,9 @@ def _denial_check(denial: dict[str, Any], control: dict[str, Any]) -> Verdict:
     }
 
 
-def _append_prompt_check(appended: dict[str, Any]) -> Verdict:
+def _append_prompt_check(appended: dict[str, Any]) -> CheckResult:
     answer = _answer(appended)
-    passed = appended["exit_code"] == 0 and PASSPHRASE in answer
+    passed = appended["exit_code"] == 0 and APPEND_PROMPT_CANARY in answer
     return passed, {"answer": answer[:40]}
 
 
@@ -529,14 +533,14 @@ def _run_all(
     outcomes: dict[str, dict[str, Any]] = {}
     log: list[dict[str, Any]] = []
     for invocation in invocations:
-        outcome = run_claude(invocation, timeout_s)
+        outcome = run_invocation(invocation, timeout_s)
         if outcome["exit_code"] == 0 and not outcome["events"]:
             # A run can exit 0 having written nothing at all; that is a harness
             # failure, and scoring it as evidence makes the verdict a coin flip.
             print(
                 f"note: {invocation.name}: empty stream, retrying once", file=sys.stderr
             )
-            outcome = run_claude(invocation, timeout_s)
+            outcome = run_invocation(invocation, timeout_s)
         outcomes[invocation.name] = outcome
         log.append(
             {

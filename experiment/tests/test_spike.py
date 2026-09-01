@@ -4,12 +4,12 @@ import sys
 from pathlib import Path
 
 from experiment.spike import (
-    CANARY,
+    CLAUDE_MD_CANARY,
     CHECKS,
     Invocation,
     build_invocations,
     evaluate,
-    run_claude,
+    run_invocation,
 )
 from experiment.stream import parse_stream
 
@@ -187,12 +187,12 @@ def test_hooks_and_claude_md_require_their_positive_controls(tmp_path):
     checks = {c["check"]: c for c in evaluate(outcomes, tmp_path)}
     assert checks["claude_md"]["passed"] is False
 
-    outcomes["claude_md_control"] = result_outcome(CANARY)
+    outcomes["claude_md_control"] = result_outcome(CLAUDE_MD_CANARY)
     checks = {c["check"]: c for c in evaluate(outcomes, tmp_path)}
     assert checks["claude_md"]["passed"] is True
 
 
-def test_run_claude_timeout_degrades_gracefully(tmp_path):
+def test_run_invocation_timeout_degrades_gracefully(tmp_path):
     invocation = Invocation(
         name="timeout_probe",
         argv=(
@@ -203,7 +203,7 @@ def test_run_claude_timeout_degrades_gracefully(tmp_path):
         env={"PATH": os.environ["PATH"]},
         cwd=tmp_path,
     )
-    outcome = run_claude(invocation, timeout_s=1)
+    outcome = run_invocation(invocation, timeout_s=1)
     assert outcome["timed_out"] is True
     assert outcome["exit_code"] is None
     assert isinstance(outcome["stderr"], str)

@@ -41,7 +41,7 @@ DEFINITIONS = {
 }
 
 
-def _substrate(campaign: Campaign) -> None:
+def _extend_sys_path(campaign: Campaign) -> None:
     for entry in (str(campaign.server_src), str(campaign.panther_repo)):
         if entry not in sys.path:
             sys.path.insert(0, entry)
@@ -119,7 +119,7 @@ def run_gates(workspace: Path, campaign: Campaign) -> dict[str, Any]:
     Returns:
         Both exit codes, their findings, and whether both were clean.
     """
-    _substrate(campaign)
+    _extend_sys_path(campaign)
     from ai_rfc_server.core.gates import citation_gate, manifest_gate
     from ai_rfc_server.paths import Context
 
@@ -154,7 +154,7 @@ def claim_stats(
     manifest_path = workspace / "checkpoints" / cluster_id / "manifest.yaml"
     if not manifest_path.exists():
         return None
-    _substrate(campaign)
+    _extend_sys_path(campaign)
     from panther.plugins.services.testers.a_rfc import report, schema
 
     payload = json.loads(
