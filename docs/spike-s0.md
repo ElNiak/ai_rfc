@@ -177,5 +177,10 @@ Superseded runs are preserved at `~/arfc-experiments/spike.failed-auth-1/`,
 CLAUDE_CONFIG_DIR=~/arfc-experiments/profile claude auth login
 
 # the spike
-cd $R && python -m experiment spike --root ~/arfc-experiments --panther-repo $W
+cd $R && python -m experiment preflight --root ~/arfc-experiments --panther-repo $W
 ```
+
+The subcommand is `preflight`; it still writes `spike-report.json` under
+`~/arfc-experiments/spike/`. Those names are recorded evidence from runs that
+already happened, so they keep the word the reports were published under even
+though the command no longer says it.
