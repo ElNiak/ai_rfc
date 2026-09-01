@@ -17,15 +17,15 @@ from pathlib import Path
 from typing import Any
 
 from . import ExperimentError
-from .arms import profile
+from .arms import arm_profile
 from .config import Campaign
 from .enforcement import FILTERS, bash_prefixes, command_groups, is_allowed
 from .runner import EVENTS_FILE, GUARD_FILE, load_status
 from .stream import (
     is_denial,
+    merge_results,
     parse_stream,
     pretooluse_hook_starts,
-    merge_results,
     result_events,
     tool_results,
     tool_uses,
@@ -190,7 +190,7 @@ def in_arm(name: str, tool_input: dict[str, Any], surface: str, arm: str) -> boo
     """
     if name == "Bash":
         command = str(tool_input.get("command", "")).strip()
-        return is_allowed(command, bash_prefixes(profile(arm)))
+        return is_allowed(command, bash_prefixes(arm_profile(arm)))
     return surface in ALLOWED_SURFACES[arm]
 
 

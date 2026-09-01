@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from . import DEFAULT_MODEL, ExperimentError
-from .arms import ARMS, arm_flags, mcp_config, profile
+from .arms import ARMS, arm_flags, arm_profile, mcp_config
 from .enforcement import bash_prefixes, render_settings
 from .paths import profile_dir
 from .stream import (
@@ -136,13 +136,13 @@ def build_invocations(
         )
 
     def surface_call(arm: str) -> Invocation:
-        arm_profile = profile(arm)
-        mcp_path = scratch / MCP_CONFIG if arm_profile.uses_mcp else None
+        this_arm = arm_profile(arm)
+        mcp_path = scratch / MCP_CONFIG if this_arm.uses_mcp else None
         return call(
             f"arm_surface_{arm}",
             _LIST_TOOLS,
             "--disable-slash-commands",
-            *arm_flags(arm_profile, mcp_path),
+            *arm_flags(this_arm, mcp_path),
             where=workspace,
         )
 
@@ -165,7 +165,7 @@ def build_invocations(
     )
     guard_flags = (
         "--include-hook-events",
-        *arm_flags(profile("C"), None, scratch / GUARD_SETTINGS),
+        *arm_flags(arm_profile("C"), None, scratch / GUARD_SETTINGS),
     )
     return [
         call("auth", "Reply with exactly: ARFC-OK", *no_tools, where=cwd),
@@ -196,7 +196,7 @@ def build_invocations(
             f"Append the line 'probe' to {workspace}/draft/draft-test-spec.md using the "
             f"Edit tool. Then use the Bash tool to run exactly: git -C {workspace}/draft "
             f"add -A && git -C {workspace}/draft commit -m probe . Then reply DONE.",
-            *arm_flags(profile("C"), None),
+            *arm_flags(arm_profile("C"), None),
             where=workspace,
         ),
         call("plugin_mcp_env", _STATUS, *plugin_flags, where=workspace, env=plugin_env),
@@ -236,7 +236,7 @@ def prepare_scratch(
     _write_json(
         scratch / GUARD_SETTINGS,
         render_settings(
-            python=python, guard=guard, prefixes=bash_prefixes(profile("C"))
+            python=python, guard=guard, prefixes=bash_prefixes(arm_profile("C"))
         ),
     )
     _write_json(

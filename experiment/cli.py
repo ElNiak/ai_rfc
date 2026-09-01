@@ -118,8 +118,8 @@ def _parser() -> argparse.ArgumentParser:
     )
     commands = parser.add_subparsers(dest="command", required=True)
 
-    profile = commands.add_parser("profile", help="Isolated Claude Code profile.")
-    profile_verbs = profile.add_subparsers(dest="verb", required=True)
+    profile_cmd = commands.add_parser("profile", help="Isolated Claude Code profile.")
+    profile_verbs = profile_cmd.add_subparsers(dest="verb", required=True)
     profile_init = profile_verbs.add_parser("init", help="Create the profile dir.")
     _add_root(profile_init)
 
@@ -312,8 +312,8 @@ def main(argv: list[str] | None = None) -> int:
     root = args.root if getattr(args, "root", None) else default_root()
     try:
         if args.command == "profile" and args.verb == "init":
-            profile = init_profile(root)
-            print(f"profile: {profile}")
+            profile_path = init_profile(root)
+            print(f"profile: {profile_path}")
             print(f"log in once with:\n  {login_command(root)}")
         elif args.command == "spike":
             from .spike import run_spike

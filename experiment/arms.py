@@ -58,7 +58,7 @@ PROFILES: dict[str, ArmProfile] = {
 }
 
 
-def profile(arm: str) -> ArmProfile:
+def arm_profile(arm: str) -> ArmProfile:
     """Return the enforcement profile of ``arm``.
 
     Raises:
@@ -72,7 +72,7 @@ def profile(arm: str) -> ArmProfile:
         ) from None
 
 
-def constant_flags(
+def shared_flags(
     *, model: str, effort: str, budget_usd: float, prompt_file: Path
 ) -> list[str]:
     """Flags identical across arms — the protocol's "one harness" constant."""
@@ -98,7 +98,7 @@ def constant_flags(
 
 
 def arm_flags(
-    arm_profile: ArmProfile,
+    this_arm: ArmProfile,
     mcp_config_path: Path | None,
     guard_settings: Path | None = None,
 ) -> list[str]:
@@ -113,17 +113,17 @@ def arm_flags(
         ExperimentError: If an MCP config is missing for arm A or given for
             an arm that must not mount one.
     """
-    if arm_profile.uses_mcp and mcp_config_path is None:
+    if this_arm.uses_mcp and mcp_config_path is None:
         raise ExperimentError(
-            f"arm {arm_profile.arm} mounts the MCP server; a config path is required"
+            f"arm {this_arm.arm} mounts the MCP server; a config path is required"
         )
-    if not arm_profile.uses_mcp and mcp_config_path is not None:
-        raise ExperimentError(f"arm {arm_profile.arm} must not mount an MCP server")
+    if not this_arm.uses_mcp and mcp_config_path is not None:
+        raise ExperimentError(f"arm {this_arm.arm} must not mount an MCP server")
     flags = [
         "--tools",
-        ",".join(arm_profile.tools),
+        ",".join(this_arm.tools),
         "--allowedTools",
-        ",".join(arm_profile.allowed_tools),
+        ",".join(this_arm.allowed_tools),
         "--strict-mcp-config",
     ]
     if mcp_config_path is not None:
@@ -155,11 +155,11 @@ def mcp_config(
     }
 
 
-def build_argv(
+def claude_argv(
     *,
     claude_bin: str,
     prompt: str,
-    arm_profile: ArmProfile,
+    this_arm: ArmProfile,
     mcp_config_path: Path | None,
     model: str,
     effort: str,
@@ -172,8 +172,8 @@ def build_argv(
         claude_bin,
         "-p",
         prompt,
-        *constant_flags(
+        *shared_flags(
             model=model, effort=effort, budget_usd=budget_usd, prompt_file=prompt_file
         ),
-        *arm_flags(arm_profile, mcp_config_path, guard_settings),
+        *arm_flags(this_arm, mcp_config_path, guard_settings),
     ]

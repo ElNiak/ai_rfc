@@ -5,10 +5,10 @@ from experiment.arms import (
     ARMS,
     PROFILES,
     arm_flags,
-    build_argv,
-    constant_flags,
+    arm_profile,
+    claude_argv,
     mcp_config,
-    profile,
+    shared_flags,
 )
 
 
@@ -18,7 +18,7 @@ def _value(flags: list[str], name: str) -> str:
 
 def test_arm_a_has_no_bash_and_mounts_mcp(tmp_path):
     mcp_config_path = tmp_path / "arfc.json"
-    flags = arm_flags(profile("A"), mcp_config_path)
+    flags = arm_flags(arm_profile("A"), mcp_config_path)
     assert _value(flags, "--tools").split(",") == [
         "Read",
         "Edit",
@@ -37,10 +37,10 @@ def test_arm_a_has_no_bash_and_mounts_mcp(tmp_path):
     assert _value(flags, "--mcp-config") == str(mcp_config_path)
     assert "--strict-mcp-config" in flags
 
-    argv = build_argv(
+    argv = claude_argv(
         claude_bin="claude",
         prompt="go",
-        arm_profile=profile("A"),
+        this_arm=arm_profile("A"),
         mcp_config_path=mcp_config_path,
         model="m",
         effort="high",
@@ -67,8 +67,8 @@ def test_arm_a_has_no_bash_and_mounts_mcp(tmp_path):
 
 
 def test_arms_b_and_c_allow_exactly_their_command_family():
-    b = arm_flags(profile("B"), None)
-    c = arm_flags(profile("C"), None)
+    b = arm_flags(arm_profile("B"), None)
+    c = arm_flags(arm_profile("C"), None)
     assert _value(b, "--tools").split(",") == [
         "Read",
         "Edit",
@@ -109,17 +109,17 @@ def test_arms_b_and_c_allow_exactly_their_command_family():
 
 def test_mcp_mount_is_required_and_refused_per_arm(tmp_path):
     with pytest.raises(ExperimentError):
-        arm_flags(profile("A"), None)
+        arm_flags(arm_profile("A"), None)
     with pytest.raises(ExperimentError):
-        arm_flags(profile("B"), tmp_path / "x.json")
+        arm_flags(arm_profile("B"), tmp_path / "x.json")
     with pytest.raises(ExperimentError):
-        profile("D")
+        arm_profile("D")
     assert ARMS == ("A", "B", "C")
     assert set(PROFILES) == set(ARMS)
 
 
-def test_constant_flags_pin_the_harness(tmp_path):
-    flags = constant_flags(
+def test_shared_flags_pin_the_harness(tmp_path):
+    flags = shared_flags(
         model="claude-opus-5", effort="high", budget_usd=25, prompt_file=tmp_path / "p"
     )
     assert _value(flags, "--model") == "claude-opus-5"
@@ -148,11 +148,11 @@ def test_mcp_config_uses_absolute_paths(tmp_path):
     }
 
 
-def test_build_argv_starts_with_print_mode(tmp_path):
-    argv = build_argv(
+def test_claude_argv_starts_with_print_mode(tmp_path):
+    argv = claude_argv(
         claude_bin="claude",
         prompt="go",
-        arm_profile=profile("B"),
+        this_arm=arm_profile("B"),
         mcp_config_path=None,
         model="m",
         effort="high",
@@ -164,7 +164,7 @@ def test_build_argv_starts_with_print_mode(tmp_path):
 
 
 def test_hook_events_are_always_streamed(tmp_path):
-    flags = constant_flags(
+    flags = shared_flags(
         model="m", effort="high", budget_usd=1, prompt_file=tmp_path / "p"
     )
     assert "--include-hook-events" in flags
@@ -173,13 +173,13 @@ def test_hook_events_are_always_streamed(tmp_path):
 
 def test_the_guard_mounts_only_when_a_settings_path_is_given(tmp_path):
     guard = tmp_path / "B.json"
-    assert "--settings" not in arm_flags(profile("B"), None)
-    assert _value(arm_flags(profile("B"), None, guard), "--settings") == str(guard)
+    assert "--settings" not in arm_flags(arm_profile("B"), None)
+    assert _value(arm_flags(arm_profile("B"), None, guard), "--settings") == str(guard)
 
-    argv = build_argv(
+    argv = claude_argv(
         claude_bin="claude",
         prompt="go",
-        arm_profile=profile("B"),
+        this_arm=arm_profile("B"),
         mcp_config_path=None,
         model="m",
         effort="high",

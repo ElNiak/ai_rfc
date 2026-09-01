@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from experiment.arms import ARMS, profile
+from experiment.arms import ARMS, arm_profile
 from experiment.audit import bash_surface, in_arm
 from experiment.enforcement import bash_prefixes, is_allowed
 
@@ -130,7 +130,7 @@ def test_the_audit_reads_a_command_the_way_the_guard_did(
     can span two, and the earlier single-arm version of this test could never
     have failed on it.
     """
-    guard = is_allowed(command, bash_prefixes(profile(arm)))
+    guard = is_allowed(command, bash_prefixes(arm_profile(arm)))
     audit = in_arm("Bash", {"command": command}, bash_surface(command), arm)
     assert audit is guard, f"{arm}: {why}"
     if arm == "B":

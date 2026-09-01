@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import ExperimentError
-from .arms import build_argv, mcp_config, profile
+from .arms import arm_profile, claude_argv, mcp_config
 from .config import Campaign
 from .enforcement import bash_prefixes, render_settings
 from .spawn import spawn
@@ -137,9 +137,9 @@ def build_run_argv(
     Returns:
         The complete ``claude -p`` argument vector.
     """
-    arm_profile = profile(spec.arm)
+    this_arm = arm_profile(spec.arm)
     mcp_path = None
-    if arm_profile.uses_mcp:
+    if this_arm.uses_mcp:
         mcp_path = spec.run_dir / MCP_FILE
         mcp_path.write_text(
             json.dumps(
@@ -159,18 +159,18 @@ def build_run_argv(
             render_settings(
                 python=campaign.python,
                 guard=GUARD,
-                prefixes=bash_prefixes(arm_profile),
+                prefixes=bash_prefixes(this_arm),
             ),
             indent=2,
         )
         + "\n"
     )
-    return build_argv(
+    return claude_argv(
         claude_bin=campaign.claude_bin,
         prompt=(
             task if task is not None else (campaign.prompts_dir / "task.md").read_text()
         ),
-        arm_profile=arm_profile,
+        this_arm=this_arm,
         mcp_config_path=mcp_path,
         model=campaign.model,
         effort=campaign.effort,
