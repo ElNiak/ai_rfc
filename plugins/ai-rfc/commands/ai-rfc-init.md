@@ -16,10 +16,16 @@ Run each stage from `$PANTHER_REPO`, with `$PY` an interpreter that imports
 2. **Corpus**: `$PY -m panther.plugins.services.testers.ai_rfc.history
    $AI_RFC_WORKSPACE/clone --out $AI_RFC_WORKSPACE/corpus`.
 3. **Forge snapshot**: `$PY -m panther.plugins.services.testers.ai_rfc.forge
-   <URL> --repo $AI_RFC_WORKSPACE/clone --out $AI_RFC_WORKSPACE/forge` with
-   `GITHUB_TOKEN`/`GITLAB_TOKEN` exported (`gh auth token` can supply the
-   GitHub one). A fetch against a self-hosted GitLab requires the user's
+   fetch <URL> --repo $AI_RFC_WORKSPACE/clone --out $AI_RFC_WORKSPACE/forge`.
+   A token is an **optional fidelity upgrade**, not a prerequisite: without
+   `GITHUB_TOKEN`/`GITLAB_TOKEN` (`gh auth token` can supply the GitHub one)
+   the discussion endpoints are refused, but the pull records clustering
+   actually reads still arrive, the command still exits 0, and the snapshot
+   records `fidelity_ceiling: pulls` so the pipeline reports it done rather
+   than stale. A fetch against a self-hosted GitLab requires the user's
    explicit go-ahead first. On failure, continue git-only and say so.
+   When no route to the API exists at all, write the records to a JSON file
+   by other means and use `forge adopt <records.json> <URL>` instead.
 4. **Timeline**: `$PY -m panther.plugins.services.testers.ai_rfc.timeline
    $AI_RFC_WORKSPACE/corpus --repo $AI_RFC_WORKSPACE/clone --out
    $AI_RFC_WORKSPACE/timeline`, adding `--forge <snapshot dir>` when step 3
@@ -29,6 +35,8 @@ Run each stage from `$PANTHER_REPO`, with `$PY` an interpreter that imports
    $AI_RFC_WORKSPACE/clone --out $AI_RFC_WORKSPACE/clusters` plus `--forge
    <snapshot>` when available.
 6. **Draft scaffold**: clone `https://github.com/ElNiak/auto-i-d-template`
+   (or pass a local path — `scaffold_draft` takes `template` as a parameter,
+   so an already-downloaded copy works with no network)
    into `$AI_RFC_WORKSPACE/draft`, remove its `.git`, `git init -b main`,
    and **delete the `draft-*` rule from its root `.gitignore`** (the
    template repo ignores draft files; a draft repo must not). Create
