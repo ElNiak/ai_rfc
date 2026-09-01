@@ -137,7 +137,7 @@ def build_workspace(root: Path) -> Path:
     git(draft, "config", "user.email", "t@t")
     git(draft, "config", "user.name", "t")
     (draft / "draft-test-spec.md").write_text(
-        "# Spec\n\nThing one MUST hold. `a_rfc:t:1.1`\n"
+        "# Spec\n\nThing one MUST hold. `ai_rfc:t:1.1`\n"
     )
     git(draft, "add", "draft-test-spec.md")
     git(

@@ -44,7 +44,7 @@ def test_fake_replays_a_complete_loop_in_every_arm(
         {"kind": "claim", "id": "t:3.1", "section": "3.1"},
         {"kind": "record_status"},
         {"kind": "checkpoint", "ordinal": 2},
-        {"kind": "prose", "line": "Thing three MAY hold. `a_rfc:t:3.1`"},
+        {"kind": "prose", "line": "Thing three MAY hold. `ai_rfc:t:3.1`"},
         {
             "kind": "revision",
             "ordinal": 2,

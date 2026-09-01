@@ -2,9 +2,9 @@
 
 ## Form
 
-A citation is a backticked token: `` `a_rfc:<claim-id>` `` — for example
-`` `a_rfc:mark:proto.1` ``. The gate extracts citations with the regex
-``  `a_rfc:([^`\s]+)`  `` from the draft file **as committed at each
+A citation is a backticked token: `` `ai_rfc:<claim-id>` `` — for example
+`` `ai_rfc:mark:proto.1` ``. The gate extracts citations with the regex
+``  `ai_rfc:([^`\s]+)`  `` from the draft file **as committed at each
 revision tag**, so only tagged content counts.
 
 The backticks are load-bearing: they keep kramdown-rfc's own `{{ }}` and

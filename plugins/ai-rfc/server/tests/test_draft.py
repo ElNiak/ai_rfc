@@ -87,7 +87,7 @@ def test_tag_revision_stops_on_manifest_gate_findings(workspace):
 
 def test_tag_revision_rolls_back_on_citation_findings(workspace):
     prose = _draft(workspace) / "draft-test-spec.md"
-    prose.write_text(prose.read_text() + "\nGhost. `a_rfc:t:9.9`\n")
+    prose.write_text(prose.read_text() + "\nGhost. `ai_rfc:t:9.9`\n")
     commit_draft(workspace, "cite a ghost")
     _recorded(workspace)
     result = tag_revision(workspace, "draft-test-spec-00", "revision 00")

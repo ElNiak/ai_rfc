@@ -39,7 +39,7 @@ the same split; the prose must not undo it.
 Every normative statement carries a backticked token naming its claim:
 
 ```
-Evidences MUST be presented in decreasing score order. `a_rfc:mark:proto.1`
+Evidences MUST be presented in decreasing score order. `ai_rfc:mark:proto.1`
 ```
 
 The gate extracts these tokens and verifies each against the checkpoint
