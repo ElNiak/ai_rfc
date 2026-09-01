@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import os
 import subprocess
@@ -19,6 +20,30 @@ from .workspace import prepare as prepare_workspace
 
 def _report(message: str) -> None:
     print(message, file=sys.stderr)
+
+
+def _window(value: str) -> tuple[int, int]:
+    """Parse ``LOW-HIGH`` into an inclusive ordinal window.
+
+    Args:
+        value: The flag's raw text.
+
+    Returns:
+        The inclusive bounds.
+
+    Raises:
+        argparse.ArgumentTypeError: If the text is not two ordinals, or the
+            bounds are reversed.
+    """
+    low, _, high = value.partition("-")
+    if not high or not low.isdigit() or not high.isdigit():
+        raise argparse.ArgumentTypeError(
+            f"window must be LOW-HIGH, e.g. 49-51; got {value!r}"
+        )
+    bounds = (int(low), int(high))
+    if bounds[0] > bounds[1] or bounds[0] < 1:
+        raise argparse.ArgumentTypeError(f"window {value!r} is not an ordinal range")
+    return bounds
 
 
 def _arms(value: str) -> tuple[str, ...]:
@@ -171,6 +196,13 @@ def _parser() -> argparse.ArgumentParser:
         "target",
         choices=sorted(TARGETS),
         help="Reconstruction target; fixes the source workspace and window.",
+    )
+    prepare.add_argument(
+        "--window",
+        type=_window,
+        default=None,
+        help="Inclusive ordinal range LOW-HIGH to leave unprocessed, "
+        "overriding the target's own; e.g. 49-51 for a three-cluster slice.",
     )
     prepare.add_argument(
         "--panther-repo",
@@ -350,8 +382,11 @@ def main(argv: list[str] | None = None) -> int:
             plugin_dir = args.plugin_dir or _default_plugin_dir()
             print(f"wrote {write_plugin_skill(plugin_dir.resolve())}")
         elif args.command == "workspace" and args.verb == "prepare":
+            target = TARGETS[args.target]
+            if args.window is not None:
+                target = dataclasses.replace(target, window=args.window)
             pristine = prepare_workspace(
-                TARGETS[args.target],
+                target,
                 root=root,
                 panther_repo=args.panther_repo.resolve(),
                 template=args.template,

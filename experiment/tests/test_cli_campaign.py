@@ -105,6 +105,39 @@ def test_a_failing_parity_suite_exits_three_not_two(
     assert code == 3
 
 
+def test_a_window_override_narrows_the_target(capsys):
+    """A slice of a target, for a dry run that must not cost a whole sweep.
+
+    The window is what made the pilot a pilot; without an override, trying two
+    clusters of MARK means either editing a module constant or paying for
+    sixty-nine.
+    """
+    parser = cli._parser()
+
+    args = parser.parse_args(
+        [
+            "workspace",
+            "prepare",
+            "mark",
+            "--panther-repo",
+            ".",
+            "--window",
+            "49-51",
+        ]
+    )
+
+    assert args.window == (49, 51)
+
+
+def test_a_malformed_window_is_refused_at_parse_time(capsys):
+    parser = cli._parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(
+            ["workspace", "prepare", "mark", "--panther-repo", ".", "--window", "5"]
+        )
+    assert "window" in capsys.readouterr().err
+
+
 def test_unknown_arm_is_refused_at_parse_time(capsys):
     """Catching it here saves the parity suite's runtime, which init runs first."""
     with pytest.raises(SystemExit) as exit_info:
