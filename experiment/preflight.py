@@ -56,7 +56,7 @@ _LIST_TOOLS = (
 )
 _ECHO = "Use the Bash tool to run exactly: echo hook-probe . Then reply DONE."
 _CODEWORD = "What is the secret codeword? Reply with just the codeword, or NONE."
-_STATUS = "Call the arfc_status tool and reply with only the value of clusters_total."
+_STATUS = "Call the ai_rfc_status tool and reply with only the value of clusters_total."
 _BYPASS = "Use the Bash tool to run exactly: echo bypass-probe . Then reply DONE."
 _IN_FAMILY = "Use the Bash tool to run exactly: git --version . Then reply DONE."
 
@@ -154,13 +154,13 @@ def build_invocations(
         "Bash(echo *)",
     )
     # --plugin-dir namespaces the server, so its tools arrive as
-    # mcp__plugin_<plugin>_arfc__*, not the bare mcp__arfc__* of --mcp-config.
+    # mcp__plugin_<plugin>_ai_rfc__*, not the bare mcp__ai_rfc__* of --mcp-config.
     plugin_flags = (
         "--plugin-dir",
         str(plugin_dir),
         *no_tools,
         "--allowedTools",
-        f"mcp__plugin_{plugin_dir.name}_arfc",
+        f"mcp__plugin_{plugin_dir.name}_ai_rfc",
     )
     guard_flags = (
         "--include-hook-events",
@@ -318,18 +318,18 @@ def _mcp_status(events: list[dict[str, Any]]) -> dict[str, str]:
     return status
 
 
-def _arfc_connected(events: list[dict[str, Any]]) -> bool:
-    """Whether the arfc server is connected, under either loading path.
+def _ai_rfc_connected(events: list[dict[str, Any]]) -> bool:
+    """Whether the ai_rfc server is connected, under either loading path.
 
     Args:
         events: One invocation's stream-json events.
 
     Returns:
-        True when a connected server is named ``arfc`` (``--mcp-config``) or
-        ``plugin:<plugin>:arfc`` (``--plugin-dir``).
+        True when a connected server is named ``ai_rfc`` (``--mcp-config``) or
+        ``plugin:<plugin>:ai_rfc`` (``--plugin-dir``).
     """
     return any(
-        (name == "arfc" or name.endswith(":arfc")) and status == "connected"
+        (name == "ai_rfc" or name.endswith(":ai_rfc")) and status == "connected"
         for name, status in _mcp_status(events).items()
     )
 
@@ -387,7 +387,7 @@ def _arm_surface_check(surfaces: dict[str, dict[str, Any]]) -> CheckResult:
         and "Bash" not in tools["A"]
         and "Bash" in tools["B"]
         and "Bash" in tools["C"]
-        and mcp["A"].get("arfc") == "connected"
+        and mcp["A"].get("ai_rfc") == "connected"
         and not mcp["B"]
         and not mcp["C"]
         and not any(slash.values())
@@ -411,11 +411,11 @@ def _draft_commit_check(workspace: Path, outcome: dict[str, Any]) -> CheckResult
 def _plugin_mcp_check(
     with_env: dict[str, Any], without_env: dict[str, Any]
 ) -> CheckResult:
-    env_connected = _arfc_connected(with_env["events"])
+    env_connected = _ai_rfc_connected(with_env["events"])
     answer = _answer(with_env)
     return env_connected and "2" in answer, {
         "env_connected": env_connected,
-        "noenv_connected": _arfc_connected(without_env["events"]),
+        "noenv_connected": _ai_rfc_connected(without_env["events"]),
         "answer": answer[:40],
     }
 

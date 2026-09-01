@@ -177,9 +177,9 @@ def claim_stats(
 
 def _cluster_of_call(arm: str, name: str, tool_input: dict[str, Any]) -> str | None:
     command = str(tool_input.get("command", "")).strip()
-    if arm == "A" and name == "mcp__arfc__arfc_checkpoint":
+    if arm == "A" and name == "mcp__ai_rfc__ai_rfc_checkpoint":
         return str(tool_input.get("cluster_id") or "")
-    if arm == "B" and name == "Bash" and command.startswith("arfc checkpoint"):
+    if arm == "B" and name == "Bash" and command.startswith("ai_rfc checkpoint"):
         parts = command.split()
         return parts[2] if len(parts) > 2 else ""
     if (

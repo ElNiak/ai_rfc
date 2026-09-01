@@ -47,7 +47,7 @@ def _substrate(ctx: Context):  # noqa: ANN202 - substrate modules, resolved lazi
 
 
 def _atomic_write(path: Path, text: str) -> None:
-    handle, temp_name = tempfile.mkstemp(dir=path.parent, prefix=".arfc-")
+    handle, temp_name = tempfile.mkstemp(dir=path.parent, prefix=".ai-rfc-")
     try:
         with os.fdopen(handle, "w") as stream:
             stream.write(text)

@@ -31,5 +31,5 @@ def init_profile(root: Path) -> Path:
     """
     profile = profile_dir(root)
     profile.mkdir(parents=True, exist_ok=True)
-    (profile / "README-arfc.txt").write_text(_README.format(login=login_command(root)))
+    (profile / "README-ai_rfc.txt").write_text(_README.format(login=login_command(root)))
     return profile

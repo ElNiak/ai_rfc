@@ -1,5 +1,5 @@
 ---
-name: arfc-evidence-hygiene
+name: ai-rfc-evidence-hygiene
 description: The a_rfc promotion rule as working intuition — status is adjudicated never asserted, anchors pin commits, sign-off needs exact wording. Use when writing or editing claims, anchors, statuses or sign-offs in a reconstruction manifest.
 user-invocable: false
 ---

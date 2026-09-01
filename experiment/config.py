@@ -281,7 +281,7 @@ def init_campaign(config: CampaignConfig) -> Campaign:
 
     bin_dir = campaign_dir / "bin"
     bin_dir.mkdir()
-    shim = bin_dir / "arfc"
+    shim = bin_dir / "ai_rfc"
     shim.write_text(
         _SHIM.format(python=python, server_src=plugin_root / "server" / "src")
     )

@@ -51,7 +51,7 @@ def _value(flags: list[str], name: str) -> str:
 
 
 def test_arm_a_has_no_bash_and_mounts_mcp(tmp_path):
-    mcp_config_path = tmp_path / "arfc.json"
+    mcp_config_path = tmp_path / "ai_rfc.json"
     flags = arm_flags(arm_profile("A"), mcp_config_path)
     assert _value(flags, "--tools").split(",") == [
         "Read",
@@ -66,7 +66,7 @@ def test_arm_a_has_no_bash_and_mounts_mcp(tmp_path):
         "Write",
         "Grep",
         "Glob",
-        "mcp__arfc",
+        "mcp__ai_rfc",
     ]
     assert _value(flags, "--mcp-config") == str(mcp_config_path)
     assert "--strict-mcp-config" in flags
@@ -95,7 +95,7 @@ def test_arm_a_has_no_bash_and_mounts_mcp(tmp_path):
         "Write",
         "Grep",
         "Glob",
-        "mcp__arfc",
+        "mcp__ai_rfc",
     ]
     assert _value(argv, "--mcp-config") == str(mcp_config_path)
 
@@ -117,7 +117,7 @@ def test_arms_b_and_c_allow_exactly_their_command_family():
         "Write",
         "Grep",
         "Glob",
-        "Bash(arfc *)",
+        "Bash(ai_rfc *)",
     ]
     assert _value(c, "--tools").split(",") == [
         "Read",
@@ -173,7 +173,7 @@ def test_mcp_config_uses_absolute_paths(tmp_path):
         panther_repo=tmp_path / "W",
         workspace=tmp_path / "ws",
     )
-    server = config["mcpServers"]["arfc"]
+    server = config["mcpServers"]["ai_rfc"]
     assert server["command"] == "/venv/bin/python"
     assert server["args"][0] == "-c" and str(tmp_path / "src") in server["args"][1]
     assert server["env"] == {

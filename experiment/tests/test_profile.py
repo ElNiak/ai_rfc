@@ -15,7 +15,7 @@ def test_default_root_honours_env(monkeypatch, tmp_path):
 def test_init_profile_creates_dir_and_names_login(tmp_path):
     profile = init_profile(tmp_path)
     assert profile == profile_dir(tmp_path) and profile.is_dir()
-    assert (profile / "README-arfc.txt").exists()
+    assert (profile / "README-ai_rfc.txt").exists()
     assert init_profile(tmp_path) == profile
     assert login_command(tmp_path) == (f"CLAUDE_CONFIG_DIR={profile} claude auth login")
 

@@ -19,15 +19,15 @@ PROMPTS = Path(__file__).parent / "prompts"
 TEMPLATE = PROMPTS / "loop.tmpl.md"
 SLOT_RE = re.compile(r"\{\{([a-z_]+)\}\}")
 NEUTRAL_TEXTS = (
-    ("skills", "arfc-rfc-style", "SKILL.md"),
-    ("skills", "arfc-rfc-style", "references", "claim-citation.md"),
-    ("skills", "arfc-evidence-hygiene", "SKILL.md"),
+    ("skills", "ai-rfc-rfc-style", "SKILL.md"),
+    ("skills", "ai-rfc-rfc-style", "references", "claim-citation.md"),
+    ("skills", "ai-rfc-evidence-hygiene", "SKILL.md"),
 )
 
 SKILL_FRONTMATTER = """---
-name: arfc-reconstruction-loop
+name: ai-rfc-reconstruction-loop
 description: The cluster-by-cluster reconstruction driver — read evidence, mine claims, adjudicate, revise the draft, gate, checkpoint, advance. Use when processing timeline clusters of a reconstruction workspace or when asked to continue a reconstruction.
-allowed-tools: Read, Grep, Glob, Edit, Write, Bash(python -m panther.plugins.services.testers.ai_rfc*), Bash(git *), Bash(arfc *), Bash(sqlite3 *)
+allowed-tools: Read, Grep, Glob, Edit, Write, Bash(python -m panther.plugins.services.testers.ai_rfc*), Bash(git *), Bash(ai_rfc *), Bash(sqlite3 *)
 ---
 
 """
@@ -105,14 +105,14 @@ SLOT_TABLES: dict[str, dict[str, str]] = {
     "interactive": {
         **_RAW,
         "guidance": (
-            "Load `arfc-evidence-hygiene` before touching claims and "
-            "`arfc-rfc-style` before touching prose."
+            "Load `ai-rfc-evidence-hygiene` before touching claims and "
+            "`ai-rfc-rfc-style` before touching prose."
         ),
         "preamble": (
-            "When the `arfc` MCP server is connected, prefer its tools "
-            "(`arfc_cluster_next`, `arfc_claim_upsert`, `arfc_claim_record_status`, "
-            "`arfc_checkpoint`, `arfc_gate`, `arfc_revision_tag`, …) or the "
-            "equivalent `arfc <verb>` CLI — same core, guardrails enforced up "
+            "When the `ai_rfc` MCP server is connected, prefer its tools "
+            "(`ai_rfc_cluster_next`, `ai_rfc_claim_upsert`, `ai_rfc_claim_record_status`, "
+            "`ai_rfc_checkpoint`, `ai_rfc_gate`, `ai_rfc_revision_tag`, …) or the "
+            "equivalent `ai_rfc <verb>` CLI — same core, guardrails enforced up "
             "front (see `docs/parity.md`). The raw substrate commands below "
             "remain the documented fallback and the raw experiment arm."
         ),
@@ -125,7 +125,7 @@ SLOT_TABLES: dict[str, dict[str, str]] = {
         **_RAW,
         "guidance": _EXPERIMENT_GUIDANCE,
         "preamble": (
-            "This session has no MCP server and no `arfc` command: drive the "
+            "This session has no MCP server and no `ai_rfc` command: drive the "
             "workspace with the raw substrate commands through Bash, exactly as "
             "written below, and edit YAML by hand where no command exists."
         ),
@@ -137,94 +137,94 @@ SLOT_TABLES: dict[str, dict[str, str]] = {
     "B": {
         "guidance": _EXPERIMENT_GUIDANCE,
         "preamble": (
-            "This session has no MCP server: drive the workspace with the `arfc` "
+            "This session has no MCP server: drive the workspace with the `ai_rfc` "
             "command through Bash, exactly as written below."
         ),
-        "runtime": "`arfc` is on `PATH` and reads both variables",
+        "runtime": "`ai_rfc` is on `PATH` and reads both variables",
         "cluster_next": (
-            "`arfc cluster-next` (prints the lowest-ordinal cluster with neither "
+            "`ai_rfc cluster-next` (prints the lowest-ordinal cluster with neither "
             "checkpoint nor revision entry, or `null`)"
         ),
         "cluster_get": (
-            "`arfc cluster-get <id> --patch` (add `--patch-offset N "
+            "`ai_rfc cluster-get <id> --patch` (add `--patch-offset N "
             "--patch-limit N` to page through long diffs)"
         ),
-        "corpus_query": f'`arfc corpus-query "{_CHURN_SQL}"`',
+        "corpus_query": f'`ai_rfc corpus-query "{_CHURN_SQL}"`',
         "claim_upsert": (
-            "`arfc claim-upsert <id> --text … --section … --level … --layer … "
+            "`ai_rfc claim-upsert <id> --text … --section … --level … --layer … "
             '[--field intent=…] [--anchor \'{"evidence_class": "code", '
             '"locator": "…", "commit": "<sha>", "line": N}\']` (repeat '
             "`--anchor`; the verb refuses `status`)"
         ),
-        "lint": "`arfc gate` (the linter; fix every entry under `unverified_anchors`)",
+        "lint": "`ai_rfc gate` (the linter; fix every entry under `unverified_anchors`)",
         "record_status": (
-            "`arfc claim-adjudicate` to see stored vs supported, then "
-            "`arfc claim-record-status`"
+            "`ai_rfc claim-adjudicate` to see stored vs supported, then "
+            "`ai_rfc claim-record-status`"
         ),
-        "gate": "`arfc gate --strict`",
-        "checkpoint": "`arfc checkpoint <id>`",
+        "gate": "`ai_rfc gate --strict`",
+        "checkpoint": "`ai_rfc checkpoint <id>`",
         "revision_record": (
-            "`arfc revision-record draft-<name>-NN --cluster <id> "
+            "`ai_rfc revision-record draft-<name>-NN --cluster <id> "
             '--normative|--no-normative --note "…"`'
         ),
-        "draft_commit": '`arfc draft-commit -m "<message>"`',
+        "draft_commit": '`ai_rfc draft-commit -m "<message>"`',
         "revision_tag": (
-            '`arfc revision-tag draft-<name>-NN -m "<message>"` — it runs the '
+            '`ai_rfc revision-tag draft-<name>-NN -m "<message>"` — it runs the '
             "strict manifest gate, creates the tag, runs the strict citation gate "
             "and deletes the tag again on findings"
         ),
-        "citation_gate": "`arfc citation-gate --strict`",
+        "citation_gate": "`ai_rfc citation-gate --strict`",
         "question_draft": (
-            '`arfc question-draft "<question quoting the claim text verbatim>" '
+            '`ai_rfc question-draft "<question quoting the claim text verbatim>" '
             "--claim <id>`"
         ),
     },
     "A": {
         "guidance": _EXPERIMENT_GUIDANCE,
         "preamble": (
-            "This session has no shell: drive the workspace with the `arfc_*` MCP "
+            "This session has no shell: drive the workspace with the `ai_rfc_*` MCP "
             "tools, exactly as named below, and edit prose with the Edit/Write "
             "tools."
         ),
-        "runtime": "the `arfc` MCP server is connected and reads both variables",
+        "runtime": "the `ai_rfc` MCP server is connected and reads both variables",
         "cluster_next": (
-            "`arfc_cluster_next` (returns the lowest-ordinal cluster with neither "
+            "`ai_rfc_cluster_next` (returns the lowest-ordinal cluster with neither "
             "checkpoint nor revision entry, or null)"
         ),
         "cluster_get": (
-            "`arfc_cluster_get(cluster_id, include_patch=true)` (page long diffs "
+            "`ai_rfc_cluster_get(cluster_id, include_patch=true)` (page long diffs "
             "with `patch_offset`/`patch_limit`)"
         ),
-        "corpus_query": f'`arfc_corpus_query(sql="{_CHURN_SQL}")`',
+        "corpus_query": f'`ai_rfc_corpus_query(sql="{_CHURN_SQL}")`',
         "claim_upsert": (
-            "`arfc_claim_upsert(claim_id, fields)` with `text`, `section`, "
+            "`ai_rfc_claim_upsert(claim_id, fields)` with `text`, `section`, "
             "`level`, `layer`, optional `intent`/`req_class`, and `anchors` as a "
             "list of `{evidence_class, locator, commit, line}` (the tool refuses "
             "`status`)"
         ),
         "lint": (
-            "`arfc_gate(strict=false)` (the linter; fix every entry under "
+            "`ai_rfc_gate(strict=false)` (the linter; fix every entry under "
             "`unverified_anchors`)"
         ),
         "record_status": (
-            "`arfc_claim_adjudicate()` to see stored vs supported, then "
-            "`arfc_claim_record_status()`"
+            "`ai_rfc_claim_adjudicate()` to see stored vs supported, then "
+            "`ai_rfc_claim_record_status()`"
         ),
-        "gate": "`arfc_gate(strict=true)`",
-        "checkpoint": "`arfc_checkpoint(cluster_id)`",
+        "gate": "`ai_rfc_gate(strict=true)`",
+        "checkpoint": "`ai_rfc_checkpoint(cluster_id)`",
         "revision_record": (
-            '`arfc_revision_record(tag="draft-<name>-NN", cluster_id, '
+            '`ai_rfc_revision_record(tag="draft-<name>-NN", cluster_id, '
             "normative_change, note)`"
         ),
-        "draft_commit": "`arfc_draft_commit(message)`",
+        "draft_commit": "`ai_rfc_draft_commit(message)`",
         "revision_tag": (
-            "`arfc_revision_tag(tag, message)` — it runs the strict manifest gate, "
+            "`ai_rfc_revision_tag(tag, message)` — it runs the strict manifest gate, "
             "creates the tag, runs the strict citation gate and deletes the tag "
             "again on findings"
         ),
-        "citation_gate": "`arfc_citation_gate(strict=true)`",
+        "citation_gate": "`ai_rfc_citation_gate(strict=true)`",
         "question_draft": (
-            '`arfc_question_draft(question="<question quoting the claim text '
+            '`ai_rfc_question_draft(question="<question quoting the claim text '
             'verbatim>", claim_ids=[<id>])`'
         ),
     },
@@ -267,7 +267,7 @@ def arm_prompt(arm: str, plugin_root: Path) -> str:
 
 def write_plugin_skill(plugin_root: Path) -> Path:
     """Regenerate the plugin's loop SKILL.md from the interactive table."""
-    target = plugin_root / "skills" / "arfc-reconstruction-loop" / "SKILL.md"
+    target = plugin_root / "skills" / "ai-rfc-reconstruction-loop" / "SKILL.md"
     target.write_text(SKILL_FRONTMATTER + render_loop("interactive"))
     return target
 

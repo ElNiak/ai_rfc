@@ -1,5 +1,5 @@
 ---
-name: arfc-rfc-style
+name: ai-rfc-rfc-style
 description: Internet-Draft prose discipline for reconstructed specifications — RFC 2119 keyword mapping, claim-citation tokens, revision tagging on the auto-i-d-template. Use when writing or revising the draft document of a reconstruction workspace.
 ---
 

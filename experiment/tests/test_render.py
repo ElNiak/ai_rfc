@@ -23,25 +23,25 @@ def test_unknown_arm_is_refused():
 
 
 def test_plugin_skill_is_the_interactive_rendering(plugin_root):
-    skill = plugin_root / "skills" / "arfc-reconstruction-loop" / "SKILL.md"
+    skill = plugin_root / "skills" / "ai-rfc-reconstruction-loop" / "SKILL.md"
     assert skill.read_text() == SKILL_FRONTMATTER + render_loop("interactive")
 
 
 def test_write_plugin_skill_round_trips(tmp_path):
     root = tmp_path / "plugin"
-    (root / "skills" / "arfc-reconstruction-loop").mkdir(parents=True)
+    (root / "skills" / "ai-rfc-reconstruction-loop").mkdir(parents=True)
     written = write_plugin_skill(root)
     assert written.read_text() == SKILL_FRONTMATTER + render_loop("interactive")
 
 
 def test_arm_renderings_name_only_their_surface():
     a, b, c = (render_loop(arm) for arm in "ABC")
-    assert "arfc_cluster_next" in a
-    assert "arfc cluster-next" not in a and "python -m panther" not in a
-    assert "arfc cluster-next" in b
-    assert "arfc_cluster_next" not in b and "python -m panther" not in b
+    assert "ai_rfc_cluster_next" in a
+    assert "ai_rfc cluster-next" not in a and "python -m panther" not in a
+    assert "ai_rfc cluster-next" in b
+    assert "ai_rfc_cluster_next" not in b and "python -m panther" not in b
     assert "python -m panther.plugins.services.testers.ai_rfc" in c
-    assert "arfc_" not in c and "arfc cluster" not in c
+    assert "arfc_" not in c and "ai_rfc cluster" not in c
 
 
 def test_arm_prompt_bundles_the_neutral_texts(plugin_root):
@@ -49,7 +49,7 @@ def test_arm_prompt_bundles_the_neutral_texts(plugin_root):
     assert "# RFC prose for a reconstructed specification" in prompt
     assert "# The claim-citation convention" in prompt
     assert "# Evidence hygiene for reconstruction manifests" in prompt
-    assert "\nname: arfc-" not in prompt and not prompt.startswith("---")
+    assert "\nname: ai-rfc-" not in prompt and not prompt.startswith("---")
 
 
 def test_arm_prompts_differ_only_where_slots_differ(plugin_root):
@@ -61,4 +61,4 @@ def test_arm_prompts_differ_only_where_slots_differ(plugin_root):
         for line in diff.splitlines()
         if line[:1] in "+-" and not line.startswith(("+++", "---"))
     ]
-    assert changed and all("arfc" in line for line in changed)
+    assert changed and all("ai_rfc" in line for line in changed)

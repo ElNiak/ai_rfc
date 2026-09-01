@@ -15,22 +15,22 @@ from .core import claims, draft, gates, queries, questions, revisions
 from .paths import resolve_context
 
 
-def arfc_status() -> dict[str, Any]:
+def ai_rfc_status() -> dict[str, Any]:
     """Composite workspace status, quoted from the substrate's artifacts."""
     return queries.status(resolve_context())
 
 
-def arfc_corpus_query(sql: str) -> list[dict[str, Any]]:
+def ai_rfc_corpus_query(sql: str) -> list[dict[str, Any]]:
     """Run one SELECT over the corpus index (at most 200 rows)."""
     return queries.corpus_query(resolve_context(), sql)
 
 
-def arfc_cluster_next() -> dict[str, Any] | None:
+def ai_rfc_cluster_next() -> dict[str, Any] | None:
     """The lowest-ordinal cluster with neither checkpoint nor revision."""
     return queries.cluster_next(resolve_context())
 
 
-def arfc_cluster_get(
+def ai_rfc_cluster_get(
     cluster_id: str,
     include_patch: bool = False,
     patch_offset: int = 0,
@@ -46,24 +46,24 @@ def arfc_cluster_get(
     )
 
 
-def arfc_claim_upsert(claim_id: str, fields: dict[str, Any]) -> dict[str, Any]:
+def ai_rfc_claim_upsert(claim_id: str, fields: dict[str, Any]) -> dict[str, Any]:
     """Add or update a claim; ``status`` is never accepted — it is adjudicated."""
     return claims.upsert_claim(resolve_context(), claim_id, fields)
 
 
-def arfc_claim_adjudicate() -> list[dict[str, Any]]:
+def ai_rfc_claim_adjudicate() -> list[dict[str, Any]]:
     """Every claim's stored status beside what its evidence supports."""
     return claims.adjudicate_preview(resolve_context())
 
 
-def arfc_claim_record_status(
+def ai_rfc_claim_record_status(
     claim_ids: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Set stored statuses to exactly the supported values; returns changes."""
     return claims.record_statuses(resolve_context(), claim_ids)
 
 
-def arfc_question_draft(
+def ai_rfc_question_draft(
     question: str, claim_ids: list[str], question_id: str | None = None
 ) -> dict[str, Any]:
     """Draft an open author question tied to existing claims."""
@@ -72,12 +72,12 @@ def arfc_question_draft(
     )
 
 
-def arfc_question_export() -> str:
+def ai_rfc_question_export() -> str:
     """Render every open question as one markdown bundle."""
     return questions.export_open(resolve_context())
 
 
-def arfc_answer_record(
+def ai_rfc_answer_record(
     question_id: str,
     answer: str,
     answered_by: str,
@@ -97,7 +97,7 @@ def arfc_answer_record(
     )
 
 
-def arfc_revision_record(
+def ai_rfc_revision_record(
     tag: str, cluster_id: str, normative_change: bool, note: str
 ) -> dict[str, Any]:
     """Record a revision entry pinned to its on-disk checkpoint."""
@@ -106,47 +106,47 @@ def arfc_revision_record(
     )
 
 
-def arfc_checkpoint(cluster_id: str) -> dict[str, Any]:
+def ai_rfc_checkpoint(cluster_id: str) -> dict[str, Any]:
     """Freeze the manifest against one cluster (exit code surfaced raw)."""
     return gates.write_checkpoint(resolve_context(), cluster_id)
 
 
-def arfc_gate(strict: bool = False) -> dict[str, Any]:
+def ai_rfc_gate(strict: bool = False) -> dict[str, Any]:
     """Run the manifest gate; strict exit 3 is information, never bypassed."""
     return gates.manifest_gate(resolve_context(), strict=strict)
 
 
-def arfc_citation_gate(strict: bool = False) -> dict[str, Any]:
+def ai_rfc_citation_gate(strict: bool = False) -> dict[str, Any]:
     """Run the draft citation gate over the revision map."""
     return gates.citation_gate(resolve_context(), strict=strict)
 
 
-def arfc_draft_commit(message: str) -> dict[str, Any]:
+def ai_rfc_draft_commit(message: str) -> dict[str, Any]:
     """Commit every change in the draft repository; a clean tree is an error."""
     return draft.commit_draft(resolve_context(), message)
 
 
-def arfc_revision_tag(tag: str, message: str) -> dict[str, Any]:
+def ai_rfc_revision_tag(tag: str, message: str) -> dict[str, Any]:
     """Tag a recorded revision once both strict gates accept it (exit code raw)."""
     return draft.tag_revision(resolve_context(), tag, message)
 
 
 #: Every tool, in the order they appear in docs/parity.md.
 ALL_TOOLS = (
-    arfc_status,
-    arfc_corpus_query,
-    arfc_cluster_next,
-    arfc_cluster_get,
-    arfc_claim_upsert,
-    arfc_claim_adjudicate,
-    arfc_claim_record_status,
-    arfc_question_draft,
-    arfc_question_export,
-    arfc_answer_record,
-    arfc_revision_record,
-    arfc_checkpoint,
-    arfc_gate,
-    arfc_citation_gate,
-    arfc_draft_commit,
-    arfc_revision_tag,
+    ai_rfc_status,
+    ai_rfc_corpus_query,
+    ai_rfc_cluster_next,
+    ai_rfc_cluster_get,
+    ai_rfc_claim_upsert,
+    ai_rfc_claim_adjudicate,
+    ai_rfc_claim_record_status,
+    ai_rfc_question_draft,
+    ai_rfc_question_export,
+    ai_rfc_answer_record,
+    ai_rfc_revision_record,
+    ai_rfc_checkpoint,
+    ai_rfc_gate,
+    ai_rfc_citation_gate,
+    ai_rfc_draft_commit,
+    ai_rfc_revision_tag,
 )

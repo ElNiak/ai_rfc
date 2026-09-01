@@ -25,7 +25,7 @@ READ_TOOLS = ("Read", "Edit", "Write", "Grep", "Glob")
 RAW_PREFIX = "python -m panther.plugins.services.testers.ai_rfc"
 RAW_SUBSTRATE = f"Bash({RAW_PREFIX}*)"
 #: The per-run MCP config the runner writes and preflight reads.
-MCP_FILE = "arfc.json"
+MCP_FILE = "ai_rfc.json"
 
 
 @dataclass(frozen=True)
@@ -42,16 +42,16 @@ class ArmProfile:
 PROFILES: dict[str, ArmProfile] = {
     "A": ArmProfile(
         arm="A",
-        label="class 1: structured-typed (arfc MCP tools)",
+        label="class 1: structured-typed (ai_rfc MCP tools)",
         tools=READ_TOOLS,
-        allowed_tools=READ_TOOLS + ("mcp__arfc",),
+        allowed_tools=READ_TOOLS + ("mcp__ai_rfc",),
         uses_mcp=True,
     ),
     "B": ArmProfile(
         arm="B",
-        label="class 2: hybrid shell-via-tool (arfc CLI through Bash)",
+        label="class 2: hybrid shell-via-tool (ai_rfc CLI through Bash)",
         tools=READ_TOOLS + ("Bash",),
-        allowed_tools=READ_TOOLS + ("Bash(arfc *)",),
+        allowed_tools=READ_TOOLS + ("Bash(ai_rfc *)",),
         uses_mcp=False,
     ),
     "C": ArmProfile(
@@ -142,14 +142,14 @@ def arm_flags(
 def mcp_config(
     *, python: str, server_src: Path, panther_repo: Path, workspace: Path
 ) -> dict[str, Any]:
-    """The rendered MCP config mounting the ``arfc`` server for one run."""
+    """The rendered MCP config mounting the ``ai_rfc`` server for one run."""
     bootstrap = (
         f"import sys; sys.path.insert(0, {str(server_src)!r}); "
         "from ai_rfc_server.server import main; main()"
     )
     return {
         "mcpServers": {
-            "arfc": {
+            "ai_rfc": {
                 "command": python,
                 "args": ["-c", bootstrap],
                 "env": {

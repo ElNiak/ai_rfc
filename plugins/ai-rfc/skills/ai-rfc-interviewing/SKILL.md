@@ -1,5 +1,5 @@
 ---
-name: arfc-interviewing
+name: ai-rfc-interviewing
 description: Drafting author questions from gap and inferred claims, exporting them, and importing answers as interview anchors and sign-offs. Use when a claim needs author input, when preparing a question batch, or when ingesting an author's reply transcript.
 ---
 
@@ -9,8 +9,8 @@ Questions turn an author's knowledge into citable evidence. The register
 (`$AI_RFC_WORKSPACE/questions.yaml`) is strict: an answered question without
 its answer fails to load, and a question tied to no claim is refused.
 
-When the `arfc` MCP server is connected, use `arfc_question_draft`,
-`arfc_question_export` and `arfc_answer_record` (or the `arfc` CLI verbs) —
+When the `ai_rfc` MCP server is connected, use `ai_rfc_question_draft`,
+`ai_rfc_question_export` and `ai_rfc_answer_record` (or the `ai_rfc` CLI verbs) —
 they enforce the verbatim-quote and exact-wording guardrails up front.
 
 ## When to draft a question

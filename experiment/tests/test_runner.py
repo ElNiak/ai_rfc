@@ -57,7 +57,7 @@ def test_launch_streams_events_and_records_status(campaign, write_scenario):
         "LANG",
     }
     prompt = (ref.run_dir / "prompt.md").read_text()
-    assert "arfc_cluster_next" in prompt and "ordinals 2 through 2" in prompt
+    assert "ai_rfc_cluster_next" in prompt and "ordinals 2 through 2" in prompt
     calls = json.loads((campaign.profile_dir / "fake-calls" / "A1.json").read_text())
     assert calls["cwd"] == str(ref.workspace)
     assert any(
@@ -69,12 +69,12 @@ def test_launch_streams_events_and_records_status(campaign, write_scenario):
 def test_arm_a_mounts_mcp_and_has_no_bash(campaign):
     ref_a = _ready(campaign, "A1")
     argv = prepare_run_argv(campaign, ref_a)
-    assert "--mcp-config" in argv and (ref_a.run_dir / "arfc.json").exists()
+    assert "--mcp-config" in argv and (ref_a.run_dir / "ai_rfc.json").exists()
     assert "Bash" not in argv[argv.index("--tools") + 1].split(",")
     ref_b = _ready(campaign, "B1")
     argv_b = prepare_run_argv(campaign, ref_b)
     assert "--mcp-config" not in argv_b
-    assert "Bash(arfc *)" in argv_b[argv_b.index("--allowedTools") + 1]
+    assert "Bash(ai_rfc *)" in argv_b[argv_b.index("--allowedTools") + 1]
     assert build_env(campaign, ref_b)["CLAUDE_CONFIG_DIR"] == str(campaign.profile_dir)
 
 
@@ -83,7 +83,7 @@ def test_every_run_mounts_its_arms_guard(campaign):
     confine a built-in tool (spike S0, CLI 2.1.247)."""
     expected = {
         "A1": (),
-        "B1": ("arfc ",),
+        "B1": ("ai_rfc ",),
         "C1": (
             "python -m panther.plugins.services.testers.ai_rfc",
             "git ",

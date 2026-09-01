@@ -5,28 +5,28 @@ same core functions — the parity test suite keeps every write byte-identical
 and every read JSON-identical across arms, and a test fails if a tool is
 missing from this table.
 
-| MCP tool | `arfc` verb | Raw substrate command (when one exists) |
+| MCP tool | `ai_rfc` verb | Raw substrate command (when one exists) |
 |---|---|---|
-| `arfc_status` | `arfc status` | — (composite over report.json, timeline.json, questions.yaml, git describe) |
-| `arfc_corpus_query` | `arfc corpus-query SQL` | `history.index.open_index` (Python) |
-| `arfc_cluster_next` | `arfc cluster-next` | — (clusters.jsonl minus checkpoints/revisions) |
-| `arfc_cluster_get` | `arfc cluster-get ID [--patch]` | `cat clusters/<id>/view.json`, `span.diff`, `evidence/pr.json` |
-| `arfc_claim_upsert` | `arfc claim-upsert ID --text … --anchor …` | — (schema-validated write; hand-editing + linter is the unguarded fallback) |
-| `arfc_claim_adjudicate` | `arfc claim-adjudicate` | `python -m …a_rfc <manifest> --out …` → report.json `claims` |
-| `arfc_claim_record_status` | `arfc claim-record-status [IDS…]` | — (writes exactly the supported values) |
-| `arfc_question_draft` | `arfc question-draft TEXT --claim ID…` | — (strict register write) |
-| `arfc_question_export` | `arfc question-export` | — |
-| `arfc_answer_record` | `arfc answer-record QID --answer … --transcript … --quote …` | — (verbatim-quote + exact-wording guardrails) |
-| `arfc_revision_record` | `arfc revision-record TAG --cluster ID --normative/--no-normative --note …` | — (validated via the gate's own loader) |
-| `arfc_checkpoint` | `arfc checkpoint ID` | `python -m …a_rfc.draft checkpoint …` |
-| `arfc_gate` | `arfc gate [--strict]` | `python -m …a_rfc <manifest> --out … --repo … [--strict]` |
-| `arfc_citation_gate` | `arfc citation-gate [--strict]` | `python -m …a_rfc.draft gate … [--strict]` |
-| `arfc_draft_commit` | `arfc draft-commit -m MSG` | `git -C draft add -A && git -C draft commit -m MSG` |
-| `arfc_revision_tag` | `arfc revision-tag TAG -m MSG` | `git -C draft tag -a TAG -m MSG`, then `python -m …a_rfc.draft gate … --strict` (the tool deletes the tag on findings; the raw route leaves that to the author) |
+| `ai_rfc_status` | `ai_rfc status` | — (composite over report.json, timeline.json, questions.yaml, git describe) |
+| `ai_rfc_corpus_query` | `ai_rfc corpus-query SQL` | `history.index.open_index` (Python) |
+| `ai_rfc_cluster_next` | `ai_rfc cluster-next` | — (clusters.jsonl minus checkpoints/revisions) |
+| `ai_rfc_cluster_get` | `ai_rfc cluster-get ID [--patch]` | `cat clusters/<id>/view.json`, `span.diff`, `evidence/pr.json` |
+| `ai_rfc_claim_upsert` | `ai_rfc claim-upsert ID --text … --anchor …` | — (schema-validated write; hand-editing + linter is the unguarded fallback) |
+| `ai_rfc_claim_adjudicate` | `ai_rfc claim-adjudicate` | `python -m …a_rfc <manifest> --out …` → report.json `claims` |
+| `ai_rfc_claim_record_status` | `ai_rfc claim-record-status [IDS…]` | — (writes exactly the supported values) |
+| `ai_rfc_question_draft` | `ai_rfc question-draft TEXT --claim ID…` | — (strict register write) |
+| `ai_rfc_question_export` | `ai_rfc question-export` | — |
+| `ai_rfc_answer_record` | `ai_rfc answer-record QID --answer … --transcript … --quote …` | — (verbatim-quote + exact-wording guardrails) |
+| `ai_rfc_revision_record` | `ai_rfc revision-record TAG --cluster ID --normative/--no-normative --note …` | — (validated via the gate's own loader) |
+| `ai_rfc_checkpoint` | `ai_rfc checkpoint ID` | `python -m …a_rfc.draft checkpoint …` |
+| `ai_rfc_gate` | `ai_rfc gate [--strict]` | `python -m …a_rfc <manifest> --out … --repo … [--strict]` |
+| `ai_rfc_citation_gate` | `ai_rfc citation-gate [--strict]` | `python -m …a_rfc.draft gate … [--strict]` |
+| `ai_rfc_draft_commit` | `ai_rfc draft-commit -m MSG` | `git -C draft add -A && git -C draft commit -m MSG` |
+| `ai_rfc_revision_tag` | `ai_rfc revision-tag TAG -m MSG` | `git -C draft tag -a TAG -m MSG`, then `python -m …a_rfc.draft gate … --strict` (the tool deletes the tag on findings; the raw route leaves that to the author) |
 
 ## Exit codes
 
-Every gate route — MCP tool, `arfc` verb, or raw substrate command — surfaces
+Every gate route — MCP tool, `ai_rfc` verb, or raw substrate command — surfaces
 the substrate's own exit code untouched, so all three arms read the same
 number for the same outcome.
 

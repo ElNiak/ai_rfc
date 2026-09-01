@@ -45,7 +45,7 @@ def test_scaffold_strips_agent_files_and_seeds_the_draft(template_repo, tmp_path
     assert 'title: "Fixture"' in body and "specification of fixture" in body
     assert "`a_rfc:" not in body
     assert git(dest, "log", "--oneline").count("\n") == 0
-    assert git(dest, "config", "user.name") == "arfc-harness"
+    assert git(dest, "config", "user.name") == "ai-rfc-harness"
     assert head == git(dest, "rev-parse", "HEAD")
 
 

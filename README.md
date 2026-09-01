@@ -30,13 +30,13 @@ Missing either fails loudly; nothing guesses.
 
 ## Layout
 
-- `plugins/ai-rfc/skills/` — `arfc-reconstruction-loop` (the driver),
-  `arfc-rfc-style` (I-D prose + claim-citation discipline),
-  `arfc-interviewing` (question register round-trip),
-  `arfc-evidence-hygiene` (the promotion rule as working intuition).
-- `plugins/ai-rfc/commands/` — `/arfc-init`, `/arfc-next-cluster`,
-  `/arfc-interview-import`, `/arfc-release-revision`, `/arfc-status`.
-- `plugins/ai-rfc/server/` — the `arfc` MCP server and its parity CLI:
+- `plugins/ai-rfc/skills/` — `ai-rfc-reconstruction-loop` (the driver),
+  `ai-rfc-rfc-style` (I-D prose + claim-citation discipline),
+  `ai-rfc-interviewing` (question register round-trip),
+  `ai-rfc-evidence-hygiene` (the promotion rule as working intuition).
+- `plugins/ai-rfc/commands/` — `/ai-rfc-init`, `/ai-rfc-next-cluster`,
+  `/ai-rfc-interview-import`, `/ai-rfc-release-revision`, `/ai-rfc-status`.
+- `plugins/ai-rfc/server/` — the `ai_rfc` MCP server and its parity CLI:
   one core, two frontends, so the AI+MCP and AI+CLI experiment arms are
   capability-identical by construction.
 - `docs/parity.md` — the tool ↔ CLI parity table (the experiment
@@ -44,12 +44,12 @@ Missing either fails loudly; nothing guesses.
 
 ## Guardrails the tools enforce
 
-- `arfc_claim_upsert` rejects any `status` input — a claim's standing is
+- `ai_rfc_claim_upsert` rejects any `status` input — a claim's standing is
   adjudicated from its evidence, never asserted.
-- `arfc_answer_record` grants `signed_off_by` only when the author
+- `ai_rfc_answer_record` grants `signed_off_by` only when the author
   confirmed the exact claim wording; a paraphrase earns an interview
   anchor, not a sign-off.
-- `arfc_revision_tag` creates a tag only after the strict manifest gate
+- `ai_rfc_revision_tag` creates a tag only after the strict manifest gate
   passes and deletes it again if the strict citation gate finds anything.
 - Every write is atomic (temp + rename); every gate failure is surfaced
   verbatim, never worked around.

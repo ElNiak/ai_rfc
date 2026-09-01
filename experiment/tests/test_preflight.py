@@ -80,7 +80,7 @@ def test_arm_surface_invocations_carry_their_arm_flags(tmp_path):
     a = by_name["arm_surface_A"].argv
     assert "--mcp-config" in a and "Bash" not in a[a.index("--tools") + 1].split(",")
     b = by_name["arm_surface_B"].argv
-    assert "Bash(arfc *)" in b[b.index("--allowedTools") + 1]
+    assert "Bash(ai_rfc *)" in b[b.index("--allowedTools") + 1]
     assert "--disable-slash-commands" in a and "--disable-slash-commands" in b
 
 

@@ -99,7 +99,7 @@ def test_analyze_campaign_aggregates_per_arm(campaign, write_scenario):
 def test_trajectory_points_follow_checkpoint_calls():
     events = parse_stream(
         '{"type":"assistant","message":{"id":"m1","content":[{"type":"text","text":"a"}],"usage":{"input_tokens":100,"output_tokens":10}}}\n'
-        '{"type":"assistant","message":{"id":"m2","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"arfc checkpoint c0002-x"}}],"usage":{"input_tokens":50,"output_tokens":5}}}\n'
+        '{"type":"assistant","message":{"id":"m2","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ai_rfc checkpoint c0002-x"}}],"usage":{"input_tokens":50,"output_tokens":5}}}\n'
         '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","is_error":false,"content":"{}"}]}}\n'
         '{"type":"assistant","message":{"id":"m3","content":[{"type":"text","text":"done"}],"usage":{"input_tokens":30,"output_tokens":5}}}\n'
     )

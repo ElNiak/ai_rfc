@@ -1,4 +1,4 @@
-"""The ``arfc`` MCP server: FastMCP over the shared tool surface."""
+"""The ``ai_rfc`` MCP server: FastMCP over the shared tool surface."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from mcp.server.fastmcp import FastMCP
 
 from .tools import ALL_TOOLS
 
-mcp = FastMCP("arfc")
+mcp = FastMCP("ai_rfc")
 
 for tool in ALL_TOOLS:
     mcp.tool()(tool)

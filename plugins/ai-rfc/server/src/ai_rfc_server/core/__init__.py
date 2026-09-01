@@ -1,6 +1,6 @@
 """The single implementation of every plugin operation.
 
-Both frontends (MCP tools and the ``arfc`` CLI) call these functions and
+Both frontends (MCP tools and the ``ai_rfc`` CLI) call these functions and
 nothing else, which is what makes the AI+MCP vs AI+CLI comparison an
 experiment rather than an aspiration.
 """

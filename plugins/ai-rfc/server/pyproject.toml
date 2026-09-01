@@ -14,7 +14,7 @@ mcp = ["mcp>=1.0"]
 tests = ["pytest>=8"]
 
 [project.scripts]
-arfc = "ai_rfc_server.cli:main"
+ai_rfc = "ai_rfc_server.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

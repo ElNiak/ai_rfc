@@ -1,7 +1,7 @@
 ---
-name: arfc-reconstruction-loop
+name: ai-rfc-reconstruction-loop
 description: The cluster-by-cluster reconstruction driver — read evidence, mine claims, adjudicate, revise the draft, gate, checkpoint, advance. Use when processing timeline clusters of a reconstruction workspace or when asked to continue a reconstruction.
-allowed-tools: Read, Grep, Glob, Edit, Write, Bash(python -m panther.plugins.services.testers.ai_rfc*), Bash(git *), Bash(arfc *), Bash(sqlite3 *)
+allowed-tools: Read, Grep, Glob, Edit, Write, Bash(python -m panther.plugins.services.testers.ai_rfc*), Bash(git *), Bash(ai_rfc *), Bash(sqlite3 *)
 ---
 
 # The reconstruction loop
@@ -10,9 +10,9 @@ One iteration turns one timeline cluster into evidence-honest claims and,
 when it changed normative behaviour, a new draft revision. Work through the
 clusters in ordinal order; never skip silently.
 
-Load `arfc-evidence-hygiene` before touching claims and `arfc-rfc-style` before touching prose.
+Load `ai-rfc-evidence-hygiene` before touching claims and `ai-rfc-rfc-style` before touching prose.
 
-When the `arfc` MCP server is connected, prefer its tools (`arfc_cluster_next`, `arfc_claim_upsert`, `arfc_claim_record_status`, `arfc_checkpoint`, `arfc_gate`, `arfc_revision_tag`, …) or the equivalent `arfc <verb>` CLI — same core, guardrails enforced up front (see `docs/parity.md`). The raw substrate commands below remain the documented fallback and the raw experiment arm.
+When the `ai_rfc` MCP server is connected, prefer its tools (`ai_rfc_cluster_next`, `ai_rfc_claim_upsert`, `ai_rfc_claim_record_status`, `ai_rfc_checkpoint`, `ai_rfc_gate`, `ai_rfc_revision_tag`, …) or the equivalent `ai_rfc <verb>` CLI — same core, guardrails enforced up front (see `docs/parity.md`). The raw substrate commands below remain the documented fallback and the raw experiment arm.
 
 ## Preconditions
 

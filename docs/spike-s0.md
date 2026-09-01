@@ -22,9 +22,9 @@ whatever the CLI reports today. The gate and the spend agree.
 | `auth` | yes | Isolated profile authenticates; `apiKeySource: none`. |
 | `hooks` | yes | Positive control fired **2** hook events, isolated fired **0**. |
 | `claude_md` | yes | A canary `CLAUDE.md` one directory above the cwd does not reach the isolated run. |
-| `arm_surface` | yes | A: `Edit,Glob,Grep,Read,Write` + 16 `mcp__arfc__*`, `arfc: connected`, **no Bash**. B and C: Bash, no MCP. Slash commands empty in all three. |
+| `arm_surface` | yes | A: `Edit,Glob,Grep,Read,Write` + 16 `mcp__ai_rfc__*`, `ai_rfc: connected`, **no Bash**. B and C: Bash, no MCP. Slash commands empty in all three. |
 | `draft_commit` | no | Draft committed and revision tagged through the core. |
-| `plugin_mcp` | no | `arfc_status` answered `2`; connected **with and without** the env block. |
+| `plugin_mcp` | no | `ai_rfc_status` answered `2`; connected **with and without** the env block. |
 | `result_fields` | yes | All required and optional result fields present. |
 | `denial` | yes | Out-of-family `echo bypass-probe` blocked by the guard; in-family `git --version` still ran. |
 | `append_prompt` | yes | `--append-system-prompt-file` reaches the model. |
@@ -79,7 +79,7 @@ version are kept alongside them under their own suffixes.
 
 ## The enforcement finding, and what actually works
 
-Spike item 8 asked whether `dontAsk` plus `--allowedTools "Bash(arfc *)"` denies an
+Spike item 8 asked whether `dontAsk` plus `--allowedTools "Bash(ai_rfc *)"` denies an
 out-of-family command. **It does not.** `--allowedTools` does not constrain a
 built-in tool that `--tools` has enabled. It is not inert in general — an MCP tool
 absent from the allowlist *is* denied under the same mode.
@@ -105,7 +105,7 @@ Three conclusions, each load-bearing:
    does, so swapping the mode fixes nothing.
 2. **Deny rules enforce but cannot express an arm.** They are blacklists; denying
    `Bash` wholesale and re-allowing one family blocks the allowed command too. There
-   is no way to say "only `arfc *`" with them.
+   is no way to say "only `ai_rfc *`" with them.
 3. **The `PreToolUse` hook works only through the exit-2 blocking path.** The
    documented `hookSpecificOutput.permissionDecision = "deny"` is silently ignored —
    the hook demonstrably fires (`hook_started` + `hook_response` in the stream) and
@@ -116,7 +116,7 @@ Three conclusions, each load-bearing:
 
 `experiment/enforcement.py` derives each arm's command families from its existing
 `allowed_tools` declaration, so enforcement adds no second source of truth:
-A → none, B → `arfc `, C → `python -m panther…a_rfc`, `git `, `sqlite3 `.
+A → none, B → `ai_rfc `, C → `python -m panther…a_rfc`, `git `, `sqlite3 `.
 `experiment/guard.py` is mounted per arm through `--settings` and exits 2 on
 anything outside them.
 
@@ -140,7 +140,7 @@ inert. It is mounted with `--settings` from the campaign directory, never from
 - Arms B and C hold unrestricted `Bash` and could edit the campaign's settings file.
   Detection: hash the settings before and after each run, and treat a run whose
   stream carries no `hook_started` events as one that had no guard.
-- Redirections inside an in-family segment are allowed (`arfc status > f`). The
+- Redirections inside an in-family segment are allowed (`ai_rfc status > f`). The
   per-run workspace copy contains the blast radius and the digest detects tampering.
 - Without `--strict-mcp-config` a run inherits **account-level** connectors
   (Context7, Mermaid, Scholar, Drive) even under an isolated `CLAUDE_CONFIG_DIR`.
@@ -158,8 +158,8 @@ inert. It is mounted with `--settings` from the campaign directory, never from
    `subtype:hook_started|hook_response` + `hook_event`. The unit fixture had encoded
    the shape the detector expected rather than the one the CLI produces.
 3. **The plugin MCP check looked for the wrong names.** Loaded through
-   `--plugin-dir` the server is `plugin:ai-rfc:arfc` and its tool is
-   `mcp__plugin_ai-rfc_arfc__arfc_status`. Its hardcoded note advising removal of the
+   `--plugin-dir` the server is `plugin:ai-rfc:ai_rfc` and its tool is
+   `mcp__plugin_ai-rfc_ai_rfc__ai_rfc_status`. Its hardcoded note advising removal of the
    `.mcp.json` `env` block was wrong and is deleted — the server connects either way,
    which also answers spec item 6.
 4. **A run can exit 0 with an empty stream.** One `hooks_control` invocation produced

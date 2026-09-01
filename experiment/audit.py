@@ -34,7 +34,7 @@ from .stream import (
 STATE_FILES = ("manifest.yaml", "questions.yaml", "revisions.yaml")
 ALLOWED_SURFACES: dict[str, set[str]] = {
     "A": {"mcp", "edit", "read"},
-    "B": {"bash:arfc", "edit", "read"},
+    "B": {"bash:ai_rfc", "edit", "read"},
     "C": {"bash:python_a_rfc", "bash:git", "bash:sqlite3", "edit", "read"},
 }
 
@@ -46,8 +46,8 @@ class ToolCall:
     index: int
     name: str
     surface: str
-    #: The program family within the surface, e.g. ``arfc`` inside
-    #: ``bash:arfc``. Recorded key: it is written into ``audit/<run_id>.json``
+    #: The program family within the surface, e.g. ``ai_rfc`` inside
+    #: ``bash:ai_rfc``. Recorded key: it is written into ``audit/<run_id>.json``
     #: through ``asdict``, so the field keeps the word the evidence uses.
     family: str
     target: str
@@ -60,8 +60,8 @@ class ToolCall:
 
 def _stage_surface(stage: str) -> str:
     """The surface one pipe stage reaches for."""
-    if stage.startswith("arfc "):
-        return "bash:arfc"
+    if stage.startswith("ai_rfc "):
+        return "bash:ai_rfc"
     if stage.startswith(RAW_PREFIX):
         return "bash:python_a_rfc"
     if stage.startswith("git "):
@@ -85,7 +85,7 @@ def bash_surface(command: str) -> str:
         command: The raw ``tool_input.command`` string.
 
     Returns:
-        One of ``bash:arfc``, ``bash:python_a_rfc``, ``bash:git``,
+        One of ``bash:ai_rfc``, ``bash:python_a_rfc``, ``bash:git``,
         ``bash:sqlite3``, ``bash:other`` or ``bash:mixed``.
     """
     try:
@@ -151,8 +151,8 @@ def classify(
         The surface it reached for, the family within that surface, and the
         edit target (``register``, ``prose`` or ``other``) where it applies.
     """
-    if name.startswith("mcp__arfc__"):
-        return "mcp", name[len("mcp__arfc__") :], ""
+    if name.startswith("mcp__ai_rfc__"):
+        return "mcp", name[len("mcp__ai_rfc__") :], ""
     if name.startswith("mcp__"):
         return "mcp:other", name, ""
     if name == "Bash":

@@ -1,4 +1,4 @@
-"""The ``arfc`` CLI — the AI+CLI arm's frontend over the shared core.
+"""The ``ai_rfc`` CLI — the AI+CLI arm's frontend over the shared core.
 
 Every verb maps 1:1 onto a core function; results go to stdout as JSON,
 diagnostics to stderr, and gate exit codes pass through untouched (0 clean,
@@ -36,7 +36,7 @@ def _parse_fields(pairs: list[str]) -> dict[str, Any]:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="arfc",
+        prog="ai_rfc",
         description=(
             "Drive a reconstruction workspace (AI_RFC_WORKSPACE) against a "
             "PANTHER checkout (PANTHER_REPO)."

@@ -128,17 +128,17 @@ class Session:
         self,
         op: str,
         mcp_input: dict,
-        arfc: str,
+        ai_rfc: str,
         raw: str | None,
         result: str,
         step: dict,
     ) -> None:
         if self.arm == "A":
-            self.call(f"mcp__arfc__arfc_{op}", mcp_input, result, step=step)
+            self.call(f"mcp__ai_rfc__ai_rfc_{op}", mcp_input, result, step=step)
         elif self.arm == "B":
-            self.call("Bash", {"command": arfc}, result, step=step)
+            self.call("Bash", {"command": ai_rfc}, result, step=step)
         else:
-            self.call("Bash", {"command": raw or arfc}, result, step=step)
+            self.call("Bash", {"command": raw or ai_rfc}, result, step=step)
 
     def edit(self, name: str, step: dict) -> None:
         self.call(
@@ -198,7 +198,7 @@ class Session:
                 self.surface(
                     "claim_upsert",
                     {"claim_id": step["id"], "fields": fields},
-                    f"arfc claim-upsert {step['id']} --text … --section … --level MAY --layer core",
+                    f"ai_rfc claim-upsert {step['id']} --text … --section … --level MAY --layer core",
                     None,
                     json.dumps(stored),
                     step,
@@ -213,7 +213,7 @@ class Session:
                 self.surface(
                     "claim_record_status",
                     {},
-                    "arfc claim-record-status",
+                    "ai_rfc claim-record-status",
                     None,
                     json.dumps(changed),
                     step,
@@ -226,7 +226,7 @@ class Session:
             self.surface(
                 "checkpoint",
                 {"cluster_id": cluster},
-                f"arfc checkpoint {cluster}",
+                f"ai_rfc checkpoint {cluster}",
                 f"{RAW}.draft checkpoint {ws}/manifest.yaml --timeline {ws}/timeline --cluster {cluster} --out {ws}/checkpoints",
                 json.dumps(result),
                 step,
@@ -243,7 +243,7 @@ class Session:
             self.surface(
                 "draft_commit",
                 {"message": "prose"},
-                'arfc draft-commit -m "prose"',
+                'ai_rfc draft-commit -m "prose"',
                 f"git -C {ws}/draft add -A && git -C {ws}/draft commit -m prose",
                 json.dumps(result),
                 step,
@@ -270,7 +270,7 @@ class Session:
                         "normative_change": True,
                         "note": "n",
                     },
-                    f"arfc revision-record {step['tag']} --cluster {cluster} --normative --note n",
+                    f"ai_rfc revision-record {step['tag']} --cluster {cluster} --normative --note n",
                     None,
                     json.dumps(entry),
                     step,
@@ -282,7 +282,7 @@ class Session:
             self.surface(
                 "revision_tag",
                 {"tag": step["tag"], "message": "rev"},
-                f'arfc revision-tag {step["tag"]} -m rev',
+                f'ai_rfc revision-tag {step["tag"]} -m rev',
                 f'git -C {ws}/draft tag -a {step["tag"]} -m rev',
                 json.dumps(result),
                 step,
@@ -294,7 +294,7 @@ class Session:
             self.surface(
                 "gate",
                 {"strict": True},
-                "arfc gate --strict",
+                "ai_rfc gate --strict",
                 f"{RAW} {ws}/manifest.yaml --out {ws}/out --repo {ws}/clone --strict",
                 json.dumps(result),
                 step,
@@ -306,14 +306,14 @@ class Session:
             self.surface(
                 "citation_gate",
                 {"strict": True},
-                "arfc citation-gate --strict",
+                "ai_rfc citation-gate --strict",
                 f"{RAW}.draft gate {ws}/draft --timeline {ws}/timeline --checkpoints {ws}/checkpoints --questions {ws}/questions.yaml --revisions {ws}/revisions.yaml --out {ws}/out --strict",
                 json.dumps(result),
                 step,
             )
         elif kind == "denied":
             command = step.get("command", "echo x")
-            families = step.get("families", "'arfc '")
+            families = step.get("families", "'ai_rfc '")
             tool = step.get("tool", "Bash")
             text = (
                 f"PreToolUse:{tool} hook error: [guard]: denied: this arm may run "
@@ -330,7 +330,7 @@ class Session:
                 }
             )
         elif kind == "mcp_denied":
-            tool = f"mcp__arfc__{step.get('tool', 'arfc_status')}"
+            tool = f"mcp__ai_rfc__{step.get('tool', 'ai_rfc_status')}"
             use_id = self.call(
                 tool,
                 {},
@@ -344,7 +344,7 @@ class Session:
         elif kind == "tool_error":
             if self.arm == "A":
                 self.call(
-                    "mcp__arfc__arfc_claim_upsert",
+                    "mcp__ai_rfc__ai_rfc_claim_upsert",
                     {"claim_id": "x", "fields": {"status": "confirmed"}},
                     "GuardrailError: status is adjudicated from evidence, never asserted",
                     step=step,
@@ -355,12 +355,12 @@ class Session:
                     "Bash",
                     {
                         "command": (
-                            "arfc claim-upsert --bogus"
+                            "ai_rfc claim-upsert --bogus"
                             if self.arm == "B"
                             else f"{RAW} --bogus"
                         )
                     },
-                    "exit code 2: usage: arfc [-h] …",
+                    "exit code 2: usage: ai_rfc [-h] …",
                     step=step,
                     is_error=True,
                 )
@@ -413,7 +413,7 @@ def main() -> int:
         )
     )
     tools = [tool for tool in (_flag("--tools") or "").split(",") if tool]
-    servers = [{"name": "arfc", "status": "connected"}] if _flag("--mcp-config") else []
+    servers = [{"name": "ai_rfc", "status": "connected"}] if _flag("--mcp-config") else []
     _emit(
         {
             "type": "system",

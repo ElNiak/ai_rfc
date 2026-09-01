@@ -88,7 +88,7 @@ def test_init_campaign_freezes_everything(
             .read_text()
             .startswith("--- arm-")
         )
-    shim = campaign.bin_dir / "arfc"
+    shim = campaign.bin_dir / "ai_rfc"
     assert shim.exists() and shim.stat().st_mode & 0o111
     assert "/venv/bin/python" in shim.read_text()
     assert str(campaign.server_src) in shim.read_text()

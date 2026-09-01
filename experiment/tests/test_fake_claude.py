@@ -80,7 +80,7 @@ def test_fake_replays_a_complete_loop_in_every_arm(
         final = result_event(events)
         assert final["total_cost_usd"] == 1.25 and final["num_turns"] == len(names)
         if arm == "A":
-            assert all(n.startswith("mcp__arfc__") or n == "Edit" for n in names), names
+            assert all(n.startswith("mcp__ai_rfc__") or n == "Edit" for n in names), names
         elif arm == "B":
             assert any(n == "Bash" for n in names) and not any(
                 n.startswith("mcp__") for n in names
@@ -106,7 +106,7 @@ def test_fake_records_denials_and_exit_codes(
             "arm": "A",
             "exit_code": 0,
             "steps": [
-                {"kind": "denied", "command": "arfc status"},
+                {"kind": "denied", "command": "ai_rfc status"},
                 {"kind": "mcp_denied"},
             ],
         },
@@ -114,7 +114,7 @@ def test_fake_records_denials_and_exit_codes(
     events = _launch(profile, workspace, panther_repo)
     assert len(denials(events)) == 4
     first = result_event(events)["permission_denials"][0]
-    assert first["tool_input"] == {"command": "arfc status"}
+    assert first["tool_input"] == {"command": "ai_rfc status"}
     # The shape the guard really produces: hook events bracket the refused call,
     # and the denial names the call it refused.
     hooks = [e for e in events if str(e.get("subtype", "")).startswith("hook_")]
@@ -124,7 +124,7 @@ def test_fake_records_denials_and_exit_codes(
     assert first["tool_use_id"] == bash_call["id"]
     text = tool_results(events)[bash_call["id"]]["text"]
     assert text.startswith("PreToolUse:Bash hook error:")
-    assert "refused: arfc status" in text
+    assert "refused: ai_rfc status" in text
 
 
 def test_fake_answers_version():

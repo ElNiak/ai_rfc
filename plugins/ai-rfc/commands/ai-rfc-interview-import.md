@@ -4,7 +4,7 @@ description: Import an author reply transcript as interview anchors, answers, an
 
 Import the author reply named by `$ARGUMENTS` (a file path, or text to be
 saved) into the workspace at `$AI_RFC_WORKSPACE`, following the
-`arfc-interviewing` skill exactly:
+`ai-rfc-interviewing` skill exactly:
 
 1. Save the transcript verbatim as `interviews/int-NNN.md` (next free NNN),
    dated and attributed.

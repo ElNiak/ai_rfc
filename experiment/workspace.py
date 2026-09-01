@@ -40,8 +40,8 @@ TEMPLATE_STRIP = (
     ".mcp.json",
 )
 SUBSTRATE_PARTS = ("clone", "corpus", "timeline")
-HARNESS_NAME = "arfc-harness"
-HARNESS_EMAIL = "arfc-harness@localhost"
+HARNESS_NAME = "ai-rfc-harness"
+HARNESS_EMAIL = "ai-rfc-harness@localhost"
 PINNED_DATE = "2026-08-26T00:00:00+00:00"
 HARNESS_MARKER = "harness.json"
 DIGEST_FILE = "pristine.sha256"

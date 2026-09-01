@@ -1,165 +1,165 @@
 {
   "arm": "B",
   "families": [
-    "arfc "
+    "ai_rfc "
   ],
   "source": "The 31 Bash commands issued by run B1 of campaign pilot-aioquic-w02-11-20260828, the run the guard defect aborted. Captured here so the corpus outlives the campaign directory.",
   "expected_from": "Each verdict is derived by reading the command against the family list: every command group must begin with an in-family command, and any later pipe stage must be a pager. The verdicts are not a recording of what the implementation returns.",
   "cases": [
     {
-      "command": "echo \"PANTHER_REPO=$PANTHER_REPO\"; echo \"AI_RFC_WORKSPACE=$AI_RFC_WORKSPACE\"; which arfc; ls -la \"$AI_RFC_WORKSPACE\" 2>/dev/null || ls -la .",
+      "command": "echo \"PANTHER_REPO=$PANTHER_REPO\"; echo \"AI_RFC_WORKSPACE=$AI_RFC_WORKSPACE\"; which ai_rfc; ls -la \"$AI_RFC_WORKSPACE\" 2>/dev/null || ls -la .",
       "allowed": false,
       "why": "first group runs echo; the groups after it run which, then ls"
     },
     {
       "command": "ls /Users/elniak/ai-rfc-experiments/campaigns/pilot-aioquic-w02-11-20260828/runs/B1/workspace",
       "allowed": false,
-      "why": "runs ls, which is not an arfc command"
+      "why": "runs ls, which is not an ai_rfc command"
     },
     {
-      "command": "arfc --help",
+      "command": "ai_rfc --help",
       "allowed": true,
-      "why": "a single arfc command"
+      "why": "a single ai_rfc command"
     },
     {
-      "command": "arfc status",
+      "command": "ai_rfc status",
       "allowed": true,
-      "why": "a single arfc command"
+      "why": "a single ai_rfc command"
     },
     {
-      "command": "arfc cluster-next",
+      "command": "ai_rfc cluster-next",
       "allowed": true,
-      "why": "a single arfc command"
+      "why": "a single ai_rfc command"
     },
     {
-      "command": "arfc cluster-get c0002-pr-60258445de47 --patch --patch-limit 400",
+      "command": "ai_rfc cluster-get c0002-pr-60258445de47 --patch --patch-limit 400",
       "allowed": true,
-      "why": "a single arfc command"
+      "why": "a single ai_rfc command"
     },
     {
-      "command": "arfc cluster-get c0002-pr-60258445de47 --patch --patch-offset 380 --patch-limit 700",
+      "command": "ai_rfc cluster-get c0002-pr-60258445de47 --patch --patch-offset 380 --patch-limit 700",
       "allowed": true,
-      "why": "a single arfc command"
+      "why": "a single ai_rfc command"
     },
     {
-      "command": "arfc claim-upsert --help; arfc revision-record --help; arfc checkpoint --help; arfc gate --help; arfc citation-gate --help; arfc revision-tag --help; arfc draft-commit --help; arfc cluster-get --help",
+      "command": "ai_rfc claim-upsert --help; ai_rfc revision-record --help; ai_rfc checkpoint --help; ai_rfc gate --help; ai_rfc citation-gate --help; ai_rfc revision-tag --help; ai_rfc draft-commit --help; ai_rfc cluster-get --help",
       "allowed": true,
-      "why": "eight ;-separated groups, every one an arfc command"
+      "why": "eight ;-separated groups, every one an ai_rfc command"
     },
     {
-      "command": "arfc gate",
+      "command": "ai_rfc gate",
       "allowed": true,
-      "why": "a single arfc command"
+      "why": "a single ai_rfc command"
     },
     {
-      "command": "arfc claim-upsert pkg.1 \\\n  --text \"A conforming aioquic distribution MUST ship the PEP 561 marker file aioquic/py.typed inside the installed package so that type checkers consume the package's inline type information.\" \\\n  --section \"Packaging and Distribution\" \\\n  --level MUST \\\n  --layer packaging \\\n  --field intent=deliberate \\\n  --field testable=true \\\n  --anchor '{\"evidence_class\": \"code\", \"locator\": \"aioquic/py.typed\", \"commit\": \"60258445de4728a971e4124be18997fa61ee87a2\", \"line\": 1}' \\\n  --anchor '{\"evidence_class\": \"adr\", \"locator\": \"60258445de4728a971e4124be18997fa61ee87a2\"}'",
+      "command": "ai_rfc claim-upsert pkg.1 \\\n  --text \"A conforming aioquic distribution MUST ship the PEP 561 marker file aioquic/py.typed inside the installed package so that type checkers consume the package's inline type information.\" \\\n  --section \"Packaging and Distribution\" \\\n  --level MUST \\\n  --layer packaging \\\n  --field intent=deliberate \\\n  --field testable=true \\\n  --anchor '{\"evidence_class\": \"code\", \"locator\": \"aioquic/py.typed\", \"commit\": \"60258445de4728a971e4124be18997fa61ee87a2\", \"line\": 1}' \\\n  --anchor '{\"evidence_class\": \"adr\", \"locator\": \"60258445de4728a971e4124be18997fa61ee87a2\"}'",
       "allowed": true,
-      "why": "backslash continuations join one arfc command; the apostrophe in \"package's\" sits inside a double-quoted value and opens nothing"
+      "why": "backslash continuations join one ai_rfc command; the apostrophe in \"package's\" sits inside a double-quoted value and opens nothing"
     },
     {
-      "command": "arfc claim-upsert pkg.1 --text \"A conforming aioquic distribution MUST ship the PEP 561 marker file aioquic/py.typed inside the installed package so that type checkers consume the package's inline type information.\" --section \"Packaging and Distribution\" --level MUST --layer packaging --field intent=deliberate --field testable=true --anchor '{\"evidence_class\": \"code\", \"locator\": \"aioquic/py.typed\", \"commit\": \"60258445de4728a971e4124be18997fa61ee87a2\", \"line\": 1}' --anchor '{\"evidence_class\": \"adr\", \"locator\": \"60258445de4728a971e4124be18997fa61ee87a2\"}'",
+      "command": "ai_rfc claim-upsert pkg.1 --text \"A conforming aioquic distribution MUST ship the PEP 561 marker file aioquic/py.typed inside the installed package so that type checkers consume the package's inline type information.\" --section \"Packaging and Distribution\" --level MUST --layer packaging --field intent=deliberate --field testable=true --anchor '{\"evidence_class\": \"code\", \"locator\": \"aioquic/py.typed\", \"commit\": \"60258445de4728a971e4124be18997fa61ee87a2\", \"line\": 1}' --anchor '{\"evidence_class\": \"adr\", \"locator\": \"60258445de4728a971e4124be18997fa61ee87a2\"}'",
       "allowed": true,
-      "why": "a single arfc command"
+      "why": "a single ai_rfc command"
     },
     {
-      "command": "arfc claim-upsert pkg.1 --text \"A conforming aioquic distribution MUST ship the PEP 561 marker file aioquic/py.typed inside the installed package so that type checkers consume the package's inline type information.\" --section \"Packaging and Distribution\" --level MUST --layer packaging --field intent=intended --field testable=true --anchor '{\"evidence_class\": \"code\", \"locator\": \"aioquic/py.typed\", \"commit\": \"60258445de4728a971e4124be18997fa61ee87a2\", \"line\": 1}' --anchor '{\"evidence_class\": \"adr\", \"locator\": \"60258445de4728a971e4124be18997fa61ee87a2\"}'",
+      "command": "ai_rfc claim-upsert pkg.1 --text \"A conforming aioquic distribution MUST ship the PEP 561 marker file aioquic/py.typed inside the installed package so that type checkers consume the package's inline type information.\" --section \"Packaging and Distribution\" --level MUST --layer packaging --field intent=intended --field testable=true --anchor '{\"evidence_class\": \"code\", \"locator\": \"aioquic/py.typed\", \"commit\": \"60258445de4728a971e4124be18997fa61ee87a2\", \"line\": 1}' --anchor '{\"evidence_class\": \"adr\", \"locator\": \"60258445de4728a971e4124be18997fa61ee87a2\"}'",
       "allowed": true,
-      "why": "a single arfc command"
+      "why": "a single ai_rfc command"
     },
     {
-      "command": "arfc claim-upsert pkg.1 --field req_class=packaging",
+      "command": "ai_rfc claim-upsert pkg.1 --field req_class=packaging",
       "allowed": true,
-      "why": "a single arfc command"
+      "why": "a single ai_rfc command"
     },
     {
-      "command": "arfc claim-upsert pkg.2 --text \"The build configuration MUST enable package-data inclusion and MUST list aioquic/py.typed in the source-distribution manifest, so that the marker file is present in both the source and the installed distribution.\" --section \"Packaging and Distribution\" --level MUST --layer packaging --field intent=intended --field testable=true --anchor '{\"evidence_class\": \"code\", \"locator\": \"setup.py\", \"commit\": \"60258445de4728a971e4124be18997fa61ee87a2\", \"line\": 19}' --anchor '{\"evidence_class\": \"code\", \"locator\": \"MANIFEST.in\", \"commit\": \"60258445de4728a971e4124be18997fa61ee87a2\", \"line\": 2}'",
+      "command": "ai_rfc claim-upsert pkg.2 --text \"The build configuration MUST enable package-data inclusion and MUST list aioquic/py.typed in the source-distribution manifest, so that the marker file is present in both the source and the installed distribution.\" --section \"Packaging and Distribution\" --level MUST --layer packaging --field intent=intended --field testable=true --anchor '{\"evidence_class\": \"code\", \"locator\": \"setup.py\", \"commit\": \"60258445de4728a971e4124be18997fa61ee87a2\", \"line\": 19}' --anchor '{\"evidence_class\": \"code\", \"locator\": \"MANIFEST.in\", \"commit\": \"60258445de4728a971e4124be18997fa61ee87a2\", \"line\": 2}'",
       "allowed": true,
-      "why": "a single arfc command"
+      "why": "a single ai_rfc command"
     },
     {
-      "command": "arfc gate",
+      "command": "ai_rfc gate",
       "allowed": true,
-      "why": "a single arfc command"
+      "why": "a single ai_rfc command"
     },
     {
-      "command": "arfc claim-adjudicate",
+      "command": "ai_rfc claim-adjudicate",
       "allowed": true,
-      "why": "a single arfc command"
+      "why": "a single ai_rfc command"
     },
     {
-      "command": "arfc claim-record-status && arfc gate --strict",
+      "command": "ai_rfc claim-record-status && ai_rfc gate --strict",
       "allowed": true,
-      "why": "two &&-separated groups, both arfc commands"
+      "why": "two &&-separated groups, both ai_rfc commands"
     },
     {
-      "command": "arfc checkpoint c0002-pr-60258445de47",
+      "command": "ai_rfc checkpoint c0002-pr-60258445de47",
       "allowed": true,
-      "why": "a single arfc command"
+      "why": "a single ai_rfc command"
     },
     {
-      "command": "arfc revision-record draft-elniak-aioquic-reconstructed-02 --cluster c0002-pr-60258445de47 --normative --note \"PR #19 PEP 561 compliance: distribution ships the aioquic/py.typed marker and includes package data.\"",
+      "command": "ai_rfc revision-record draft-elniak-aioquic-reconstructed-02 --cluster c0002-pr-60258445de47 --normative --note \"PR #19 PEP 561 compliance: distribution ships the aioquic/py.typed marker and includes package data.\"",
       "allowed": true,
-      "why": "a single arfc command"
+      "why": "a single ai_rfc command"
     },
     {
-      "command": "arfc draft-commit -m \"Add Packaging and Distribution section for PEP 561 marker (cluster c0002)\"",
+      "command": "ai_rfc draft-commit -m \"Add Packaging and Distribution section for PEP 561 marker (cluster c0002)\"",
       "allowed": true,
-      "why": "a single arfc command"
+      "why": "a single ai_rfc command"
     },
     {
-      "command": "arfc revision-tag draft-elniak-aioquic-reconstructed-02 -m \"Revision 02: PEP 561 packaging requirements from cluster c0002\" && arfc citation-gate --strict",
+      "command": "ai_rfc revision-tag draft-elniak-aioquic-reconstructed-02 -m \"Revision 02: PEP 561 packaging requirements from cluster c0002\" && ai_rfc citation-gate --strict",
       "allowed": true,
-      "why": "two &&-separated groups, both arfc commands"
+      "why": "two &&-separated groups, both ai_rfc commands"
     },
     {
-      "command": "arfc cluster-next",
+      "command": "ai_rfc cluster-next",
       "allowed": true,
-      "why": "a single arfc command"
+      "why": "a single ai_rfc command"
     },
     {
-      "command": "arfc cluster-get c0003-epoch-f731035b44b5",
+      "command": "ai_rfc cluster-get c0003-epoch-f731035b44b5",
       "allowed": true,
-      "why": "a single arfc command"
+      "why": "a single ai_rfc command"
     },
     {
-      "command": "arfc cluster-get c0003-epoch-f731035b44b5 --patch --patch-offset 0 --patch-limit 22000",
+      "command": "ai_rfc cluster-get c0003-epoch-f731035b44b5 --patch --patch-offset 0 --patch-limit 22000",
       "allowed": true,
-      "why": "a single arfc command"
+      "why": "a single ai_rfc command"
     },
     {
-      "command": "arfc cluster-get c0003-epoch-f731035b44b5 --patch --patch-offset 21500 --patch-limit 14000 2>&1 | head -c 20000",
+      "command": "ai_rfc cluster-get c0003-epoch-f731035b44b5 --patch --patch-offset 21500 --patch-limit 14000 2>&1 | head -c 20000",
       "allowed": true,
       "why": "2>&1 redirects rather than separating, and head is a permitted pager"
     },
     {
-      "command": "arfc cluster-get c0003-epoch-f731035b44b5 --patch --patch-offset 21500 --patch-limit 15000",
+      "command": "ai_rfc cluster-get c0003-epoch-f731035b44b5 --patch --patch-offset 21500 --patch-limit 15000",
       "allowed": true,
-      "why": "a single arfc command"
+      "why": "a single ai_rfc command"
     },
     {
-      "command": "arfc corpus-query \"SELECT name FROM sqlite_master WHERE type='table'\"",
+      "command": "ai_rfc corpus-query \"SELECT name FROM sqlite_master WHERE type='table'\"",
       "allowed": true,
       "why": "SQL single quotes inside the double-quoted argument separate nothing"
     },
     {
-      "command": "arfc corpus-query \"SELECT * FROM commits LIMIT 1\"",
+      "command": "ai_rfc corpus-query \"SELECT * FROM commits LIMIT 1\"",
       "allowed": true,
-      "why": "a single arfc command"
+      "why": "a single ai_rfc command"
     },
     {
-      "command": "arfc corpus-query \"SELECT sha, authored_at, subject FROM commits WHERE authored_at > (SELECT authored_at FROM commits WHERE sha='60258445de4728a971e4124be18997fa61ee87a2') AND authored_at <= (SELECT authored_at FROM commits WHERE sha='f731035b44b5f0e24c3d47707d158558f5802822') ORDER BY authored_at\"",
+      "command": "ai_rfc corpus-query \"SELECT sha, authored_at, subject FROM commits WHERE authored_at > (SELECT authored_at FROM commits WHERE sha='60258445de4728a971e4124be18997fa61ee87a2') AND authored_at <= (SELECT authored_at FROM commits WHERE sha='f731035b44b5f0e24c3d47707d158558f5802822') ORDER BY authored_at\"",
       "allowed": true,
       "why": "SQL comparisons and parenthesised subqueries stay inside the quoted argument; '> (' never forms the >( substitution token"
     },
     {
-      "command": "arfc corpus-query \"SELECT c.sha, c.authored_at, c.subject FROM commits c JOIN file_changes f ON f.sha=c.sha WHERE f.path IN ('aioquic/quic/recovery.py','aioquic/quic/connection.py','aioquic/asyncio/protocol.py','aioquic/quic/logger.py') AND c.authored_at >= '2019-08-15' AND c.authored_at <= '2019-08-17' GROUP BY c.sha ORDER BY c.authored_at\"",
+      "command": "ai_rfc corpus-query \"SELECT c.sha, c.authored_at, c.subject FROM commits c JOIN file_changes f ON f.sha=c.sha WHERE f.path IN ('aioquic/quic/recovery.py','aioquic/quic/connection.py','aioquic/asyncio/protocol.py','aioquic/quic/logger.py') AND c.authored_at >= '2019-08-15' AND c.authored_at <= '2019-08-17' GROUP BY c.sha ORDER BY c.authored_at\"",
       "allowed": true,
       "why": "a quoted SQL IN-list of single-quoted paths stays one argument"
     },
     {
-      "command": "arfc corpus-query \"SELECT sha, authored_at, subject FROM commits WHERE authored_at >= '2019-08-15T19:00' AND authored_at <= '2019-08-18' ORDER BY authored_at\"",
+      "command": "ai_rfc corpus-query \"SELECT sha, authored_at, subject FROM commits WHERE authored_at >= '2019-08-15T19:00' AND authored_at <= '2019-08-18' ORDER BY authored_at\"",
       "allowed": true,
-      "why": "a single arfc command"
+      "why": "a single ai_rfc command"
     }
   ]
 }

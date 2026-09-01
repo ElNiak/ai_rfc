@@ -33,7 +33,7 @@ def test_claim_upsert_parity(make_workspace, capsys):
         "intent": "intended",
     }
     use(tool_arm)
-    tools.arfc_claim_upsert("t:5.1", dict(fields))
+    tools.ai_rfc_claim_upsert("t:5.1", dict(fields))
     use(cli_arm)
     assert (
         cli.main(
@@ -63,7 +63,7 @@ def test_claim_upsert_parity(make_workspace, capsys):
 def test_record_status_parity(make_workspace, capsys):
     tool_arm, cli_arm, use = _twins(make_workspace)
     use(tool_arm)
-    tools.arfc_claim_record_status()
+    tools.ai_rfc_claim_record_status()
     use(cli_arm)
     assert cli.main(["claim-record-status"]) == 0
     capsys.readouterr()
@@ -75,7 +75,7 @@ def test_record_status_parity(make_workspace, capsys):
 def test_read_parity_adjudicate(make_workspace, capsys):
     tool_arm, cli_arm, use = _twins(make_workspace)
     use(tool_arm)
-    from_tool = tools.arfc_claim_adjudicate()
+    from_tool = tools.ai_rfc_claim_adjudicate()
     use(cli_arm)
     assert cli.main(["claim-adjudicate"]) == 0
     from_cli = json.loads(capsys.readouterr().out)
@@ -99,7 +99,7 @@ def test_draft_commit_parity(make_workspace, capsys, monkeypatch):
         prose = root / "draft" / "draft-test-spec.md"
         prose.write_text(prose.read_text() + "\nMore prose.\n")
     use(tool_arm)
-    from_tool = tools.arfc_draft_commit("more prose")
+    from_tool = tools.ai_rfc_draft_commit("more prose")
     use(cli_arm)
     assert cli.main(["draft-commit", "-m", "more prose"]) == 0
     from_cli = json.loads(capsys.readouterr().out)
@@ -115,11 +115,11 @@ def test_revision_tag_parity(make_workspace, capsys, monkeypatch):
     monkeypatch.setenv("GIT_COMMITTER_DATE", _PINNED)
     for root in (tool_arm, cli_arm):
         use(root)
-        first = tools.arfc_cluster_next()
-        tools.arfc_checkpoint(first["id"])
-        tools.arfc_revision_record("draft-test-spec-00", first["id"], True, "initial")
+        first = tools.ai_rfc_cluster_next()
+        tools.ai_rfc_checkpoint(first["id"])
+        tools.ai_rfc_revision_record("draft-test-spec-00", first["id"], True, "initial")
     use(tool_arm)
-    from_tool = tools.arfc_revision_tag("draft-test-spec-00", "revision 00")
+    from_tool = tools.ai_rfc_revision_tag("draft-test-spec-00", "revision 00")
     use(cli_arm)
     assert cli.main(["revision-tag", "draft-test-spec-00", "-m", "revision 00"]) == 0
     from_cli = json.loads(capsys.readouterr().out)

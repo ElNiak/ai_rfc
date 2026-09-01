@@ -1,5 +1,5 @@
 {
-  "arfc": {
+  "ai_rfc": {
     "command": "python3",
     "args": [
       "-c",
