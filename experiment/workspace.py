@@ -336,6 +336,56 @@ def copy_workspace(pristine: Path, dest: Path) -> Path:
     return dest
 
 
+def reseal(workspace: Path, dest: Path) -> Path:
+    """Seal a used workspace as a new baseline, leaving the source untouched.
+
+    Every run copies from a sealed baseline, and both :func:`driver.execute` and
+    :func:`copy_workspace` refuse a tree that no longer matches its digest. A
+    run's own workspace moves past its seal the moment a session commits prose,
+    so continuing a stopped sweep in a fresh campaign means re-sealing that
+    workspace rather than relaxing the guard that caught it.
+
+    The seal is taken on a copy. A finished run's directory is what its audit
+    reads, and rewriting the record and digest in place would edit that evidence
+    in order to launch the next campaign.
+
+    ``draft_head`` is re-read because prose commits and revision tags advance it
+    by design. ``clone_head`` is checked and never updated: the clone is
+    read-only for the whole reconstruction, so a moved one is a defect rather
+    than progress, and it must fail here exactly as it would in a run.
+
+    Args:
+        workspace: A run's workspace to continue from.
+        dest: Where the resealed baseline is written; must not exist.
+
+    Returns:
+        The resealed baseline's path.
+
+    Raises:
+        ExperimentError: If ``workspace`` holds no pristine record, ``dest``
+            exists, or the clone's HEAD moved.
+    """
+    if not (workspace / RECORD_FILE).exists():
+        raise ExperimentError(f"{workspace} is not a prepared pristine workspace")
+    if dest.exists():
+        raise ExperimentError(f"{dest} exists; a pristine workspace is prepared once")
+
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(workspace, dest, symlinks=False)
+
+    record = json.loads((dest / RECORD_FILE).read_text())
+    clone_head = _git(dest / "clone", "rev-parse", "HEAD")
+    if clone_head != record["clone_head"]:
+        raise ExperimentError(
+            f"clone HEAD {clone_head} differs from recorded {record['clone_head']}"
+        )
+    record["draft_head"] = _git(dest / "draft", "rev-parse", "HEAD")
+    record["resealed_from"] = str(workspace)
+    (dest / RECORD_FILE).write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
+    write_digest(dest)
+    return dest
+
+
 def _git_version() -> str:
     return _run_git("--version").stdout.strip()
 

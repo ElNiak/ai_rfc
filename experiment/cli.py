@@ -16,6 +16,7 @@ from .paths import default_root
 from .profile import init_profile, login_command
 from .workspace import TARGETS, TEMPLATE_COMMIT, TEMPLATE_URL
 from .workspace import prepare as prepare_workspace
+from .workspace import reseal as reseal_workspace
 
 
 def _report(message: str) -> None:
@@ -221,6 +222,26 @@ def _parser() -> argparse.ArgumentParser:
         help="Template commit to pin (default: %(default)s).",
     )
 
+    reseal = workspace_verbs.add_parser(
+        "reseal",
+        help="Seal a used workspace as the baseline a continuing campaign copies.",
+    )
+    _add_root(reseal)
+    reseal.add_argument(
+        "workspace",
+        type=Path,
+        help=(
+            "A stopped run's workspace to continue from. It is copied, not "
+            "modified: the run directory stays the evidence its audit reads."
+        ),
+    )
+    reseal.add_argument(
+        "--as",
+        dest="name",
+        required=True,
+        help="Name for the resealed baseline under <root>/pristine.",
+    )
+
     campaign = commands.add_parser("campaign", help="Frozen run matrices.")
     campaign_verbs = campaign.add_subparsers(dest="verb", required=True)
     init = campaign_verbs.add_parser("init", help="Freeze a campaign.")
@@ -399,6 +420,14 @@ def main(argv: list[str] | None = None) -> int:
                 f"pre-seeded: {len(record['pre_seeded'])}  "
                 f"window: {record['window']}"
             )
+        elif args.command == "workspace" and args.verb == "reseal":
+            baseline = reseal_workspace(
+                args.workspace.resolve(), root / "pristine" / args.name
+            )
+            record = json.loads((baseline / "pristine.json").read_text())
+            print(f"pristine: {baseline}")
+            print(f"draft HEAD: {record['draft_head']}  window: {record['window']}")
+            print(f"resealed from: {record['resealed_from']} (left unmodified)")
         elif args.command == "campaign" and args.verb == "init":
             from .config import CampaignConfig, init_campaign
 

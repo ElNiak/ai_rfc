@@ -16,6 +16,7 @@ from experiment.workspace import (
     out_of_window,
     prepare,
     preseed,
+    reseal,
     scaffold_draft,
     verify_digest,
     write_digest,
@@ -185,6 +186,78 @@ def test_copy_refuses_a_tampered_pristine(sealed, tmp_path):
     with pytest.raises(ExperimentError) as excinfo:
         copy_workspace(sealed, tmp_path / "run" / "workspace")
     assert "does not verify" in str(excinfo.value)
+
+
+def _work(workspace: Path) -> str:
+    """Advance a workspace the way a session does: prose committed, manifest grown."""
+    (workspace / "manifest.yaml").write_text("rfc: X\ntitle: t\nrequirements: {}\n")
+    (workspace / "draft" / "draft-test-spec.md").write_text("# advanced\n")
+    git(workspace / "draft", "add", "-A")
+    git(workspace / "draft", "commit", "-q", "-m", "prose for a cluster")
+    return git(workspace / "draft", "rev-parse", "HEAD")
+
+
+def test_reseal_seals_a_copy_and_leaves_the_used_workspace_alone(sealed, tmp_path):
+    _work(sealed)
+    before = (sealed / DIGEST_FILE).read_text()
+    drift_before = verify_digest(sealed)
+    assert drift_before, "a worked workspace must have drifted from its seal"
+
+    baseline = reseal(sealed, tmp_path / "root" / "pristine" / "cont1")
+
+    assert verify_digest(baseline) == []
+    # The source keeps its drift: reseal continues a run, it does not repair one.
+    assert verify_digest(sealed) == drift_before
+    assert (sealed / DIGEST_FILE).read_text() == before
+
+
+def test_reseal_records_the_draft_head_the_run_advanced_to(sealed, tmp_path):
+    was = json.loads((sealed / RECORD_FILE).read_text())["draft_head"]
+    now = _work(sealed)
+
+    baseline = reseal(sealed, tmp_path / "root" / "pristine" / "cont1")
+
+    record = json.loads((baseline / RECORD_FILE).read_text())
+    assert record["draft_head"] == now != was
+    assert record["resealed_from"] == str(sealed)
+
+
+def test_a_resealed_baseline_is_one_a_campaign_can_copy(sealed, tmp_path):
+    now = _work(sealed)
+    baseline = reseal(sealed, tmp_path / "root" / "pristine" / "cont1")
+
+    copy = copy_workspace(baseline, tmp_path / "run2" / "workspace")
+
+    assert verify_digest(copy) == []
+    assert git(copy / "draft", "rev-parse", "HEAD") == now
+
+
+def test_reseal_refuses_a_workspace_that_was_never_prepared(
+    fixture_workspace, tmp_path
+):
+    with pytest.raises(ExperimentError) as excinfo:
+        reseal(fixture_workspace, tmp_path / "root" / "pristine" / "cont1")
+    assert "not a prepared pristine workspace" in str(excinfo.value)
+
+
+def test_reseal_refuses_an_existing_destination(sealed, tmp_path):
+    _work(sealed)
+    dest = tmp_path / "root" / "pristine" / "cont1"
+    reseal(sealed, dest)
+    with pytest.raises(ExperimentError) as excinfo:
+        reseal(sealed, dest)
+    assert "prepared once" in str(excinfo.value)
+
+
+def test_reseal_refuses_a_clone_whose_head_moved(sealed, tmp_path):
+    _work(sealed)
+    (sealed / "clone" / "intruder.txt").write_text("x\n")
+    git(sealed / "clone", "add", "-A")
+    git(sealed / "clone", "commit", "-q", "-m", "the clone must never move")
+
+    with pytest.raises(ExperimentError) as excinfo:
+        reseal(sealed, tmp_path / "root" / "pristine" / "cont1")
+    assert "clone HEAD" in str(excinfo.value)
 
 
 def _prepare(fixture_workspace, panther_repo, template_repo, tmp_path):

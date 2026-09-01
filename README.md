@@ -88,7 +88,7 @@ Reconstructing a whole repository needs no separate machinery. It is a target
 whose window spans every cluster, launched with `--session-mode per-cluster`:
 
 ```bash
-python -m experiment workspace prepare --target mark --panther-repo <PANTHER>
+python -m experiment workspace prepare mark --panther-repo <PANTHER>
 python -m experiment campaign init --id mark-full --baseline <pristine> \
     --arms A --repeats 1 --session-mode per-cluster \
     --budget 200 --timeout 86400 --panther-repo <PANTHER>
@@ -97,13 +97,31 @@ python -m experiment run <campaign-dir>
 
 `per_cluster.run_per_cluster` spawns one session per outstanding cluster and
 derives which cluster that is from the workspace — checkpoints, revision
-entries and tags on disk — so a killed run resumes where the artifacts say it
-stopped rather than where a counter thought it was. `--budget` caps the **run**,
-not the session: each session is handed what the run has left, so sixty-nine
-clusters cannot spend sixty-nine times the flag. A cluster that will not finish
-in `ATTEMPTS_PER_CLUSTER` halts the sweep rather than being skipped, because
-later prose builds on earlier prose and a draft with a hole in it is worse than
-a short one.
+entries and tags on disk — so each session picks up where the artifacts say the
+last one stopped rather than where a counter thought it was. `--budget` caps the
+**run**, not the session: each session is handed what the run has left, so
+sixty-nine clusters cannot spend sixty-nine times the flag. A cluster that will
+not finish in `ATTEMPTS_PER_CLUSTER` halts the sweep rather than being skipped,
+because later prose builds on earlier prose and a draft with a hole in it is
+worse than a short one.
+
+Sessions resume inside a run; **a run itself is never relaunched**, because
+`runner.launch` writes `status.json` exactly once and refuses a run that already
+has one. What survives a stopped run is the workspace, so a sweep is continued by
+chaining a *new* campaign onto it:
+
+```bash
+python -m experiment workspace reseal <run-dir>/workspace --as mark-cont1
+python -m experiment campaign init --id mark-full-2 --baseline mark-cont1 \
+    --arms A --repeats 1 --session-mode per-cluster \
+    --budget 60 --timeout 7200 --panther-repo <PANTHER>
+python -m experiment run <campaign-dir>
+```
+
+`reseal` copies the workspace, re-reads the draft HEAD the run advanced to and
+seals the copy, leaving the run directory untouched so its audit still reads the
+evidence it recorded. Chaining modest slices this way is what makes a long sweep
+survivable: a budget or wall-clock stop costs one slice, not the whole run.
 
 Pick the arm from the pilot's measurements rather than by preference: arm A
 completed the window at $1.90 per cluster with zero hand edits, against $2.27
