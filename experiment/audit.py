@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from . import ExperimentError
-from .arms import arm_profile
+from .arms import RAW_PREFIX, arm_profile
 from .config import Campaign
 from .enforcement import FILTERS, bash_prefixes, command_groups, is_allowed
 from .runner import EVENTS_FILE, GUARD_FILE, load_status
@@ -31,7 +31,6 @@ from .stream import (
     tool_uses,
 )
 
-RAW_PREFIX = "python -m panther.plugins.services.testers.a_rfc"
 STATE_FILES = ("manifest.yaml", "questions.yaml", "revisions.yaml")
 ALLOWED_SURFACES: dict[str, set[str]] = {
     "A": {"mcp", "edit", "read"},

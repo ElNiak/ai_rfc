@@ -15,13 +15,22 @@ def _fmt(value: Any, digits: int = 3) -> str:
     return str(value)
 
 
+def _separator(header: str) -> str:
+    """The ``---`` row for a markdown table, sized from its own header.
+
+    Counting the header's columns keeps the two in step; a hand-written width
+    silently misrenders the table when a column is added.
+    """
+    return "|" + "---|" * (header.count("|") - 1)
+
+
 def _arm_rows(arms: dict[str, dict[str, Any]]) -> list[str]:
     header = (
         "| arm | runs | completed (mean / min) | artifacts mean | pass^k mean | integrity | "
         "bypass | errors c1/c2 | hand edits | cost total / mean | failure-cost share | "
         "cost per completed | tokens→first | AUC mean | timeouts | nonzero exits |"
     )
-    rows = [header, "|" + "---|" * 16]
+    rows = [header, _separator(header)]
     for arm, s in arms.items():
         rows.append(
             f"| {arm} | {s['runs']} | {_fmt(s['completed_fraction_mean'])} / {_fmt(s['completed_fraction_min'])} | "
@@ -35,10 +44,12 @@ def _arm_rows(arms: dict[str, dict[str, Any]]) -> list[str]:
 
 
 def _run_rows(runs: dict[str, dict[str, Any]]) -> list[str]:
-    rows = [
-        "| run | arm | exit | timed out | completed/window | artifacts | gates m/c | cost | turns | tokens | duration ms | integrity | bypass | errors c1/c2 |",
-        "|" + "---|" * 14,
-    ]
+    header = (
+        "| run | arm | exit | timed out | completed/window | artifacts | "
+        "gates m/c | cost | turns | tokens | duration ms | integrity | bypass | "
+        "errors c1/c2 |"
+    )
+    rows = [header, _separator(header)]
     for run_id, r in runs.items():
         usage = r["cost"].get("usage") or {}
         tokens = sum(

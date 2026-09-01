@@ -1,15 +1,35 @@
+import importlib.util
+
 import pytest
 
 from experiment import ExperimentError
 from experiment.arms import (
     ARMS,
     PROFILES,
+    RAW_PREFIX,
+    RAW_SUBSTRATE,
     arm_flags,
     arm_profile,
     claude_argv,
     mcp_config,
     shared_flags,
 )
+
+
+def test_the_raw_prefix_names_a_package_that_exists():
+    """Arm C's classifier matches recorded transcripts against this literal.
+
+    A rename of the substrate package that misses it does not raise: every
+    legitimate call reclassifies as bash:other, which reads as an integrity
+    violation. Pinning it to an importable module makes the rename fail loudly.
+    """
+    module = RAW_PREFIX.rsplit(" ", 1)[-1]
+
+    assert importlib.util.find_spec(module) is not None
+
+
+def test_the_arm_c_substrate_is_derived_from_the_prefix():
+    assert RAW_SUBSTRATE == f"Bash({RAW_PREFIX}*)"
 
 
 def _value(flags: list[str], name: str) -> str:

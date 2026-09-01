@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from . import DEFAULT_MODEL, ExperimentError
-from .arms import ARMS, arm_flags, arm_profile, mcp_config
+from .arms import ARMS, MCP_FILE, arm_flags, arm_profile, mcp_config
 from .enforcement import bash_prefixes, render_settings
 from .paths import profile_dir
 from .stream import (
@@ -50,7 +50,6 @@ APPEND_PROMPT_CANARY = "PASS-4412"
 GUARD_SETTINGS = "guard-C.json"
 ALLOW_SETTINGS = "guard-allow.json"
 APPEND_PROMPT = "append.md"
-MCP_CONFIG = "arfc.json"
 _LIST_TOOLS = (
     "List the names of the tools available to you, one per line, then reply "
     "DONE. Do not call any tool."
@@ -137,7 +136,7 @@ def build_invocations(
 
     def surface_call(arm: str) -> Invocation:
         this_arm = arm_profile(arm)
-        mcp_path = scratch / MCP_CONFIG if this_arm.uses_mcp else None
+        mcp_path = scratch / MCP_FILE if this_arm.uses_mcp else None
         return call(
             f"arm_surface_{arm}",
             _LIST_TOOLS,
@@ -250,7 +249,7 @@ def prepare_scratch(
 
     workspace = build_workspace(scratch / "ws")
     _write_json(
-        scratch / MCP_CONFIG,
+        scratch / MCP_FILE,
         mcp_config(
             python=python,
             server_src=server_src,

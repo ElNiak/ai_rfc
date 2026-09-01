@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import ExperimentError
-from .arms import arm_profile, claude_argv, mcp_config
+from .arms import MCP_FILE, arm_profile, claude_argv, mcp_config
 from .config import Campaign
 from .enforcement import bash_prefixes, render_settings
 from .spawn import spawn
@@ -29,7 +29,6 @@ STDERR_FILE = "stderr.log"
 ARGV_FILE = "argv.json"
 ENV_FILE = "env.json"
 PROMPT_FILE = "prompt.md"
-MCP_FILE = "arfc.json"
 GUARD_FILE = "guard.json"
 GUARD = Path(__file__).parent / "guard.py"
 
