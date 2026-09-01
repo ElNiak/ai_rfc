@@ -105,28 +105,74 @@ def test_a_failing_parity_suite_exits_three_not_two(
     assert code == 3
 
 
-def test_a_window_override_narrows_the_target(capsys):
+def test_a_window_override_reaches_the_target_prepare_builds(tmp_path, monkeypatch):
     """A slice of a target, for a dry run that must not cost a whole sweep.
 
     The window is what made the pilot a pilot; without an override, trying two
     clusters of MARK means either editing a module constant or paying for
     sixty-nine.
-    """
-    parser = cli._parser()
 
-    args = parser.parse_args(
+    Asserting the parsed value alone proved nothing: deleting the
+    dataclasses.replace that applies it left that test green. What matters is
+    the Target prepare actually receives, so that is what is captured.
+    """
+    seen = {}
+
+    def fake_prepare(target, **kwargs):
+        seen["target"] = target
+        (tmp_path / "pristine.json").write_text(
+            '{"cluster_count": 69, "pre_seeded": [], "window": [49, 51]}'
+        )
+        return tmp_path
+
+    monkeypatch.setattr(cli, "prepare_workspace", fake_prepare)
+
+    cli.main(
         [
             "workspace",
             "prepare",
             "mark",
             "--panther-repo",
             ".",
+            "--root",
+            str(tmp_path / "root"),
             "--window",
             "49-51",
         ]
     )
 
-    assert args.window == (49, 51)
+    assert seen["target"].window == (49, 51)
+    assert seen["target"].name == "mark"
+    # The override must flow into the derived name too, or two differently
+    # windowed slices of one target would collide in pristine/.
+    assert seen["target"].pristine_name == "mark-w49-51"
+
+
+def test_without_the_override_the_targets_own_window_is_used(tmp_path, monkeypatch):
+    seen = {}
+
+    def fake_prepare(target, **kwargs):
+        seen["target"] = target
+        (tmp_path / "pristine.json").write_text(
+            '{"cluster_count": 69, "pre_seeded": [], "window": [1, 69]}'
+        )
+        return tmp_path
+
+    monkeypatch.setattr(cli, "prepare_workspace", fake_prepare)
+
+    cli.main(
+        [
+            "workspace",
+            "prepare",
+            "mark",
+            "--panther-repo",
+            ".",
+            "--root",
+            str(tmp_path / "root"),
+        ]
+    )
+
+    assert seen["target"].window == (1, 69)
 
 
 def test_a_malformed_window_is_refused_at_parse_time(capsys):

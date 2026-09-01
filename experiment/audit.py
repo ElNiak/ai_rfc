@@ -35,7 +35,7 @@ STATE_FILES = ("manifest.yaml", "questions.yaml", "revisions.yaml")
 ALLOWED_SURFACES: dict[str, set[str]] = {
     "A": {"mcp", "edit", "read"},
     "B": {"bash:ai_rfc", "edit", "read"},
-    "C": {"bash:python_a_rfc", "bash:git", "bash:sqlite3", "edit", "read"},
+    "C": {"bash:python_ai_rfc", "bash:git", "bash:sqlite3", "edit", "read"},
 }
 
 
@@ -63,7 +63,7 @@ def _stage_surface(stage: str) -> str:
     if stage.startswith("ai_rfc "):
         return "bash:ai_rfc"
     if stage.startswith(RAW_PREFIX):
-        return "bash:python_a_rfc"
+        return "bash:python_ai_rfc"
     if stage.startswith("git "):
         return "bash:git"
     if stage.startswith("sqlite3 "):
@@ -85,7 +85,7 @@ def bash_surface(command: str) -> str:
         command: The raw ``tool_input.command`` string.
 
     Returns:
-        One of ``bash:ai_rfc``, ``bash:python_a_rfc``, ``bash:git``,
+        One of ``bash:ai_rfc``, ``bash:python_ai_rfc``, ``bash:git``,
         ``bash:sqlite3``, ``bash:other`` or ``bash:mixed``.
     """
     try:

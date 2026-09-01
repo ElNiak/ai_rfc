@@ -19,7 +19,7 @@ def test_bash_surface_recognises_each_command_family():
     assert bash_surface("ai_rfc status") == "bash:ai_rfc"
     assert (
         bash_surface("python -m panther.plugins.services.testers.ai_rfc m.yaml --out o")
-        == "bash:python_a_rfc"
+        == "bash:python_ai_rfc"
     )
     assert bash_surface("git -C draft tag -a x -m y") == "bash:git"
     assert bash_surface('sqlite3 corpus/index.sqlite "SELECT 1"') == "bash:sqlite3"

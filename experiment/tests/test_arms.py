@@ -51,7 +51,7 @@ def test_only_the_current_substrate_path_classifies():
     """
     from experiment.audit import _stage_surface
 
-    assert _stage_surface(f"{RAW_PREFIX}.draft gate x") == "bash:python_a_rfc"
+    assert _stage_surface(f"{RAW_PREFIX}.draft gate x") == "bash:python_ai_rfc"
     # Deliberately the pre-rename spelling. A blanket rename that rewrites this
     # literal makes the test assert nothing, so it is spelled by concatenation.
     stale = "python -m panther.plugins.services.testers." + "a_rfc.draft gate x"
