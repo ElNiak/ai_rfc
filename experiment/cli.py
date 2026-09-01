@@ -123,30 +123,32 @@ def _parser() -> argparse.ArgumentParser:
     profile_init = profile_verbs.add_parser("init", help="Create the profile dir.")
     _add_root(profile_init)
 
-    spike = commands.add_parser("spike", help="S0: prove the profile is hermetic.")
-    _add_root(spike)
-    spike.add_argument(
+    preflight = commands.add_parser(
+        "preflight", help="S0: prove the profile is hermetic."
+    )
+    _add_root(preflight)
+    preflight.add_argument(
         "--panther-repo",
         type=Path,
         required=True,
         help="Checkout supplying the a_rfc substrate the session may reach.",
     )
-    spike.add_argument(
+    preflight.add_argument(
         "--plugin-dir",
         type=Path,
         default=None,
         help="Default: the ai-rfc plugin beside this package.",
     )
-    spike.add_argument(
+    preflight.add_argument(
         "--claude", default="claude", help="Claude Code binary to launch."
     )
-    spike.add_argument(
+    preflight.add_argument(
         "--model",
         type=_model,
         default=DEFAULT_MODEL,
         help="Model id to launch against (default: %(default)s).",
     )
-    spike.add_argument(
+    preflight.add_argument(
         "--timeout",
         type=int,
         default=300,
@@ -195,7 +197,12 @@ def _parser() -> argparse.ArgumentParser:
         "--id", required=True, help="Campaign identifier; names its directory."
     )
     init.add_argument(
-        "--pristine", required=True, help="Name under <root>/pristine, or a path."
+        "--baseline",
+        required=True,
+        help=(
+            "Name under <root>/pristine, or a path. That directory keeps its "
+            "recorded name; only the flag changed."
+        ),
     )
     init.add_argument(
         "--arms",
@@ -315,11 +322,11 @@ def main(argv: list[str] | None = None) -> int:
             profile_path = init_profile(root)
             print(f"profile: {profile_path}")
             print(f"log in once with:\n  {login_command(root)}")
-        elif args.command == "spike":
-            from .spike import run_spike
+        elif args.command == "preflight":
+            from .preflight import run_preflight
 
             plugin_dir = args.plugin_dir or _default_plugin_dir()
-            report = run_spike(
+            report = run_preflight(
                 root=root,
                 panther_repo=args.panther_repo.resolve(),
                 plugin_dir=plugin_dir.resolve(),
@@ -357,9 +364,9 @@ def main(argv: list[str] | None = None) -> int:
             from .config import CampaignConfig, init_campaign
 
             plugin_dir = (args.plugin_dir or _default_plugin_dir()).resolve()
-            pristine = Path(args.pristine)
+            pristine = Path(args.baseline)
             if not pristine.is_absolute():
-                pristine = root / "pristine" / args.pristine
+                pristine = root / "pristine" / args.baseline
             parity = None if args.skip_parity else _run_parity(plugin_dir, args.python)
             campaign = init_campaign(
                 CampaignConfig(

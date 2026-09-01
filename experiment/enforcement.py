@@ -9,7 +9,7 @@ but only through the **exit-2 blocking path**; returning the documented
 command runs.
 
 This is a property of the installed CLI, not a contract it offers. Re-run
-``python -m experiment spike`` and check its ``denial`` control whenever the
+``python -m experiment preflight`` and check its ``denial`` control whenever the
 CLI moves, before spending anything on a campaign.
 
 The prefixes come from each arm's existing ``allowed_tools`` declaration, so

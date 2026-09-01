@@ -3,9 +3,9 @@ import os
 import sys
 from pathlib import Path
 
-from experiment.spike import (
-    CLAUDE_MD_CANARY,
+from experiment.preflight import (
     CHECKS,
+    CLAUDE_MD_CANARY,
     Invocation,
     build_invocations,
     evaluate,

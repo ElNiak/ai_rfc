@@ -1,4 +1,4 @@
-"""Spike S0: prove the isolated profile is hermetic before any product code.
+"""Preflight S0: prove the isolated profile is hermetic before any product code.
 
 Fourteen real ``claude -p`` calls with a one-dollar budget each feed nine
 checks. The report is the go/no-go for D20: if auth, hooks or CLAUDE.md
@@ -561,7 +561,7 @@ def _run_all(
     return outcomes, log
 
 
-def run_spike(
+def run_preflight(
     *,
     root: Path,
     panther_repo: Path,
