@@ -156,7 +156,7 @@ def _parser() -> argparse.ArgumentParser:
         "--panther-repo",
         type=Path,
         required=True,
-        help="Checkout supplying the a_rfc substrate the session may reach.",
+        help="Checkout supplying the ai_rfc substrate the session may reach.",
     )
     preflight.add_argument(
         "--plugin-dir",
@@ -288,7 +288,7 @@ def _parser() -> argparse.ArgumentParser:
         "--panther-repo",
         type=Path,
         required=True,
-        help="Checkout supplying the a_rfc substrate every run may reach.",
+        help="Checkout supplying the ai_rfc substrate every run may reach.",
     )
     init.add_argument(
         "--plugin-dir",

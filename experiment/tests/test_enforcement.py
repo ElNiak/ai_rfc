@@ -123,6 +123,18 @@ def test_guard_blocks_a_non_object_tool_input():
     assert _run_guard_raw(json.dumps({"tool_input": ["echo pwned"]}), "ai_rfc ") == 2
 
 
+def test_guard_blocks_whatever_the_parser_raises():
+    """The contract is categorical: anything unreadable blocks.
+
+    Enumerating exception types leaves the guarantee false for every type
+    nobody listed. json.load raises RecursionError on deep nesting, which is
+    not a ValueError, so it escaped main() and exited 1 — and only 2 blocks.
+    """
+    nested = "[" * 3000 + "]" * 3000
+
+    assert _run_guard_raw(nested, "ai_rfc ") == 2
+
+
 def test_a_continued_command_is_one_command():
     """Observed live in pilot run B1: a multi-line claim-upsert was refused."""
     command = (

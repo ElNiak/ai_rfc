@@ -1,4 +1,4 @@
-# Experiment Protocol: AI+MCP versus AI+CLI on the a_rfc Substrate
+# Experiment Protocol: AI+MCP versus AI+CLI on the ai_rfc Substrate
 
 **Purpose**: the operational protocol for the Phase-C comparison of `ai_rfc`'s two frontends, distilled from Section 6 of the related-work report (`12-report.md`, Revision 2, 2026-08-25). Intended location: `docs/experiment-protocol.md`. Every design rule below traces to the report's coded evidence base; citations are author-year into the report's reference list. No design element rests on Tier-C evidence alone.
 
@@ -119,7 +119,7 @@ From the aioquic pilot, `pilot-aioquic-w02-11-20260831`; full report at
   violation was an instrument defect, not a run defect.
 - **Enforcement configuration per arm**: *unchanged from the protocol*. A: read tools plus
   16 `mcp__ai_rfc__*`, no Bash. B: read tools plus `Bash(ai_rfc *)`. C: read tools plus
-  `Bash(python -m panther…a_rfc*)`, `Bash(git *)`, `Bash(sqlite3 *)`. Enforced by a
+  `Bash(python -m panther…ai_rfc*)`, `Bash(git *)`, `Bash(sqlite3 *)`. Enforced by a
   `PreToolUse` hook, because `--allowedTools` does not confine a built-in tool.
 - **Model and harness**: `claude-opus-5`, effort `high`, `claude --version`
   **2.1.251 (Claude Code)** — *from the pilot*. Re-run the S0 spike whenever the CLI moves;

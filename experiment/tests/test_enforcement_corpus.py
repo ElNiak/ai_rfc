@@ -3,13 +3,14 @@
 The corpus is the 31 Bash commands run B1 actually issued before the guard
 defect aborted it. Synthetic cases alone could not have caught that defect --
 it took a real agent writing a backslash continuation and a paged redirection
--- so the traffic is frozen into a fixture and asserted here.
+-- so the traffic is frozen into a fixture and asserted here, verbatim.
 
-One edit has been made to that recording: the CLI was called ``arfc`` when B1
-ran and is now ``ai_rfc``, so the program name was substituted throughout. What
-the corpus is evidence *for* is the command shapes a real agent produced --
-quoting, continuations, pipes -- and those are untouched. The commands are
-therefore no longer verbatim; regenerating the corpus needs a fresh campaign.
+The CLI was called ``arfc`` when B1 ran and is now ``ai_rfc``. The recording
+keeps the old name, because a recording that is edited to match a later rename
+is no longer evidence of anything. The fixture carries the family it was
+captured under and the corpus is judged against that; only the audit-versus-
+guard agreement below is checked with today's profiles, and that property does
+not depend on what the program is called.
 
 A corpus of one arm's traffic can only show the guard admits what it should.
 Because every fix so far has *loosened* the guard, the constructed cases below
@@ -140,7 +141,14 @@ def test_the_audit_reads_a_command_the_way_the_guard_did(
     audit = in_arm("Bash", {"command": command}, bash_surface(command), arm)
     assert audit is guard, f"{arm}: {why}"
     if arm == "B":
-        assert guard is allowed, why
+        # Judged against the family the run was recorded under, not today's.
+        # The CLI was called arfc when B1 ran; keeping the recording verbatim
+        # means the live arm no longer speaks its language, and coupling the
+        # recorded verdict to the live prefix would force a choice between an
+        # honest recording and a passing test. Agreement between the two
+        # readers above is the property this file exists for, and it is
+        # spelling-independent; the recorded verdict belongs to the recording.
+        assert is_allowed(command, prefixes) is allowed, why
 
 
 @pytest.mark.parametrize(

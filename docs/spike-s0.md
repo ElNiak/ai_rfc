@@ -116,7 +116,7 @@ Three conclusions, each load-bearing:
 
 `experiment/enforcement.py` derives each arm's command families from its existing
 `allowed_tools` declaration, so enforcement adds no second source of truth:
-A → none, B → `ai_rfc `, C → `python -m panther…a_rfc`, `git `, `sqlite3 `.
+A → none, B → `ai_rfc `, C → `python -m panther…ai_rfc`, `git `, `sqlite3 `.
 `experiment/guard.py` is mounted per arm through `--settings` and exits 2 on
 anything outside them.
 

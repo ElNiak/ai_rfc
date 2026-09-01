@@ -1233,7 +1233,7 @@
               "index": 3,
               "name": "Bash",
               "path": "",
-              "summary": "command=echo \"PANTHER_REPO=$PANTHER_REPO\"; echo \"AI_RFC_WORKSPACE=$AI_RFC_WORKSPACE\"; which arfc; ls /Users/elniak/ai-rfc-experiments/",
+              "summary": "command=echo \"PANTHER_REPO=$PANTHER_REPO\"; echo \"ARFC_WORKSPACE=$ARFC_WORKSPACE\"; which arfc; ls /Users/elniak/arfc-experiments/",
               "surface": "bash:other",
               "target": ""
             },
@@ -1245,7 +1245,7 @@
               "index": 7,
               "name": "Bash",
               "path": "",
-              "summary": "command=ls /Users/elniak/ai-rfc-experiments/profile/projects/-Users-elniak-ai-rfc-experiments-campaigns-pilot-aioquic-w02-11-2026083",
+              "summary": "command=ls /Users/elniak/arfc-experiments/profile/projects/-Users-elniak-arfc-experiments-campaigns-pilot-aioquic-w02-11-2026083",
               "surface": "bash:other",
               "target": ""
             },
@@ -1811,7 +1811,7 @@
               "index": 3,
               "name": "Bash",
               "path": "",
-              "summary": "command=echo \"PANTHER_REPO=$PANTHER_REPO\"; echo \"AI_RFC_WORKSPACE=$AI_RFC_WORKSPACE\"; which arfc; ls /Users/elniak/ai-rfc-experiments/",
+              "summary": "command=echo \"PANTHER_REPO=$PANTHER_REPO\"; echo \"ARFC_WORKSPACE=$ARFC_WORKSPACE\"; which arfc; ls /Users/elniak/arfc-experiments/",
               "surface": "bash:other",
               "target": ""
             },
@@ -1823,7 +1823,7 @@
               "index": 7,
               "name": "Bash",
               "path": "",
-              "summary": "command=ls /Users/elniak/ai-rfc-experiments/profile/projects/-Users-elniak-ai-rfc-experiments-campaigns-pilot-aioquic-w02-11-2026083",
+              "summary": "command=ls /Users/elniak/arfc-experiments/profile/projects/-Users-elniak-arfc-experiments-campaigns-pilot-aioquic-w02-11-2026083",
               "surface": "bash:other",
               "target": ""
             },
@@ -2383,7 +2383,7 @@
               "index": 3,
               "name": "Bash",
               "path": "",
-              "summary": "command=echo \"PANTHER_REPO=$PANTHER_REPO\"; echo \"AI_RFC_WORKSPACE=$AI_RFC_WORKSPACE\"; ls /Users/elniak/ai-rfc-experiments/campaigns/pi",
+              "summary": "command=echo \"PANTHER_REPO=$PANTHER_REPO\"; echo \"ARFC_WORKSPACE=$ARFC_WORKSPACE\"; ls /Users/elniak/arfc-experiments/campaigns/pi",
               "surface": "bash:other",
               "target": ""
             },
@@ -2395,7 +2395,7 @@
               "index": 7,
               "name": "Bash",
               "path": "",
-              "summary": "command=ls /Users/elniak/ai-rfc-experiments/profile/projects/-Users-elniak-ai-rfc-experiments-campaigns-pilot-aioquic-w02-11-2026083",
+              "summary": "command=ls /Users/elniak/arfc-experiments/profile/projects/-Users-elniak-arfc-experiments-campaigns-pilot-aioquic-w02-11-2026083",
               "surface": "bash:other",
               "target": ""
             },
@@ -2407,7 +2407,7 @@
               "index": 26,
               "name": "Bash",
               "path": "",
-              "summary": "command=head -c 4000 /Users/elniak/ai-rfc-experiments/campaigns/pilot-aioquic-w02-11-20260831/runs/C1/workspace/timeline/clusters.",
+              "summary": "command=head -c 4000 /Users/elniak/arfc-experiments/campaigns/pilot-aioquic-w02-11-20260831/runs/C1/workspace/timeline/clusters.",
               "surface": "bash:other",
               "target": ""
             },
@@ -2419,7 +2419,7 @@
               "index": 51,
               "name": "Bash",
               "path": "",
-              "summary": "command=git -C /Users/elniak/ai-rfc-experiments/campaigns/pilot-aioquic-w02-11-20260831/runs/C1/workspace/draft log --oneline -5; ",
+              "summary": "command=git -C /Users/elniak/arfc-experiments/campaigns/pilot-aioquic-w02-11-20260831/runs/C1/workspace/draft log --oneline -5; ",
               "surface": "bash:mixed",
               "target": ""
             },
@@ -2431,7 +2431,7 @@
               "index": 143,
               "name": "Bash",
               "path": "",
-              "summary": "command=git -C /Users/elniak/ai-rfc-experiments/campaigns/pilot-aioquic-w02-11-20260831/runs/C1/workspace/clone show 60258445de472",
+              "summary": "command=git -C /Users/elniak/arfc-experiments/campaigns/pilot-aioquic-w02-11-20260831/runs/C1/workspace/clone show 60258445de472",
               "surface": "bash:mixed",
               "target": ""
             }
@@ -2987,7 +2987,7 @@
               "index": 3,
               "name": "Bash",
               "path": "",
-              "summary": "command=echo \"PANTHER_REPO=$PANTHER_REPO\"; echo \"AI_RFC_WORKSPACE=$AI_RFC_WORKSPACE\"; ls -la /Users/elniak/ai-rfc-experiments/campaign",
+              "summary": "command=echo \"PANTHER_REPO=$PANTHER_REPO\"; echo \"ARFC_WORKSPACE=$ARFC_WORKSPACE\"; ls -la /Users/elniak/arfc-experiments/campaign",
               "surface": "bash:other",
               "target": ""
             },
@@ -2999,7 +2999,7 @@
               "index": 7,
               "name": "Bash",
               "path": "",
-              "summary": "command=cat /Users/elniak/ai-rfc-experiments/profile/projects/-Users-elniak-ai-rfc-experiments-campaigns-pilot-aioquic-w02-11-202608",
+              "summary": "command=cat /Users/elniak/arfc-experiments/profile/projects/-Users-elniak-arfc-experiments-campaigns-pilot-aioquic-w02-11-202608",
               "surface": "bash:other",
               "target": ""
             },

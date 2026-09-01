@@ -26,8 +26,12 @@ def main(argv: list[str]) -> int:
     """
     try:
         payload = json.load(sys.stdin)
-    except (json.JSONDecodeError, ValueError):
-        sys.stderr.write("guard: unreadable hook payload\n")
+    except Exception as error:
+        # Categorical on purpose. Naming the types leaves the guarantee false
+        # for every type nobody named: json.load raises RecursionError on deep
+        # nesting, which is not a ValueError, and an escaped exception exits 1,
+        # which permits the call. "Unreadable" cannot be a list of exceptions.
+        sys.stderr.write(f"guard: unreadable hook payload: {error!r}\n")
         return 2
     # Valid JSON is not necessarily an object, and ``tool_input`` can be truthy
     # without being one — in both cases ``.get`` raises, and an exception here
@@ -48,4 +52,10 @@ def main(argv: list[str]) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    # Last line of the same defence: an exception escaping main() would exit 1,
+    # and 1 does not block. Whatever went wrong, the call does not run.
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except Exception as error:  # noqa: BLE001 - blocking is the only safe exit
+        sys.stderr.write(f"guard: refusing after an internal error: {error!r}\n")
+        sys.exit(2)

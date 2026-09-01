@@ -1,6 +1,10 @@
-# ai_rfc — the model-driven layer over PANTHER's a_rfc substrate
+# the model-driven layer over PANTHER's ai_rfc substrate
 
-The `a_rfc` package in PANTHER is deterministic: it extracts a repository's
+Two things share the name now, so this README keeps them apart: the
+**substrate** is the `ai_rfc` package inside PANTHER, and **this repository**
+is the driver over it, checked out at `ai_rfc/harness/`.
+
+The substrate is deterministic: it extracts a repository's
 history into a citable corpus, clusters it into a PR/epoch timeline, emits
 per-cluster evidence views, and gates claim manifests and prose drafts. It
 deliberately makes no model calls — "mining is model-driven and lives in
@@ -23,7 +27,7 @@ workspace, named by two required environment variables:
 
 | Variable | Meaning |
 |---|---|
-| `PANTHER_REPO` | Root of a PANTHER checkout (the `a_rfc` substrate) |
+| `PANTHER_REPO` | Root of a PANTHER checkout (the `ai_rfc` substrate) |
 | `AI_RFC_WORKSPACE` | One reconstruction workspace (corpus, timeline, clusters, checkpoints, manifest, questions, revisions, draft) |
 
 Missing either fails loudly; nothing guesses.
@@ -105,6 +109,6 @@ Pick the arm from the pilot's measurements rather than by preference: arm A
 completed the window at $1.90 per cluster with zero hand edits, against $2.27
 and $2.36 for B and C.
 
-Measure the result with `a_rfc.draft completeness`, which reports the clusters
+Measure the result with `ai_rfc.draft completeness`, which reports the clusters
 that produced no claim and the claims no revision cites. `draft gate` cannot
 answer that — it checks consistency, which doing nothing preserves.

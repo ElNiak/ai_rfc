@@ -1,8 +1,11 @@
 import importlib.util
+import sys
 
 import pytest
 
 from experiment import ExperimentError
+
+from .conftest import PANTHER_ROOT
 from experiment.arms import (
     ARMS,
     PROFILES,
@@ -22,8 +25,15 @@ def test_the_raw_prefix_names_a_package_that_exists():
     A rename of the substrate package that misses it does not raise: every
     legitimate call reclassifies as bash:other, which reads as an integrity
     violation. Pinning it to an importable module makes the rename fail loudly.
+
+    The PANTHER root is resolved from this file rather than relied on from an
+    ambient sys.path: this repository is a submodule that must also collect
+    standalone, and pytest's rootdir walk only reaches PANTHER when the clone
+    happens to sit inside one.
     """
     module = RAW_PREFIX.rsplit(" ", 1)[-1]
+    if str(PANTHER_ROOT) not in sys.path:
+        sys.path.insert(0, str(PANTHER_ROOT))
 
     assert importlib.util.find_spec(module) is not None
 
@@ -42,7 +52,9 @@ def test_only_the_current_substrate_path_classifies():
     from experiment.audit import _stage_surface
 
     assert _stage_surface(f"{RAW_PREFIX}.draft gate x") == "bash:python_a_rfc"
-    stale = "python -m panther.plugins.services.testers.a_rfc.draft gate x"
+    # Deliberately the pre-rename spelling. A blanket rename that rewrites this
+    # literal makes the test assert nothing, so it is spelled by concatenation.
+    stale = "python -m panther.plugins.services.testers." + "a_rfc.draft gate x"
     assert _stage_surface(stale) == "bash:other"
 
 
