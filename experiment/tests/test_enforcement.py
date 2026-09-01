@@ -85,14 +85,17 @@ def test_settings_use_the_nested_hook_shape():
     assert "'arfc '" in hook["command"]
 
 
-def _run_guard(command: str, *prefixes: str) -> int:
-    payload = json.dumps({"tool_input": {"command": command}})
+def _run_guard_raw(payload: str, *prefixes: str) -> int:
     return subprocess.run(
         [sys.executable, str(GUARD), *prefixes],
         input=payload,
         capture_output=True,
         text=True,
     ).returncode
+
+
+def _run_guard(command: str, *prefixes: str) -> int:
+    return _run_guard_raw(json.dumps({"tool_input": {"command": command}}), *prefixes)
 
 
 def test_guard_exits_zero_only_for_an_in_prefix_command():
@@ -102,13 +105,22 @@ def test_guard_exits_zero_only_for_an_in_prefix_command():
 
 
 def test_guard_blocks_an_unreadable_payload():
-    result = subprocess.run(
-        [sys.executable, str(GUARD), "arfc "],
-        input="not json",
-        capture_output=True,
-        text=True,
-    )
-    assert result.returncode == 2
+    assert _run_guard_raw("not json", "arfc ") == 2
+
+
+def test_guard_blocks_a_payload_that_parses_but_is_not_an_object():
+    """Valid JSON that is not a mapping must block, not crash.
+
+    Only exit 2 blocks; an uncaught exception exits 1 and the command runs.
+    """
+    for payload in ("5", "[1, 2]", '"echo pwned"', "null", "true"):
+        assert _run_guard_raw(payload, "arfc ") == 2, payload
+
+
+def test_guard_blocks_a_non_object_tool_input():
+    """``tool_input`` is truthy but not a mapping, so ``or {}`` does not fire."""
+    assert _run_guard_raw(json.dumps({"tool_input": "echo pwned"}), "arfc ") == 2
+    assert _run_guard_raw(json.dumps({"tool_input": ["echo pwned"]}), "arfc ") == 2
 
 
 def test_a_continued_command_is_one_command():

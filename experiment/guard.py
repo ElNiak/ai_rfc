@@ -29,7 +29,17 @@ def main(argv: list[str]) -> int:
     except (json.JSONDecodeError, ValueError):
         sys.stderr.write("guard: unreadable hook payload\n")
         return 2
-    command = str((payload.get("tool_input") or {}).get("command", ""))
+    # Valid JSON is not necessarily an object, and ``tool_input`` can be truthy
+    # without being one — in both cases ``.get`` raises, and an exception here
+    # exits 1, which does not block. Unreadable must mean blocked, not allowed.
+    if not isinstance(payload, dict):
+        sys.stderr.write("guard: hook payload is not an object\n")
+        return 2
+    tool_input = payload.get("tool_input") or {}
+    if not isinstance(tool_input, dict):
+        sys.stderr.write("guard: tool_input is not an object\n")
+        return 2
+    command = str(tool_input.get("command", ""))
     if is_allowed(command, argv):
         return 0
     prefixes = ", ".join(repr(prefix) for prefix in argv) or "(none)"
