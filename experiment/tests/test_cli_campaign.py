@@ -8,7 +8,7 @@ from experiment import cli
 from .conftest import COMPLETE_STEPS, FAKE_CLAUDE
 
 
-def _init(tmp_path, pristine, panther_repo, capsys, *extra):
+def _init(tmp_path, pristine, panther_repo, capsys, *extra, skip_parity=True):
     code = cli.main(
         [
             "campaign",
@@ -35,7 +35,7 @@ def _init(tmp_path, pristine, panther_repo, capsys, *extra):
             sys.executable,
             "--claude",
             str(FAKE_CLAUDE),
-            "--skip-parity",
+            *(["--skip-parity"] if skip_parity else []),
             *extra,
         ]
     )
@@ -85,6 +85,24 @@ def test_run_returns_nonzero_when_a_launched_run_failed(
         )
     assert cli.main(["run", str(campaign_dir)]) == 1
     assert "exit=1" in capsys.readouterr().out
+
+
+def test_a_failing_parity_suite_exits_three_not_two(
+    tmp_path, pristine, panther_repo, capsys, monkeypatch
+):
+    """2 belongs to argparse, so a stop-ship gate must not also return it.
+
+    The next test asserts 2 for a genuine parse error on this same CLI; if the
+    parity gate returned 2 as well, a caller could not tell a mistyped flag from
+    a suite that must stop the campaign.
+    """
+    monkeypatch.setattr(
+        cli, "_run_parity", lambda *_, **__: {"passed": False, "summary": "1 failed"}
+    )
+
+    code, _, _ = _init(tmp_path, pristine, panther_repo, capsys, skip_parity=False)
+
+    assert code == 3
 
 
 def test_unknown_arm_is_refused_at_parse_time(capsys):

@@ -313,7 +313,11 @@ def main(argv: list[str] | None = None) -> int:
         argv: Argument vector; ``None`` reads ``sys.argv``.
 
     Returns:
-        0 on success, 1 when the harness refused or an input was unusable.
+        0 on success, 1 when the harness refused or an input was unusable, and
+        3 when a gate said no — ``preflight`` not reaching "go", or the parity
+        suite failing. 2 is left to ``argparse``, as everywhere else in this
+        package: a caller must be able to tell a mistyped flag from a gate that
+        must stop a campaign, and the two call for opposite responses.
     """
     args = _parser().parse_args(argv)
     root = args.root if getattr(args, "root", None) else default_root()
@@ -339,7 +343,7 @@ def main(argv: list[str] | None = None) -> int:
                 need = "required" if check["required"] else "product"
                 print(f"{flag}  {check['check']:<14} ({need})")
             print(f"report: {root / 'spike-report.json'}")
-            return 0 if report["go"] else 2
+            return 0 if report["go"] else 3
         elif args.command == "render":
             from .render import write_plugin_skill
 
@@ -392,8 +396,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"run order: {' '.join(campaign.run_order)}")
             print(f"parity: {parity}")
             if parity is not None and not parity["passed"]:
-                _report("parity suite FAILED - stop-ship per protocol")
-                return 2
+                _report("finding: parity suite FAILED - stop-ship per protocol")
+                return 3
         elif args.command == "run":
             from .config import load_campaign
             from .driver import launch_pending
