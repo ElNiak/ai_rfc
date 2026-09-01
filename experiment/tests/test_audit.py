@@ -9,7 +9,7 @@ from experiment.audit import (
     edit_target,
     guard_stats,
 )
-from experiment.matrix import execute
+from experiment.driver import launch_pending
 from experiment.stream import parse_stream
 
 from .conftest import COMPLETE_STEPS
@@ -145,7 +145,7 @@ def test_audit_over_fake_runs_counts_bypasses_and_errors(campaign, write_scenari
         "C1",
         {"arm": "C", "steps": COMPLETE_STEPS + [{"kind": "tool_error"}]},
     )
-    execute(campaign, report=lambda _: None)
+    launch_pending(campaign, report=lambda _: None)
     audits = audit_campaign(campaign)
     assert set(audits) == {"A1", "B1", "C1"}
     a, b, c = audits["A1"], audits["B1"], audits["C1"]

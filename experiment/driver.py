@@ -1,8 +1,11 @@
-"""Execute a campaign's frozen run order: copy, launch, record, resume.
+"""Drive a campaign's frozen run order: copy, launch, record, resume.
 
 Order comes from ``campaign.json`` and is never recomputed. A run with a
 status record is skipped on resume; a run directory without one is an
 interrupted launch and is refused rather than reused — it is evidence.
+
+The module is named for what it does rather than for what it reads: the run
+matrix is the :class:`~experiment.config.Campaign`, and this drives it.
 """
 
 from __future__ import annotations
@@ -31,7 +34,7 @@ def pending_runs(campaign: Campaign) -> list[str]:
     ]
 
 
-def execute(
+def launch_pending(
     campaign: Campaign,
     *,
     only: Iterable[str] | None = None,

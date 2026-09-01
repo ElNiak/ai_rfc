@@ -389,9 +389,9 @@ def main(argv: list[str] | None = None) -> int:
                 return 2
         elif args.command == "run":
             from .config import load_campaign
-            from .matrix import execute
+            from .driver import launch_pending
 
-            statuses = execute(
+            statuses = launch_pending(
                 load_campaign(args.campaign.resolve()),
                 only=args.only.split(",") if args.only else None,
                 report=_report,

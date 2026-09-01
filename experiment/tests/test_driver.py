@@ -1,7 +1,7 @@
 import pytest
 
 from experiment import ExperimentError
-from experiment.matrix import execute, pending_runs
+from experiment.driver import launch_pending, pending_runs
 from experiment.runner import load_status, run_ref
 
 from .conftest import COMPLETE_STEPS
@@ -25,11 +25,11 @@ def test_execute_follows_the_frozen_order_and_resumes(campaign, write_scenario):
     _scenarios(campaign, write_scenario)
     assert pending_runs(campaign) == list(campaign.run_order)
     lines = []
-    statuses = execute(campaign, report=lines.append)
+    statuses = launch_pending(campaign, report=lines.append)
     assert [s.run_id for s in statuses] == list(campaign.run_order)
     assert {s.run_id: s.exit_code for s in statuses} == {"A1": 0, "B1": 3, "C1": 0}
     assert pending_runs(campaign) == []
-    again = execute(campaign, report=lines.append)
+    again = launch_pending(campaign, report=lines.append)
     assert again == statuses
     assert sum("skipping" in line for line in lines) == 3
     for run_id in campaign.run_order:
@@ -40,16 +40,16 @@ def test_execute_follows_the_frozen_order_and_resumes(campaign, write_scenario):
 
 def test_execute_only_runs_the_requested_subset(campaign, write_scenario):
     _scenarios(campaign, write_scenario)
-    statuses = execute(campaign, only=["C1"], report=lambda _: None)
+    statuses = launch_pending(campaign, only=["C1"], report=lambda _: None)
     assert [s.run_id for s in statuses] == ["C1"]
     assert pending_runs(campaign) == [r for r in campaign.run_order if r != "C1"]
     with pytest.raises(ExperimentError):
-        execute(campaign, only=["Z9"], report=lambda _: None)
+        launch_pending(campaign, only=["Z9"], report=lambda _: None)
 
 
 def test_execute_refuses_a_run_dir_without_status(campaign, write_scenario):
     _scenarios(campaign, write_scenario)
     (campaign.runs_dir / campaign.run_order[0]).mkdir(parents=True)
     with pytest.raises(ExperimentError) as excinfo:
-        execute(campaign, report=lambda _: None)
+        launch_pending(campaign, report=lambda _: None)
     assert "without a status record" in str(excinfo.value)

@@ -1,7 +1,7 @@
 import json
 
 from experiment.audit import audit_campaign
-from experiment.matrix import execute
+from experiment.driver import launch_pending
 from experiment.metrics import (
     _arm_summary,
     analyze_campaign,
@@ -17,7 +17,7 @@ from .conftest import COMPLETE_STEPS
 def _run(campaign, write_scenario, scenarios):
     for run_id, payload in scenarios.items():
         write_scenario(campaign.profile_dir, run_id, payload)
-    execute(campaign, only=list(scenarios), report=lambda _: None)
+    launch_pending(campaign, only=list(scenarios), report=lambda _: None)
     audit_campaign(campaign)
 
 

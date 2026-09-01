@@ -4,9 +4,9 @@ import sys
 import pytest
 
 from experiment.config import CampaignConfig, init_campaign
-from experiment.matrix import execute
+from experiment.driver import launch_pending
 from experiment.metrics import analyze_run
-from experiment.orchestrator import next_cluster
+from experiment.per_cluster import next_cluster
 from experiment.runner import EVENTS_FILE, RESULT_FILE
 from experiment.stream import parse_stream, result_events
 
@@ -83,13 +83,13 @@ def test_next_cluster_is_read_from_the_workspace_not_remembered(
         "A1",
         {"arm": "A", "cost": 1.0, "steps": COMPLETE_STEPS},
     )
-    execute(per_cluster_campaign, report=lambda _: None)
+    launch_pending(per_cluster_campaign, report=lambda _: None)
     workspace = per_cluster_campaign.runs_dir / "A1" / "workspace"
     outstanding = next_cluster(workspace)
     assert outstanding is not None and outstanding["ordinal"] == 1
 
 
-def _stub_spawn(orchestrator, monkeypatch, *, sessions_per_cluster: int):
+def _stub_spawn(per_cluster, monkeypatch, *, sessions_per_cluster: int):
     """Drive the loop with a spawn that finishes clusters in ordinal order.
 
     The fake claude replays a scenario pinned to one hardcoded cluster, so it
@@ -108,24 +108,24 @@ def _stub_spawn(orchestrator, monkeypatch, *, sessions_per_cluster: int):
         needed = cluster["ordinal"] * sessions_per_cluster
         return {"artifacts": calls["n"] >= needed, "pre_seeded": False}
 
-    monkeypatch.setattr(orchestrator, "spawn", fake_spawn)
-    monkeypatch.setattr(orchestrator, "cluster_artifacts", fake_artifacts)
+    monkeypatch.setattr(per_cluster, "spawn", fake_spawn)
+    monkeypatch.setattr(per_cluster, "cluster_artifacts", fake_artifacts)
     return calls
 
 
 def test_one_session_is_spawned_per_outstanding_cluster(
     per_cluster_campaign, monkeypatch
 ):
-    import experiment.orchestrator as orchestrator
+    import experiment.per_cluster as per_cluster
 
-    calls = _stub_spawn(orchestrator, monkeypatch, sessions_per_cluster=1)
+    calls = _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
     monkeypatch.setattr(
-        orchestrator,
+        per_cluster,
         "window_clusters",
         lambda _ws: [{"ordinal": 1, "id": "c1"}, {"ordinal": 2, "id": "c2"}],
     )
-    ref = _spec(per_cluster_campaign)
-    exit_code, timed_out, sessions = orchestrator.run_per_cluster(
+    ref = _ref(per_cluster_campaign)
+    exit_code, timed_out, sessions = per_cluster.run_per_cluster(
         per_cluster_campaign, ref
     )
     assert (exit_code, timed_out) == (0, False)
@@ -140,23 +140,23 @@ def test_a_cluster_that_will_not_finish_halts_rather_than_being_skipped(
     Skipping one and continuing would leave a draft with a hole in it, which is
     worse than a short draft, and the gap would not be visible in the result.
     """
-    import experiment.orchestrator as orchestrator
+    import experiment.per_cluster as per_cluster
 
-    calls = _stub_spawn(orchestrator, monkeypatch, sessions_per_cluster=99)
+    calls = _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=99)
     monkeypatch.setattr(
-        orchestrator,
+        per_cluster,
         "window_clusters",
         lambda _ws: [{"ordinal": 1, "id": "c1"}, {"ordinal": 2, "id": "c2"}],
     )
-    ref = _spec(per_cluster_campaign)
-    exit_code, _, sessions = orchestrator.run_per_cluster(per_cluster_campaign, ref)
+    ref = _ref(per_cluster_campaign)
+    exit_code, _, sessions = per_cluster.run_per_cluster(per_cluster_campaign, ref)
     assert exit_code != 0
     # Retried the first cluster, then stopped: never reached the second.
-    assert sessions == orchestrator.ATTEMPTS_PER_CLUSTER
-    assert calls["n"] == orchestrator.ATTEMPTS_PER_CLUSTER
+    assert sessions == per_cluster.ATTEMPTS_PER_CLUSTER
+    assert calls["n"] == per_cluster.ATTEMPTS_PER_CLUSTER
 
 
-def _spec(campaign):
+def _ref(campaign):
     from experiment.runner import run_ref
 
     ref = run_ref(campaign, campaign.run_order[0])
@@ -185,7 +185,7 @@ def test_a_killed_session_is_not_charged_the_previous_ones_cost(tmp_path):
     figure into the per-session record, on exactly the path this design exists
     to tolerate.
     """
-    from experiment.orchestrator import _session_cost
+    from experiment.per_cluster import _session_cost
 
     events = tmp_path / "events.jsonl"
 
@@ -207,15 +207,15 @@ def test_the_budget_caps_the_run_not_each_session(per_cluster_campaign, monkeypa
     became per-session would have removed the only thing standing between a
     looping agent and the card.
     """
-    import experiment.orchestrator as orchestrator
+    import experiment.per_cluster as per_cluster
 
-    calls = _stub_spawn(orchestrator, monkeypatch, sessions_per_cluster=1)
-    monkeypatch.setattr(orchestrator, "window_clusters", lambda _ws: _clusters(10))
+    calls = _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
+    monkeypatch.setattr(per_cluster, "window_clusters", lambda _ws: _clusters(10))
     # Each session spends the whole $1.00 campaign budget.
-    monkeypatch.setattr(orchestrator, "_session_cost", lambda _p, seen: (1.0, seen + 1))
+    monkeypatch.setattr(per_cluster, "_session_cost", lambda _p, seen: (1.0, seen + 1))
 
-    ref = _spec(per_cluster_campaign)
-    exit_code, _, sessions = orchestrator.run_per_cluster(per_cluster_campaign, ref)
+    ref = _ref(per_cluster_campaign)
+    exit_code, _, sessions = per_cluster.run_per_cluster(per_cluster_campaign, ref)
     assert sessions == 1 and calls["n"] == 1
     assert exit_code != 0
 
@@ -224,7 +224,7 @@ def test_each_session_is_given_only_what_the_run_has_left(
     per_cluster_campaign, monkeypatch
 ):
     """The cap holds by construction, not only by the loop's check."""
-    import experiment.orchestrator as orchestrator
+    import experiment.per_cluster as per_cluster
 
     given: list[float] = []
 
@@ -232,14 +232,12 @@ def test_each_session_is_given_only_what_the_run_has_left(
         given.append(budget_usd)
         return ["fake"]
 
-    _stub_spawn(orchestrator, monkeypatch, sessions_per_cluster=1)
-    monkeypatch.setattr(orchestrator, "window_clusters", lambda _ws: _clusters(3))
-    monkeypatch.setattr(orchestrator, "prepare_run_argv", capture)
-    monkeypatch.setattr(
-        orchestrator, "_session_cost", lambda _p, seen: (0.25, seen + 1)
-    )
+    _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
+    monkeypatch.setattr(per_cluster, "window_clusters", lambda _ws: _clusters(3))
+    monkeypatch.setattr(per_cluster, "prepare_run_argv", capture)
+    monkeypatch.setattr(per_cluster, "_session_cost", lambda _p, seen: (0.25, seen + 1))
 
-    orchestrator.run_per_cluster(per_cluster_campaign, _spec(per_cluster_campaign))
+    per_cluster.run_per_cluster(per_cluster_campaign, _ref(per_cluster_campaign))
     assert given == [1.0, 0.75, 0.5]
 
 
@@ -247,17 +245,17 @@ def test_every_session_records_the_argv_it_actually_ran(
     per_cluster_campaign, monkeypatch
 ):
     """argv.json holds the whole-window vector, which no session executed."""
-    import experiment.orchestrator as orchestrator
+    import experiment.per_cluster as per_cluster
 
-    _stub_spawn(orchestrator, monkeypatch, sessions_per_cluster=1)
-    monkeypatch.setattr(orchestrator, "window_clusters", lambda _ws: _clusters(2))
-    monkeypatch.setattr(orchestrator, "_session_cost", lambda _p, seen: (0.1, seen + 1))
+    _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
+    monkeypatch.setattr(per_cluster, "window_clusters", lambda _ws: _clusters(2))
+    monkeypatch.setattr(per_cluster, "_session_cost", lambda _p, seen: (0.1, seen + 1))
 
-    ref = _spec(per_cluster_campaign)
-    orchestrator.run_per_cluster(per_cluster_campaign, ref)
+    ref = _ref(per_cluster_campaign)
+    per_cluster.run_per_cluster(per_cluster_campaign, ref)
     rows = [
         json.loads(line)
-        for line in (ref.run_dir / orchestrator.SESSIONS_FILE).read_text().splitlines()
+        for line in (ref.run_dir / per_cluster.SESSIONS_FILE).read_text().splitlines()
     ]
     assert [r["ordinal"] for r in rows] == [1, 2]
     assert [r["cumulative_cost_usd"] for r in rows] == [0.1, 0.2]
@@ -278,7 +276,7 @@ def test_a_single_session_run_records_exactly_what_it_always_did(
         "A1",
         {"arm": "A", "cost": 1.0, "steps": COMPLETE_STEPS},
     )
-    execute(per_cluster_campaign, report=lambda _: None)
+    launch_pending(per_cluster_campaign, report=lambda _: None)
     run_dir = per_cluster_campaign.runs_dir / "A1"
 
     events = parse_stream((run_dir / EVENTS_FILE).read_text(errors="replace"))

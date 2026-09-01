@@ -237,10 +237,10 @@ def launch(campaign: Campaign, ref: RunRef) -> RunStatus:
     )
     started = _now()
     if campaign.session_mode == "per-cluster":
-        # Imported here, not at module scope: the orchestrator needs this
+        # Imported here, not at module scope: per_cluster needs this
         # module's env and argv builders, and importing it eagerly would make
         # that a cycle.
-        from .orchestrator import run_per_cluster
+        from .per_cluster import run_per_cluster
 
         exit_code, timed_out, _ = run_per_cluster(campaign, ref)
     else:
