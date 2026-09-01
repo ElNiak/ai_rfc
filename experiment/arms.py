@@ -22,7 +22,7 @@ READ_TOOLS = ("Read", "Edit", "Write", "Grep", "Glob")
 #: How arm C reaches the substrate. The audit classifier matches transcripts
 #: against this exact string, so a second copy that drifted would silently
 #: reclassify a legitimate call as an integrity violation rather than error.
-RAW_PREFIX = "python -m panther.plugins.services.testers.a_rfc"
+RAW_PREFIX = "python -m panther.plugins.services.testers.ai_rfc"
 RAW_SUBSTRATE = f"Bash({RAW_PREFIX}*)"
 #: The per-run MCP config the runner writes and preflight reads.
 MCP_FILE = "arfc.json"

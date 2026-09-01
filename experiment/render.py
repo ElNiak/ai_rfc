@@ -27,7 +27,7 @@ NEUTRAL_TEXTS = (
 SKILL_FRONTMATTER = """---
 name: arfc-reconstruction-loop
 description: The cluster-by-cluster reconstruction driver — read evidence, mine claims, adjudicate, revise the draft, gate, checkpoint, advance. Use when processing timeline clusters of a reconstruction workspace or when asked to continue a reconstruction.
-allowed-tools: Read, Grep, Glob, Edit, Write, Bash(python -m panther.plugins.services.testers.a_rfc*), Bash(git *), Bash(arfc *), Bash(sqlite3 *)
+allowed-tools: Read, Grep, Glob, Edit, Write, Bash(python -m panther.plugins.services.testers.ai_rfc*), Bash(git *), Bash(arfc *), Bash(sqlite3 *)
 ---
 
 """
@@ -57,7 +57,7 @@ _RAW = {
         "section, never write `status`"
     ),
     "lint": (
-        "`python -m panther.plugins.services.testers.a_rfc "
+        "`python -m panther.plugins.services.testers.ai_rfc "
         "$ARFC_WORKSPACE/manifest.yaml --out $ARFC_WORKSPACE/out --repo "
         "$ARFC_WORKSPACE/clone`"
     ),
@@ -66,12 +66,12 @@ _RAW = {
         "`status` in `manifest.yaml` to exactly its `supported` value"
     ),
     "gate": (
-        "`python -m panther.plugins.services.testers.a_rfc "
+        "`python -m panther.plugins.services.testers.ai_rfc "
         "$ARFC_WORKSPACE/manifest.yaml --out $ARFC_WORKSPACE/out --repo "
         "$ARFC_WORKSPACE/clone --strict`"
     ),
     "checkpoint": (
-        "`python -m panther.plugins.services.testers.a_rfc.draft checkpoint "
+        "`python -m panther.plugins.services.testers.ai_rfc.draft checkpoint "
         "$ARFC_WORKSPACE/manifest.yaml --timeline $ARFC_WORKSPACE/timeline "
         "--cluster <id> --out $ARFC_WORKSPACE/checkpoints`"
     ),
@@ -89,7 +89,7 @@ _RAW = {
         "only after the strict manifest gate exited 0"
     ),
     "citation_gate": (
-        "`python -m panther.plugins.services.testers.a_rfc.draft gate "
+        "`python -m panther.plugins.services.testers.ai_rfc.draft gate "
         "$ARFC_WORKSPACE/draft --timeline $ARFC_WORKSPACE/timeline --checkpoints "
         "$ARFC_WORKSPACE/checkpoints --questions $ARFC_WORKSPACE/questions.yaml "
         "--revisions $ARFC_WORKSPACE/revisions.yaml --out $ARFC_WORKSPACE/out "

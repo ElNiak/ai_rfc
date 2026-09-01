@@ -42,7 +42,7 @@ def corpus_query(ctx: Context, sql: str) -> list[dict[str, Any]]:
             "corpus_query accepts exactly one SELECT statement; the index "
             "is derived and disposable, and nothing writes through it"
         )
-    from panther.plugins.services.testers.a_rfc.history.index import (
+    from panther.plugins.services.testers.ai_rfc.history.index import (
         StaleIndexError,
         open_index,
     )
@@ -144,7 +144,7 @@ def status(ctx: Context) -> dict[str, Any]:
 
     questions_summary = None
     if ctx.questions.exists():
-        from panther.plugins.services.testers.a_rfc.draft.questions import (
+        from panther.plugins.services.testers.ai_rfc.draft.questions import (
             load_questions,
         )
 

@@ -16,7 +16,7 @@ from typing import Any
 
 from ..paths import Context
 
-_A_RFC = "panther.plugins.services.testers.a_rfc"
+_A_RFC = "panther.plugins.services.testers.ai_rfc"
 
 
 def _run(ctx: Context, module: str, *args: str) -> tuple[int, list[str]]:

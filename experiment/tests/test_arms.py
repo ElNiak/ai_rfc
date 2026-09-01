@@ -32,6 +32,20 @@ def test_the_arm_c_substrate_is_derived_from_the_prefix():
     assert RAW_SUBSTRATE == f"Bash({RAW_PREFIX}*)"
 
 
+def test_only_the_current_substrate_path_classifies():
+    """One spelling, no legacy branch.
+
+    The pilot's recorded transcripts name the old package, so `experiment
+    audit` can no longer re-derive that campaign's metrics — an accepted,
+    documented cost of carrying a single version rather than a compat layer.
+    """
+    from experiment.audit import _stage_surface
+
+    assert _stage_surface(f"{RAW_PREFIX}.draft gate x") == "bash:python_a_rfc"
+    stale = "python -m panther.plugins.services.testers.a_rfc.draft gate x"
+    assert _stage_surface(stale) == "bash:other"
+
+
 def _value(flags: list[str], name: str) -> str:
     return flags[flags.index(name) + 1]
 
@@ -119,7 +133,7 @@ def test_arms_b_and_c_allow_exactly_their_command_family():
         "Write",
         "Grep",
         "Glob",
-        "Bash(python -m panther.plugins.services.testers.a_rfc*)",
+        "Bash(python -m panther.plugins.services.testers.ai_rfc*)",
         "Bash(git *)",
         "Bash(sqlite3 *)",
     ]

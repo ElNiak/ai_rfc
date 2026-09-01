@@ -6,7 +6,7 @@ user-invocable: false
 
 # Evidence hygiene for reconstruction manifests
 
-The substrate (`$PANTHER_REPO/panther/plugins/services/testers/a_rfc/`) is
+The substrate (`$PANTHER_REPO/panther/plugins/services/testers/ai_rfc/`) is
 built so that a claim's evidential standing is **computed from its evidence,
 never asserted by its author**. These rules keep you on the right side of
 that design; each exists because the failure it prevents exits zero while

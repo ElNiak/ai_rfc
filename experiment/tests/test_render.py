@@ -40,7 +40,7 @@ def test_arm_renderings_name_only_their_surface():
     assert "arfc cluster-next" not in a and "python -m panther" not in a
     assert "arfc cluster-next" in b
     assert "arfc_cluster_next" not in b and "python -m panther" not in b
-    assert "python -m panther.plugins.services.testers.a_rfc" in c
+    assert "python -m panther.plugins.services.testers.ai_rfc" in c
     assert "arfc_" not in c and "arfc cluster" not in c
 
 

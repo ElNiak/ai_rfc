@@ -155,7 +155,7 @@ def claim_stats(
     if not manifest_path.exists():
         return None
     _extend_sys_path(campaign)
-    from panther.plugins.services.testers.a_rfc import report, schema
+    from panther.plugins.services.testers.ai_rfc import report, schema
 
     payload = json.loads(
         report.to_json(

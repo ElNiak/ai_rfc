@@ -1,7 +1,7 @@
 ---
 name: arfc-reconstruction-loop
 description: The cluster-by-cluster reconstruction driver — read evidence, mine claims, adjudicate, revise the draft, gate, checkpoint, advance. Use when processing timeline clusters of a reconstruction workspace or when asked to continue a reconstruction.
-allowed-tools: Read, Grep, Glob, Edit, Write, Bash(python -m panther.plugins.services.testers.a_rfc*), Bash(git *), Bash(arfc *), Bash(sqlite3 *)
+allowed-tools: Read, Grep, Glob, Edit, Write, Bash(python -m panther.plugins.services.testers.ai_rfc*), Bash(git *), Bash(arfc *), Bash(sqlite3 *)
 ---
 
 # The reconstruction loop
@@ -33,22 +33,22 @@ When the `arfc` MCP server is connected, prefer its tools (`arfc_cluster_next`, 
    NO `status`: edit `$ARFC_WORKSPACE/manifest.yaml` by hand — quote every id and section, never write `status`. A commit message stating a decision is an
    `adr` anchor; PR discussion explaining intent supports `intent:` but is
    not itself an anchor class.
-4. **Lint**: `python -m panther.plugins.services.testers.a_rfc $ARFC_WORKSPACE/manifest.yaml --out $ARFC_WORKSPACE/out --repo $ARFC_WORKSPACE/clone` — fix every unverified anchor (wrong paths, wrong
+4. **Lint**: `python -m panther.plugins.services.testers.ai_rfc $ARFC_WORKSPACE/manifest.yaml --out $ARFC_WORKSPACE/out --repo $ARFC_WORKSPACE/clone` — fix every unverified anchor (wrong paths, wrong
    commits, wrong lines) BEFORE anything is built on top.
 5. **Record statuses**: read `$ARFC_WORKSPACE/out/report.json` (`claims[]`) and set each claim's `status` in `manifest.yaml` to exactly its `supported` value. Then the strict gate:
-   `python -m panther.plugins.services.testers.a_rfc $ARFC_WORKSPACE/manifest.yaml --out $ARFC_WORKSPACE/out --repo $ARFC_WORKSPACE/clone --strict` — exit 0 is the bar.
+   `python -m panther.plugins.services.testers.ai_rfc $ARFC_WORKSPACE/manifest.yaml --out $ARFC_WORKSPACE/out --repo $ARFC_WORKSPACE/clone --strict` — exit 0 is the bar.
 6. **Decide spec relevance**:
    - Normative behaviour changed → update the draft per the RFC-style
      rules, citing the new/changed claims.
    - Nothing normative → no prose edit; the revision entry will say so.
-7. **Checkpoint**: `python -m panther.plugins.services.testers.a_rfc.draft checkpoint $ARFC_WORKSPACE/manifest.yaml --timeline $ARFC_WORKSPACE/timeline --cluster <id> --out $ARFC_WORKSPACE/checkpoints`.
+7. **Checkpoint**: `python -m panther.plugins.services.testers.ai_rfc.draft checkpoint $ARFC_WORKSPACE/manifest.yaml --timeline $ARFC_WORKSPACE/timeline --cluster <id> --out $ARFC_WORKSPACE/checkpoints`.
 8. **Record and tag the revision**: append the entry to `$ARFC_WORKSPACE/revisions.yaml` under `revisions:` (`cluster_id`, `checkpoint_manifest_sha256` copied from the checkpoint's `checkpoint.json`, `normative_change`, `note`) — the tag
    `draft-<name>-NN` (two digits, monotone in cluster ordinal), the cluster
    id, an explicit `normative_change`, a one-line note. Commit any prose
    change (`git -C $ARFC_WORKSPACE/draft add -A && git -C $ARFC_WORKSPACE/draft commit -m "<message>"`), then create the annotated tag
    (`git -C $ARFC_WORKSPACE/draft tag -a draft-<name>-NN -m "<message>"` — only after the strict manifest gate exited 0). Every revision entry needs its tag, no-change
    revisions included.
-9. **Gate**: `python -m panther.plugins.services.testers.a_rfc.draft gate $ARFC_WORKSPACE/draft --timeline $ARFC_WORKSPACE/timeline --checkpoints $ARFC_WORKSPACE/checkpoints --questions $ARFC_WORKSPACE/questions.yaml --revisions $ARFC_WORKSPACE/revisions.yaml --out $ARFC_WORKSPACE/out --strict` — exit 0 before advancing.
+9. **Gate**: `python -m panther.plugins.services.testers.ai_rfc.draft gate $ARFC_WORKSPACE/draft --timeline $ARFC_WORKSPACE/timeline --checkpoints $ARFC_WORKSPACE/checkpoints --questions $ARFC_WORKSPACE/questions.yaml --revisions $ARFC_WORKSPACE/revisions.yaml --out $ARFC_WORKSPACE/out --strict` — exit 0 before advancing.
 10. **Open questions**: any claim stuck at `gap`/`inferred` that blocks a
     section gets a question: append a `q-NNN` entry (`question`, `claim_ids`, `status: open`, `asked_at`) to `$ARFC_WORKSPACE/questions.yaml`.
 

@@ -13,18 +13,18 @@ Run each stage from `$PANTHER_REPO`, with `$PY` an interpreter that imports
 1. **Clone at full depth** into `$ARFC_WORKSPACE/clone` (shallow clones are
    refused by extraction). Record `git rev-parse HEAD` — this is the pin
    everything else is verified against.
-2. **Corpus**: `$PY -m panther.plugins.services.testers.a_rfc.history
+2. **Corpus**: `$PY -m panther.plugins.services.testers.ai_rfc.history
    $ARFC_WORKSPACE/clone --out $ARFC_WORKSPACE/corpus`.
-3. **Forge snapshot**: `$PY -m panther.plugins.services.testers.a_rfc.forge
+3. **Forge snapshot**: `$PY -m panther.plugins.services.testers.ai_rfc.forge
    <URL> --repo $ARFC_WORKSPACE/clone --out $ARFC_WORKSPACE/forge` with
    `GITHUB_TOKEN`/`GITLAB_TOKEN` exported (`gh auth token` can supply the
    GitHub one). A fetch against a self-hosted GitLab requires the user's
    explicit go-ahead first. On failure, continue git-only and say so.
-4. **Timeline**: `$PY -m panther.plugins.services.testers.a_rfc.timeline
+4. **Timeline**: `$PY -m panther.plugins.services.testers.ai_rfc.timeline
    $ARFC_WORKSPACE/corpus --repo $ARFC_WORKSPACE/clone --out
    $ARFC_WORKSPACE/timeline`, adding `--forge <snapshot dir>` when step 3
    produced one. Report the cluster/rescue/unmatched numbers.
-5. **Views**: `$PY -m panther.plugins.services.testers.a_rfc.views
+5. **Views**: `$PY -m panther.plugins.services.testers.ai_rfc.views
    $ARFC_WORKSPACE/timeline --corpus $ARFC_WORKSPACE/corpus --repo
    $ARFC_WORKSPACE/clone --out $ARFC_WORKSPACE/clusters` plus `--forge
    <snapshot>` when available.

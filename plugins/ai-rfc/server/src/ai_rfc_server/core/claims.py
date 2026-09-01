@@ -41,7 +41,7 @@ _REQUIRED_FIELDS = ("text", "section", "level", "layer")
 def _substrate(ctx: Context):  # noqa: ANN202 - substrate modules, resolved lazily
     """Import the substrate lazily, after ``resolve_context`` set sys.path."""
     del ctx
-    from panther.plugins.services.testers.a_rfc import promotion, schema
+    from panther.plugins.services.testers.ai_rfc import promotion, schema
 
     return schema, promotion
 
@@ -129,7 +129,7 @@ def adjudicate_preview(ctx: Context) -> list[dict[str, Any]]:
         One entry per claim: ``{id, stored, supported, promotable}``.
     """
     schema, promotion = _substrate(ctx)
-    from panther.plugins.services.testers.a_rfc.models import STATUS_RANK
+    from panther.plugins.services.testers.ai_rfc.models import STATUS_RANK
 
     manifest = schema.load(ctx.manifest)
     entries = []

@@ -59,7 +59,7 @@ def record_revision(
     }
     document["revisions"][tag] = entry
 
-    from panther.plugins.services.testers.a_rfc.draft.gate import load_revisions
+    from panther.plugins.services.testers.ai_rfc.draft.gate import load_revisions
 
     with tempfile.TemporaryDirectory() as scratch:
         candidate = Path(scratch) / "revisions.yaml"

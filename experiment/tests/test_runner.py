@@ -85,7 +85,7 @@ def test_every_run_mounts_its_arms_guard(campaign):
         "A1": (),
         "B1": ("arfc ",),
         "C1": (
-            "python -m panther.plugins.services.testers.a_rfc",
+            "python -m panther.plugins.services.testers.ai_rfc",
             "git ",
             "sqlite3 ",
         ),

@@ -106,11 +106,11 @@ def _substrate_modules(
 ):  # noqa: ANN202 - substrate modules, resolved lazily
     if str(panther_repo) not in sys.path:
         sys.path.insert(0, str(panther_repo))
-    from panther.plugins.services.testers.a_rfc.draft.checkpoint import (
+    from panther.plugins.services.testers.ai_rfc.draft.checkpoint import (
         write_checkpoint,
     )
-    from panther.plugins.services.testers.a_rfc.timeline.store import read_clusters
-    from panther.plugins.services.testers.a_rfc.views import cli as views_cli
+    from panther.plugins.services.testers.ai_rfc.timeline.store import read_clusters
+    from panther.plugins.services.testers.ai_rfc.views import cli as views_cli
 
     return write_checkpoint, read_clusters, views_cli
 

@@ -18,7 +18,7 @@ from .conftest import COMPLETE_STEPS
 def test_bash_surface_recognises_each_command_family():
     assert bash_surface("arfc status") == "bash:arfc"
     assert (
-        bash_surface("python -m panther.plugins.services.testers.a_rfc m.yaml --out o")
+        bash_surface("python -m panther.plugins.services.testers.ai_rfc m.yaml --out o")
         == "bash:python_a_rfc"
     )
     assert bash_surface("git -C draft tag -a x -m y") == "bash:git"

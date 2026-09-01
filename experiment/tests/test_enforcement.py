@@ -20,7 +20,7 @@ def test_prefixes_come_from_each_arm_allowlist():
     assert bash_prefixes(arm_profile("A")) == ()
     assert bash_prefixes(arm_profile("B")) == ("arfc ",)
     assert bash_prefixes(arm_profile("C")) == (
-        "python -m panther.plugins.services.testers.a_rfc",
+        "python -m panther.plugins.services.testers.ai_rfc",
         "git ",
         "sqlite3 ",
     )

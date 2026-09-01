@@ -22,7 +22,7 @@ from experiment.enforcement import bash_prefixes, is_allowed
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "enforcement"
 ARM_B = ("arfc ",)
 ARM_C = (
-    "python -m panther.plugins.services.testers.a_rfc",
+    "python -m panther.plugins.services.testers.ai_rfc",
     "git ",
     "sqlite3 ",
 )
@@ -98,7 +98,7 @@ def test_out_of_prefix_shapes_are_still_refused(command):
     [
         ("git log --oneline", True),
         ('sqlite3 corpus.db "SELECT 1; SELECT 2"', True),
-        ("python -m panther.plugins.services.testers.a_rfc.cli status", True),
+        ("python -m panther.plugins.services.testers.ai_rfc.cli status", True),
         ("arfc status", False),
         ("git log | sh", False),
     ],
