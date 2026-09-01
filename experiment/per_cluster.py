@@ -63,6 +63,31 @@ def next_cluster(workspace: Path) -> dict[str, Any] | None:
     return None
 
 
+def partial_reason(artifacts: dict[str, Any]) -> str | None:
+    """Name a half-finished cluster's state, or None when it is untouched.
+
+    A checkpoint is written once and :func:`draft.checkpoint.write_checkpoint`
+    raises when its directory already exists, so a cluster abandoned between
+    the checkpoint and its tag cannot simply be redone: the retry may spend a
+    whole session rediscovering that. Whether the session recovers is the
+    agent's business, but the operator should not have to infer the state from
+    two silent attempts.
+
+    Args:
+        artifacts: One row from :func:`metrics.cluster_artifacts`.
+
+    Returns:
+        A short description of what is already on disk, or None.
+    """
+    if not artifacts.get("checkpoint"):
+        return None
+    if not artifacts.get("revision_tag"):
+        return "checkpoint present, no revision entry"
+    if not artifacts.get("tag_exists"):
+        return "checkpoint present, revision entry recorded, tag missing"
+    return None
+
+
 def _session_cost(events_path: Path, seen: int) -> tuple[float, int]:
     """What was spent by the result events appended since ``seen``.
 
@@ -150,6 +175,9 @@ def run_per_cluster(
             return exit_code or 1, any_timeout, sessions
 
         ordinal = row["ordinal"]
+        outstanding = partial_reason(cluster_artifacts(ref.workspace, row))
+        if outstanding is not None:
+            report(f"{ref.run_id}: cluster {ordinal} is half finished ({outstanding})")
         # A one-cluster window through the prompt the whole-window runs use, so
         # there is no second task prompt to drift from the first.
         task = render_task((ordinal, ordinal))

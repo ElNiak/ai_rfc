@@ -156,6 +156,61 @@ def test_a_cluster_that_will_not_finish_halts_rather_than_being_skipped(
     assert calls["n"] == per_cluster.ATTEMPTS_PER_CLUSTER
 
 
+def test_a_half_finished_cluster_is_named_before_it_is_retried(
+    per_cluster_campaign, monkeypatch
+):
+    """A checkpoint without its tag cannot simply be redone.
+
+    write_checkpoint is write-once and raises when the directory exists, so the
+    retry an unfinished cluster gets may spend a whole session rediscovering
+    that. Whether the agent recovers is not knowable from here; what is fixable
+    is the silence, so the state is named before the attempt rather than after
+    two of them.
+    """
+    import experiment.per_cluster as per_cluster
+
+    _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=99)
+    monkeypatch.setattr(
+        per_cluster, "window_clusters", lambda _ws: [{"ordinal": 1, "id": "c1"}]
+    )
+    monkeypatch.setattr(
+        per_cluster,
+        "cluster_artifacts",
+        lambda _ws, _row: {
+            "artifacts": False,
+            "pre_seeded": False,
+            "checkpoint": True,
+            "revision_tag": None,
+            "tag_exists": False,
+        },
+    )
+    lines: list[str] = []
+
+    per_cluster.run_per_cluster(
+        per_cluster_campaign, _ref(per_cluster_campaign), report=lines.append
+    )
+
+    assert any("checkpoint present" in line for line in lines), lines
+
+
+def test_an_untouched_cluster_is_not_described_as_half_finished(
+    per_cluster_campaign, monkeypatch
+):
+    import experiment.per_cluster as per_cluster
+
+    _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
+    monkeypatch.setattr(
+        per_cluster, "window_clusters", lambda _ws: [{"ordinal": 1, "id": "c1"}]
+    )
+    lines: list[str] = []
+
+    per_cluster.run_per_cluster(
+        per_cluster_campaign, _ref(per_cluster_campaign), report=lines.append
+    )
+
+    assert not any("checkpoint present" in line for line in lines), lines
+
+
 def _ref(campaign):
     from experiment.runner import run_ref
 

@@ -15,7 +15,7 @@ from typing import Callable, Iterable
 from . import ExperimentError
 from .config import Campaign
 from .runner import RunStatus, launch, load_status, run_ref
-from .workspace import copy_workspace
+from .workspace import copy_workspace, verify_digest
 
 
 def pending_runs(campaign: Campaign) -> list[str]:
@@ -58,6 +58,16 @@ def launch_pending(
     unknown = wanted - set(campaign.run_order)
     if unknown:
         raise ExperimentError(f"not in this campaign: {sorted(unknown)}")
+    # The run order is frozen against one template, and every run copies from
+    # it. A template regenerated mid-campaign renumbers the clusters that order
+    # refers to, so the digest is re-checked here rather than only at init.
+    drift = verify_digest(campaign.pristine_dir)
+    if drift:
+        raise ExperimentError(
+            f"pristine workspace {campaign.pristine_dir} no longer matches the "
+            f"digest this campaign froze: {'; '.join(drift)}"
+        )
+
     statuses: list[RunStatus] = []
     for run_id in campaign.run_order:
         if run_id not in wanted:

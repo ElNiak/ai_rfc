@@ -53,3 +53,23 @@ def test_execute_refuses_a_run_dir_without_status(campaign, write_scenario):
     with pytest.raises(ExperimentError) as excinfo:
         launch_pending(campaign, report=lambda _: None)
     assert "without a status record" in str(excinfo.value)
+
+
+def test_execute_refuses_a_pristine_that_moved_since_the_campaign_froze(
+    campaign, write_scenario
+):
+    """The run order is frozen against one template; ordinals must not shift.
+
+    init_campaign digests every file in the pristine, timeline included, but
+    nothing compared it again — so a template regenerated between runs of one
+    campaign silently renumbered the clusters a frozen order refers to.
+    """
+    _scenarios(campaign, write_scenario)
+    clusters = campaign.pristine_dir / "timeline" / "clusters.jsonl"
+    clusters.write_text(clusters.read_text() + "\n")
+
+    with pytest.raises(ExperimentError) as excinfo:
+        launch_pending(campaign, report=lambda _: None)
+
+    message = str(excinfo.value)
+    assert "pristine" in message and "clusters.jsonl" in message
