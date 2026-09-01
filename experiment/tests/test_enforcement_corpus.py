@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 
 from experiment.arms import ARMS, profile
-from experiment.audit import bash_family, in_arm
+from experiment.audit import bash_surface, in_arm
 from experiment.enforcement import bash_prefixes, is_allowed
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "enforcement"
@@ -131,7 +131,7 @@ def test_the_audit_reads_a_command_the_way_the_guard_did(
     have failed on it.
     """
     guard = is_allowed(command, bash_prefixes(profile(arm)))
-    audit = in_arm("Bash", {"command": command}, bash_family(command), arm)
+    audit = in_arm("Bash", {"command": command}, bash_surface(command), arm)
     assert audit is guard, f"{arm}: {why}"
     if arm == "B":
         assert guard is allowed, why
@@ -162,4 +162,4 @@ def test_the_audit_reads_a_command_the_way_the_guard_did(
 def test_a_line_spanning_two_held_prefixes_stays_in_arm_c(command, allowed, why):
     """A multi-prefix line is in arm when every one of its prefixes is."""
     assert is_allowed(command, ARM_C) is allowed, why
-    assert in_arm("Bash", {"command": command}, bash_family(command), "C") is allowed
+    assert in_arm("Bash", {"command": command}, bash_surface(command), "C") is allowed

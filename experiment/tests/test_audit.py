@@ -4,10 +4,10 @@ from pathlib import Path
 from experiment.audit import (
     audit_campaign,
     audit_events,
-    bash_family,
+    bash_surface,
     classify,
     edit_target,
-    guard_report,
+    guard_stats,
 )
 from experiment.matrix import execute
 from experiment.stream import parse_stream
@@ -15,17 +15,17 @@ from experiment.stream import parse_stream
 from .conftest import COMPLETE_STEPS
 
 
-def test_bash_family_recognises_each_command_family():
-    assert bash_family("arfc status") == "bash:arfc"
+def test_bash_surface_recognises_each_command_family():
+    assert bash_surface("arfc status") == "bash:arfc"
     assert (
-        bash_family("python -m panther.plugins.services.testers.a_rfc m.yaml --out o")
+        bash_surface("python -m panther.plugins.services.testers.a_rfc m.yaml --out o")
         == "bash:python_a_rfc"
     )
-    assert bash_family("git -C draft tag -a x -m y") == "bash:git"
-    assert bash_family('sqlite3 corpus/index.sqlite "SELECT 1"') == "bash:sqlite3"
-    assert bash_family("git -C d add -A && git -C d commit -m m") == "bash:git"
-    assert bash_family("arfc status && echo x") == "bash:mixed"
-    assert bash_family("echo hi") == "bash:other" and bash_family("") == "bash:other"
+    assert bash_surface("git -C draft tag -a x -m y") == "bash:git"
+    assert bash_surface('sqlite3 corpus/index.sqlite "SELECT 1"') == "bash:sqlite3"
+    assert bash_surface("git -C d add -A && git -C d commit -m m") == "bash:git"
+    assert bash_surface("arfc status && echo x") == "bash:mixed"
+    assert bash_surface("echo hi") == "bash:other" and bash_surface("") == "bash:other"
 
 
 WS = Path("/w")
@@ -186,7 +186,7 @@ def test_audit_over_fake_runs_counts_bypasses_and_errors(campaign, write_scenari
         assert audit["guard"]["expected_no_bash"] is (arm == "A")
 
 
-def test_bash_family_reads_a_command_the_way_the_guard_does():
+def test_bash_surface_reads_a_command_the_way_the_guard_does():
     """A guard-legal command must not be classified out of its own arm.
 
     Both quoted shapes below are one in-prefix command to the guard, as is a
@@ -195,19 +195,19 @@ def test_bash_family_reads_a_command_the_way_the_guard_does():
     make.
     """
     assert (
-        bash_family('arfc corpus-query "SELECT sha FROM commits; SELECT 1"')
+        bash_surface('arfc corpus-query "SELECT sha FROM commits; SELECT 1"')
         == "bash:arfc"
     )
-    assert bash_family('arfc corpus-query "SELECT a || b FROM c"') == "bash:arfc"
+    assert bash_surface('arfc corpus-query "SELECT a || b FROM c"') == "bash:arfc"
     assert (
-        bash_family("arfc cluster-get c1 --patch 2>&1 | head -c 20000") == "bash:arfc"
+        bash_surface("arfc cluster-get c1 --patch 2>&1 | head -c 20000") == "bash:arfc"
     )
-    assert bash_family('sqlite3 c.db "SELECT 1; SELECT 2"') == "bash:sqlite3"
+    assert bash_surface('sqlite3 c.db "SELECT 1; SELECT 2"') == "bash:sqlite3"
     # Leaving the family through a pipe is still mixed.
-    assert bash_family("arfc status | sh") == "bash:mixed"
-    assert bash_family("arfc status | tee /tmp/x") == "bash:mixed"
+    assert bash_surface("arfc status | sh") == "bash:mixed"
+    assert bash_surface("arfc status | tee /tmp/x") == "bash:mixed"
     # A command that cannot be read at all is not credited to any family.
-    assert bash_family('arfc corpus-query "unterminated') == "bash:other"
+    assert bash_surface('arfc corpus-query "unterminated') == "bash:other"
 
 
 def _hook_start(name="PreToolUse"):
@@ -230,40 +230,40 @@ def _bash_call(index, command):
     }
 
 
-def test_guard_report_pairs_the_digest_with_the_hook_evidence():
+def test_guard_stats_pairs_the_digest_with_the_hook_evidence():
     events = [_bash_call(1, "arfc status"), _hook_start()]
-    report = guard_report(events, "B", "abc", "abc")
+    report = guard_stats(events, "B", "abc", "abc")
     assert report["unmodified"] is True
     assert report["bash_calls"] == 1 and report["pretooluse_hook_starts"] == 1
     assert report["fired_for_every_bash_call"] is True
 
 
-def test_guard_report_catches_a_settings_file_edited_after_mount():
+def test_guard_stats_catches_a_settings_file_edited_after_mount():
     events = [_bash_call(1, "arfc status"), _hook_start()]
-    report = guard_report(events, "B", "abc", "def")
+    report = guard_stats(events, "B", "abc", "def")
     assert report["unmodified"] is False
     # The hook still fired; the two halves fail independently.
     assert report["fired_for_every_bash_call"] is True
 
 
-def test_guard_report_catches_a_guard_that_never_ran():
+def test_guard_stats_catches_a_guard_that_never_ran():
     events = [_bash_call(1, "arfc status"), _bash_call(2, "arfc gate")]
-    report = guard_report(events, "B", "abc", "abc")
+    report = guard_stats(events, "B", "abc", "abc")
     assert report["unmodified"] is True
     assert report["pretooluse_hook_starts"] == 0
     assert report["fired_for_every_bash_call"] is False
 
 
-def test_guard_report_treats_arm_a_silence_as_the_expected_state():
+def test_guard_stats_treats_arm_a_silence_as_the_expected_state():
     """Arm A has no Bash surface, so firing no PreToolUse hook is correct."""
-    report = guard_report([], "A", "abc", "abc")
+    report = guard_stats([], "A", "abc", "abc")
     assert report["expected_no_bash"] is True
     assert report["bash_calls"] == 0 and report["pretooluse_hook_starts"] == 0
     assert report["fired_for_every_bash_call"] is True
 
 
-def test_guard_report_flags_a_run_that_recorded_no_digest():
+def test_guard_stats_flags_a_run_that_recorded_no_digest():
     """A run from before the digest existed must not read as verified."""
-    report = guard_report([], "B", "", "abc")
+    report = guard_stats([], "B", "", "abc")
     assert report["digest_recorded"] is False
     assert report["unmodified"] is False

@@ -32,8 +32,8 @@ from .stream import (
 )
 
 RAW_PREFIX = "python -m panther.plugins.services.testers.a_rfc"
-REGISTERS = ("manifest.yaml", "questions.yaml", "revisions.yaml")
-ALLOWED: dict[str, set[str]] = {
+STATE_FILES = ("manifest.yaml", "questions.yaml", "revisions.yaml")
+ALLOWED_SURFACES: dict[str, set[str]] = {
     "A": {"mcp", "edit", "read"},
     "B": {"bash:arfc", "edit", "read"},
     "C": {"bash:python_a_rfc", "bash:git", "bash:sqlite3", "edit", "read"},
@@ -47,6 +47,9 @@ class ToolCall:
     index: int
     name: str
     surface: str
+    #: The program family within the surface, e.g. ``arfc`` inside
+    #: ``bash:arfc``. Recorded key: it is written into ``audit/<run_id>.json``
+    #: through ``asdict``, so the field keeps the word the evidence uses.
     family: str
     target: str
     denied: bool
@@ -56,8 +59,8 @@ class ToolCall:
     path: str = ""
 
 
-def _stage_family(stage: str) -> str:
-    """The family one pipe stage reaches for."""
+def _stage_surface(stage: str) -> str:
+    """The surface one pipe stage reaches for."""
     if stage.startswith("arfc "):
         return "bash:arfc"
     if stage.startswith(RAW_PREFIX):
@@ -69,13 +72,13 @@ def _stage_family(stage: str) -> str:
     return "bash:other"
 
 
-def bash_family(command: str) -> str:
-    """The command family of a shell line; mixed families are named as such.
+def bash_surface(command: str) -> str:
+    """The bash surface a shell line reaches; a mixed line is named as such.
 
     The split is the guard's own, so the audit reads a command the same way
     the enforcement did. Reading it any other way makes the two disagree: a
     quoted SQL argument holding ``;`` or ``||``, or a command paging its own
-    output through ``| head``, is one in-family command to the guard, and
+    output through ``| head``, is one in-prefix command to the guard, and
     counting it as ``bash:mixed`` would report an integrity violation for a
     call the arm was entitled to make.
 
@@ -90,18 +93,18 @@ def bash_family(command: str) -> str:
         groups = command_groups(command)
     except ValueError:
         return "bash:other"
-    families = set()
+    surfaces = set()
     for stages in groups:
-        families.add(_stage_family(stages[0]))
+        surfaces.add(_stage_surface(stages[0]))
         # A pager reads the group's output; it reaches no new surface.
-        families.update(
-            _stage_family(stage)
+        surfaces.update(
+            _stage_surface(stage)
             for stage in stages[1:]
             if stage.split()[0] not in FILTERS
         )
-    if not families:
+    if not surfaces:
         return "bash:other"
-    return families.pop() if len(families) == 1 else "bash:mixed"
+    return surfaces.pop() if len(surfaces) == 1 else "bash:mixed"
 
 
 def edit_target(file_path: str, workspace: Path) -> str:
@@ -127,7 +130,7 @@ def edit_target(file_path: str, workspace: Path) -> str:
     if not candidate.is_relative_to(workspace):
         return "other"
     parts = candidate.relative_to(workspace).parts
-    if len(parts) == 1 and parts[0] in REGISTERS:
+    if len(parts) == 1 and parts[0] in STATE_FILES:
         return "register"
     if len(parts) == 2 and parts[0] == "draft" and parts[1].endswith(".md"):
         return "prose"
@@ -155,8 +158,8 @@ def classify(
         return "mcp:other", name, ""
     if name == "Bash":
         command = str(tool_input.get("command", "")).strip()
-        family = bash_family(command)
-        return family, command.split(" ", 1)[0] if command else "", ""
+        surface = bash_surface(command)
+        return surface, command.split(" ", 1)[0] if command else "", ""
     if name in ("Edit", "Write", "MultiEdit"):
         path = str(tool_input.get("file_path", ""))
         return "edit", name, edit_target(path, workspace)
@@ -170,8 +173,8 @@ def in_arm(name: str, tool_input: dict[str, Any], surface: str, arm: str) -> boo
 
     For ``Bash`` the verdict comes from :func:`enforcement.is_allowed` — the
     same function the live ``PreToolUse`` guard runs — rather than from the
-    surface label. The label collapses a command to a single family, so a
-    command whose groups reach two families the arm *holds* (``sqlite3
+    surface label. The label collapses a command to a single surface, so a
+    command whose groups reach two prefixes the arm *holds* (``sqlite3
     -version; git ...`` in arm C) labels as ``bash:mixed`` and, tested against
     the label, was reported as a violation the arm was entitled to make. The
     label stays as reporting detail; only the decision moved.
@@ -188,7 +191,7 @@ def in_arm(name: str, tool_input: dict[str, Any], surface: str, arm: str) -> boo
     if name == "Bash":
         command = str(tool_input.get("command", "")).strip()
         return is_allowed(command, bash_prefixes(profile(arm)))
-    return surface in ALLOWED[arm]
+    return surface in ALLOWED_SURFACES[arm]
 
 
 def _summary(use: dict[str, Any]) -> str:
@@ -227,7 +230,7 @@ def _denied_ids(events: list[dict[str, Any]]) -> set[str]:
     }
 
 
-def guard_report(
+def guard_stats(
     events: list[dict[str, Any]], arm: str, recorded: str, mounted: str
 ) -> dict[str, Any]:
     """Whether the guard was mounted unmodified and actually ran.
@@ -238,7 +241,7 @@ def guard_report(
     unfired guard is not the same finding as an executed out-of-arm call, and
     a report that conflated them could not say which happened.
 
-    Arm A declares no Bash family, so it has no Bash calls and fires no
+    Arm A declares no Bash prefix, so it has no Bash calls and fires no
     PreToolUse hook. That is the expected state for arm A, not a missing
     guard, and ``fired_for_every_bash_call`` is vacuously true there.
 
@@ -345,7 +348,7 @@ def audit_events(
                 and c.target == "register"
                 and c.path.rsplit("/", 1)[-1] == name
             )
-            for name in REGISTERS
+            for name in STATE_FILES
         },
         "prose_edits": sum(
             1 for c in calls if c.surface == "edit" and c.target == "prose"
@@ -389,7 +392,7 @@ def audit_run(campaign: Campaign, run_id: str) -> dict[str, Any]:
     audit = {
         "run_id": run_id,
         **audit_events(events, status.arm, run_dir / "workspace"),
-        "guard": guard_report(events, status.arm, status.guard_sha256, mounted),
+        "guard": guard_stats(events, status.arm, status.guard_sha256, mounted),
     }
     campaign.audit_dir.mkdir(exist_ok=True)
     (campaign.audit_dir / f"{run_id}.json").write_text(
