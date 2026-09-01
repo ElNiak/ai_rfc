@@ -134,7 +134,7 @@ class Campaign:
         """The ``ai_rfc_server`` source root under the plugin."""
         return self.plugin_root / "server" / "src"
 
-    def run_spec(self, run_id: str) -> tuple[str, int]:
+    def split_run_id(self, run_id: str) -> tuple[str, int]:
         """Split a run id like ``B2`` into its arm and repeat.
 
         Args:

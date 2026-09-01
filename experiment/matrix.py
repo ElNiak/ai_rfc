@@ -11,7 +11,7 @@ from typing import Callable, Iterable
 
 from . import ExperimentError
 from .config import Campaign
-from .runner import RunStatus, launch, load_status, run_spec
+from .runner import RunStatus, launch, load_status, run_ref
 from .workspace import copy_workspace
 
 
@@ -59,8 +59,8 @@ def execute(
     for run_id in campaign.run_order:
         if run_id not in wanted:
             continue
-        spec = run_spec(campaign, run_id)
-        existing = load_status(spec.run_dir)
+        ref = run_ref(campaign, run_id)
+        existing = load_status(ref.run_dir)
         if existing is not None:
             report(
                 f"{run_id}: already ran (exit {existing.exit_code}, "
@@ -68,15 +68,15 @@ def execute(
             )
             statuses.append(existing)
             continue
-        if spec.run_dir.exists():
+        if ref.run_dir.exists():
             raise ExperimentError(
-                f"{spec.run_dir} exists without a status record; move it aside "
+                f"{ref.run_dir} exists without a status record; move it aside "
                 f"(it is evidence of an interrupted launch) before resuming"
             )
-        spec.run_dir.mkdir(parents=True)
-        copy_workspace(campaign.pristine_dir, spec.workspace)
-        report(f"{run_id}: launching arm {spec.arm}, repeat {spec.repeat}")
-        status = launch(campaign, spec)
+        ref.run_dir.mkdir(parents=True)
+        copy_workspace(campaign.pristine_dir, ref.workspace)
+        report(f"{run_id}: launching arm {ref.arm}, repeat {ref.repeat}")
+        status = launch(campaign, ref)
         report(
             f"{run_id}: exit {status.exit_code} timed_out={status.timed_out} "
             f"budget_hit={status.budget_hit}"

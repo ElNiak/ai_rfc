@@ -27,13 +27,7 @@ from typing import Any, Callable
 from . import ExperimentError
 from .config import Campaign, render_task
 from .metrics import cluster_artifacts, window_clusters
-from .runner import (
-    EVENTS_FILE,
-    STDERR_FILE,
-    RunSpec,
-    build_env,
-    build_run_argv,
-)
+from .runner import EVENTS_FILE, STDERR_FILE, RunRef, build_env, prepare_run_argv
 from .spawn import spawn
 from .stream import parse_stream, result_events
 
@@ -105,7 +99,7 @@ def _session_cost(events_path: Path, seen: int) -> tuple[float, int]:
 
 def run_per_cluster(
     campaign: Campaign,
-    spec: RunSpec,
+    ref: RunRef,
     *,
     report: Callable[[str], None] = lambda _: None,
 ) -> tuple[int | None, bool, int]:
@@ -119,7 +113,7 @@ def run_per_cluster(
 
     Args:
         campaign: The frozen campaign.
-        spec: The run being launched; its workspace must already exist.
+        ref: The run being launched; its workspace must already exist.
         report: Where progress lines go.
 
     Returns:
@@ -128,10 +122,10 @@ def run_per_cluster(
         reached with work outstanding; ``timed_out`` is true if any session hit
         its cap.
     """
-    env = build_env(campaign, spec)
-    events_path = spec.run_dir / EVENTS_FILE
-    stderr_path = spec.run_dir / STDERR_FILE
-    sessions_path = spec.run_dir / SESSIONS_FILE
+    env = build_env(campaign, ref)
+    events_path = ref.run_dir / EVENTS_FILE
+    stderr_path = ref.run_dir / STDERR_FILE
+    sessions_path = ref.run_dir / SESSIONS_FILE
     sessions = 0
     spent = 0.0
     results_seen = 0
@@ -140,9 +134,9 @@ def run_per_cluster(
     any_timeout = False
 
     while True:
-        row = next_cluster(spec.workspace)
+        row = next_cluster(ref.workspace)
         if row is None:
-            report(f"{spec.run_id}: window complete after {sessions} session(s)")
+            report(f"{ref.run_id}: window complete after {sessions} session(s)")
             return exit_code, any_timeout, sessions
 
         budget_left = campaign.budget_usd - spent
@@ -150,7 +144,7 @@ def run_per_cluster(
         if budget_left <= 0 or time_left <= 0:
             reached = "budget" if budget_left <= 0 else "wall clock"
             report(
-                f"{spec.run_id}: {reached} exhausted after {sessions} session(s) "
+                f"{ref.run_id}: {reached} exhausted after {sessions} session(s) "
                 f"(${spent:.2f}); {row['ordinal']} and later not attempted"
             )
             return exit_code or 1, any_timeout, sessions
@@ -161,13 +155,13 @@ def run_per_cluster(
         task = render_task((ordinal, ordinal))
         for attempt in range(1, ATTEMPTS_PER_CLUSTER + 1):
             report(
-                f"{spec.run_id}: cluster {ordinal} ({row['id']}), attempt "
+                f"{ref.run_id}: cluster {ordinal} ({row['id']}), attempt "
                 f"{attempt}, ${budget_left:.2f} left"
             )
-            argv = build_run_argv(campaign, spec, task=task, budget_usd=budget_left)
+            argv = prepare_run_argv(campaign, ref, task=task, budget_usd=budget_left)
             exit_code, timed_out = spawn(
                 argv,
-                cwd=spec.workspace,
+                cwd=ref.workspace,
                 env=env,
                 events_path=events_path,
                 stderr_path=stderr_path,
@@ -200,14 +194,14 @@ def run_per_cluster(
                     )
                     + "\n"
                 )
-            if cluster_artifacts(spec.workspace, row)["artifacts"]:
+            if cluster_artifacts(ref.workspace, row)["artifacts"]:
                 break
             budget_left = campaign.budget_usd - spent
         else:
             # Never skip and continue. Later clusters' prose builds on earlier
             # prose, and a draft with a hole in it is worse than a short one.
             report(
-                f"{spec.run_id}: cluster {ordinal} did not finish in "
+                f"{ref.run_id}: cluster {ordinal} did not finish in "
                 f"{ATTEMPTS_PER_CLUSTER} attempt(s); halting"
             )
             return exit_code or 1, any_timeout, sessions

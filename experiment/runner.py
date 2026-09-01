@@ -35,7 +35,7 @@ GUARD = Path(__file__).parent / "guard.py"
 
 
 @dataclass(frozen=True)
-class RunSpec:
+class RunRef:
     """One run's identity and directory."""
 
     run_id: str
@@ -70,7 +70,7 @@ class RunStatus:
         return not self.timed_out and self.exit_code is not None
 
 
-def run_spec(campaign: Campaign, run_id: str) -> RunSpec:
+def run_ref(campaign: Campaign, run_id: str) -> RunRef:
     """Resolve a run id from the campaign's frozen order.
 
     Args:
@@ -80,16 +80,16 @@ def run_spec(campaign: Campaign, run_id: str) -> RunSpec:
     Returns:
         The run's identity and directory.
     """
-    arm, repeat = campaign.run_spec(run_id)
-    return RunSpec(run_id, arm, repeat, campaign.runs_dir / run_id)
+    arm, repeat = campaign.split_run_id(run_id)
+    return RunRef(run_id, arm, repeat, campaign.runs_dir / run_id)
 
 
-def build_env(campaign: Campaign, spec: RunSpec) -> dict[str, str]:
+def build_env(campaign: Campaign, ref: RunRef) -> dict[str, str]:
     """The minimal environment of a run: profile, contract, PATH, HOME, LANG.
 
     Args:
         campaign: The frozen campaign.
-        spec: The run being launched.
+        ref: The run being launched.
 
     Returns:
         The complete environment; nothing else is inherited.
@@ -98,7 +98,7 @@ def build_env(campaign: Campaign, spec: RunSpec) -> dict[str, str]:
     return {
         "CLAUDE_CONFIG_DIR": str(campaign.profile_dir),
         "PANTHER_REPO": str(campaign.panther_repo),
-        "ARFC_WORKSPACE": str(spec.workspace),
+        "ARFC_WORKSPACE": str(ref.workspace),
         "PATH": f"{campaign.bin_dir}:{venv_bin}:/usr/bin:/bin",
         "HOME": os.environ.get("HOME", ""),
         # Measured on Claude Code 2.1.247 / macOS: drop USER and the CLI cannot
@@ -109,9 +109,9 @@ def build_env(campaign: Campaign, spec: RunSpec) -> dict[str, str]:
     }
 
 
-def build_run_argv(
+def prepare_run_argv(
     campaign: Campaign,
-    spec: RunSpec,
+    ref: RunRef,
     task: str | None = None,
     budget_usd: float | None = None,
 ) -> list[str]:
@@ -124,7 +124,7 @@ def build_run_argv(
 
     Args:
         campaign: The frozen campaign.
-        spec: The run being launched.
+        ref: The run being launched.
         task: The task prompt, when it is not the campaign's frozen one. A
             per-cluster session narrows the window to a single ordinal, and
             renders it through the same template, so the two execution modes
@@ -137,23 +137,23 @@ def build_run_argv(
     Returns:
         The complete ``claude -p`` argument vector.
     """
-    this_arm = arm_profile(spec.arm)
+    this_arm = arm_profile(ref.arm)
     mcp_path = None
     if this_arm.uses_mcp:
-        mcp_path = spec.run_dir / MCP_FILE
+        mcp_path = ref.run_dir / MCP_FILE
         mcp_path.write_text(
             json.dumps(
                 mcp_config(
                     python=campaign.python,
                     server_src=campaign.server_src,
                     panther_repo=campaign.panther_repo,
-                    workspace=spec.workspace,
+                    workspace=ref.workspace,
                 ),
                 indent=2,
             )
             + "\n"
         )
-    guard_path = spec.run_dir / GUARD_FILE
+    guard_path = ref.run_dir / GUARD_FILE
     guard_path.write_text(
         json.dumps(
             render_settings(
@@ -175,7 +175,7 @@ def build_run_argv(
         model=campaign.model,
         effort=campaign.effort,
         budget_usd=campaign.budget_usd if budget_usd is None else budget_usd,
-        prompt_file=campaign.prompts_dir / f"arm-{spec.arm}.md",
+        prompt_file=campaign.prompts_dir / f"arm-{ref.arm}.md",
         guard_settings=guard_path,
     )
 
@@ -199,12 +199,12 @@ def load_status(run_dir: Path) -> RunStatus | None:
     return RunStatus(**json.loads(path.read_text()))
 
 
-def launch(campaign: Campaign, spec: RunSpec) -> RunStatus:
+def launch(campaign: Campaign, ref: RunRef) -> RunStatus:
     """Run one session to completion or timeout, streaming its output to disk.
 
     Args:
         campaign: The frozen campaign.
-        spec: The run to launch; its workspace copy must already exist.
+        ref: The run to launch; its workspace copy must already exist.
 
     Returns:
         The status record, also written as ``status.json``.
@@ -213,25 +213,25 @@ def launch(campaign: Campaign, spec: RunSpec) -> RunStatus:
         ExperimentError: If the workspace is missing or the run already has
             a status record.
     """
-    if not spec.workspace.is_dir():
+    if not ref.workspace.is_dir():
         raise ExperimentError(
-            f"{spec.workspace} is missing; copy the pristine workspace first"
+            f"{ref.workspace} is missing; copy the pristine workspace first"
         )
-    if (spec.run_dir / STATUS_FILE).exists():
+    if (ref.run_dir / STATUS_FILE).exists():
         raise ExperimentError(
-            f"{spec.run_id} already ran; a run is never relaunched in place"
+            f"{ref.run_id} already ran; a run is never relaunched in place"
         )
-    argv = build_run_argv(campaign, spec)
+    argv = prepare_run_argv(campaign, ref)
     # Digest the settings the guard is mounted from, before the process that
     # could edit them exists. The audit re-hashes the file and compares.
-    guard_digest = hashlib.sha256((spec.run_dir / GUARD_FILE).read_bytes()).hexdigest()
-    env = build_env(campaign, spec)
-    (spec.run_dir / ARGV_FILE).write_text(json.dumps(argv, indent=2) + "\n")
-    (spec.run_dir / ENV_FILE).write_text(
+    guard_digest = hashlib.sha256((ref.run_dir / GUARD_FILE).read_bytes()).hexdigest()
+    env = build_env(campaign, ref)
+    (ref.run_dir / ARGV_FILE).write_text(json.dumps(argv, indent=2) + "\n")
+    (ref.run_dir / ENV_FILE).write_text(
         json.dumps(env, indent=2, sort_keys=True) + "\n"
     )
-    (spec.run_dir / PROMPT_FILE).write_text(
-        (campaign.prompts_dir / f"arm-{spec.arm}.md").read_text()
+    (ref.run_dir / PROMPT_FILE).write_text(
+        (campaign.prompts_dir / f"arm-{ref.arm}.md").read_text()
         + "\n\n---\n\n"
         + (campaign.prompts_dir / "task.md").read_text()
     )
@@ -242,14 +242,14 @@ def launch(campaign: Campaign, spec: RunSpec) -> RunStatus:
         # that a cycle.
         from .orchestrator import run_per_cluster
 
-        exit_code, timed_out, _ = run_per_cluster(campaign, spec)
+        exit_code, timed_out, _ = run_per_cluster(campaign, ref)
     else:
         exit_code, timed_out = spawn(
             argv,
-            cwd=spec.workspace,
+            cwd=ref.workspace,
             env=env,
-            events_path=spec.run_dir / EVENTS_FILE,
-            stderr_path=spec.run_dir / STDERR_FILE,
+            events_path=ref.run_dir / EVENTS_FILE,
+            stderr_path=ref.run_dir / STDERR_FILE,
             timeout_s=campaign.timeout_s,
         )
     try:
@@ -258,19 +258,19 @@ def launch(campaign: Campaign, spec: RunSpec) -> RunStatus:
         # cost is that cluster's, not the run's.
         final = merge_results(
             result_events(
-                parse_stream((spec.run_dir / EVENTS_FILE).read_text(errors="replace"))
+                parse_stream((ref.run_dir / EVENTS_FILE).read_text(errors="replace"))
             )
         )
     except ExperimentError:
         final = None
-    (spec.run_dir / RESULT_FILE).write_text(
+    (ref.run_dir / RESULT_FILE).write_text(
         json.dumps(final, indent=2, sort_keys=True) + "\n" if final else "null\n"
     )
     subtype = str((final or {}).get("subtype", "")).lower()
     status = RunStatus(
-        run_id=spec.run_id,
-        arm=spec.arm,
-        repeat=spec.repeat,
+        run_id=ref.run_id,
+        arm=ref.arm,
+        repeat=ref.repeat,
         started_at=started,
         finished_at=_now(),
         exit_code=None if timed_out else exit_code,
@@ -279,7 +279,7 @@ def launch(campaign: Campaign, spec: RunSpec) -> RunStatus:
         claude_version=campaign.claude_version,
         guard_sha256=guard_digest,
     )
-    (spec.run_dir / STATUS_FILE).write_text(
+    (ref.run_dir / STATUS_FILE).write_text(
         json.dumps(asdict(status), indent=2, sort_keys=True) + "\n"
     )
     return status

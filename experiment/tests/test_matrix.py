@@ -2,7 +2,7 @@ import pytest
 
 from experiment import ExperimentError
 from experiment.matrix import execute, pending_runs
-from experiment.runner import load_status, run_spec
+from experiment.runner import load_status, run_ref
 
 from .conftest import COMPLETE_STEPS
 
@@ -33,9 +33,9 @@ def test_execute_follows_the_frozen_order_and_resumes(campaign, write_scenario):
     assert again == statuses
     assert sum("skipping" in line for line in lines) == 3
     for run_id in campaign.run_order:
-        spec = run_spec(campaign, run_id)
-        assert (spec.workspace / "pristine.sha256").exists()
-        assert load_status(spec.run_dir).run_id == run_id
+        ref = run_ref(campaign, run_id)
+        assert (ref.workspace / "pristine.sha256").exists()
+        assert load_status(ref.run_dir).run_id == run_id
 
 
 def test_execute_only_runs_the_requested_subset(campaign, write_scenario):

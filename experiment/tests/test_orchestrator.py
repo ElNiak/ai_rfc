@@ -124,9 +124,9 @@ def test_one_session_is_spawned_per_outstanding_cluster(
         "window_clusters",
         lambda _ws: [{"ordinal": 1, "id": "c1"}, {"ordinal": 2, "id": "c2"}],
     )
-    spec = _spec(per_cluster_campaign)
+    ref = _spec(per_cluster_campaign)
     exit_code, timed_out, sessions = orchestrator.run_per_cluster(
-        per_cluster_campaign, spec
+        per_cluster_campaign, ref
     )
     assert (exit_code, timed_out) == (0, False)
     assert sessions == 2 and calls["n"] == 2
@@ -148,8 +148,8 @@ def test_a_cluster_that_will_not_finish_halts_rather_than_being_skipped(
         "window_clusters",
         lambda _ws: [{"ordinal": 1, "id": "c1"}, {"ordinal": 2, "id": "c2"}],
     )
-    spec = _spec(per_cluster_campaign)
-    exit_code, _, sessions = orchestrator.run_per_cluster(per_cluster_campaign, spec)
+    ref = _spec(per_cluster_campaign)
+    exit_code, _, sessions = orchestrator.run_per_cluster(per_cluster_campaign, ref)
     assert exit_code != 0
     # Retried the first cluster, then stopped: never reached the second.
     assert sessions == orchestrator.ATTEMPTS_PER_CLUSTER
@@ -157,12 +157,12 @@ def test_a_cluster_that_will_not_finish_halts_rather_than_being_skipped(
 
 
 def _spec(campaign):
-    from experiment.runner import run_spec
+    from experiment.runner import run_ref
 
-    spec = run_spec(campaign, campaign.run_order[0])
-    spec.run_dir.mkdir(parents=True, exist_ok=True)
-    spec.workspace.mkdir(parents=True, exist_ok=True)
-    return spec
+    ref = run_ref(campaign, campaign.run_order[0])
+    ref.run_dir.mkdir(parents=True, exist_ok=True)
+    ref.workspace.mkdir(parents=True, exist_ok=True)
+    return ref
 
 
 def _clusters(count: int):
@@ -214,8 +214,8 @@ def test_the_budget_caps_the_run_not_each_session(per_cluster_campaign, monkeypa
     # Each session spends the whole $1.00 campaign budget.
     monkeypatch.setattr(orchestrator, "_session_cost", lambda _p, seen: (1.0, seen + 1))
 
-    spec = _spec(per_cluster_campaign)
-    exit_code, _, sessions = orchestrator.run_per_cluster(per_cluster_campaign, spec)
+    ref = _spec(per_cluster_campaign)
+    exit_code, _, sessions = orchestrator.run_per_cluster(per_cluster_campaign, ref)
     assert sessions == 1 and calls["n"] == 1
     assert exit_code != 0
 
@@ -228,13 +228,13 @@ def test_each_session_is_given_only_what_the_run_has_left(
 
     given: list[float] = []
 
-    def capture(campaign, spec, task=None, budget_usd=None):
+    def capture(campaign, ref, task=None, budget_usd=None):
         given.append(budget_usd)
         return ["fake"]
 
     _stub_spawn(orchestrator, monkeypatch, sessions_per_cluster=1)
     monkeypatch.setattr(orchestrator, "window_clusters", lambda _ws: _clusters(3))
-    monkeypatch.setattr(orchestrator, "build_run_argv", capture)
+    monkeypatch.setattr(orchestrator, "prepare_run_argv", capture)
     monkeypatch.setattr(
         orchestrator, "_session_cost", lambda _p, seen: (0.25, seen + 1)
     )
@@ -253,11 +253,11 @@ def test_every_session_records_the_argv_it_actually_ran(
     monkeypatch.setattr(orchestrator, "window_clusters", lambda _ws: _clusters(2))
     monkeypatch.setattr(orchestrator, "_session_cost", lambda _p, seen: (0.1, seen + 1))
 
-    spec = _spec(per_cluster_campaign)
-    orchestrator.run_per_cluster(per_cluster_campaign, spec)
+    ref = _spec(per_cluster_campaign)
+    orchestrator.run_per_cluster(per_cluster_campaign, ref)
     rows = [
         json.loads(line)
-        for line in (spec.run_dir / orchestrator.SESSIONS_FILE).read_text().splitlines()
+        for line in (ref.run_dir / orchestrator.SESSIONS_FILE).read_text().splitlines()
     ]
     assert [r["ordinal"] for r in rows] == [1, 2]
     assert [r["cumulative_cost_usd"] for r in rows] == [0.1, 0.2]

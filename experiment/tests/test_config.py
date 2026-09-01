@@ -94,7 +94,7 @@ def test_init_campaign_freezes_everything(
     assert str(campaign.server_src) in shim.read_text()
     assert stored["parity"] == {"passed": True, "summary": "38 passed"}
     assert stored["git"]["panther"] and stored["git"]["ai_rfc"]
-    assert campaign.run_spec("B2") == ("B", 2)
+    assert campaign.split_run_id("B2") == ("B", 2)
 
 
 def test_init_campaign_refuses_to_overwrite(
