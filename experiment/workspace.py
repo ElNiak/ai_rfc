@@ -88,8 +88,12 @@ AIOQUIC = Target(
 MARK = Target(
     name="mark",
     source=Path("reconstructions/mark"),
+    #: The snapshot is pinned rather than resolved to the newest, so a campaign
+    #: freezes the evidence it ran against. This one is ``ai_rfc.forge/2``; the
+    #: 2026-08-25 snapshot beside it predates the package rename and carries no
+    #: ``fidelity_ceiling``, which is why it is not the pin.
     forge_snapshot=Path(
-        "forge/gitlab.cylab.be__cylab__mark/snapshot-2026-08-25T15-38-20Z"
+        "forge/gitlab.cylab.be__cylab__mark/snapshot-2026-09-01T09-35-27Z"
     ),
     window=(1, 69),
     draft_name="draft-elniak-mark-reconstructed",
