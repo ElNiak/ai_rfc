@@ -178,7 +178,7 @@ def test_mcp_config_uses_absolute_paths(tmp_path):
     assert server["args"][0] == "-c" and str(tmp_path / "src") in server["args"][1]
     assert server["env"] == {
         "PANTHER_REPO": str(tmp_path / "W"),
-        "ARFC_WORKSPACE": str(tmp_path / "ws"),
+        "AI_RFC_WORKSPACE": str(tmp_path / "ws"),
     }
 
 

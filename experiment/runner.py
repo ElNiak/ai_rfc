@@ -97,7 +97,7 @@ def build_env(campaign: Campaign, ref: RunRef) -> dict[str, str]:
     return {
         "CLAUDE_CONFIG_DIR": str(campaign.profile_dir),
         "PANTHER_REPO": str(campaign.panther_repo),
-        "ARFC_WORKSPACE": str(ref.workspace),
+        "AI_RFC_WORKSPACE": str(ref.workspace),
         "PATH": f"{campaign.bin_dir}:{venv_bin}:/usr/bin:/bin",
         "HOME": os.environ.get("HOME", ""),
         # Measured on Claude Code 2.1.247 / macOS: drop USER and the CLI cannot
@@ -119,7 +119,7 @@ def prepare_run_argv(
     The guard is what actually separates the arms: ``--allowedTools`` does not
     confine a built-in tool, so each run mounts a ``PreToolUse`` hook holding
     its own arm's command prefixes. It is written beside the run rather than
-    inside ``ARFC_WORKSPACE``, which arms B and C can write.
+    inside ``AI_RFC_WORKSPACE``, which arms B and C can write.
 
     Args:
         campaign: The frozen campaign.

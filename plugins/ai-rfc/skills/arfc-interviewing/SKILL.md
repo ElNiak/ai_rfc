@@ -6,7 +6,7 @@ description: Drafting author questions from gap and inferred claims, exporting t
 # The author-feedback loop
 
 Questions turn an author's knowledge into citable evidence. The register
-(`$ARFC_WORKSPACE/questions.yaml`) is strict: an answered question without
+(`$AI_RFC_WORKSPACE/questions.yaml`) is strict: an answered question without
 its answer fails to load, and a question tied to no claim is refused.
 
 When the `arfc` MCP server is connected, use `arfc_question_draft`,
@@ -36,7 +36,7 @@ text, a call agenda. The register is channel-agnostic; only ids round-trip.
 
 ## Import
 
-1. Save the author's reply as `$ARFC_WORKSPACE/interviews/int-NNN.md`,
+1. Save the author's reply as `$AI_RFC_WORKSPACE/interviews/int-NNN.md`,
    dated and attributed, verbatim.
 2. For each answered question id:
    - Attach an `interview` anchor to each affected claim:

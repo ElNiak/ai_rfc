@@ -22,7 +22,7 @@ def make_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
     def use(root: Path) -> None:
         monkeypatch.setenv("PANTHER_REPO", str(PANTHER_ROOT))
-        monkeypatch.setenv("ARFC_WORKSPACE", str(root))
+        monkeypatch.setenv("AI_RFC_WORKSPACE", str(root))
 
     return build, use
 

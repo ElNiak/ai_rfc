@@ -24,7 +24,7 @@ workspace, named by two required environment variables:
 | Variable | Meaning |
 |---|---|
 | `PANTHER_REPO` | Root of a PANTHER checkout (the `a_rfc` substrate) |
-| `ARFC_WORKSPACE` | One reconstruction workspace (corpus, timeline, clusters, checkpoints, manifest, questions, revisions, draft) |
+| `AI_RFC_WORKSPACE` | One reconstruction workspace (corpus, timeline, clusters, checkpoints, manifest, questions, revisions, draft) |
 
 Missing either fails loudly; nothing guesses.
 
@@ -61,7 +61,7 @@ Missing either fails loudly; nothing guesses.
 creates the isolated Claude Code profile, `workspace prepare` builds a
 pristine reconstruction workspace, and the campaign commands (see the
 harness plan) launch, audit and analyze runs. State lives under
-`ARFC_EXPERIMENTS_ROOT` (default `~/arfc-experiments`), never inside a
+`AI_RFC_EXPERIMENTS_ROOT` (default `~/ai-rfc-experiments`), never inside a
 repository.
 
 **Run every `python -m experiment` command from this directory.** This

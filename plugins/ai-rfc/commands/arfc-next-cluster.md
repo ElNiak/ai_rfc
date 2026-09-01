@@ -3,7 +3,7 @@ description: Process the next unprocessed timeline cluster through the reconstru
 ---
 
 Run ONE iteration of the reconstruction loop on the workspace at
-`$ARFC_WORKSPACE`, following the `arfc-reconstruction-loop` skill exactly:
+`$AI_RFC_WORKSPACE`, following the `arfc-reconstruction-loop` skill exactly:
 pick the lowest-ordinal cluster with neither a checkpoint nor a revision
 entry, read its evidence, mine claims (never writing `status`), lint and
 fix anchors, record supported statuses, revise the draft or record an

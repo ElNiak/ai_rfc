@@ -2,7 +2,7 @@
 
 **Verdict: `go: true`** · first measured 2026-08-27 on **2.1.247**, re-verified
 2026-08-28 on **2.1.250**, re-armed 2026-08-31 on **2.1.251 (Claude Code)** ·
-model `claude-opus-5` · report `~/arfc-experiments/spike-report.json`
+model `claude-opus-5` · report `~/ai-rfc-experiments/spike-report.json`
 
 All required checks pass on all three versions. D20 (isolated OAuth profile) is
 **supported**; the `--bare` + `ANTHROPIC_API_KEY` fallback is not needed. Every plan
@@ -73,8 +73,8 @@ touch. Its passing is therefore a convenience, not a load-bearing change: nothin
 in the arm separation depends on it either way.
 
 The superseded 2.1.250 evidence is preserved rather than overwritten, at
-`~/arfc-experiments/spike-report.2.1.250-final.json` and
-`~/arfc-experiments/spike.2.1.250-final/`. Earlier flaky-control runs from the same
+`~/ai-rfc-experiments/spike-report.2.1.250-final.json` and
+`~/ai-rfc-experiments/spike.2.1.250-final/`. Earlier flaky-control runs from the same
 version are kept alongside them under their own suffixes.
 
 ## The enforcement finding, and what actually works
@@ -133,7 +133,7 @@ guard's message, the result event's `permission_denials`, and the `hook_started`
 **Where the guard lives matters.** The arms pass `--setting-sources project`, so
 user-level settings never load — a guard in the profile's `settings.json` would be
 inert. It is mounted with `--settings` from the campaign directory, never from
-`ARFC_WORKSPACE`, which arms B and C can write.
+`AI_RFC_WORKSPACE`, which arms B and C can write.
 
 ## Residual threats
 
@@ -167,20 +167,20 @@ inert. It is mounted with `--settings` from the campaign directory, never from
    immediately after. Scoring that as evidence made the verdict a coin flip, so an
    empty stream on a clean exit is now retried once.
 
-Superseded runs are preserved at `~/arfc-experiments/spike.failed-auth-1/`,
+Superseded runs are preserved at `~/ai-rfc-experiments/spike.failed-auth-1/`,
 `spike.pre-guard-2/` and `spike.flaky-control-3/` with their reports.
 
 ## Commands
 
 ```bash
 # one-time, by the user
-CLAUDE_CONFIG_DIR=~/arfc-experiments/profile claude auth login
+CLAUDE_CONFIG_DIR=~/ai-rfc-experiments/profile claude auth login
 
 # the spike
-cd $R && python -m experiment preflight --root ~/arfc-experiments --panther-repo $W
+cd $R && python -m experiment preflight --root ~/ai-rfc-experiments --panther-repo $W
 ```
 
 The subcommand is `preflight`; it still writes `spike-report.json` under
-`~/arfc-experiments/spike/`. Those names are recorded evidence from runs that
+`~/ai-rfc-experiments/spike/`. Those names are recorded evidence from runs that
 already happened, so they keep the word the reports were published under even
 though the command no longer says it.

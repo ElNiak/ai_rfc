@@ -45,7 +45,7 @@ CHECKS = (
     "append_prompt",
 )
 REQUIRED = frozenset(CHECKS) - {"draft_commit", "plugin_mcp"}
-CLAUDE_MD_CANARY = "ARFC-CANARY-7731"
+CLAUDE_MD_CANARY = "AI_RFC-CANARY-7731"
 APPEND_PROMPT_CANARY = "PASS-4412"
 GUARD_SETTINGS = "guard-C.json"
 ALLOW_SETTINGS = "guard-allow.json"
@@ -120,7 +120,7 @@ def build_invocations(
     plugin_env = {
         **isolated,
         "PANTHER_REPO": str(panther_repo),
-        "ARFC_WORKSPACE": str(workspace),
+        "AI_RFC_WORKSPACE": str(workspace),
     }
 
     def call(
@@ -167,7 +167,7 @@ def build_invocations(
         *arm_flags(arm_profile("C"), None, scratch / GUARD_SETTINGS),
     )
     return [
-        call("auth", "Reply with exactly: ARFC-OK", *no_tools, where=cwd),
+        call("auth", "Reply with exactly: AI_RFC-OK", *no_tools, where=cwd),
         call("hooks_isolated", _ECHO, *hook_flags, where=cwd),
         # The positive control mounts a hook of our own that allows the probe,
         # rather than borrowing whatever the user happens to have configured.
@@ -346,7 +346,7 @@ def _auth_check(auth: dict[str, Any]) -> CheckResult:
     final = result_event(auth["events"]) or {}
     passed = (
         auth["exit_code"] == 0
-        and "ARFC-OK" in _answer(auth)
+        and "AI_RFC-OK" in _answer(auth)
         and not final.get("is_error", True)
     )
     return passed, {

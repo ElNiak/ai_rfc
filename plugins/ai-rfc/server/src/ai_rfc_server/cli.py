@@ -38,7 +38,7 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="arfc",
         description=(
-            "Drive a reconstruction workspace (ARFC_WORKSPACE) against a "
+            "Drive a reconstruction workspace (AI_RFC_WORKSPACE) against a "
             "PANTHER checkout (PANTHER_REPO)."
         ),
     )

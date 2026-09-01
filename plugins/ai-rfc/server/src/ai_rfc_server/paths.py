@@ -1,7 +1,7 @@
 """Resolve the two environment handles everything here depends on.
 
 ``PANTHER_REPO`` names a PANTHER checkout (the deterministic substrate) and
-``ARFC_WORKSPACE`` one reconstruction workspace. Both are required; nothing
+``AI_RFC_WORKSPACE`` one reconstruction workspace. Both are required; nothing
 guesses, because a tool quietly operating on the wrong workspace is the
 kind of failure that looks like success.
 """
@@ -53,10 +53,10 @@ def resolve_context() -> Context:
             it must.
     """
     repo = os.environ.get("PANTHER_REPO")
-    workspace = os.environ.get("ARFC_WORKSPACE")
+    workspace = os.environ.get("AI_RFC_WORKSPACE")
     if not repo or not workspace:
         raise EnvError(
-            "PANTHER_REPO and ARFC_WORKSPACE must both be set; refusing to "
+            "PANTHER_REPO and AI_RFC_WORKSPACE must both be set; refusing to "
             "guess which checkout or workspace to operate on"
         )
     repo_path = Path(repo).resolve()
@@ -64,7 +64,7 @@ def resolve_context() -> Context:
     if not (repo_path / "panther" / "plugins").is_dir():
         raise EnvError(f"PANTHER_REPO={repo_path} is not a PANTHER checkout")
     if not workspace_path.is_dir():
-        raise EnvError(f"ARFC_WORKSPACE={workspace_path} is not a directory")
+        raise EnvError(f"AI_RFC_WORKSPACE={workspace_path} is not a directory")
     if str(repo_path) not in sys.path:
         sys.path.insert(0, str(repo_path))
     return Context(panther_repo=repo_path, workspace=workspace_path)

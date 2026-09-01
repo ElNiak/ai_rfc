@@ -6,10 +6,10 @@ from experiment.profile import init_profile, login_command
 
 
 def test_default_root_honours_env(monkeypatch, tmp_path):
-    monkeypatch.setenv("ARFC_EXPERIMENTS_ROOT", str(tmp_path / "exp"))
+    monkeypatch.setenv("AI_RFC_EXPERIMENTS_ROOT", str(tmp_path / "exp"))
     assert default_root() == tmp_path / "exp"
-    monkeypatch.delenv("ARFC_EXPERIMENTS_ROOT")
-    assert default_root() == Path("~/arfc-experiments").expanduser()
+    monkeypatch.delenv("AI_RFC_EXPERIMENTS_ROOT")
+    assert default_root() == Path("~/ai-rfc-experiments").expanduser()
 
 
 def test_init_profile_creates_dir_and_names_login(tmp_path):

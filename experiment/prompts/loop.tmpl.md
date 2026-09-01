@@ -10,7 +10,7 @@ clusters in ordinal order; never skip silently.
 
 ## Preconditions
 
-- `PANTHER_REPO` and `ARFC_WORKSPACE` are set; {{runtime}}.
+- `PANTHER_REPO` and `AI_RFC_WORKSPACE` are set; {{runtime}}.
 - The workspace holds `corpus/`, `timeline/`, `clusters/` and the pinned
   `clone/`. When a forge snapshot exists, the timeline MUST have been built
   with `--forge` **before any checkpoint is written** — forge data

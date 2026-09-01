@@ -46,11 +46,11 @@ def test_launch_streams_events_and_records_status(campaign, write_scenario):
     assert "--append-system-prompt-file" in argv
     env = json.loads((ref.run_dir / "env.json").read_text())
     assert env["PATH"].startswith(str(campaign.bin_dir))
-    assert env["ARFC_WORKSPACE"] == str(ref.workspace)
+    assert env["AI_RFC_WORKSPACE"] == str(ref.workspace)
     assert set(env) == {
         "CLAUDE_CONFIG_DIR",
         "PANTHER_REPO",
-        "ARFC_WORKSPACE",
+        "AI_RFC_WORKSPACE",
         "PATH",
         "HOME",
         "USER",

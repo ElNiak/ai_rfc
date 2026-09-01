@@ -7,12 +7,12 @@
   "expected_from": "Each verdict is derived by reading the command against the family list: every command group must begin with an in-family command, and any later pipe stage must be a pager. The verdicts are not a recording of what the implementation returns.",
   "cases": [
     {
-      "command": "echo \"PANTHER_REPO=$PANTHER_REPO\"; echo \"ARFC_WORKSPACE=$ARFC_WORKSPACE\"; which arfc; ls -la \"$ARFC_WORKSPACE\" 2>/dev/null || ls -la .",
+      "command": "echo \"PANTHER_REPO=$PANTHER_REPO\"; echo \"AI_RFC_WORKSPACE=$AI_RFC_WORKSPACE\"; which arfc; ls -la \"$AI_RFC_WORKSPACE\" 2>/dev/null || ls -la .",
       "allowed": false,
       "why": "first group runs echo; the groups after it run which, then ls"
     },
     {
-      "command": "ls /Users/elniak/arfc-experiments/campaigns/pilot-aioquic-w02-11-20260828/runs/B1/workspace",
+      "command": "ls /Users/elniak/ai-rfc-experiments/campaigns/pilot-aioquic-w02-11-20260828/runs/B1/workspace",
       "allowed": false,
       "why": "runs ls, which is not an arfc command"
     },

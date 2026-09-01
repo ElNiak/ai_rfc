@@ -16,7 +16,7 @@ When the `arfc` MCP server is connected, prefer its tools (`arfc_cluster_next`, 
 
 ## Preconditions
 
-- `PANTHER_REPO` and `ARFC_WORKSPACE` are set; commands below run with an interpreter that imports `panther` first on `PATH` (`python -m …`).
+- `PANTHER_REPO` and `AI_RFC_WORKSPACE` are set; commands below run with an interpreter that imports `panther` first on `PATH` (`python -m …`).
 - The workspace holds `corpus/`, `timeline/`, `clusters/` and the pinned
   `clone/`. When a forge snapshot exists, the timeline MUST have been built
   with `--forge` **before any checkpoint is written** — forge data
@@ -24,33 +24,33 @@ When the `arfc` MCP server is connected, prefer its tools (`arfc_cluster_next`, 
 
 ## One iteration
 
-1. **Pick the next cluster**: read `$ARFC_WORKSPACE/timeline/clusters.jsonl` in ordinal order and take the first id that has neither a `checkpoints/<id>/` directory nor a `revisions.yaml` entry.
-2. **Read its evidence**: read `$ARFC_WORKSPACE/clusters/<id>/view.json` (file set, PR number), `span.diff` (paginate long diffs with `sed -n`) and `evidence/pr.json` when present. For context beyond the cluster,
+1. **Pick the next cluster**: read `$AI_RFC_WORKSPACE/timeline/clusters.jsonl` in ordinal order and take the first id that has neither a `checkpoints/<id>/` directory nor a `revisions.yaml` entry.
+2. **Read its evidence**: read `$AI_RFC_WORKSPACE/clusters/<id>/view.json` (file set, PR number), `span.diff` (paginate long diffs with `sed -n`) and `evidence/pr.json` when present. For context beyond the cluster,
    query the corpus index — churn-ranked reading beats the directory tree:
-   `sqlite3 $ARFC_WORKSPACE/corpus/index.sqlite "SELECT path, COUNT(*) c FROM file_changes GROUP BY path ORDER BY c DESC LIMIT 20"`.
+   `sqlite3 $AI_RFC_WORKSPACE/corpus/index.sqlite "SELECT path, COUNT(*) c FROM file_changes GROUP BY path ORDER BY c DESC LIMIT 20"`.
 3. **Mine claims**: behaviours the cluster introduces or changes, each with
    pinned anchors (the cluster's member commits are the natural pins) and
-   NO `status`: edit `$ARFC_WORKSPACE/manifest.yaml` by hand — quote every id and section, never write `status`. A commit message stating a decision is an
+   NO `status`: edit `$AI_RFC_WORKSPACE/manifest.yaml` by hand — quote every id and section, never write `status`. A commit message stating a decision is an
    `adr` anchor; PR discussion explaining intent supports `intent:` but is
    not itself an anchor class.
-4. **Lint**: `python -m panther.plugins.services.testers.ai_rfc $ARFC_WORKSPACE/manifest.yaml --out $ARFC_WORKSPACE/out --repo $ARFC_WORKSPACE/clone` — fix every unverified anchor (wrong paths, wrong
+4. **Lint**: `python -m panther.plugins.services.testers.ai_rfc $AI_RFC_WORKSPACE/manifest.yaml --out $AI_RFC_WORKSPACE/out --repo $AI_RFC_WORKSPACE/clone` — fix every unverified anchor (wrong paths, wrong
    commits, wrong lines) BEFORE anything is built on top.
-5. **Record statuses**: read `$ARFC_WORKSPACE/out/report.json` (`claims[]`) and set each claim's `status` in `manifest.yaml` to exactly its `supported` value. Then the strict gate:
-   `python -m panther.plugins.services.testers.ai_rfc $ARFC_WORKSPACE/manifest.yaml --out $ARFC_WORKSPACE/out --repo $ARFC_WORKSPACE/clone --strict` — exit 0 is the bar.
+5. **Record statuses**: read `$AI_RFC_WORKSPACE/out/report.json` (`claims[]`) and set each claim's `status` in `manifest.yaml` to exactly its `supported` value. Then the strict gate:
+   `python -m panther.plugins.services.testers.ai_rfc $AI_RFC_WORKSPACE/manifest.yaml --out $AI_RFC_WORKSPACE/out --repo $AI_RFC_WORKSPACE/clone --strict` — exit 0 is the bar.
 6. **Decide spec relevance**:
    - Normative behaviour changed → update the draft per the RFC-style
      rules, citing the new/changed claims.
    - Nothing normative → no prose edit; the revision entry will say so.
-7. **Checkpoint**: `python -m panther.plugins.services.testers.ai_rfc.draft checkpoint $ARFC_WORKSPACE/manifest.yaml --timeline $ARFC_WORKSPACE/timeline --cluster <id> --out $ARFC_WORKSPACE/checkpoints`.
-8. **Record and tag the revision**: append the entry to `$ARFC_WORKSPACE/revisions.yaml` under `revisions:` (`cluster_id`, `checkpoint_manifest_sha256` copied from the checkpoint's `checkpoint.json`, `normative_change`, `note`) — the tag
+7. **Checkpoint**: `python -m panther.plugins.services.testers.ai_rfc.draft checkpoint $AI_RFC_WORKSPACE/manifest.yaml --timeline $AI_RFC_WORKSPACE/timeline --cluster <id> --out $AI_RFC_WORKSPACE/checkpoints`.
+8. **Record and tag the revision**: append the entry to `$AI_RFC_WORKSPACE/revisions.yaml` under `revisions:` (`cluster_id`, `checkpoint_manifest_sha256` copied from the checkpoint's `checkpoint.json`, `normative_change`, `note`) — the tag
    `draft-<name>-NN` (two digits, monotone in cluster ordinal), the cluster
    id, an explicit `normative_change`, a one-line note. Commit any prose
-   change (`git -C $ARFC_WORKSPACE/draft add -A && git -C $ARFC_WORKSPACE/draft commit -m "<message>"`), then create the annotated tag
-   (`git -C $ARFC_WORKSPACE/draft tag -a draft-<name>-NN -m "<message>"` — only after the strict manifest gate exited 0). Every revision entry needs its tag, no-change
+   change (`git -C $AI_RFC_WORKSPACE/draft add -A && git -C $AI_RFC_WORKSPACE/draft commit -m "<message>"`), then create the annotated tag
+   (`git -C $AI_RFC_WORKSPACE/draft tag -a draft-<name>-NN -m "<message>"` — only after the strict manifest gate exited 0). Every revision entry needs its tag, no-change
    revisions included.
-9. **Gate**: `python -m panther.plugins.services.testers.ai_rfc.draft gate $ARFC_WORKSPACE/draft --timeline $ARFC_WORKSPACE/timeline --checkpoints $ARFC_WORKSPACE/checkpoints --questions $ARFC_WORKSPACE/questions.yaml --revisions $ARFC_WORKSPACE/revisions.yaml --out $ARFC_WORKSPACE/out --strict` — exit 0 before advancing.
+9. **Gate**: `python -m panther.plugins.services.testers.ai_rfc.draft gate $AI_RFC_WORKSPACE/draft --timeline $AI_RFC_WORKSPACE/timeline --checkpoints $AI_RFC_WORKSPACE/checkpoints --questions $AI_RFC_WORKSPACE/questions.yaml --revisions $AI_RFC_WORKSPACE/revisions.yaml --out $AI_RFC_WORKSPACE/out --strict` — exit 0 before advancing.
 10. **Open questions**: any claim stuck at `gap`/`inferred` that blocks a
-    section gets a question: append a `q-NNN` entry (`question`, `claim_ids`, `status: open`, `asked_at`) to `$ARFC_WORKSPACE/questions.yaml`.
+    section gets a question: append a `q-NNN` entry (`question`, `claim_ids`, `status: open`, `asked_at`) to `$AI_RFC_WORKSPACE/questions.yaml`.
 
 ## Failure recovery
 

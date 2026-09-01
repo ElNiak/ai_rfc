@@ -3,7 +3,7 @@
 
 The runner launches it exactly like the real CLI. It reads its scenario from
 ``$CLAUDE_CONFIG_DIR/fake-scenarios/<run-id>.json`` (the run id is the parent
-directory name of ``$ARFC_WORKSPACE``), falling back to ``default.json``;
+directory name of ``$AI_RFC_WORKSPACE``), falling back to ``default.json``;
 records how it was called under ``fake-calls/``; emits an init event shaped
 by its argv; replays the scenario's steps as tool calls that really mutate
 the workspace through the server core; and ends with a result event. Never
@@ -171,7 +171,7 @@ class Session:
 
     def run(self, step: dict) -> None:
         kind = step["kind"]
-        ws = "$ARFC_WORKSPACE"
+        ws = "$AI_RFC_WORKSPACE"
         if kind == "text":
             self._message([{"type": "text", "text": step.get("text", "…")}], step)
         elif kind == "claim":
@@ -383,7 +383,7 @@ def main() -> int:
         print("fake-claude 0.0.0")
         return 0
     config_dir = Path(os.environ["CLAUDE_CONFIG_DIR"])
-    workspace = Path(os.environ.get("ARFC_WORKSPACE", os.getcwd()))
+    workspace = Path(os.environ.get("AI_RFC_WORKSPACE", os.getcwd()))
     run_id = workspace.parent.name
     scenarios = config_dir / "fake-scenarios"
     path = scenarios / f"{run_id}.json"
@@ -402,7 +402,7 @@ def main() -> int:
                     for k in (
                         "CLAUDE_CONFIG_DIR",
                         "PANTHER_REPO",
-                        "ARFC_WORKSPACE",
+                        "AI_RFC_WORKSPACE",
                         "PATH",
                         "HOME",
                     )

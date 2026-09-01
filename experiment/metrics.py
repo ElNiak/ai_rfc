@@ -220,6 +220,10 @@ def trajectory(
 ) -> dict[str, Any]:
     """Cumulative tokens at each checkpoint call, tokens-to-first, and the AUC.
 
+    AUC here is the area under the completed-clusters-against-cumulative-tokens
+    curve: how much of the window an arm had finished per token spent, so a
+    cheap early completion scores above an equally complete but costlier run.
+
     Args:
         events: The parsed transcript.
         arm: The arm the run was launched as.

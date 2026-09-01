@@ -7,7 +7,7 @@
     ],
     "env": {
       "PANTHER_REPO": "${PANTHER_REPO}",
-      "ARFC_WORKSPACE": "${ARFC_WORKSPACE}"
+      "AI_RFC_WORKSPACE": "${AI_RFC_WORKSPACE}"
     }
   }
 }

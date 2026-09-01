@@ -107,7 +107,7 @@ def _add_root(parser: argparse.ArgumentParser) -> None:
         "--root",
         type=Path,
         default=None,
-        help="Runs root (default: ARFC_EXPERIMENTS_ROOT or ~/arfc-experiments).",
+        help="Runs root (default: AI_RFC_EXPERIMENTS_ROOT or ~/ai-rfc-experiments).",
     )
 
 

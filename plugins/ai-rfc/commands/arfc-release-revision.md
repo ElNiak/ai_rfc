@@ -2,7 +2,7 @@
 description: Tag the current draft state as the next revision after all gates pass
 ---
 
-Release the current draft state of `$ARFC_WORKSPACE` as revision `-NN`
+Release the current draft state of `$AI_RFC_WORKSPACE` as revision `-NN`
 (next number, monotone in cluster ordinal):
 
 1. Confirm `revisions.yaml` carries the entry for this tag (cluster id,

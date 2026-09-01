@@ -2,7 +2,7 @@
 description: One-screen reconstruction status — clusters processed, claim standings, open questions, last revision
 ---
 
-Report the state of the workspace at `$ARFC_WORKSPACE`, computed from the
+Report the state of the workspace at `$AI_RFC_WORKSPACE`, computed from the
 substrate's own artifacts (never re-derived by hand):
 
 - **Timeline**: cluster counts by kind and provenance from

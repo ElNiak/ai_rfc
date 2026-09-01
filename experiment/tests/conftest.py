@@ -11,12 +11,12 @@ from pathlib import Path
 
 import pytest
 
-AI_RFC_ROOT = Path(__file__).resolve().parents[2]
-SERVER_SRC = AI_RFC_ROOT / "plugins" / "ai-rfc" / "server" / "src"
-PANTHER_ROOT = AI_RFC_ROOT.parents[5]
+HARNESS_ROOT = Path(__file__).resolve().parents[2]
+SERVER_SRC = HARNESS_ROOT / "plugins" / "ai-rfc" / "server" / "src"
+PANTHER_ROOT = HARNESS_ROOT.parents[5]
 FAKE_CLAUDE = Path(__file__).parent / "fake_claude" / "claude"
 
-for entry in (str(AI_RFC_ROOT), str(SERVER_SRC), str(PANTHER_ROOT)):
+for entry in (str(HARNESS_ROOT), str(SERVER_SRC), str(PANTHER_ROOT)):
     if entry not in sys.path:
         sys.path.insert(0, entry)
 
@@ -29,7 +29,7 @@ def panther_repo() -> Path:
 
 @pytest.fixture
 def plugin_root() -> Path:
-    return AI_RFC_ROOT / "plugins" / "ai-rfc"
+    return HARNESS_ROOT / "plugins" / "ai-rfc"
 
 
 @pytest.fixture
@@ -39,7 +39,7 @@ def fixture_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
     root = build_workspace(tmp_path / "ws")
     monkeypatch.setenv("PANTHER_REPO", str(PANTHER_ROOT))
-    monkeypatch.setenv("ARFC_WORKSPACE", str(root))
+    monkeypatch.setenv("AI_RFC_WORKSPACE", str(root))
     return root
 
 

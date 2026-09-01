@@ -20,7 +20,7 @@ def _launch(profile: Path, workspace: Path, panther_repo: Path, *argv: str):
     env = {
         "CLAUDE_CONFIG_DIR": str(profile),
         "PANTHER_REPO": str(panther_repo),
-        "ARFC_WORKSPACE": str(workspace),
+        "AI_RFC_WORKSPACE": str(workspace),
         "PATH": f"{Path(sys.executable).parent}:/usr/bin:/bin",
         "HOME": os.environ.get("HOME", ""),
         "USER": os.environ.get("USER", ""),

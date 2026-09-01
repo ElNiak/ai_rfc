@@ -154,7 +154,7 @@ def mcp_config(
                 "args": ["-c", bootstrap],
                 "env": {
                     "PANTHER_REPO": str(panther_repo),
-                    "ARFC_WORKSPACE": str(workspace),
+                    "AI_RFC_WORKSPACE": str(workspace),
                 },
             }
         }

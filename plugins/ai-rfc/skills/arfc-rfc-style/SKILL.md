@@ -5,7 +5,7 @@ description: Internet-Draft prose discipline for reconstructed specifications â€
 
 # RFC prose for a reconstructed specification
 
-The draft lives in `$ARFC_WORKSPACE/draft/`, a git repository scaffolded
+The draft lives in `$AI_RFC_WORKSPACE/draft/`, a git repository scaffolded
 from `ElNiak/auto-i-d-template` (kramdown-rfc markdown, Makefile-driven).
 The prose is yours; every claim of fact in it is not â€” it must cite a claim
 the paired checkpoint manifest holds, and the citation gate verifies that
@@ -52,7 +52,7 @@ prose.
 - One revision per spec-relevant cluster: extend the prose, commit, then
   tag with an **annotated** tag `draft-<name>-NN` (two digits, monotone in
   cluster ordinal).
-- Record every revision in `$ARFC_WORKSPACE/revisions.yaml`:
+- Record every revision in `$AI_RFC_WORKSPACE/revisions.yaml`:
   `cluster_id`, `checkpoint_manifest_sha256` (from the checkpoint's
   `checkpoint.json`), an explicit boolean `normative_change`, and a
   one-line `note`.

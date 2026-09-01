@@ -42,62 +42,62 @@ _EXPERIMENT_GUIDANCE = (
 
 _RAW = {
     "cluster_next": (
-        "read `$ARFC_WORKSPACE/timeline/clusters.jsonl` in ordinal order and take "
+        "read `$AI_RFC_WORKSPACE/timeline/clusters.jsonl` in ordinal order and take "
         "the first id that has neither a `checkpoints/<id>/` directory nor a "
         "`revisions.yaml` entry"
     ),
     "cluster_get": (
-        "read `$ARFC_WORKSPACE/clusters/<id>/view.json` (file set, PR number), "
+        "read `$AI_RFC_WORKSPACE/clusters/<id>/view.json` (file set, PR number), "
         "`span.diff` (paginate long diffs with `sed -n`) and `evidence/pr.json` "
         "when present"
     ),
-    "corpus_query": f'`sqlite3 $ARFC_WORKSPACE/corpus/index.sqlite "{_CHURN_SQL}"`',
+    "corpus_query": f'`sqlite3 $AI_RFC_WORKSPACE/corpus/index.sqlite "{_CHURN_SQL}"`',
     "claim_upsert": (
-        "edit `$ARFC_WORKSPACE/manifest.yaml` by hand — quote every id and "
+        "edit `$AI_RFC_WORKSPACE/manifest.yaml` by hand — quote every id and "
         "section, never write `status`"
     ),
     "lint": (
         "`python -m panther.plugins.services.testers.ai_rfc "
-        "$ARFC_WORKSPACE/manifest.yaml --out $ARFC_WORKSPACE/out --repo "
-        "$ARFC_WORKSPACE/clone`"
+        "$AI_RFC_WORKSPACE/manifest.yaml --out $AI_RFC_WORKSPACE/out --repo "
+        "$AI_RFC_WORKSPACE/clone`"
     ),
     "record_status": (
-        "read `$ARFC_WORKSPACE/out/report.json` (`claims[]`) and set each claim's "
+        "read `$AI_RFC_WORKSPACE/out/report.json` (`claims[]`) and set each claim's "
         "`status` in `manifest.yaml` to exactly its `supported` value"
     ),
     "gate": (
         "`python -m panther.plugins.services.testers.ai_rfc "
-        "$ARFC_WORKSPACE/manifest.yaml --out $ARFC_WORKSPACE/out --repo "
-        "$ARFC_WORKSPACE/clone --strict`"
+        "$AI_RFC_WORKSPACE/manifest.yaml --out $AI_RFC_WORKSPACE/out --repo "
+        "$AI_RFC_WORKSPACE/clone --strict`"
     ),
     "checkpoint": (
         "`python -m panther.plugins.services.testers.ai_rfc.draft checkpoint "
-        "$ARFC_WORKSPACE/manifest.yaml --timeline $ARFC_WORKSPACE/timeline "
-        "--cluster <id> --out $ARFC_WORKSPACE/checkpoints`"
+        "$AI_RFC_WORKSPACE/manifest.yaml --timeline $AI_RFC_WORKSPACE/timeline "
+        "--cluster <id> --out $AI_RFC_WORKSPACE/checkpoints`"
     ),
     "revision_record": (
-        "append the entry to `$ARFC_WORKSPACE/revisions.yaml` under `revisions:` "
+        "append the entry to `$AI_RFC_WORKSPACE/revisions.yaml` under `revisions:` "
         "(`cluster_id`, `checkpoint_manifest_sha256` copied from the checkpoint's "
         "`checkpoint.json`, `normative_change`, `note`)"
     ),
     "draft_commit": (
-        "`git -C $ARFC_WORKSPACE/draft add -A && git -C $ARFC_WORKSPACE/draft "
+        "`git -C $AI_RFC_WORKSPACE/draft add -A && git -C $AI_RFC_WORKSPACE/draft "
         'commit -m "<message>"`'
     ),
     "revision_tag": (
-        '`git -C $ARFC_WORKSPACE/draft tag -a draft-<name>-NN -m "<message>"` — '
+        '`git -C $AI_RFC_WORKSPACE/draft tag -a draft-<name>-NN -m "<message>"` — '
         "only after the strict manifest gate exited 0"
     ),
     "citation_gate": (
         "`python -m panther.plugins.services.testers.ai_rfc.draft gate "
-        "$ARFC_WORKSPACE/draft --timeline $ARFC_WORKSPACE/timeline --checkpoints "
-        "$ARFC_WORKSPACE/checkpoints --questions $ARFC_WORKSPACE/questions.yaml "
-        "--revisions $ARFC_WORKSPACE/revisions.yaml --out $ARFC_WORKSPACE/out "
+        "$AI_RFC_WORKSPACE/draft --timeline $AI_RFC_WORKSPACE/timeline --checkpoints "
+        "$AI_RFC_WORKSPACE/checkpoints --questions $AI_RFC_WORKSPACE/questions.yaml "
+        "--revisions $AI_RFC_WORKSPACE/revisions.yaml --out $AI_RFC_WORKSPACE/out "
         "--strict`"
     ),
     "question_draft": (
         "append a `q-NNN` entry (`question`, `claim_ids`, `status: open`, "
-        "`asked_at`) to `$ARFC_WORKSPACE/questions.yaml`"
+        "`asked_at`) to `$AI_RFC_WORKSPACE/questions.yaml`"
     ),
 }
 

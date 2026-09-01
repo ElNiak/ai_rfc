@@ -5,12 +5,12 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-DEFAULT_ROOT = "~/arfc-experiments"
+DEFAULT_ROOT = "~/ai-rfc-experiments"
 
 
 def default_root() -> Path:
-    """The runs root: ``ARFC_EXPERIMENTS_ROOT`` or ``~/arfc-experiments``."""
-    return Path(os.environ.get("ARFC_EXPERIMENTS_ROOT", DEFAULT_ROOT)).expanduser()
+    """The runs root: ``AI_RFC_EXPERIMENTS_ROOT`` or ``~/ai-rfc-experiments``."""
+    return Path(os.environ.get("AI_RFC_EXPERIMENTS_ROOT", DEFAULT_ROOT)).expanduser()
 
 
 def profile_dir(root: Path) -> Path:
