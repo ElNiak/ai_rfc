@@ -7,7 +7,7 @@ import pytest
 
 from experiment.arms import profile
 from experiment.enforcement import (
-    bash_families,
+    bash_prefixes,
     command_groups,
     is_allowed,
     render_settings,
@@ -16,10 +16,10 @@ from experiment.enforcement import (
 GUARD = Path(__file__).resolve().parents[1] / "guard.py"
 
 
-def test_families_come_from_each_arm_allowlist():
-    assert bash_families(profile("A")) == ()
-    assert bash_families(profile("B")) == ("arfc ",)
-    assert bash_families(profile("C")) == (
+def test_prefixes_come_from_each_arm_allowlist():
+    assert bash_prefixes(profile("A")) == ()
+    assert bash_prefixes(profile("B")) == ("arfc ",)
+    assert bash_prefixes(profile("C")) == (
         "python -m panther.plugins.services.testers.a_rfc",
         "git ",
         "sqlite3 ",
@@ -47,7 +47,7 @@ def test_segments_split_on_every_control_operator():
         "arfc status > out.txt",
     ],
 )
-def test_in_family_commands_are_allowed(command):
+def test_in_prefix_commands_are_allowed(command):
     assert is_allowed(command, ("arfc ",)) is True
 
 
@@ -68,13 +68,13 @@ def test_out_of_family_and_substitution_are_blocked(command):
     assert is_allowed(command, ("arfc ",)) is False
 
 
-def test_an_arm_without_families_allows_nothing():
+def test_an_arm_without_prefixes_allows_nothing():
     assert is_allowed("arfc status", ()) is False
 
 
 def test_settings_use_the_nested_hook_shape():
     document = render_settings(
-        python="/venv/bin/python", guard=Path("/g/guard.py"), families=("arfc ",)
+        python="/venv/bin/python", guard=Path("/g/guard.py"), prefixes=("arfc ",)
     )
     assert set(document) == {"hooks"}
     entry = document["hooks"]["PreToolUse"][0]
@@ -85,17 +85,17 @@ def test_settings_use_the_nested_hook_shape():
     assert "'arfc '" in hook["command"]
 
 
-def _run_guard(command: str, *families: str) -> int:
+def _run_guard(command: str, *prefixes: str) -> int:
     payload = json.dumps({"tool_input": {"command": command}})
     return subprocess.run(
-        [sys.executable, str(GUARD), *families],
+        [sys.executable, str(GUARD), *prefixes],
         input=payload,
         capture_output=True,
         text=True,
     ).returncode
 
 
-def test_guard_exits_zero_only_for_an_in_family_command():
+def test_guard_exits_zero_only_for_an_in_prefix_command():
     assert _run_guard("arfc status", "arfc ") == 0
     assert _run_guard("echo bypass-probe", "arfc ") == 2
     assert _run_guard("arfc status && echo x", "arfc ") == 2
@@ -122,14 +122,14 @@ def test_a_continued_command_is_one_command():
     assert not is_allowed("arfc status \\\n ; echo bypass-probe", ("arfc ",))
 
 
-def test_an_in_family_command_may_page_its_own_output():
+def test_an_in_prefix_command_may_page_its_own_output():
     """Also observed in B1: `arfc cluster-get --patch ... 2>&1 | head` was refused."""
-    families = ("arfc ",)
-    assert is_allowed("arfc cluster-get c --patch 2>&1 | head -c 20000", families)
-    assert is_allowed("arfc status | head -20", families)
-    assert is_allowed("arfc status | tail -5 | wc -l", families)
-    assert is_allowed("arfc status > out.txt", families)
+    prefixes = ("arfc ",)
+    assert is_allowed("arfc cluster-get c --patch 2>&1 | head -c 20000", prefixes)
+    assert is_allowed("arfc status | head -20", prefixes)
+    assert is_allowed("arfc status | tail -5 | wc -l", prefixes)
+    assert is_allowed("arfc status > out.txt", prefixes)
     # Only the pagers, and only after something in family.
-    assert not is_allowed("arfc status | sh", families)
-    assert not is_allowed("arfc status | tee /tmp/x", families)
-    assert not is_allowed("echo bypass | head", families)
+    assert not is_allowed("arfc status | sh", prefixes)
+    assert not is_allowed("arfc status | tee /tmp/x", prefixes)
+    assert not is_allowed("echo bypass | head", prefixes)

@@ -84,7 +84,7 @@ def test_arm_surface_invocations_carry_their_arm_flags(tmp_path):
     assert "--disable-slash-commands" in a and "--disable-slash-commands" in b
 
 
-def _ran_in_family():
+def _ran_in_prefix():
     return _outcome(
         [
             {
@@ -106,7 +106,7 @@ def _ran_in_family():
 
 def test_evaluate_denial_check_on_fixture(tmp_path):
     events = parse_stream((FIXTURES / "denied-bash.jsonl").read_text())
-    outcomes = {"denial": _outcome(events), "denial_control": _ran_in_family()}
+    outcomes = {"denial": _outcome(events), "denial_control": _ran_in_prefix()}
     checks = {c["check"]: c for c in evaluate(outcomes, tmp_path)}
     assert checks["denial"]["passed"] is True
 
@@ -121,7 +121,7 @@ def test_evaluate_denial_check_on_fixture(tmp_path):
     checks = {
         c["check"]: c
         for c in evaluate(
-            {"denial": _outcome(leaked), "denial_control": _ran_in_family()}, tmp_path
+            {"denial": _outcome(leaked), "denial_control": _ran_in_prefix()}, tmp_path
         )
     }
     assert checks["denial"]["passed"] is False

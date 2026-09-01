@@ -189,7 +189,7 @@ def test_audit_over_fake_runs_counts_bypasses_and_errors(campaign, write_scenari
 def test_bash_family_reads_a_command_the_way_the_guard_does():
     """A guard-legal command must not be classified out of its own arm.
 
-    Both quoted shapes below are one in-family command to the guard, as is a
+    Both quoted shapes below are one in-prefix command to the guard, as is a
     command paging its own output. Classifying any of them as ``bash:mixed``
     would report an integrity violation for a call the arm was entitled to
     make.

@@ -1,9 +1,9 @@
-"""Confine each arm's Bash tool to its declared command families.
+"""Confine each arm's Bash tool to its declared command prefixes.
 
 Measured on Claude Code 2.1.247 and re-measured on 2.1.251: ``--allowedTools``
 does not constrain a built-in tool that ``--tools`` has enabled, and permission
-deny rules cannot express "only this family" — denying ``Bash`` and re-allowing
-one family blocks the allowed command too. A ``PreToolUse`` hook can express it,
+deny rules cannot express "only this prefix" — denying ``Bash`` and re-allowing
+one prefix blocks the allowed command too. A ``PreToolUse`` hook can express it,
 but only through the **exit-2 blocking path**; returning the documented
 ``hookSpecificOutput.permissionDecision = "deny"`` is silently ignored and the
 command runs.
@@ -12,7 +12,7 @@ This is a property of the installed CLI, not a contract it offers. Re-run
 ``python -m experiment spike`` and check its ``denial`` control whenever the
 CLI moves, before spending anything on a campaign.
 
-The families come from each arm's existing ``allowed_tools`` declaration, so
+The prefixes come from each arm's existing ``allowed_tools`` declaration, so
 this module adds enforcement without adding a second source of truth.
 """
 
@@ -25,30 +25,30 @@ from typing import Any, Sequence
 from .arms import ArmProfile
 
 SUBSTITUTION = ("$(", "`", "<(", ">(", "${")
-#: Programs an in-family command may pipe into. They only read and trim their
+#: Programs an in-prefix command may pipe into. They only read and trim their
 #: input, so they cannot reach a surface the arm does not already have.
-PAGERS = ("head", "tail", "wc", "cut")
+FILTERS = ("head", "tail", "wc", "cut")
 #: A backslash-newline continues one command; it does not start a second.
 _CONTINUATION = re.compile(r"\\\r?\n")
-_BASH_ENTRY = re.compile(r"^Bash\((?P<family>.*?)\*?\)$")
+_BASH_ENTRY = re.compile(r"^Bash\((?P<prefix>.*?)\*?\)$")
 
 
-def bash_families(arm_profile: ArmProfile) -> tuple[str, ...]:
+def bash_prefixes(arm_profile: ArmProfile) -> tuple[str, ...]:
     """The command prefixes an arm may run.
 
     Args:
-        arm_profile: The arm whose ``allowed_tools`` declares its families.
+        arm_profile: The arm whose ``allowed_tools`` declares its prefixes.
 
     Returns:
         One prefix per ``Bash(...)`` entry, trailing ``*`` stripped, in
         declaration order. Empty when the arm has no Bash tool at all.
     """
-    families = []
+    prefixes = []
     for entry in arm_profile.allowed_tools:
         match = _BASH_ENTRY.match(entry)
         if match:
-            families.append(match.group("family"))
-    return tuple(families)
+            prefixes.append(match.group("prefix"))
+    return tuple(prefixes)
 
 
 def _redirects(text: str, index: int) -> bool:
@@ -73,7 +73,7 @@ def command_groups(command: str) -> list[list[str]]:
     argument belong to that argument and separate nothing. An arm holding a SQL
     surface writes both routinely — ``SELECT a || b`` concatenates and
     ``SELECT 1; SELECT 2`` terminates — so splitting on them would refuse a
-    command that runs one in-family program.
+    command that runs one in-prefix program.
 
     Line continuations are joined first, so a command written across several
     lines stays one command. Redirections are not operators.
@@ -148,26 +148,26 @@ def command_groups(command: str) -> list[list[str]]:
     return groups
 
 
-def is_allowed(command: str, families: Sequence[str]) -> bool:
-    """Whether every command in ``command`` falls inside ``families``.
+def is_allowed(command: str, prefixes: Sequence[str]) -> bool:
+    """Whether every command in ``command`` falls inside ``prefixes``.
 
     Fails closed on command substitution: a prefix check cannot see what
     ``$(...)`` or a backtick would run, so such a command is never allowed. It
     fails closed on an unterminated quote for the same reason.
 
-    Each command group must *begin* with an in-family command. A group may
-    then pipe into :data:`PAGERS` and nothing else, so an arm can page long
+    Each command group must *begin* with an in-prefix command. A group may
+    then pipe into :data:`FILTERS` and nothing else, so an arm can page long
     output without gaining a way to run something it may not.
 
     Args:
         command: The raw ``tool_input.command`` string.
-        families: Allowed command prefixes, from :func:`bash_families`.
+        prefixes: Allowed command prefixes, from :func:`bash_prefixes`.
 
     Returns:
-        True only when substitution is absent, every group starts in family,
+        True only when substitution is absent, every group starts in prefix,
         and every later pipe stage is a permitted pager.
     """
-    if not families:
+    if not prefixes:
         return False
     if any(token in command for token in SUBSTITUTION):
         return False
@@ -178,15 +178,15 @@ def is_allowed(command: str, families: Sequence[str]) -> bool:
     if not groups:
         return False
     for stages in groups:
-        if not any(stages[0].startswith(family) for family in families):
+        if not any(stages[0].startswith(prefix) for prefix in prefixes):
             return False
-        if any(stage.split()[0] not in PAGERS for stage in stages[1:]):
+        if any(stage.split()[0] not in FILTERS for stage in stages[1:]):
             return False
     return True
 
 
 def render_settings(
-    *, python: str, guard: Path, families: Sequence[str]
+    *, python: str, guard: Path, prefixes: Sequence[str]
 ) -> dict[str, Any]:
     """The settings document mounting the guard for one arm.
 
@@ -196,12 +196,12 @@ def render_settings(
     Args:
         python: Interpreter that runs the guard.
         guard: Absolute path to ``guard.py``.
-        families: The arm's allowed command prefixes.
+        prefixes: The arm's allowed command prefixes.
 
     Returns:
         A document to write beside the campaign and pass via ``--settings``.
     """
-    argv = " ".join([python, str(guard), *(f"{family!r}" for family in families)])
+    argv = " ".join([python, str(guard), *(f"{prefix!r}" for prefix in prefixes)])
     return {
         "hooks": {
             "PreToolUse": [

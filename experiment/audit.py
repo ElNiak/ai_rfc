@@ -19,7 +19,7 @@ from typing import Any
 from . import ExperimentError
 from .arms import profile
 from .config import Campaign
-from .enforcement import PAGERS, bash_families, command_groups, is_allowed
+from .enforcement import FILTERS, bash_prefixes, command_groups, is_allowed
 from .runner import EVENTS_FILE, GUARD_FILE, load_status
 from .stream import (
     is_denial,
@@ -97,7 +97,7 @@ def bash_family(command: str) -> str:
         families.update(
             _stage_family(stage)
             for stage in stages[1:]
-            if stage.split()[0] not in PAGERS
+            if stage.split()[0] not in FILTERS
         )
     if not families:
         return "bash:other"
@@ -187,7 +187,7 @@ def in_arm(name: str, tool_input: dict[str, Any], surface: str, arm: str) -> boo
     """
     if name == "Bash":
         command = str(tool_input.get("command", "")).strip()
-        return is_allowed(command, bash_families(profile(arm)))
+        return is_allowed(command, bash_prefixes(profile(arm)))
     return surface in ALLOWED[arm]
 
 

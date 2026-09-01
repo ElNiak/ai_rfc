@@ -17,7 +17,7 @@ import pytest
 
 from experiment.arms import ARMS, profile
 from experiment.audit import bash_family, in_arm
-from experiment.enforcement import bash_families, is_allowed
+from experiment.enforcement import bash_prefixes, is_allowed
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "enforcement"
 ARM_B = ("arfc ",)
@@ -30,16 +30,18 @@ ARM_C = (
 
 def _corpus():
     document = json.loads((FIXTURES / "run-b1-arm-b.json").read_text())
-    families = tuple(document["families"])
+    # The fixture is captured evidence from run B1 and keeps the key it was
+    # recorded under; only the code's word for it changed.
+    prefixes = tuple(document["families"])
     return [
-        pytest.param(case["command"], case["allowed"], case["why"], families)
+        pytest.param(case["command"], case["allowed"], case["why"], prefixes)
         for case in document["cases"]
     ]
 
 
-@pytest.mark.parametrize("command,allowed,why,families", _corpus())
-def test_run_b1_traffic_is_judged_as_read(command, allowed, why, families):
-    assert is_allowed(command, families) is allowed, why
+@pytest.mark.parametrize("command,allowed,why,prefixes", _corpus())
+def test_run_b1_traffic_is_judged_as_read(command, allowed, why, prefixes):
+    assert is_allowed(command, prefixes) is allowed, why
 
 
 def test_the_corpus_covers_both_verdicts():
@@ -54,11 +56,11 @@ def test_the_corpus_covers_both_verdicts():
     "command",
     [
         # SQL writes both of these routinely: || concatenates, ; terminates.
-        # Splitting on them refuses a command that runs one in-family program.
+        # Splitting on them refuses a command that runs one in-prefix program.
         'arfc corpus-query "SELECT a || b FROM commits"',
         'arfc corpus-query "SELECT sha FROM commits; SELECT 1"',
         "arfc corpus-query \"SELECT 1 WHERE x='a;b'\"",
-        # An in-family command may page its own output.
+        # An in-prefix command may page its own output.
         "arfc cluster-get c1 --patch 2>&1 | head -c 20000",
         "arfc status | wc -l",
     ],
@@ -87,7 +89,7 @@ def test_quoted_operators_do_not_separate_commands(command):
         "arfc corpus-query 'SELECT 1",
     ],
 )
-def test_out_of_family_shapes_are_still_refused(command):
+def test_out_of_prefix_shapes_are_still_refused(command):
     assert is_allowed(command, ARM_B) is False
 
 
@@ -101,34 +103,34 @@ def test_out_of_family_shapes_are_still_refused(command):
         ("git log | sh", False),
     ],
 )
-def test_arm_c_families_are_judged_independently(command, allowed):
+def test_arm_c_prefixes_are_judged_independently(command, allowed):
     assert is_allowed(command, ARM_C) is allowed
 
 
 def test_arm_a_has_no_bash_surface_so_nothing_is_allowed():
-    """Arm A declares no Bash family; an empty family list must refuse all."""
+    """Arm A declares no Bash prefix; an empty prefix list must refuse all."""
     assert is_allowed("arfc status", ()) is False
     assert is_allowed("echo hello", ()) is False
 
 
 @pytest.mark.parametrize("arm", ARMS)
-@pytest.mark.parametrize("command,allowed,why,families", _corpus())
+@pytest.mark.parametrize("command,allowed,why,prefixes", _corpus())
 def test_the_audit_reads_a_command_the_way_the_guard_did(
-    command, allowed, why, families, arm
+    command, allowed, why, prefixes, arm
 ):
     """The enforcement and the measurement must not disagree about a command.
 
     They are separate readers of the same string, coupled only by convention,
     and they have drifted twice: the audit once split on operators wherever
     they appeared, and later judged arm membership from the collapsed surface
-    label, which cannot represent a line reaching two families the arm holds.
+    label, which cannot represent a line reaching two prefixes the arm holds.
 
     Asserting agreement over every arm, rather than a fixed verdict for arm B,
-    is what closes the second gap: arm B has one family, so no arm-B command
+    is what closes the second gap: arm B has one prefix, so no arm-B command
     can span two, and the earlier single-arm version of this test could never
     have failed on it.
     """
-    guard = is_allowed(command, bash_families(profile(arm)))
+    guard = is_allowed(command, bash_prefixes(profile(arm)))
     audit = in_arm("Bash", {"command": command}, bash_family(command), arm)
     assert audit is guard, f"{arm}: {why}"
     if arm == "B":
@@ -145,7 +147,7 @@ def test_the_audit_reads_a_command_the_way_the_guard_did(
         (
             "sqlite3 -version; git -C /w/clone rev-parse HEAD",
             True,
-            "two groups, each a family arm C holds",
+            "two groups, each a prefix arm C holds",
         ),
         (
             "git -C /w/clone rev-parse HEAD && sqlite3 corpus.db .tables",
@@ -157,7 +159,7 @@ def test_the_audit_reads_a_command_the_way_the_guard_did(
         ("git log --oneline; echo hi", False, "echo is no arm's surface"),
     ],
 )
-def test_a_line_spanning_two_held_families_stays_in_arm_c(command, allowed, why):
-    """A multi-family line is in arm when every one of its families is."""
+def test_a_line_spanning_two_held_prefixes_stays_in_arm_c(command, allowed, why):
+    """A multi-prefix line is in arm when every one of its prefixes is."""
     assert is_allowed(command, ARM_C) is allowed, why
     assert in_arm("Bash", {"command": command}, bash_family(command), "C") is allowed

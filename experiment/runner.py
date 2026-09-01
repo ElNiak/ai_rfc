@@ -18,7 +18,7 @@ from pathlib import Path
 from . import ExperimentError
 from .arms import build_argv, mcp_config, profile
 from .config import Campaign
-from .enforcement import bash_families, render_settings
+from .enforcement import bash_prefixes, render_settings
 from .spawn import spawn
 from .stream import merge_results, parse_stream, result_events
 
@@ -119,7 +119,7 @@ def build_run_argv(
 
     The guard is what actually separates the arms: ``--allowedTools`` does not
     confine a built-in tool, so each run mounts a ``PreToolUse`` hook holding
-    its own arm's command families. It is written beside the run rather than
+    its own arm's command prefixes. It is written beside the run rather than
     inside ``ARFC_WORKSPACE``, which arms B and C can write.
 
     Args:
@@ -159,7 +159,7 @@ def build_run_argv(
             render_settings(
                 python=campaign.python,
                 guard=GUARD,
-                families=bash_families(arm_profile),
+                prefixes=bash_prefixes(arm_profile),
             ),
             indent=2,
         )

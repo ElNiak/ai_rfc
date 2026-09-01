@@ -20,7 +20,7 @@ from typing import Any
 
 from . import DEFAULT_MODEL, ExperimentError
 from .arms import ARMS, arm_flags, mcp_config, profile
-from .enforcement import bash_families, render_settings
+from .enforcement import bash_prefixes, render_settings
 from .paths import profile_dir
 from .stream import (
     assistant_text,
@@ -236,12 +236,12 @@ def prepare_scratch(
     _write_json(
         scratch / GUARD_SETTINGS,
         render_settings(
-            python=python, guard=guard, families=bash_families(profile("C"))
+            python=python, guard=guard, prefixes=bash_prefixes(profile("C"))
         ),
     )
     _write_json(
         scratch / ALLOW_SETTINGS,
-        render_settings(python=python, guard=guard, families=("echo ",)),
+        render_settings(python=python, guard=guard, prefixes=("echo ",)),
     )
     for entry in (str(server_src), str(panther_repo)):
         if entry not in sys.path:
@@ -448,6 +448,8 @@ def _denial_check(denial: dict[str, Any], control: dict[str, Any]) -> Verdict:
     passed = denial["exit_code"] == 0 and not leaked and bool(found) and in_family_ran
     return passed, {
         "leaked": leaked,
+        # Recorded key: spike-report.json keeps the word the evidence was
+        # written under, though the code now says "prefix" everywhere else.
         "in_family_ran": in_family_ran,
         "guard_hooks": len(hook_events(denial["events"])),
         "denials": found[:3],

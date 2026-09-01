@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""PreToolUse guard: block a Bash command outside this arm's families.
+"""PreToolUse guard: block a Bash command outside this arm's prefixes.
 
-Claude Code runs this with the arm's families as arguments and the hook payload
+Claude Code runs this with the arm's prefixes as arguments and the hook payload
 on stdin. Exit 2 is the only signal that actually blocks the call; a JSON
 ``permissionDecision`` of ``deny`` is ignored by 2.1.247.
 """
@@ -32,8 +32,8 @@ def main(argv: list[str]) -> int:
     command = str((payload.get("tool_input") or {}).get("command", ""))
     if is_allowed(command, argv):
         return 0
-    families = ", ".join(repr(family) for family in argv) or "(none)"
-    sys.stderr.write(f"denied: this arm may run only {families}; refused: {command}\n")
+    prefixes = ", ".join(repr(prefix) for prefix in argv) or "(none)"
+    sys.stderr.write(f"denied: this arm may run only {prefixes}; refused: {command}\n")
     return 2
 
 
