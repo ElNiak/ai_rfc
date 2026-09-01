@@ -47,24 +47,34 @@ def _parser() -> argparse.ArgumentParser:
     verbs.add_parser("status", help="Composite workspace status.")
 
     query = verbs.add_parser("corpus-query", help="One SELECT over the index.")
-    query.add_argument("sql")
+    query.add_argument("sql", help="A single SELECT; at most 200 rows come back.")
 
     get = verbs.add_parser("cluster-get", help="One cluster's evidence.")
-    get.add_argument("cluster_id")
+    get.add_argument("cluster_id", help="Cluster id, e.g. c0049-pr-ba8ca432c304.")
     get.add_argument("--patch", action="store_true", help="Include a patch slice.")
-    get.add_argument("--patch-offset", type=int, default=0)
-    get.add_argument("--patch-limit", type=int, default=20000)
+    get.add_argument(
+        "--patch-offset",
+        type=int,
+        default=0,
+        help="First byte of the patch slice (default: %(default)s).",
+    )
+    get.add_argument(
+        "--patch-limit",
+        type=int,
+        default=20000,
+        help="Bytes of patch to return (default: %(default)s).",
+    )
 
     verbs.add_parser("cluster-next", help="Next unprocessed cluster.")
 
     upsert = verbs.add_parser(
         "claim-upsert", help="Add or update a claim (status is never accepted)."
     )
-    upsert.add_argument("claim_id")
-    upsert.add_argument("--text")
-    upsert.add_argument("--section")
-    upsert.add_argument("--level")
-    upsert.add_argument("--layer")
+    upsert.add_argument("claim_id", help="Claim id, e.g. 'mark:alg.1'.")
+    upsert.add_argument("--text", help="The requirement, as one normative sentence.")
+    upsert.add_argument("--section", help="Draft section number, e.g. '3.1'.")
+    upsert.add_argument("--level", help="RFC 2119 keyword: MUST, SHOULD or MAY.")
+    upsert.add_argument("--layer", help="Architectural layer the claim belongs to.")
     upsert.add_argument(
         "--field",
         action="append",
@@ -94,20 +104,42 @@ def _parser() -> argparse.ArgumentParser:
     record.add_argument("claim_ids", nargs="*", help="Default: every claim.")
 
     question = verbs.add_parser("question-draft", help="Draft an open question.")
-    question.add_argument("question")
-    question.add_argument("--claim", action="append", required=True, dest="claims")
-    question.add_argument("--id", default=None)
+    question.add_argument(
+        "question", help="The question; quote the claim wording verbatim."
+    )
+    question.add_argument(
+        "--claim",
+        action="append",
+        required=True,
+        dest="claims",
+        help="A claim this question would unblock; repeatable, must exist.",
+    )
+    question.add_argument(
+        "--id", default=None, help="Explicit id; default takes the next free q-NNN."
+    )
 
     verbs.add_parser("question-export", help="Markdown bundle of open questions.")
 
     answer = verbs.add_parser(
         "answer-record", help="Ingest one answer from a saved transcript."
     )
-    answer.add_argument("question_id")
-    answer.add_argument("--answer", required=True)
-    answer.add_argument("--by", required=True)
-    answer.add_argument("--transcript", required=True)
-    answer.add_argument("--quote", required=True)
+    answer.add_argument("question_id", help="The register entry being answered.")
+    answer.add_argument(
+        "--answer", required=True, help="The author's answer, in their words."
+    )
+    answer.add_argument("--by", required=True, help="Who answered.")
+    answer.add_argument(
+        "--transcript",
+        required=True,
+        help="Transcript filename under interviews/ (e.g. int-001.md); must "
+        "already be saved.",
+    )
+    answer.add_argument(
+        "--quote",
+        required=True,
+        help="A verbatim span that must appear in the transcript — the evidence "
+        "the answer actually happened.",
+    )
     answer.add_argument(
         "--exact-wording-confirmed",
         action="store_true",
@@ -115,37 +147,57 @@ def _parser() -> argparse.ArgumentParser:
     )
 
     revision = verbs.add_parser("revision-record", help="Record a revision entry.")
-    revision.add_argument("tag")
-    revision.add_argument("--cluster", required=True)
-    normative = revision.add_mutually_exclusive_group(required=True)
-    normative.add_argument("--normative", action="store_true", dest="normative_change")
-    normative.add_argument(
-        "--no-normative", action="store_false", dest="normative_change"
+    revision.add_argument("tag", help="Revision tag, e.g. draft-<name>-01.")
+    revision.add_argument(
+        "--cluster", required=True, help="The cluster this revision freezes."
     )
-    revision.add_argument("--note", required=True)
+    normative = revision.add_mutually_exclusive_group(required=True)
+    normative.add_argument(
+        "--normative",
+        action="store_true",
+        dest="normative_change",
+        help="This revision changed what the draft requires.",
+    )
+    normative.add_argument(
+        "--no-normative",
+        action="store_false",
+        dest="normative_change",
+        help="Editorial only; its cited claim set must not change.",
+    )
+    revision.add_argument("--note", required=True, help="What this revision did.")
 
     checkpoint = verbs.add_parser(
         "checkpoint", help="Freeze the manifest against one cluster."
     )
-    checkpoint.add_argument("cluster_id")
+    checkpoint.add_argument(
+        "cluster_id", help="Cluster to freeze against; checkpoints are write-once."
+    )
 
     gate = verbs.add_parser("gate", help="Manifest gate (linter by default).")
-    gate.add_argument("--strict", action="store_true")
+    gate.add_argument(
+        "--strict", action="store_true", help="Exit 3 when any finding is reported."
+    )
 
     citation = verbs.add_parser("citation-gate", help="Draft citation gate.")
-    citation.add_argument("--strict", action="store_true")
+    citation.add_argument(
+        "--strict", action="store_true", help="Exit 3 when any finding is reported."
+    )
 
     draft_commit = verbs.add_parser(
         "draft-commit", help="Commit every change in draft/ (clean tree is an error)."
     )
-    draft_commit.add_argument("-m", "--message", required=True)
+    draft_commit.add_argument(
+        "-m", "--message", required=True, help="Commit message."
+    )
 
     revision_tag = verbs.add_parser(
         "revision-tag",
         help="Create the annotated revision tag once both strict gates accept it.",
     )
-    revision_tag.add_argument("tag")
-    revision_tag.add_argument("-m", "--message", required=True)
+    revision_tag.add_argument("tag", help="Tag to create, e.g. draft-<name>-01.")
+    revision_tag.add_argument(
+        "-m", "--message", required=True, help="Annotation for the tag."
+    )
 
     return parser
 
@@ -158,8 +210,8 @@ def main(argv: list[str] | None = None) -> int:
 
     Returns:
         0 on success, 1 when inputs or guardrails refuse the operation, and
-        the gate verbs pass their own exit codes through (2 = strict
-        findings).
+        the gate verbs pass their own exit codes through (3 = strict findings;
+        2 is argparse's, and means the invocation was malformed).
     """
     args = _parser().parse_args(argv)
 

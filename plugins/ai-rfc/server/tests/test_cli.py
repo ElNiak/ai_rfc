@@ -1,3 +1,4 @@
+import argparse
 import json
 
 import pytest
@@ -130,3 +131,33 @@ def test_revision_tag_verb_passes_gate_codes_through(workspace, capsys):
     assert _emit(capsys)["exit_code"] == 0
     assert cli.main(["revision-tag", "draft-test-spec-00", "-m", "dup"]) == 1
     assert "already exists" in capsys.readouterr().err
+
+
+def test_every_argument_documents_itself():
+    """An agent drives this CLI, so an undocumented flag is a real gap.
+
+    Twenty-five arguments carried no help text; a bare name like --quote or
+    --layer tells a caller nothing about what it must contain.
+    """
+    parser = cli._parser()
+    subparsers = next(
+        action
+        for action in parser._actions
+        if isinstance(action, argparse._SubParsersAction)
+    )
+
+    undocumented = [
+        f"{verb} {action.dest}"
+        for verb, subparser in subparsers.choices.items()
+        for action in subparser._actions
+        if action.dest != "help" and not action.help
+    ]
+
+    assert undocumented == []
+
+
+def test_the_exit_code_contract_is_stated_consistently():
+    """The module docstring and main's agreed on everything but the number."""
+    assert "3 strict findings" in cli.__doc__
+    assert "3 = strict findings" in cli.main.__doc__
+    assert "2 = strict" not in cli.main.__doc__
