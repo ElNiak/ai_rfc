@@ -194,6 +194,56 @@ def seed_seen(campaign: Campaign, workspace: Path) -> tuple[frozenset[str], str 
         return frozenset(), f"seed_seen: {error}"
 
 
+QUESTIONS_FILE = "questions.yaml"
+
+
+def question_ids(workspace: Path) -> set[str]:
+    """Every question id the workspace records.
+
+    Read leniently rather than through the draft package's strict loader: this
+    is a progress figure, and one malformed entry must not end a run.
+
+    Args:
+        workspace: The run's workspace.
+
+    Returns:
+        The ids; empty when the file is absent or unreadable.
+    """
+    try:
+        document = yaml.safe_load((workspace / QUESTIONS_FILE).read_text()) or {}
+    except (OSError, yaml.YAMLError):
+        return set()
+    return {str(key) for key in (document.get("questions") or {})}
+
+
+def new_questions(workspace: Path, before: set[str]) -> dict[str, Any]:
+    """The questions raised since ``before`` was taken.
+
+    Snapshot-differenced rather than filtered by time: ``asked_at`` is a date,
+    so several clusters in one day are indistinguishable by it.
+
+    Args:
+        workspace: The run's workspace.
+        before: The ids present before the cluster ran.
+
+    Returns:
+        ``{new_count, new: [{id, first_line}]}``.
+    """
+    try:
+        document = yaml.safe_load((workspace / QUESTIONS_FILE).read_text()) or {}
+    except (OSError, yaml.YAMLError):
+        return {"new_count": 0, "new": []}
+    fresh = []
+    for key, entry in sorted((document.get("questions") or {}).items()):
+        if str(key) in before or not isinstance(entry, dict):
+            continue
+        text = str(entry.get("question") or "").strip()
+        fresh.append(
+            {"id": str(key), "first_line": text.splitlines()[0] if text else ""}
+        )
+    return {"new_count": len(fresh), "new": fresh}
+
+
 #: Tool arguments that name a file the session looked at or changed.
 _PATH_KEYS = ("file_path", "path", "notebook_path")
 

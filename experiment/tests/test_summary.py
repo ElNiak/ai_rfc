@@ -214,6 +214,56 @@ def test_a_killed_session_still_reports_what_it_can():
     assert facts["surface"]["tools_count"] == 0
 
 
+def test_new_questions_are_the_ids_that_appeared(tmp_path):
+    from experiment.summary import new_questions, question_ids
+
+    (tmp_path / "questions.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "questions": {
+                    "q-001": {
+                        "question": "Is the unit seconds?\nSecond line.",
+                        "claim_ids": ["mark:data.3"],
+                        "status": "open",
+                    },
+                    "q-002": {
+                        "question": "Is the mapping part of the wire contract?",
+                        "claim_ids": ["mark:data.7"],
+                        "status": "open",
+                    },
+                }
+            }
+        )
+    )
+
+    assert question_ids(tmp_path) == {"q-001", "q-002"}
+
+    fresh = new_questions(tmp_path, {"q-001"})
+    assert fresh["new_count"] == 1
+    assert fresh["new"][0]["id"] == "q-002"
+    assert fresh["new"][0]["first_line"] == "Is the mapping part of the wire contract?"
+
+
+def test_only_the_first_line_of_a_question_is_carried(tmp_path):
+    """The digest shows one line; the whole question stays in questions.yaml."""
+    from experiment.summary import new_questions
+
+    (tmp_path / "questions.yaml").write_text(
+        yaml.safe_dump(
+            {"questions": {"q-001": {"question": "First line.\nSecond line."}}}
+        )
+    )
+
+    assert new_questions(tmp_path, set())["new"][0]["first_line"] == "First line."
+
+
+def test_a_missing_questions_file_is_not_an_error(tmp_path):
+    from experiment.summary import new_questions, question_ids
+
+    assert question_ids(tmp_path) == set()
+    assert new_questions(tmp_path, set()) == {"new_count": 0, "new": []}
+
+
 def test_a_record_is_written_atomically_and_reread(tmp_path):
     from experiment.summary import write_summary
 

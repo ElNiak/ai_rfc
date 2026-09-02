@@ -36,7 +36,14 @@ from .progress import (
     digest,
     window_progress,
 )
-from .summary import build_summary, held_claim_ids, seed_seen, write_summary
+from .summary import (
+    build_summary,
+    held_claim_ids,
+    new_questions,
+    question_ids,
+    seed_seen,
+    write_summary,
+)
 from .runner import EVENTS_FILE, STDERR_FILE, RunRef, build_env, prepare_run_argv
 from .spawn import spawn
 from .stream import (
@@ -190,6 +197,7 @@ def _finish_cluster(
     seen_claim_ids: frozenset[str],
     wall_s: float,
     seed_error: str | None,
+    questions_before: set[str],
     report: Callable[[str], None],
 ) -> frozenset[str]:
     """Write one cluster's summary and print its digest.
@@ -207,6 +215,7 @@ def _finish_cluster(
         seen_claim_ids: Every claim id held before this cluster.
         wall_s: Seconds spent on this cluster.
         seed_error: A failure from the resume rebuild, or None.
+        questions_before: The question ids present before the cluster ran.
         report: Where the digest goes.
 
     Returns:
@@ -231,6 +240,7 @@ def _finish_cluster(
             wall_s=wall_s,
             errors=errors,
         )
+        record["questions"] = new_questions(ref.workspace, questions_before)
         write_summary(ref.run_dir, str(row.get("id")), record)
         for line in digest(record):
             report(f"{ref.run_id}: {line}")
@@ -304,6 +314,7 @@ def run_per_cluster(
         cluster_attempts: list[dict[str, Any]] = []
         cluster_started = time.monotonic()
         events: list[dict[str, Any]] = []
+        questions_before = question_ids(ref.workspace)
         outstanding = partial_reason(artifacts)
         if outstanding is not None:
             report(
@@ -432,6 +443,7 @@ def run_per_cluster(
                         seen_claim_ids=seen_claim_ids,
                         wall_s=time.monotonic() - cluster_started,
                         seed_error=seed_error,
+                        questions_before=questions_before,
                         report=report,
                     )
                     return 1, any_timeout, sessions
@@ -446,6 +458,7 @@ def run_per_cluster(
                     seen_claim_ids=seen_claim_ids,
                     wall_s=time.monotonic() - cluster_started,
                     seed_error=seed_error,
+                    questions_before=questions_before,
                     report=report,
                 )
                 # Said once, on the first cluster to report: the rebuild either
@@ -470,6 +483,7 @@ def run_per_cluster(
                 seen_claim_ids=seen_claim_ids,
                 wall_s=time.monotonic() - cluster_started,
                 seed_error=seed_error,
+                questions_before=questions_before,
                 report=report,
             )
             return exit_code or 1, any_timeout, sessions

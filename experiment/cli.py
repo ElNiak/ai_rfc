@@ -351,6 +351,16 @@ def _parser() -> argparse.ArgumentParser:
     audit = commands.add_parser("audit", help="Audit every run's transcript.")
     audit.add_argument("campaign", type=Path, help="Campaign directory.")
 
+    questions = commands.add_parser(
+        "questions", help="List the developer questions a run has open."
+    )
+    questions.add_argument("run_dir", type=Path, help="A run directory.")
+    questions.add_argument(
+        "--all",
+        action="store_true",
+        help="Include questions already answered (default: open only).",
+    )
+
     analyze = commands.add_parser(
         "analyze", help="Recompute outcomes; write aggregate.json and report.md."
     )
@@ -498,6 +508,33 @@ def main(argv: list[str] | None = None) -> int:
                     f"bypass={audit['bypass_attempts']['count']} "
                     f"errors={audit['errors']['class1']}/{audit['errors']['class2']}"
                 )
+        elif args.command == "questions":
+            import yaml
+
+            from .summary import QUESTIONS_FILE
+
+            path = args.run_dir.resolve() / "workspace" / QUESTIONS_FILE
+            try:
+                document = yaml.safe_load(path.read_text()) or {}
+            except (OSError, yaml.YAMLError) as error:
+                raise ExperimentError(f"could not read {path}: {error}") from error
+            entries = document.get("questions") or {}
+            shown = [
+                (key, entry)
+                for key, entry in sorted(entries.items())
+                if isinstance(entry, dict)
+                and (args.all or entry.get("status") == "open")
+            ]
+            openq = sum(
+                1
+                for entry in entries.values()
+                if isinstance(entry, dict) and entry.get("status") == "open"
+            )
+            print(f"{openq} open of {len(entries)}")
+            for key, entry in shown:
+                claims = ", ".join(entry.get("claim_ids") or []) or "no claim"
+                print(f"\n  {key}  [{claims}]  asked {entry.get('asked_at')}")
+                print(f"    {str(entry.get('question') or '').strip()}")
         elif args.command == "analyze":
             from .audit import audit_campaign
             from .config import load_campaign

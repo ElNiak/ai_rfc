@@ -250,3 +250,47 @@ def test_campaign_init_refuses_unknown_pristine(tmp_path, panther_repo, capsys):
         ]
     )
     assert code == 1 and "not a prepared pristine workspace" in capsys.readouterr().err
+
+
+def test_questions_lists_only_the_open_ones_by_default(tmp_path, capsys):
+    """A sweep accumulates a backlog nobody sees unless something prints it."""
+    import yaml
+
+    workspace = tmp_path / "run" / "workspace"
+    workspace.mkdir(parents=True)
+    (workspace / "questions.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "questions": {
+                    "q-001": {
+                        "question": "Is the unit seconds?",
+                        "claim_ids": ["mark:data.3"],
+                        "asked_at": "2026-09-02",
+                        "status": "open",
+                    },
+                    "q-002": {
+                        "question": "Already settled.",
+                        "claim_ids": [],
+                        "asked_at": "2026-09-02",
+                        "status": "answered",
+                    },
+                }
+            }
+        )
+    )
+
+    assert cli.main(["questions", str(tmp_path / "run")]) == 0
+    out = capsys.readouterr().out
+    assert "1 open of 2" in out
+    assert "q-001" in out and "Is the unit seconds?" in out
+    assert "q-002" not in out
+
+    assert cli.main(["questions", str(tmp_path / "run"), "--all"]) == 0
+    assert "q-002" in capsys.readouterr().out
+
+
+def test_questions_on_a_run_without_the_file_is_an_error(tmp_path, capsys):
+    (tmp_path / "run" / "workspace").mkdir(parents=True)
+
+    assert cli.main(["questions", str(tmp_path / "run")]) == 1
+    assert "could not read" in capsys.readouterr().err
