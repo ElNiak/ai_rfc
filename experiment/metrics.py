@@ -25,7 +25,13 @@ from . import ExperimentError
 from .arms import arm_profile
 from .config import Campaign
 from .runner import EVENTS_FILE, RESULT_FILE, load_status
-from .stream import ai_rfc_connected, mcp_servers, parse_stream, tool_uses, usage_series
+from .stream import (
+    ai_rfc_connected,
+    mcp_servers,
+    salvage_stream,
+    tool_uses,
+    usage_series,
+)
 from .workspace import HARNESS_MARKER, RECORD_FILE
 
 DEFINITIONS = {
@@ -295,7 +301,16 @@ def analyze_run(campaign: Campaign, run_id: str) -> dict[str, Any]:
     if status is None:
         raise ExperimentError(f"{run_id} has no status record; nothing to analyze")
     workspace = run_dir / "workspace"
-    events = parse_stream((run_dir / EVENTS_FILE).read_text(errors="replace"))
+    # Salvaged, not parsed strictly. A kill truncating a line is a normal
+    # outcome of the interruptions a per-cluster run exists to survive, and
+    # `analyze_campaign` builds its result in a comprehension — so one damaged
+    # transcript would abort the aggregate for every run in the campaign, not
+    # just its own. A statistic over a transcript that declares its own loss
+    # beats no statistic at all. `audit` stays strict: it adjudicates
+    # integrity, where a garbled record must not be read as evidence.
+    events, damaged_lines = salvage_stream(
+        (run_dir / EVENTS_FILE).read_text(errors="replace")
+    )
     final = json.loads((run_dir / RESULT_FILE).read_text()) or {}
     clusters = [cluster_artifacts(workspace, row) for row in window_clusters(workspace)]
     gates = run_gates(workspace, campaign)
@@ -334,6 +349,10 @@ def analyze_run(campaign: Campaign, run_id: str) -> dict[str, Any]:
         },
         "trajectory": trajectory(events, status.arm, completed, window_size),
         "surface": surface(events, status.arm),
+        # Zero on every intact run. Non-zero says the figures above were
+        # computed over a transcript that lost lines, which is the difference
+        # between a low number and an unreliable one.
+        "damaged_transcript_lines": damaged_lines,
         "audit": json.loads(audit_path.read_text()) if audit_path.exists() else None,
     }
 

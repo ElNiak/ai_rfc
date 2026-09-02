@@ -20,7 +20,7 @@ from .arms import MCP_FILE, arm_profile, claude_argv, mcp_config
 from .config import Campaign
 from .enforcement import bash_prefixes, render_settings
 from .spawn import spawn
-from .stream import merge_results, parse_stream, result_events
+from .stream import merge_results, result_events, salvage_stream
 
 EVENTS_FILE = "events.jsonl"
 RESULT_FILE = "result.json"
@@ -258,12 +258,18 @@ def launch(campaign: Campaign, ref: RunRef) -> RunStatus:
         # Merged rather than taken from the tail: a run that spawns an agent
         # per cluster writes one result event per session, and the last one's
         # cost is that cluster's, not the run's.
+        # Salvaged for the same reason the live budget loop is: a kill can
+        # truncate a line, and refusing the whole transcript there nulls the
+        # run's entire cost record over one bad line — pricing a real run as
+        # unknown and dropping it out of every cost figure.
         final = merge_results(
             result_events(
-                parse_stream((ref.run_dir / EVENTS_FILE).read_text(errors="replace"))
+                salvage_stream((ref.run_dir / EVENTS_FILE).read_text(errors="replace"))[
+                    0
+                ]
             )
         )
-    except ExperimentError:
+    except OSError:
         final = None
     (ref.run_dir / RESULT_FILE).write_text(
         json.dumps(final, indent=2, sort_keys=True) + "\n" if final else "null\n"

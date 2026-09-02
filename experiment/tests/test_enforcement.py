@@ -137,9 +137,7 @@ def test_guard_blocks_whatever_the_parser_raises():
 
 def test_a_continued_command_is_one_command():
     """Observed live in pilot run B1: a multi-line claim-upsert was refused."""
-    command = (
-        'ai_rfc claim-upsert pkg.1 \\\n  --text "A conforming distribution MUST ship it"'
-    )
+    command = 'ai_rfc claim-upsert pkg.1 \\\n  --text "A conforming distribution MUST ship it"'
     assert is_allowed(command, ("ai_rfc ",))
     # The continuation must not launder a second command past the check.
     assert not is_allowed("ai_rfc status \\\n && echo bypass-probe", ("ai_rfc ",))

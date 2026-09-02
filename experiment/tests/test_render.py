@@ -2,8 +2,8 @@ import pytest
 
 from experiment import ExperimentError
 from experiment.render import (
-    SLOT_TABLES,
     SKILL_FRONTMATTER,
+    SLOT_TABLES,
     arm_prompt,
     render_loop,
     unified_diff,

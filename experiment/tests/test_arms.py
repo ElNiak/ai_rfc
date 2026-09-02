@@ -4,8 +4,6 @@ import sys
 import pytest
 
 from experiment import ExperimentError
-
-from .conftest import PANTHER_ROOT
 from experiment.arms import (
     ARMS,
     PROFILES,
@@ -17,6 +15,8 @@ from experiment.arms import (
     mcp_config,
     shared_flags,
 )
+
+from .conftest import PANTHER_ROOT
 
 
 def test_the_raw_prefix_names_a_package_that_exists():

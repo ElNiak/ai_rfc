@@ -383,6 +383,19 @@ def reseal(workspace: Path, dest: Path) -> Path:
         raise ExperimentError(
             f"clone HEAD {clone_head} differs from recorded {record['clone_head']}"
         )
+    # The mirror of the clone check above: the clone must not have moved, and
+    # the draft must not be mid-write. A kill landing between a prose write and
+    # its commit leaves files that `write_digest` would seal into the baseline,
+    # so `verify_digest` passes on every copy and the half-written prose
+    # propagates silently into every run made from it. Nothing downstream would
+    # name it — `partial_reason` reads checkpoints and tags, not the worktree.
+    dirty = _git(dest / "draft", "status", "--porcelain")
+    if dirty:
+        raise ExperimentError(
+            f"{workspace}/draft has uncommitted changes; a baseline seals its "
+            f"whole tree, so these would enter every run copied from it. "
+            f"Commit or discard them first:\n{dirty}"
+        )
     record["draft_head"] = _git(dest / "draft", "rev-parse", "HEAD")
     record["resealed_from"] = str(workspace)
     (dest / RECORD_FILE).write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")

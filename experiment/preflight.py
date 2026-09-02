@@ -538,8 +538,7 @@ def _run_all(
         # that appears once the call returns says nothing while it is the one
         # you are waiting on — and a silent quarter of an hour reads as a hang.
         print(
-            f"preflight {index}/{total}: {invocation.name} "
-            f"(up to {timeout_s}s)",
+            f"preflight {index}/{total}: {invocation.name} " f"(up to {timeout_s}s)",
             file=sys.stderr,
         )
         outcome = run_invocation(invocation, timeout_s)

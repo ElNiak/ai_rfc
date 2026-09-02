@@ -3,10 +3,9 @@ import json
 from pathlib import Path
 
 import pytest
-
 from ai_rfc_server.testing import git
+
 from experiment import ExperimentError
-from .conftest import fixture_target
 from experiment.workspace import (
     DIGEST_FILE,
     HARNESS_MARKER,
@@ -21,6 +20,8 @@ from experiment.workspace import (
     verify_digest,
     write_digest,
 )
+
+from .conftest import fixture_target
 
 
 def test_out_of_window_keeps_order():
@@ -247,6 +248,21 @@ def test_reseal_refuses_an_existing_destination(sealed, tmp_path):
     with pytest.raises(ExperimentError) as excinfo:
         reseal(sealed, dest)
     assert "prepared once" in str(excinfo.value)
+
+
+def test_reseal_refuses_a_draft_caught_mid_write(sealed, tmp_path):
+    """A baseline seals its whole tree, uncommitted files included.
+
+    A kill between a prose write and its commit would otherwise enter the
+    digest, pass verification on every copy, and propagate into every run made
+    from the baseline — and nothing downstream reads the worktree to notice.
+    """
+    _work(sealed)
+    (sealed / "draft" / "draft-test-spec.md").write_text("# written, never committed\n")
+
+    with pytest.raises(ExperimentError) as excinfo:
+        reseal(sealed, tmp_path / "root" / "pristine" / "cont1")
+    assert "uncommitted changes" in str(excinfo.value)
 
 
 def test_reseal_refuses_a_clone_whose_head_moved(sealed, tmp_path):

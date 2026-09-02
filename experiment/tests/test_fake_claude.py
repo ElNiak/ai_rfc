@@ -80,7 +80,9 @@ def test_fake_replays_a_complete_loop_in_every_arm(
         final = result_event(events)
         assert final["total_cost_usd"] == 1.25 and final["num_turns"] == len(names)
         if arm == "A":
-            assert all(n.startswith("mcp__ai_rfc__") or n == "Edit" for n in names), names
+            assert all(
+                n.startswith("mcp__ai_rfc__") or n == "Edit" for n in names
+            ), names
         elif arm == "B":
             assert any(n == "Bash" for n in names) and not any(
                 n.startswith("mcp__") for n in names

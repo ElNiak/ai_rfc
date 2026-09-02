@@ -200,7 +200,8 @@ def test_bash_surface_reads_a_command_the_way_the_guard_does():
     )
     assert bash_surface('ai_rfc corpus-query "SELECT a || b FROM c"') == "bash:ai_rfc"
     assert (
-        bash_surface("ai_rfc cluster-get c1 --patch 2>&1 | head -c 20000") == "bash:ai_rfc"
+        bash_surface("ai_rfc cluster-get c1 --patch 2>&1 | head -c 20000")
+        == "bash:ai_rfc"
     )
     assert bash_surface('sqlite3 c.db "SELECT 1; SELECT 2"') == "bash:sqlite3"
     # Leaving the family through a pipe is still mixed.
