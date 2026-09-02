@@ -217,10 +217,15 @@ def digest(record: dict[str, Any]) -> list[str]:
     cited = record.get("citation_delta") or {}
     claim_line = f"claims {claims.get('held_count', 0)} (+{len(new_ids)})"
     if cited:
-        claim_line += f" - cited +{len(cited.get('added') or [])}"
-        removed = len(cited.get("removed") or [])
-        if removed:
-            claim_line += f"/-{removed}"
+        # An unreadable predecessor tag makes every citation look added, so the
+        # figure is withheld rather than printed as though it were measured.
+        if cited.get("error"):
+            claim_line += " - cited ? (predecessor unreadable)"
+        else:
+            claim_line += f" - cited +{len(cited.get('added') or [])}"
+            removed = len(cited.get("removed") or [])
+            if removed:
+                claim_line += f"/-{removed}"
     if new_ids:
         claim_line += f" - new: {_names(new_ids)}"
     lines.append(claim_line)
@@ -240,6 +245,12 @@ def digest(record: dict[str, Any]) -> list[str]:
         )
         lines.append(f"{cited.get('tag') or 'no tag'}: {kind} - {shape}")
 
+    # Ahead of the optional lines, not after them: a full record plus an error
+    # runs to seven lines, and truncating at six dropped the one line saying
+    # the figures above are incomplete.
+    for error in (record.get("errors") or [])[:1]:
+        lines.append(f"summary partial: {_log_safe(str(error))[:90]}")
+
     touched = record.get("files_touched") or []
     if touched:
         lines.append(f"touched: {_names([Path(p).name for p in touched], shown=4)}")
@@ -257,8 +268,6 @@ def digest(record: dict[str, Any]) -> list[str]:
     note = record.get("note")
     if note:
         lines.append(f'note: "{_log_safe(str(note))[:90]}"')
-    for error in (record.get("errors") or [])[:1]:
-        lines.append(f"summary partial: {_log_safe(str(error))[:90]}")
     return lines[:6]
 
 

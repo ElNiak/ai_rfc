@@ -21,11 +21,43 @@ import yaml
 
 from .config import Campaign
 from .metrics import _extend_sys_path
+from .progress import cluster_span
+from .runner import RunRef
+from .stream import init_event, result_events, session_events, tool_uses
 
 REVISIONS_FILE = "revisions.yaml"
+QUESTIONS_FILE = "questions.yaml"
 SUMMARIES_DIR = "summaries"
 #: git's empty tree, the base ``views.emit`` diffs the first span against.
 EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+
+
+def _mapping(path: Path, section: str) -> dict[str, Any]:
+    """One mapping section of a workspace YAML file, or empty.
+
+    Every file this module reads is written by the agent under test and can be
+    truncated by the kill this loop exists to survive, so a document that is a
+    list, a scalar, or half a line is a state to report nothing for — not a
+    contract violation to raise on. Catching only ``OSError`` and ``YAMLError``
+    was not enough: a truncated file parses cleanly as a scalar and then fails
+    on ``.get``, and undecodable bytes raise ``UnicodeDecodeError``, which is a
+    ``ValueError``.
+
+    Args:
+        path: The YAML file.
+        section: The top-level key whose mapping is wanted.
+
+    Returns:
+        The section's mapping, or an empty dict for anything else.
+    """
+    try:
+        document = yaml.safe_load(path.read_text(errors="replace"))
+    except (OSError, ValueError, yaml.YAMLError):
+        return {}
+    if not isinstance(document, dict):
+        return {}
+    entries = document.get(section)
+    return entries if isinstance(entries, dict) else {}
 
 
 def _draft(workspace: Path) -> Path:
@@ -47,11 +79,7 @@ def revision_of(workspace: Path, cluster_id: str) -> dict[str, Any] | None:
     Returns:
         The entry with its ``tag`` added, or None.
     """
-    try:
-        document = yaml.safe_load((workspace / REVISIONS_FILE).read_text()) or {}
-    except (OSError, yaml.YAMLError):
-        return None
-    for tag, entry in (document.get("revisions") or {}).items():
+    for tag, entry in _mapping(workspace / REVISIONS_FILE, "revisions").items():
         if isinstance(entry, dict) and entry.get("cluster_id") == cluster_id:
             return {**entry, "tag": str(tag)}
     return None
@@ -91,8 +119,10 @@ def citation_delta(workspace: Path, tag: str) -> dict[str, Any]:
     now, finding = cited_ids(_draft(workspace), tag)
     before: set[str] = set()
     if previous is not None and finding is None:
-        before, earlier = cited_ids(_draft(workspace), previous)
-        finding = finding or earlier
+        # An unreadable predecessor leaves `before` empty, which would report
+        # every citation as added, so its finding is what marks the delta
+        # incomplete rather than merely large.
+        before, finding = cited_ids(_draft(workspace), previous)
     return {
         "tag": tag,
         "prev_tag": previous,
@@ -116,7 +146,10 @@ def diffstat(workspace: Path, tag: str) -> dict[str, int] | None:
         empty tree when that revision is itself the root commit.
     """
     previous = _previous_tag(tag)
-    bases = [previous] if previous is not None else [f"{tag}^", EMPTY_TREE]
+    # A named predecessor can still be absent — a gap in the tag numbering, or
+    # a revision recorded whose tag was never written — so every base falls
+    # back the same way rather than only the first revision's.
+    bases = ([previous] if previous is not None else []) + [f"{tag}^", EMPTY_TREE]
     for base in bases:
         result = subprocess.run(
             ["git", "-C", str(_draft(workspace)), "diff", "--numstat", base, tag],
@@ -126,8 +159,6 @@ def diffstat(workspace: Path, tag: str) -> dict[str, int] | None:
         if result.returncode == 0:
             break
     else:
-        return None
-    if result.returncode != 0:
         return None
     files = insertions = deletions = 0
     for line in result.stdout.splitlines():
@@ -153,10 +184,12 @@ def held_claim_ids(
     Returns:
         ``(ids, error)``; an empty set and a reason when unreadable.
     """
-    _extend_sys_path(campaign)
-    from panther.plugins.services.testers.ai_rfc.draft.completeness import claim_ids_of
-
     try:
+        _extend_sys_path(campaign)
+        from panther.plugins.services.testers.ai_rfc.draft.completeness import (
+            claim_ids_of,
+        )
+
         return claim_ids_of(workspace / "checkpoints" / cluster_id), None
     except Exception as error:  # noqa: BLE001 - a display line may not end a run
         return frozenset(), f"held_claim_ids: {error}"
@@ -178,23 +211,20 @@ def seed_seen(campaign: Campaign, workspace: Path) -> tuple[frozenset[str], str 
         ``checkpoint_records`` refuses the whole root if one record is damaged,
         so this degrades rather than propagating.
     """
-    _extend_sys_path(campaign)
-    from panther.plugins.services.testers.ai_rfc.draft.completeness import (
-        checkpoint_records,
-        claim_ids_of,
-    )
-
     root = workspace / "checkpoints"
     try:
+        _extend_sys_path(campaign)
+        from panther.plugins.services.testers.ai_rfc.draft.completeness import (
+            checkpoint_records,
+            claim_ids_of,
+        )
+
         held: frozenset[str] = frozenset()
         for name, _record in checkpoint_records(root):
             held = held | claim_ids_of(root / name)
         return held, None
     except Exception as error:  # noqa: BLE001 - a display line may not end a run
         return frozenset(), f"seed_seen: {error}"
-
-
-QUESTIONS_FILE = "questions.yaml"
 
 
 def question_ids(workspace: Path) -> set[str]:
@@ -207,13 +237,9 @@ def question_ids(workspace: Path) -> set[str]:
         workspace: The run's workspace.
 
     Returns:
-        The ids; empty when the file is absent or unreadable.
+        The ids; empty when the file is absent, unreadable or not a mapping.
     """
-    try:
-        document = yaml.safe_load((workspace / QUESTIONS_FILE).read_text()) or {}
-    except (OSError, yaml.YAMLError):
-        return set()
-    return {str(key) for key in (document.get("questions") or {})}
+    return {str(key) for key in _mapping(workspace / QUESTIONS_FILE, "questions")}
 
 
 def new_questions(workspace: Path, before: set[str]) -> dict[str, Any]:
@@ -229,12 +255,8 @@ def new_questions(workspace: Path, before: set[str]) -> dict[str, Any]:
     Returns:
         ``{new_count, new: [{id, first_line}]}``.
     """
-    try:
-        document = yaml.safe_load((workspace / QUESTIONS_FILE).read_text()) or {}
-    except (OSError, yaml.YAMLError):
-        return {"new_count": 0, "new": []}
     fresh = []
-    for key, entry in sorted((document.get("questions") or {}).items()):
+    for key, entry in sorted(_mapping(workspace / QUESTIONS_FILE, "questions").items()):
         if str(key) in before or not isinstance(entry, dict):
             continue
         text = str(entry.get("question") or "").strip()
@@ -262,8 +284,6 @@ def transcript_facts(
         cap emits no result event, so timing and tokens report absence rather
         than zero.
     """
-    from .stream import init_event, result_events, session_events, tool_uses
-
     sliced: list[dict[str, Any]] = []
     for session in sessions:
         sliced.extend(session_events(events, session))
@@ -314,7 +334,7 @@ def transcript_facts(
 
 def build_summary(
     campaign: Campaign,
-    ref: Any,
+    ref: RunRef,
     cluster: dict[str, Any],
     *,
     outcome: str,
@@ -345,8 +365,6 @@ def build_summary(
         The record, with a null field and an ``errors`` entry for any section
         that could not be computed.
     """
-    from .progress import cluster_span
-
     _extend_sys_path(campaign)
     record: dict[str, Any] = {
         "schema_version": 1,
@@ -402,6 +420,11 @@ def build_summary(
     tag = str(entry.get("tag"))
     try:
         record["citation_delta"] = citation_delta(ref.workspace, tag)
+        # Raised as a run-level error too, not only inside the section: an
+        # unreadable predecessor makes every citation look added, and a figure
+        # that is wrong in a knowable way must not be reported as if it were.
+        if record["citation_delta"]["error"]:
+            errors.append(f"citation_delta: {record['citation_delta']['error']}")
     except Exception as error:  # noqa: BLE001
         errors.append(f"citation_delta: {error}")
     try:
@@ -429,6 +452,11 @@ def write_summary(run_dir: Path, cluster_id: str, record: dict[str, Any]) -> Pat
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f"{cluster_id}.json"
     temporary = directory / f"{cluster_id}.json.tmp"
-    temporary.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
+    # default=str: revision entries are splatted straight from YAML, where a
+    # bare date parses to datetime.date and would otherwise raise here — on
+    # every cluster, once such a field is added.
+    temporary.write_text(
+        json.dumps(record, indent=2, sort_keys=True, default=str) + "\n"
+    )
     temporary.replace(path)
     return path

@@ -7,6 +7,7 @@ inside a loop that may already be six hours into a sweep.
 import json
 import subprocess
 
+import pytest
 import yaml
 
 
@@ -262,6 +263,61 @@ def test_a_missing_questions_file_is_not_an_error(tmp_path):
 
     assert question_ids(tmp_path) == set()
     assert new_questions(tmp_path, set()) == {"new_count": 0, "new": []}
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "- q-001\n- q-002\n",  # a list, not a mapping
+        "questions: none yet\n",  # the section is a scalar
+        "questions\n",  # a kill truncated it to a bare scalar
+        "just a string\n",
+        "",
+    ],
+    ids=["list", "scalar-section", "truncated", "string", "empty"],
+)
+def test_a_questions_file_that_is_not_a_mapping_is_survivable(tmp_path, body):
+    """These end a run if they escape, and one of them did.
+
+    A list document raised AttributeError on .get; a scalar section silently
+    iterated a string's characters and reported them as question ids.
+    """
+    from experiment.summary import new_questions, question_ids
+
+    (tmp_path / "questions.yaml").write_text(body)
+
+    assert question_ids(tmp_path) == set()
+    assert new_questions(tmp_path, set()) == {"new_count": 0, "new": []}
+
+
+def test_a_revisions_file_that_is_not_a_mapping_is_survivable(tmp_path):
+    from experiment.summary import revision_of
+
+    (tmp_path / "revisions.yaml").write_text("- draft-test-01\n")
+    assert revision_of(tmp_path, "c1") is None
+
+    (tmp_path / "revisions.yaml").write_text("revisions: none\n")
+    assert revision_of(tmp_path, "c1") is None
+
+
+def test_undecodable_bytes_are_survivable(tmp_path):
+    """UnicodeDecodeError is a ValueError, not an OSError."""
+    from experiment.summary import question_ids
+
+    (tmp_path / "questions.yaml").write_bytes(b"questions:\n  q-001: \xff\xfe\n")
+
+    assert isinstance(question_ids(tmp_path), set)
+
+
+def test_a_yaml_typed_value_does_not_break_the_writer(tmp_path):
+    """An unquoted date in revisions.yaml parses to datetime.date."""
+    import datetime
+
+    from experiment.summary import write_summary
+
+    path = write_summary(tmp_path, "c1", {"note": datetime.date(2026, 9, 2)})
+
+    assert json.loads(path.read_text())["note"] == "2026-09-02"
 
 
 def test_a_record_is_written_atomically_and_reread(tmp_path):

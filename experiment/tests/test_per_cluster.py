@@ -644,3 +644,96 @@ def test_a_broken_summary_cannot_end_a_run(per_cluster_campaign, monkeypatch):
 
     assert (exit_code, timed_out, sessions) == (0, False, 1)
     assert any("summary unavailable" in line for line in lines), lines
+
+
+def test_a_malformed_questions_file_cannot_end_a_run(per_cluster_campaign, monkeypatch):
+    """The one summary call that sits outside _finish_cluster's try.
+
+    A questions.yaml holding a list raised AttributeError straight out of
+    run_per_cluster, so the run wrote no status.json and no result.json. The
+    guarantee test above could not catch it: it patches write_summary, which is
+    inside that try, so the try block was exactly its coverage boundary.
+    """
+    import experiment.per_cluster as per_cluster
+
+    _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
+    monkeypatch.setattr(
+        progress, "window_clusters", lambda _ws: [{"ordinal": 1, "id": "c1"}]
+    )
+    ref = _ref(per_cluster_campaign)
+    (ref.workspace).mkdir(parents=True, exist_ok=True)
+    (ref.workspace / "questions.yaml").write_text("- q-001\n- q-002\n")
+
+    exit_code, timed_out, sessions = per_cluster.run_per_cluster(
+        per_cluster_campaign, ref, report=lambda _: None
+    )
+
+    assert (exit_code, timed_out, sessions) == (0, False, 1)
+
+
+def test_an_unreadable_questions_file_cannot_end_a_run(
+    per_cluster_campaign, monkeypatch
+):
+    """The call-site guard, independent of how defensive question_ids is."""
+    import experiment.per_cluster as per_cluster
+
+    _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
+    monkeypatch.setattr(
+        progress, "window_clusters", lambda _ws: [{"ordinal": 1, "id": "c1"}]
+    )
+
+    def explode(_workspace):
+        raise RuntimeError("questions are on fire")
+
+    monkeypatch.setattr(per_cluster, "question_ids", explode)
+    lines: list[str] = []
+
+    exit_code, timed_out, sessions = per_cluster.run_per_cluster(
+        per_cluster_campaign, _ref(per_cluster_campaign), report=lines.append
+    )
+
+    assert (exit_code, timed_out, sessions) == (0, False, 1)
+    assert any("questions unreadable" in line for line in lines), lines
+
+
+def test_a_failed_summary_does_not_re_credit_its_claims(
+    per_cluster_campaign, monkeypatch
+):
+    """The claim delta is cumulative, so a lost update double-counts.
+
+    held is read before the summary is built. If the build then fails and the
+    loop keeps the old seen set, every claim this cluster held is reported as
+    new again at the next one — the second definition of "new claim" the design
+    exists to prevent.
+    """
+    import experiment.per_cluster as per_cluster
+
+    monkeypatch.setattr(
+        per_cluster,
+        "held_claim_ids",
+        lambda _c, _w, _id: (frozenset({"mark:a.1", "mark:a.2"}), None),
+    )
+    monkeypatch.setattr(
+        per_cluster,
+        "build_summary",
+        lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("build failed")),
+    )
+
+    seen = per_cluster._finish_cluster(
+        per_cluster_campaign,
+        _ref(per_cluster_campaign),
+        {"ordinal": 1, "id": "c1"},
+        outcome="complete",
+        attempts=[],
+        events=[],
+        seen_claim_ids=frozenset(),
+        wall_s=1.0,
+        seed_error=None,
+        questions_before=set(),
+        report=lambda _: None,
+    )
+
+    assert seen == frozenset({"mark:a.1", "mark:a.2"}), (
+        "a summary that failed after the checkpoint was read must still "
+        "contribute what it held"
+    )

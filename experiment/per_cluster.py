@@ -219,9 +219,16 @@ def _finish_cluster(
         report: Where the digest goes.
 
     Returns:
-        ``seen_claim_ids`` extended with what this cluster holds, unchanged if
-        the checkpoint could not be read.
+        ``seen_claim_ids`` extended with what this cluster holds — from both the
+        success and the failure path, since a summary that failed after the
+        checkpoint was read must not cost the claims it already found.
     """
+    # Read before the try, and returned from both branches: the claim delta is
+    # cumulative, so a cluster whose summary failed after its checkpoint was
+    # read must still contribute what it held. Dropping it would credit those
+    # claims again at the next cluster — the second definition of "new claim"
+    # this design exists to avoid.
+    held: frozenset[str] = frozenset()
     try:
         errors = [seed_error] if seed_error else []
         held, held_error = held_claim_ids(campaign, ref.workspace, str(row.get("id")))
@@ -247,7 +254,7 @@ def _finish_cluster(
         return seen_claim_ids | held
     except Exception as error:  # noqa: BLE001 - reporting may not end a run
         report(f"{ref.run_id}: summary unavailable: {error}")
-        return seen_claim_ids
+        return seen_claim_ids | held
 
 
 def run_per_cluster(
@@ -314,7 +321,14 @@ def run_per_cluster(
         cluster_attempts: list[dict[str, Any]] = []
         cluster_started = time.monotonic()
         events: list[dict[str, Any]] = []
-        questions_before = question_ids(ref.workspace)
+        # Guarded at the call site as well as inside: this is the one summary
+        # call outside _finish_cluster's try, so an escape here would reach the
+        # loop and end a run that has nothing else wrong with it.
+        try:
+            questions_before = question_ids(ref.workspace)
+        except Exception as error:  # noqa: BLE001 - reporting may not end a run
+            report(f"{ref.run_id}: questions unreadable: {error}")
+            questions_before = set()
         outstanding = partial_reason(artifacts)
         if outstanding is not None:
             report(
