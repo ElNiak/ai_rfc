@@ -60,13 +60,41 @@ def next_cluster(workspace: Path) -> dict[str, Any] | None:
     Returns:
         The cluster row to process next, or ``None`` when the window is done.
     """
-    for row in window_clusters(workspace):
-        artifacts = cluster_artifacts(workspace, row)
-        if artifacts["pre_seeded"]:
-            continue
-        if not artifacts["artifacts"]:
-            return row
-    return None
+    return window_progress(workspace)[0]
+
+
+def window_progress(
+    workspace: Path,
+) -> tuple[dict[str, Any] | None, int, int, int]:
+    """The next unfinished cluster, and where it sits in the remaining work.
+
+    Pre-seeded clusters are excluded from both counts: they are work a baseline
+    already did, so counting them would report progress this run did not make.
+    The denominator therefore means "remaining", not "in window".
+
+    Args:
+        workspace: The run's workspace.
+
+    Returns:
+        ``(row, position, done, total)``. ``row`` is the cluster to process
+        next, or ``None`` when the window is done. ``position`` is that row's
+        1-based index among the counted clusters — not ``done + 1``, because a
+        finished cluster may sit after an unfinished one — and is 0 when there
+        is no row.
+    """
+    counted = [
+        (row, artifacts)
+        for row, artifacts in (
+            (row, cluster_artifacts(workspace, row))
+            for row in window_clusters(workspace)
+        )
+        if not artifacts.get("pre_seeded")
+    ]
+    done = sum(1 for _, artifacts in counted if artifacts.get("artifacts"))
+    for index, (row, artifacts) in enumerate(counted, start=1):
+        if not artifacts.get("artifacts"):
+            return row, index, done, len(counted)
+    return None, 0, done, len(counted)
 
 
 def partial_reason(artifacts: dict[str, Any]) -> str | None:

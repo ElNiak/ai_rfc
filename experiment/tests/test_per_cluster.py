@@ -505,3 +505,50 @@ def test_a_per_cluster_run_reports_through_the_launcher(
     # id lands in the transcript path the driver reports and would match a
     # laxer needle whether or not the loop's own lines ever arrived.
     assert any("attempt" in line for line in lines), lines
+
+
+def test_window_progress_counts_only_the_work_this_run_can_do(
+    tmp_path, monkeypatch
+):
+    """Pre-seeded clusters are a baseline's work, not this run's.
+
+    Counting them would report progress the run did not make, and the
+    denominator would stop meaning "remaining".
+    """
+    import experiment.per_cluster as per_cluster
+
+    rows = [{"ordinal": n, "id": f"c{n}"} for n in (1, 2, 3, 4)]
+    artifacts = {
+        "c1": {"artifacts": False, "pre_seeded": True},
+        "c2": {"artifacts": True, "pre_seeded": False},
+        "c3": {"artifacts": False, "pre_seeded": False},
+        "c4": {"artifacts": True, "pre_seeded": False},
+    }
+    monkeypatch.setattr(per_cluster, "window_clusters", lambda _ws: rows)
+    monkeypatch.setattr(
+        per_cluster, "cluster_artifacts", lambda _ws, row: artifacts[row["id"]]
+    )
+
+    row, position, done, total = per_cluster.window_progress(tmp_path)
+
+    assert row["id"] == "c3"
+    # c1 is pre-seeded: neither numerator nor denominator.
+    assert (position, done, total) == (2, 2, 3)
+    # c4 is finished but sits after c3, so position is not done + 1.
+    assert position != done + 1
+
+
+def test_next_cluster_still_returns_just_the_row(tmp_path, monkeypatch):
+    """The wrapper keeps the signature its existing callers use."""
+    import experiment.per_cluster as per_cluster
+
+    monkeypatch.setattr(
+        per_cluster, "window_clusters", lambda _ws: [{"ordinal": 1, "id": "c1"}]
+    )
+    monkeypatch.setattr(
+        per_cluster,
+        "cluster_artifacts",
+        lambda _ws, _row: {"artifacts": False, "pre_seeded": False},
+    )
+
+    assert per_cluster.next_cluster(tmp_path)["id"] == "c1"
