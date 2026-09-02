@@ -55,6 +55,45 @@ def init_event(events: list[dict[str, Any]]) -> dict[str, Any] | None:
     return None
 
 
+def salvage_stream(text: str) -> tuple[list[dict[str, Any]], int]:
+    """Parse what a transcript can still yield, and count what it cannot.
+
+    :func:`parse_stream` refuses a transcript holding any malformed line, which
+    is right for an audit: a garbled transcript must not be read as evidence.
+    It is wrong for the budget, and on exactly the path the budget exists for.
+    A kill can truncate a line mid-write, the next session appends onto that
+    tail, and the run is left with one permanently unparseable line — so a
+    strict read fails from then on, the accumulated spend freezes, the ceiling
+    can never be reached again, and only the wall clock still bounds the run.
+
+    Counting the losses rather than swallowing them keeps the caller able to
+    say what it gave up, which a figure quietly reconstructed from a damaged
+    record could not.
+
+    Args:
+        text: The transcript.
+
+    Returns:
+        ``(events, skipped)`` — the events that parsed, and how many lines did
+        not.
+    """
+    events: list[dict[str, Any]] = []
+    skipped = 0
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            skipped += 1
+            continue
+        if isinstance(event, dict):
+            events.append(event)
+        else:
+            skipped += 1
+    return events, skipped
+
+
 def mcp_servers(events: list[dict[str, Any]]) -> dict[str, str]:
     """Each MCP server the session mounted, and the status it reported.
 

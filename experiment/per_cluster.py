@@ -24,7 +24,6 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
-from . import ExperimentError
 from .arms import arm_profile
 from .config import Campaign, render_task
 from .metrics import cluster_artifacts, window_clusters
@@ -34,8 +33,8 @@ from .stream import (
     ai_rfc_connected,
     init_event,
     mcp_servers,
-    parse_stream,
     result_events,
+    salvage_stream,
 )
 
 #: How many times one cluster is attempted before the run halts. A second
@@ -118,8 +117,8 @@ def surface_shortfall(arm: str, events_path: Path) -> str | None:
     if not arm_profile(arm).uses_mcp:
         return None
     try:
-        events = parse_stream(events_path.read_text(errors="replace"))
-    except (ExperimentError, OSError):
+        events, _ = salvage_stream(events_path.read_text(errors="replace"))
+    except OSError:
         return None
     if init_event(events) is None:
         return None
@@ -129,7 +128,7 @@ def surface_shortfall(arm: str, events_path: Path) -> str | None:
     return ", ".join(f"{n}={s}" for n, s in sorted(mounted.items())) or "no server"
 
 
-def _session_cost(events_path: Path, seen: int) -> tuple[float, int]:
+def _session_cost(events_path: Path, seen: int) -> tuple[float, int, int]:
     """What was spent by the result events appended since ``seen``.
 
     Read back off the transcript rather than tracked, for the same reason the
@@ -146,21 +145,33 @@ def _session_cost(events_path: Path, seen: int) -> tuple[float, int]:
         events_path: The run's transcript.
         seen: How many result events the transcript held before this session.
 
+    The transcript is salvaged rather than parsed strictly. A kill can truncate
+    a line mid-write and the next session appends onto that tail, so one
+    unparseable line is a normal outcome of the very interruptions this loop
+    exists to survive. Refusing the whole file there would freeze ``spent``, and
+    a frozen ``spent`` is a budget ceiling that can never be reached again.
+
+    Args:
+        events_path: The run's transcript.
+        seen: How many result events the transcript held before this session.
+
     Returns:
-        ``(cost, total)`` — what the new events report, and the transcript's
-        new result-event count. A session that produced none reports 0.0,
-        because it said nothing about its own spend.
+        ``(cost, total, skipped)`` — what the new events report, the
+        transcript's new result-event count, and how many of its lines could not
+        be read. A session that produced none reports 0.0, because it said
+        nothing about its own spend.
     """
     try:
-        results = result_events(parse_stream(events_path.read_text(errors="replace")))
-    except (ExperimentError, OSError):
-        return 0.0, seen
+        events, skipped = salvage_stream(events_path.read_text(errors="replace"))
+    except OSError:
+        return 0.0, seen, 0
+    results = result_events(events)
     cost = 0.0
     for result in results[seen:]:
         value = result.get("total_cost_usd")
         if isinstance(value, (int, float)):
             cost += float(value)
-    return cost, len(results)
+    return cost, len(results), skipped
 
 
 def run_per_cluster(
@@ -198,6 +209,7 @@ def run_per_cluster(
     sessions = 0
     spent = 0.0
     results_seen = 0
+    reported_damage = 0
     started = time.monotonic()
     exit_code: int | None = 0
     any_timeout = False
@@ -242,8 +254,18 @@ def run_per_cluster(
             )
             sessions += 1
             any_timeout = any_timeout or timed_out
-            cost, results_seen = _session_cost(events_path, results_seen)
+            cost, results_seen, damaged = _session_cost(events_path, results_seen)
             spent += cost
+            if damaged > reported_damage:
+                # Said once per new loss rather than per session: the count only
+                # grows, and a ceiling enforced over a partial record is a fact
+                # the operator has to know to read the final figure.
+                report(
+                    f"{ref.run_id}: {damaged} transcript line(s) unreadable; "
+                    f"spend is counted from what parsed, so ${spent:.2f} is a "
+                    f"floor and the budget ceiling is enforced against it"
+                )
+                reported_damage = damaged
             # The run's argv.json holds the whole-window vector launch() built
             # before dispatching here, which is not what any session ran. Each
             # session's own is recorded so the run says what it actually did.

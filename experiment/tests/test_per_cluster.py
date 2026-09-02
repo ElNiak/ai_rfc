@@ -245,14 +245,51 @@ def test_a_killed_session_is_not_charged_the_previous_ones_cost(tmp_path):
     events = tmp_path / "events.jsonl"
 
     _write_events(events, [2.0])
-    assert _session_cost(events, 0) == (2.0, 1)
+    assert _session_cost(events, 0) == (2.0, 1, 0)
 
     # The next session is killed: the transcript is unchanged.
-    assert _session_cost(events, 1) == (0.0, 1)
+    assert _session_cost(events, 1) == (0.0, 1, 0)
 
     # A session that emits several results is summed, not sampled.
     _write_events(events, [2.0, 1.0, 0.5])
-    assert _session_cost(events, 1) == (1.5, 3)
+    assert _session_cost(events, 1) == (1.5, 3, 0)
+
+
+def test_a_truncated_line_does_not_freeze_the_budget(tmp_path):
+    """The kill this loop tolerates is the one that damages the transcript.
+
+    A kill can truncate a line mid-write and the next session appends onto that
+    tail, leaving one permanently unparseable line. Refusing the whole file
+    there would freeze the accumulated spend, so the ceiling could never be
+    reached again and only the wall clock would still bound the run — the
+    budget failing open on precisely the interruption it exists for.
+    """
+    from experiment.per_cluster import _session_cost
+
+    events = tmp_path / "events.jsonl"
+    events.write_text(
+        json.dumps({"type": "result", "total_cost_usd": 2.0})
+        + "\n"
+        + '{"type": "result", "total_cost_u'  # killed mid-write
+        + json.dumps({"type": "result", "total_cost_usd": 1.0})
+        + "\n"
+    )
+
+    # The truncated fragment carries no newline, so the next session's first
+    # line is appended onto it and the two become one garbled line. That
+    # session's figure is genuinely unrecoverable — which is the damage, not
+    # the defect.
+    cost, seen, damaged = _session_cost(events, 0)
+    assert damaged == 1, "the unreadable line must be counted, not hidden"
+    assert (cost, seen) == (2.0, 1)
+
+    # The defect is the freeze. Under a strict read every later call re-parses
+    # from byte 0, hits the same garbled line and reports 0.0 forever, so spend
+    # stops growing and the ceiling can never be reached again.
+    with events.open("a") as handle:
+        handle.write(json.dumps({"type": "result", "total_cost_usd": 4.0}) + "\n")
+
+    assert _session_cost(events, seen) == (4.0, 2, 1), "spend must keep growing"
 
 
 def test_the_budget_caps_the_run_not_each_session(per_cluster_campaign, monkeypatch):
@@ -267,7 +304,9 @@ def test_the_budget_caps_the_run_not_each_session(per_cluster_campaign, monkeypa
     calls = _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
     monkeypatch.setattr(per_cluster, "window_clusters", lambda _ws: _clusters(10))
     # Each session spends the whole $1.00 campaign budget.
-    monkeypatch.setattr(per_cluster, "_session_cost", lambda _p, seen: (1.0, seen + 1))
+    monkeypatch.setattr(
+        per_cluster, "_session_cost", lambda _p, seen: (1.0, seen + 1, 0)
+    )
 
     ref = _ref(per_cluster_campaign)
     exit_code, _, sessions = per_cluster.run_per_cluster(per_cluster_campaign, ref)
@@ -290,7 +329,9 @@ def test_each_session_is_given_only_what_the_run_has_left(
     _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
     monkeypatch.setattr(per_cluster, "window_clusters", lambda _ws: _clusters(3))
     monkeypatch.setattr(per_cluster, "prepare_run_argv", capture)
-    monkeypatch.setattr(per_cluster, "_session_cost", lambda _p, seen: (0.25, seen + 1))
+    monkeypatch.setattr(
+        per_cluster, "_session_cost", lambda _p, seen: (0.25, seen + 1, 0)
+    )
 
     per_cluster.run_per_cluster(per_cluster_campaign, _ref(per_cluster_campaign))
     assert given == [1.0, 0.75, 0.5]
@@ -304,7 +345,9 @@ def test_every_session_records_the_argv_it_actually_ran(
 
     _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
     monkeypatch.setattr(per_cluster, "window_clusters", lambda _ws: _clusters(2))
-    monkeypatch.setattr(per_cluster, "_session_cost", lambda _p, seen: (0.1, seen + 1))
+    monkeypatch.setattr(
+        per_cluster, "_session_cost", lambda _p, seen: (0.1, seen + 1, 0)
+    )
 
     ref = _ref(per_cluster_campaign)
     per_cluster.run_per_cluster(per_cluster_campaign, ref)
