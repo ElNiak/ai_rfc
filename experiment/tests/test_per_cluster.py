@@ -406,30 +406,63 @@ def test_a_failed_server_is_named_for_the_arm_that_declared_it(tmp_path):
     every write being the ones that were missing.
     """
     events = _transcript(tmp_path, ("ai_rfc", "failed"))
-    assert surface_shortfall("A", events) == "ai_rfc=failed"
+    assert surface_shortfall("A", events) == (True, "ai_rfc=failed")
 
 
 def test_a_connected_server_is_no_shortfall(tmp_path):
     events = _transcript(tmp_path, ("ai_rfc", "connected"))
-    assert surface_shortfall("A", events) is None
+    assert surface_shortfall("A", events) == (True, None)
 
 
 def test_the_plugin_loading_path_counts_as_connected(tmp_path):
     """``--plugin-dir`` names the same server ``plugin:<plugin>:ai_rfc``."""
     events = _transcript(tmp_path, ("plugin:ai-rfc:ai_rfc", "connected"))
-    assert surface_shortfall("A", events) is None
+    assert surface_shortfall("A", events) == (True, None)
 
 
 def test_an_arm_that_mounts_no_server_is_never_short(tmp_path):
     """B and C reach the substrate through the CLI, so no server is correct."""
     events = _transcript(tmp_path, ("ai_rfc", "failed"))
-    assert surface_shortfall("B", events) is None
-    assert surface_shortfall("C", events) is None
+    assert surface_shortfall("B", events) == (True, None)
+    assert surface_shortfall("C", events) == (True, None)
 
 
 def test_a_session_that_never_announced_is_not_judged(tmp_path):
     """No init event is a session too young to have said, not a fault."""
     path = tmp_path / "events.jsonl"
     path.write_text("")
-    assert surface_shortfall("A", path) is None
-    assert surface_shortfall("A", tmp_path / "absent.jsonl") is None
+    assert surface_shortfall("A", path) == (False, None)
+    assert surface_shortfall("A", tmp_path / "absent.jsonl") == (False, None)
+
+
+def test_a_silent_first_session_does_not_forfeit_the_guard(
+    per_cluster_campaign, monkeypatch
+):
+    """ "Cannot tell yet" must not spend the one check the window gets.
+
+    A first session that writes no readable transcript has not said what it
+    mounted. Judging once *per session* would skip the check there and never
+    return to it, leaving the remaining clusters unguarded — so the verdict is
+    taken on the first session that can actually be judged.
+    """
+    import experiment.per_cluster as per_cluster
+
+    _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
+    monkeypatch.setattr(
+        per_cluster,
+        "window_clusters",
+        lambda _ws: [{"ordinal": 1, "id": "c1"}, {"ordinal": 2, "id": "c2"}],
+    )
+    verdicts = iter([(False, None), (True, "ai_rfc=failed")])
+    monkeypatch.setattr(
+        per_cluster, "surface_shortfall", lambda _arm, _path: next(verdicts)
+    )
+    lines: list[str] = []
+
+    exit_code, _, sessions = per_cluster.run_per_cluster(
+        per_cluster_campaign, _ref(per_cluster_campaign), report=lines.append
+    )
+
+    assert exit_code == 1, "the second session's verdict must still stop the run"
+    assert sessions == 2
+    assert any("declares the ai_rfc tool surface" in line for line in lines), lines

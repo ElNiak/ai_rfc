@@ -94,7 +94,7 @@ def partial_reason(artifacts: dict[str, Any]) -> str | None:
     return None
 
 
-def surface_shortfall(arm: str, events_path: Path) -> str | None:
+def surface_shortfall(arm: str, events_path: Path) -> tuple[bool, str | None]:
     """What the arm declared it would mount, against what the session did.
 
     An arm states its surface as data and every session announces what actually
@@ -105,27 +105,36 @@ def surface_shortfall(arm: str, events_path: Path) -> str | None:
     exits 0, which is why one produced thirty-nine claims in a vocabulary the
     schema rejects and reported success.
 
+    "Whole" and "cannot tell yet" are returned as separate facts rather than
+    both as None. A caller that judges once needs to know whether a verdict was
+    actually reached, or it will treat a silent session as a clean one and
+    never look again.
+
     Args:
         arm: The arm the run declares.
         events_path: The run's transcript.
 
     Returns:
-        A description of what mounted instead, or None when the surface is
-        whole — including when the arm mounts no server, and when the session
-        never got far enough to say.
+        ``(judged, shortfall)``. ``judged`` is False when nothing could be
+        decided — an unreadable transcript, or one whose session has not yet
+        announced what it mounted. ``shortfall`` describes what mounted instead,
+        and is None when the surface is whole or the arm mounts no server.
     """
     if not arm_profile(arm).uses_mcp:
-        return None
+        return True, None
     try:
         events, _ = salvage_stream(events_path.read_text(errors="replace"))
     except OSError:
-        return None
+        return False, None
     if init_event(events) is None:
-        return None
+        return False, None
     if ai_rfc_connected(events):
-        return None
+        return True, None
     mounted = mcp_servers(events)
-    return ", ".join(f"{n}={s}" for n, s in sorted(mounted.items())) or "no server"
+    return (
+        True,
+        ", ".join(f"{n}={s}" for n, s in sorted(mounted.items())) or "no server",
+    )
 
 
 def _session_cost(events_path: Path, seen: int) -> tuple[float, int, int]:
@@ -210,6 +219,7 @@ def run_per_cluster(
     spent = 0.0
     results_seen = 0
     reported_damage = 0
+    surface_judged = False
     started = time.monotonic()
     exit_code: int | None = 0
     any_timeout = False
@@ -288,19 +298,23 @@ def run_per_cluster(
                     )
                     + "\n"
                 )
-            # Checked once, on the first session, because it is a property of
-            # how the run was launched rather than of any cluster: whatever the
-            # first session mounted, the rest will mount too. Retrying a session
-            # that had no tools only buys a second session with no tools.
-            shortfall = surface_shortfall(ref.arm, events_path)
-            if sessions == 1 and shortfall is not None:
-                report(
-                    f"{ref.run_id}: arm {ref.arm} declares the ai_rfc tool "
-                    f"surface and the session mounted {shortfall}; stopping "
-                    f"after ${spent:.2f} rather than spending the window on "
-                    f"sessions that cannot checkpoint, gate or tag"
-                )
-                return 1, any_timeout, sessions
+            # Judged once, but on the first session that can be judged rather
+            # than on the first session outright. The surface is a property of
+            # how the run was launched, so one verdict settles the window — but
+            # a session that produced no readable transcript, or none with an
+            # init event, has not said what it mounted. Gating on the session
+            # number would spend that silence: the check would be skipped and
+            # could never fire again, leaving the rest of the window unguarded.
+            if not surface_judged:
+                surface_judged, shortfall = surface_shortfall(ref.arm, events_path)
+                if shortfall is not None:
+                    report(
+                        f"{ref.run_id}: arm {ref.arm} declares the ai_rfc tool "
+                        f"surface and the session mounted {shortfall}; stopping "
+                        f"after ${spent:.2f} rather than spending the window on "
+                        f"sessions that cannot checkpoint, gate or tag"
+                    )
+                    return 1, any_timeout, sessions
             if cluster_artifacts(ref.workspace, row)["artifacts"]:
                 break
             budget_left = campaign.budget_usd - spent

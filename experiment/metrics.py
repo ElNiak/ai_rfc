@@ -25,8 +25,7 @@ from . import ExperimentError
 from .arms import arm_profile
 from .config import Campaign
 from .runner import EVENTS_FILE, RESULT_FILE, load_status
-from .stream import (ai_rfc_connected, mcp_servers, parse_stream, tool_uses,
-                     usage_series)
+from .stream import ai_rfc_connected, mcp_servers, parse_stream, tool_uses, usage_series
 from .workspace import HARNESS_MARKER, RECORD_FILE
 
 DEFINITIONS = {
@@ -363,14 +362,23 @@ def surface(events: list[dict[str, Any]], arm: str) -> dict[str, Any]:
         and whether the run's numbers describe the arm it claims to be.
     """
     profile = arm_profile(arm)
-    calls = sum(
-        1 for use in tool_uses(events) if use["name"].startswith("mcp__ai_rfc__")
-    )
     return {
         "expects_mcp": profile.uses_mcp,
         "mcp_servers": mcp_servers(events),
-        "ai_rfc_tool_calls": calls,
-        "intact": (not profile.uses_mcp) or (ai_rfc_connected(events) and calls > 0),
+        # Reported beside the verdict, never folded into it. A name in the right
+        # prefix is not evidence a tool ran: the session that mounted no server
+        # still called ``mcp__ai_rfc__cluster_next``, which no server offers —
+        # the real tools are ``mcp__ai_rfc__ai_rfc_*`` — so counting it would
+        # have attested to a surface that was not there.
+        "ai_rfc_tool_calls": sum(
+            1 for use in tool_uses(events) if use["name"].startswith("mcp__ai_rfc__")
+        ),
+        # Mounting is the whole test. Requiring a call as well would void a run
+        # that mounted correctly and then died before making one — a timeout, a
+        # budget stop, an early halt — and this verdict excludes a run from its
+        # arm's means, so that would drop a sound short run from the study for
+        # the offence of being short.
+        "intact": (not profile.uses_mcp) or ai_rfc_connected(events),
     }
 
 
@@ -379,8 +387,16 @@ def _mean(values: list[float]) -> float | None:
 
 
 def _arm_summary(
-    runs: list[dict[str, Any]], window_ids: list[str], repeats: int
+    all_runs: list[dict[str, Any]], window_ids: list[str], repeats: int
 ) -> dict[str, Any]:
+    # A run whose session never mounted the surface its arm declares did not
+    # measure this arm, so every figure below is computed without it and the
+    # count is reported beside them — the same shape as `priced` two blocks
+    # down. Averaging one in states a result for a configuration nobody ran,
+    # and `pass_k` is where it does the most damage: one void run turns an
+    # undecided cluster into a hard False for the whole arm.
+    broken = sum(1 for r in all_runs if not r["surface"]["intact"])
+    runs = [r for r in all_runs if r["surface"]["intact"]]
     completed_counts = [sum(1 for c in r["clusters"] if c["completed"]) for r in runs]
     # A run that ended without a terminal result event has an *unknown* cost,
     # not a zero one, and folding it in as 0.0 biases every figure below in the
@@ -442,13 +458,7 @@ def _arm_summary(
         "cost_total": cost_total,
         "cost_mean": _mean(costs),
         "runs_with_unknown_cost": len(runs) - len(priced),
-        # Reported rather than silently averaged in, for the same reason the
-        # line above is: a run whose arm never got its tool surface measured a
-        # different arm, and folding it into this arm's mean states a result
-        # for a configuration nobody ran.
-        "runs_with_broken_surface": sum(
-            1 for run in runs if not run.get("surface", {}).get("intact", True)
-        ),
+        "runs_with_broken_surface": broken,
         "failure_cost_share": (failed_cost / cost_total) if cost_total else None,
         "cost_per_completed_cluster": (
             (cost_total / priced_completed) if priced_completed else None

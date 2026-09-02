@@ -120,10 +120,13 @@ def test_trajectory_points_follow_checkpoint_calls():
     assert trajectory(events, "B", set(), window_size=2)["auc"] == 0.0
 
 
-def _synthetic_run(run_id: str, completed: bool, cost: float | None = 1.0) -> dict:
+def _synthetic_run(
+    run_id: str, completed: bool, cost: float | None = 1.0, intact: bool = True
+) -> dict:
     return {
         "run_id": run_id,
         "arm": run_id[0],
+        "surface": {"intact": intact},
         "clusters": [{"cluster_id": "c1", "completed": completed, "artifacts": True}],
         "completed_fraction": 1.0 if completed else 0.0,
         "artifacts_fraction": 1.0,
@@ -224,13 +227,26 @@ def test_an_arm_that_never_got_its_tools_is_not_intact():
     assert result["ai_rfc_tool_calls"] == 0
 
 
-def test_a_connected_server_that_was_never_called_is_not_intact():
-    """Mounting is necessary and not sufficient; the arm has to have used it."""
-    assert surface(_events_with("connected", ai_rfc_calls=0), "A")["intact"] is False
+def test_a_run_that_mounted_but_died_before_calling_is_still_intact():
+    """Mounting is the test; a short run is not a void one.
+
+    A run killed on its cap before its first tool call had the surface its arm
+    declares. Voiding it would drop a sound run from the arm's means for the
+    offence of being short.
+    """
+    assert surface(_events_with("connected", ai_rfc_calls=0), "A")["intact"] is True
 
 
-def test_a_connected_server_that_was_used_is_intact():
-    assert surface(_events_with("connected", ai_rfc_calls=3), "A")["intact"] is True
+def test_a_call_in_the_right_prefix_is_not_evidence_of_a_surface():
+    """The failed run invented `mcp__ai_rfc__cluster_next`, which no server has.
+
+    Real tools are `mcp__ai_rfc__ai_rfc_*`. Counting a name by its prefix would
+    have let a hallucinated call attest to a server that never started, so the
+    count is reported beside the verdict and never folded into it.
+    """
+    result = surface(_events_with("failed", ai_rfc_calls=2), "A")
+    assert result["ai_rfc_tool_calls"] == 2
+    assert result["intact"] is False
 
 
 def test_a_cli_arm_is_intact_without_any_server():
@@ -239,18 +255,37 @@ def test_a_cli_arm_is_intact_without_any_server():
         assert surface(_events_with(None, ai_rfc_calls=0), arm)["intact"] is True
 
 
-def test_a_broken_surface_is_counted_rather_than_averaged_in():
-    intact = _synthetic_run("A1", True)
-    intact["surface"] = {"intact": True}
-    broken = _synthetic_run("A2", False)
-    broken["surface"] = {"intact": False}
+def test_a_broken_surface_is_excluded_from_every_figure_not_just_counted():
+    """Counting a void run while still averaging it in is the worse of both.
 
-    summary = _arm_summary([intact, broken], ["c1"], repeats=2)
+    The run never had the tools under study, so it measured a different arm.
+    Every figure here must read as though it had not run — most of all
+    ``pass_k``, where folding it in turns an undecided cluster into a hard
+    False, which renders identically to a real failure.
+    """
+    sound = _synthetic_run("A1", True, cost=2.0)
+    void = _synthetic_run("A2", False, cost=6.0, intact=False)
+
+    summary = _arm_summary([sound, void], ["c1"], repeats=2)
+    alone = _arm_summary([sound], ["c1"], repeats=2)
 
     assert summary["runs_with_broken_surface"] == 1
+    assert summary["runs"] == 1, "the void run is not one of this arm's runs"
+    assert summary["completed_fraction_mean"] == alone["completed_fraction_mean"] == 1.0
+    assert summary["cost_mean"] == alone["cost_mean"] == 2.0
+    assert summary["cost_total"] == 2.0, "void spend is not this arm's spend"
+    assert summary["failure_cost_share"] == 0.0
+    # One sound run of two repeats leaves the arm undecided, not failed.
+    assert summary["pass_k"] == {"c1": None}
+    assert summary["pass_k_mean"] is None
 
 
-def test_runs_predating_the_field_are_assumed_intact():
-    """Older analyses carry no surface block and must not read as broken."""
-    runs = [_synthetic_run("A1", True), _synthetic_run("A2", True)]
-    assert _arm_summary(runs, ["c1"], repeats=2)["runs_with_broken_surface"] == 0
+def test_an_arm_whose_runs_were_all_void_reports_no_figures():
+    """Nothing measured this arm, so it must not read as a zero-scoring one."""
+    void = _synthetic_run("A1", True, cost=3.0, intact=False)
+
+    summary = _arm_summary([void], ["c1"], repeats=1)
+
+    assert summary["runs"] == 0 and summary["runs_with_broken_surface"] == 1
+    assert summary["completed_fraction_mean"] is None
+    assert summary["cost_total"] == 0 and summary["cost_mean"] is None
