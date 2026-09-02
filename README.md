@@ -68,6 +68,23 @@ harness plan) launch, audit and analyze runs. State lives under
 `AI_RFC_EXPERIMENTS_ROOT` (default `~/ai-rfc-experiments`), never inside a
 repository.
 
+### What the progress lines mean
+
+A campaign's output names four things that are worth reading once before a run:
+
+| Term | Meaning |
+|---|---|
+| arm | One experimental condition. What varies is the tool surface the agent gets: **A** the ai_rfc MCP structured tools, **B** the ai_rfc CLI through Bash, **C** the raw substrate through Bash. Each arm's own label is printed beside its letter. |
+| repeat | Which replicate of that arm, run again to measure variance. A run id like `A1` is therefore arm A, repeat 1. |
+| cluster | One contiguous slice of the target's first-parent history, processed as a single unit of work. Clusters partition the corpus. |
+| `c0001-epoch-c84a5f082e40` | A cluster id: `c`, the ordinal `0001`, the kind, and the first twelve characters of the anchor commit. |
+| kind | `pr` — a merge commit and its branch — or `epoch`, a run of direct pushes between merges. An epoch's title is its *first* commit's subject, so it is printed as `from "..."` rather than as a name for the slice. |
+| attempt | Of `ATTEMPTS_PER_CLUSTER`. A second attempt buys a clean context. |
+| `N of M remaining` | Position among the clusters this run still has to do. Pre-seeded clusters — work a baseline already did — are counted out of both numbers, so `M` is remaining work, not window size. |
+
+The per-cluster progress lines exist only under `--session-mode per-cluster`; a
+`single`-mode run gives its whole window to one session and reports once.
+
 **Run every `python -m experiment` command from this directory.** This
 repository is nested inside PANTHER but is not a package of it: there is no
 `__init__.py` here, deliberately, because adding one would give `experiment` two
