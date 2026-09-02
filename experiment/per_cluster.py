@@ -24,6 +24,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
+from . import ExperimentError
 from .arms import arm_profile
 from .config import Campaign, render_task
 from .metrics import cluster_artifacts, window_clusters
@@ -95,6 +96,54 @@ def window_progress(
         if not artifacts.get("artifacts"):
             return row, index, done, len(counted)
     return None, 0, done, len(counted)
+
+
+def _members(workspace: Path) -> list[dict[str, Any]]:
+    """Every member row in the workspace's timeline, or none when absent."""
+    try:
+        text = (workspace / "timeline" / "members.jsonl").read_text()
+    except OSError:
+        return []
+    return [json.loads(line) for line in text.splitlines() if line.strip()]
+
+
+def cluster_span(workspace: Path, cluster: dict[str, Any]) -> str | None:
+    """The commit range one cluster covers, as ``base..head``.
+
+    The span ends at the cluster's LAST member — a PR's anchor merge, or an
+    epoch's final spine commit — matching the rule :mod:`views.emit` uses to
+    build the ``span.diff`` the agent reads. The anchor names an epoch's FIRST
+    member, so ending at it would drop every later commit of the epoch.
+
+    Args:
+        workspace: The run's workspace.
+        cluster: One timeline row.
+
+    Returns:
+        ``"<base>..<head>"``, both abbreviated, with ``root`` for a cluster at
+        the start of the timeline. ``None`` when the workspace holds no members
+        for this cluster.
+
+    Raises:
+        ExperimentError: If a PR's last member is not the anchor its row names.
+            The two files disagree, so a span printed from them would not be
+            the one the agent was given.
+    """
+    members = [
+        row for row in _members(workspace) if row.get("cluster_id") == cluster.get("id")
+    ]
+    if not members:
+        return None
+    head = max(members, key=lambda row: row["position"])["sha"]
+    anchor = cluster.get("anchor_sha")
+    if cluster.get("kind") == "pr" and head != anchor:
+        raise ExperimentError(
+            f"{cluster.get('id')}: a PR's last member is its anchor merge, but "
+            f"members.jsonl ends at {head[:12]} and the row names "
+            f"{str(anchor)[:12]}"
+        )
+    base = cluster.get("spine_prev_sha")
+    return f"{base[:7] if base else 'root'}..{head[:7]}"
 
 
 def partial_reason(artifacts: dict[str, Any]) -> str | None:

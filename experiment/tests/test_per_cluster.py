@@ -552,3 +552,80 @@ def test_next_cluster_still_returns_just_the_row(tmp_path, monkeypatch):
     )
 
     assert per_cluster.next_cluster(tmp_path)["id"] == "c1"
+
+
+def _write_members(workspace, rows):
+    timeline = workspace / "timeline"
+    timeline.mkdir(parents=True, exist_ok=True)
+    (timeline / "members.jsonl").write_text(
+        "\n".join(json.dumps(row) for row in rows) + "\n"
+    )
+
+
+def test_a_pr_span_ends_at_its_anchor_merge(tmp_path):
+    from experiment.per_cluster import cluster_span
+
+    _write_members(
+        tmp_path,
+        [
+            {"cluster_id": "c1", "sha": "aaaaaaa111", "position": 0, "role": "branch"},
+            {"cluster_id": "c1", "sha": "bbbbbbb222", "position": 1, "role": "anchor"},
+        ],
+    )
+    cluster = {
+        "id": "c1",
+        "kind": "pr",
+        "anchor_sha": "bbbbbbb222",
+        "spine_prev_sha": "0000000999",
+    }
+
+    assert cluster_span(tmp_path, cluster) == "0000000..bbbbbbb"
+
+
+def test_an_epoch_span_ends_past_its_anchor(tmp_path):
+    """An epoch's anchor is its FIRST member, so ending there would drop the rest."""
+    from experiment.per_cluster import cluster_span
+
+    _write_members(
+        tmp_path,
+        [
+            {"cluster_id": "c2", "sha": "ccccccc333", "position": 0, "role": "spine"},
+            {"cluster_id": "c2", "sha": "ddddddd444", "position": 1, "role": "spine"},
+        ],
+    )
+    cluster = {
+        "id": "c2",
+        "kind": "epoch",
+        "anchor_sha": "ccccccc333",
+        "spine_prev_sha": None,
+    }
+
+    # spine_prev_sha is None at the root of the timeline.
+    assert cluster_span(tmp_path, cluster) == "root..ddddddd"
+
+
+def test_a_cluster_with_no_members_on_disk_has_no_span(tmp_path):
+    """The stubbed rows the loop's other tests use are not in members.jsonl."""
+    from experiment.per_cluster import cluster_span
+
+    assert cluster_span(tmp_path, {"id": "c1"}) is None
+
+
+def test_a_pr_whose_members_contradict_its_anchor_is_refused(tmp_path):
+    """Disagreement here means the printed span would not match span.diff."""
+    from experiment import ExperimentError
+    from experiment.per_cluster import cluster_span
+
+    _write_members(
+        tmp_path,
+        [{"cluster_id": "c3", "sha": "eeeeeee555", "position": 0, "role": "anchor"}],
+    )
+    cluster = {
+        "id": "c3",
+        "kind": "pr",
+        "anchor_sha": "fffffff666",
+        "spine_prev_sha": None,
+    }
+
+    with pytest.raises(ExperimentError, match="anchor merge"):
+        cluster_span(tmp_path, cluster)
