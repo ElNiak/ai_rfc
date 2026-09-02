@@ -28,7 +28,15 @@ from . import ExperimentError
 from .arms import arm_profile
 from .config import Campaign, render_task
 from .metrics import cluster_artifacts
-from .progress import _bar, _duration, cluster_span, describe, window_progress
+from .progress import (
+    _bar,
+    _duration,
+    cluster_span,
+    describe,
+    digest,
+    window_progress,
+)
+from .summary import build_summary, held_claim_ids, seed_seen, write_summary
 from .runner import EVENTS_FILE, STDERR_FILE, RunRef, build_env, prepare_run_argv
 from .spawn import spawn
 from .stream import (
@@ -171,6 +179,67 @@ def _session_cost(events: list[dict[str, Any]], seen: int) -> tuple[float, int]:
     return cost, len(results)
 
 
+def _finish_cluster(
+    campaign: Campaign,
+    ref: RunRef,
+    row: dict[str, Any],
+    *,
+    outcome: str,
+    attempts: list[dict[str, Any]],
+    events: list[dict[str, Any]],
+    seen_claim_ids: frozenset[str],
+    wall_s: float,
+    seed_error: str | None,
+    report: Callable[[str], None],
+) -> frozenset[str]:
+    """Write one cluster's summary and print its digest.
+
+    Wrapped whole: this is reporting, and a defect in it must not end a run
+    that may already be hours old.
+
+    Args:
+        campaign: The frozen campaign.
+        ref: The run being executed.
+        row: The timeline row just processed.
+        outcome: How the cluster ended.
+        attempts: One entry per attempt made on it.
+        events: The run transcript, already salvaged.
+        seen_claim_ids: Every claim id held before this cluster.
+        wall_s: Seconds spent on this cluster.
+        seed_error: A failure from the resume rebuild, or None.
+        report: Where the digest goes.
+
+    Returns:
+        ``seen_claim_ids`` extended with what this cluster holds, unchanged if
+        the checkpoint could not be read.
+    """
+    try:
+        errors = [seed_error] if seed_error else []
+        held, held_error = held_claim_ids(campaign, ref.workspace, str(row.get("id")))
+        if held_error:
+            errors.append(held_error)
+        record = build_summary(
+            campaign,
+            ref,
+            row,
+            outcome=outcome,
+            attempts=attempts,
+            events=events,
+            sessions=[a["session_id"] for a in attempts if a.get("session_id")],
+            seen_claim_ids=seen_claim_ids,
+            held_ids=held,
+            wall_s=wall_s,
+            errors=errors,
+        )
+        write_summary(ref.run_dir, str(row.get("id")), record)
+        for line in digest(record):
+            report(f"{ref.run_id}: {line}")
+        return seen_claim_ids | held
+    except Exception as error:  # noqa: BLE001 - reporting may not end a run
+        report(f"{ref.run_id}: summary unavailable: {error}")
+        return seen_claim_ids
+
+
 def run_per_cluster(
     campaign: Campaign,
     ref: RunRef,
@@ -209,6 +278,7 @@ def run_per_cluster(
     reported_damage = 0
     surface_judged = False
     known_sessions: set[str] = set()
+    seen_claim_ids, seed_error = seed_seen(campaign, ref.workspace)
     started = time.monotonic()
     exit_code: int | None = 0
     any_timeout = False
@@ -231,6 +301,9 @@ def run_per_cluster(
             return exit_code or 1, any_timeout, sessions
 
         ordinal = row["ordinal"]
+        cluster_attempts: list[dict[str, Any]] = []
+        cluster_started = time.monotonic()
+        events: list[dict[str, Any]] = []
         outstanding = partial_reason(artifacts)
         if outstanding is not None:
             report(
@@ -263,6 +336,7 @@ def run_per_cluster(
                 f"{_duration(time.monotonic() - started)} elapsed of "
                 f"{_duration(campaign.timeout_s)} cap"
             )
+            attempt_started = time.monotonic()
             argv = prepare_run_argv(campaign, ref, task=task, budget_usd=budget_left)
             exit_code, timed_out = spawn(
                 argv,
@@ -283,6 +357,17 @@ def run_per_cluster(
             ]
             known_sessions.update(attempt_sessions)
             cost, results_seen = _session_cost(events, results_seen)
+            cluster_attempts.append(
+                {
+                    "attempt": attempt,
+                    "session": sessions,
+                    "session_id": attempt_sessions[0] if attempt_sessions else None,
+                    "exit_code": exit_code,
+                    "timed_out": timed_out,
+                    "cost_usd": cost,
+                    "wall_s": round(time.monotonic() - attempt_started, 1),
+                }
+            )
             spent += cost
             if damaged > reported_damage:
                 # Said once per new loss rather than per session: the count only
@@ -337,8 +422,35 @@ def run_per_cluster(
                         f"after ${spent:.2f} rather than spending the window on "
                         f"sessions that cannot checkpoint, gate or tag"
                     )
+                    _finish_cluster(
+                        campaign,
+                        ref,
+                        row,
+                        outcome="surface_shortfall",
+                        attempts=cluster_attempts,
+                        events=events,
+                        seen_claim_ids=seen_claim_ids,
+                        wall_s=time.monotonic() - cluster_started,
+                        seed_error=seed_error,
+                        report=report,
+                    )
                     return 1, any_timeout, sessions
             if cluster_artifacts(ref.workspace, row)["artifacts"]:
+                seen_claim_ids = _finish_cluster(
+                    campaign,
+                    ref,
+                    row,
+                    outcome="complete",
+                    attempts=cluster_attempts,
+                    events=events,
+                    seen_claim_ids=seen_claim_ids,
+                    wall_s=time.monotonic() - cluster_started,
+                    seed_error=seed_error,
+                    report=report,
+                )
+                # Said once, on the first cluster to report: the rebuild either
+                # failed for the whole run or not at all.
+                seed_error = None
                 break
             budget_left = campaign.budget_usd - spent
         else:
@@ -347,5 +459,17 @@ def run_per_cluster(
             report(
                 f"{ref.run_id}: cluster {ordinal} did not finish in "
                 f"{ATTEMPTS_PER_CLUSTER} attempt(s); halting"
+            )
+            _finish_cluster(
+                campaign,
+                ref,
+                row,
+                outcome="attempts_exhausted",
+                attempts=cluster_attempts,
+                events=events,
+                seen_claim_ids=seen_claim_ids,
+                wall_s=time.monotonic() - cluster_started,
+                seed_error=seed_error,
+                report=report,
             )
             return exit_code or 1, any_timeout, sessions

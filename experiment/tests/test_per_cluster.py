@@ -585,3 +585,62 @@ def test_a_contradicting_timeline_is_reported_but_does_not_stop_the_run(
     assert any("anchor merge" in line for line in lines), lines
     assert (exit_code, sessions) == (0, 1), "the run must finish normally"
     assert any("window complete" in line for line in lines), lines
+
+
+def test_each_finished_cluster_leaves_a_summary(per_cluster_campaign, monkeypatch):
+    import experiment.per_cluster as per_cluster
+
+    _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
+    monkeypatch.setattr(
+        progress, "window_clusters", lambda _ws: [{"ordinal": 1, "id": "c1"}]
+    )
+    lines: list[str] = []
+    ref = _ref(per_cluster_campaign)
+
+    per_cluster.run_per_cluster(per_cluster_campaign, ref, report=lines.append)
+
+    record = json.loads((ref.run_dir / "summaries" / "c1.json").read_text())
+    assert record["outcome"] == "complete" and record["cluster"]["ordinal"] == 1
+    assert any("[done] cluster 1" in line for line in lines), lines
+
+
+def test_a_cluster_that_never_finished_still_leaves_a_summary(
+    per_cluster_campaign, monkeypatch
+):
+    """The failure is the thing worth reading hours later."""
+    import experiment.per_cluster as per_cluster
+
+    _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=99)
+    monkeypatch.setattr(
+        progress, "window_clusters", lambda _ws: [{"ordinal": 1, "id": "c1"}]
+    )
+    ref = _ref(per_cluster_campaign)
+
+    per_cluster.run_per_cluster(per_cluster_campaign, ref, report=lambda _: None)
+
+    record = json.loads((ref.run_dir / "summaries" / "c1.json").read_text())
+    assert record["outcome"] == "attempts_exhausted"
+    assert len(record["attempts"]) == per_cluster.ATTEMPTS_PER_CLUSTER
+
+
+def test_a_broken_summary_cannot_end_a_run(per_cluster_campaign, monkeypatch):
+    """The load-bearing guarantee: this is reporting, not the work."""
+    import experiment.per_cluster as per_cluster
+
+    _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
+    monkeypatch.setattr(
+        progress, "window_clusters", lambda _ws: [{"ordinal": 1, "id": "c1"}]
+    )
+
+    def explode(*_args, **_kwargs):
+        raise RuntimeError("summaries are on fire")
+
+    monkeypatch.setattr(per_cluster, "write_summary", explode)
+    lines: list[str] = []
+
+    exit_code, timed_out, sessions = per_cluster.run_per_cluster(
+        per_cluster_campaign, _ref(per_cluster_campaign), report=lines.append
+    )
+
+    assert (exit_code, timed_out, sessions) == (0, False, 1)
+    assert any("summary unavailable" in line for line in lines), lines
