@@ -174,6 +174,94 @@ def _log_safe(text: str) -> str:
     return "".join(ch if ch.isprintable() else " " for ch in ascii_only).strip()
 
 
+def _tokens(total: int) -> str:
+    """Token counts at log scale: 63000 reads as 63k."""
+    if total >= 1_000_000:
+        return f"{total / 1_000_000:.1f}M"
+    return f"{total // 1000}k" if total >= 1000 else str(total)
+
+
+def _names(ids: list[str], shown: int = 3) -> str:
+    """A few ids and a count of the rest."""
+    head = ", ".join(ids[:shown])
+    rest = len(ids) - shown
+    return f"{head} (+{rest} more)" if rest > 0 else head
+
+
+def digest(record: dict[str, Any]) -> list[str]:
+    """Render one cluster's record as at most six log-safe lines.
+
+    The record is the durable artifact; this is the part an operator watching
+    a sweep actually reads, so it leads with the outcome and keeps every figure
+    on a line that can be grepped on its own.
+
+    Args:
+        record: A record from :func:`summary.build_summary`.
+
+    Returns:
+        The lines, without the run-id prefix the caller adds.
+    """
+    cluster = record.get("cluster") or {}
+    outcome = record.get("outcome") or "complete"
+    attempts = len(record.get("attempts") or [])
+    head = "[done]" if outcome == "complete" else f"[FAILED {outcome}]"
+    lines = [
+        f"{head} cluster {cluster.get('ordinal')} ({cluster.get('id')}) - "
+        f"{_duration(record.get('wall_s') or 0)} - ${record.get('cost_usd') or 0:.2f}"
+        f" - {_tokens((record.get('tokens') or {}).get('total') or 0)} tok - "
+        f"{attempts} attempt{'' if attempts == 1 else 's'}"
+    ]
+
+    claims = record.get("claim_delta") or {}
+    new_ids = claims.get("new_ids") or []
+    cited = record.get("citation_delta") or {}
+    claim_line = f"claims {claims.get('held_count', 0)} (+{len(new_ids)})"
+    if cited:
+        claim_line += f" - cited +{len(cited.get('added') or [])}"
+        removed = len(cited.get("removed") or [])
+        if removed:
+            claim_line += f"/-{removed}"
+    if new_ids:
+        claim_line += f" - new: {_names(new_ids)}"
+    lines.append(claim_line)
+
+    stat = record.get("diffstat")
+    normative = record.get("normative_change")
+    if stat is not None or normative is not None:
+        kind = (
+            "normative"
+            if normative
+            else "documentation" if normative is False else "unrecorded"
+        )
+        shape = (
+            f"{stat['files']} file, +{stat['insertions']}/-{stat['deletions']}"
+            if stat
+            else "no diff"
+        )
+        lines.append(f"{cited.get('tag') or 'no tag'}: {kind} - {shape}")
+
+    touched = record.get("files_touched") or []
+    if touched:
+        lines.append(f"touched: {_names([Path(p).name for p in touched], shown=4)}")
+
+    questions = record.get("questions") or {}
+    if questions.get("new_count"):
+        first = (questions.get("new") or [None])[0]
+        named = (
+            f": {first['id']} {_log_safe(str(first.get('first_line', '')))[:60]}"
+            if first
+            else ""
+        )
+        lines.append(f"{questions['new_count']} new question(s){named}")
+
+    note = record.get("note")
+    if note:
+        lines.append(f'note: "{_log_safe(str(note))[:90]}"')
+    for error in (record.get("errors") or [])[:1]:
+        lines.append(f"summary partial: {_log_safe(str(error))[:90]}")
+    return lines[:6]
+
+
 def describe(cluster: dict[str, Any], span: str | None) -> str:
     """Name what a cluster covers, from whatever fields its row carries.
 

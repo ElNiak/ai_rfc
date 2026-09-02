@@ -297,3 +297,99 @@ def test_a_subject_cannot_corrupt_the_log():
     assert _log_safe("naïve — dash") == "na?ve ? dash"
     # An all-control subject collapses to nothing and is then dropped entirely.
     assert describe({"id": "c1", "title": "\r\n\t"}, None) == "c1"
+
+
+def _record(**overrides):
+    record = {
+        "outcome": "complete",
+        "cluster": {"id": "c0020-pr-51e39", "ordinal": 20},
+        "wall_s": 252.0,
+        "cost_usd": 2.15,
+        "attempts": [{"attempt": 1}],
+        "tokens": {"total": 63000},
+        "claim_delta": {"new_ids": [], "held_count": 364},
+        "citation_delta": {"tag": "draft-t-20", "added": [], "removed": []},
+        "diffstat": {"files": 1, "insertions": 8, "deletions": 1},
+        "normative_change": False,
+        "note": "Documentation-only merge: README rewording.",
+        "questions": {"new_count": 0, "new": []},
+        "errors": [],
+    }
+    record.update(overrides)
+    return record
+
+
+def test_the_digest_of_a_documentation_only_cluster():
+    from experiment.progress import digest
+
+    lines = digest(_record())
+
+    assert lines[0] == (
+        "[done] cluster 20 (c0020-pr-51e39) - 4m - $2.15 - 63k tok - 1 attempt"
+    )
+    assert "claims 364 (+0)" in lines[1] and "cited +0" in lines[1]
+    assert "documentation" in lines[2] and "+8/-1" in lines[2]
+    assert lines[-1].startswith('note: "Documentation-only merge')
+    assert len(lines) <= 6
+
+
+def test_a_normative_cluster_names_its_new_claims():
+    from experiment.progress import digest
+
+    lines = digest(
+        _record(
+            normative_change=True,
+            claim_delta={
+                "new_ids": [f"mark:a.{n}" for n in range(9)],
+                "held_count": 373,
+            },
+        )
+    )
+
+    assert "claims 373 (+9)" in lines[1]
+    assert "mark:a.0" in lines[1] and "(+6 more)" in lines[1]
+    assert "normative" in lines[2]
+
+
+def test_a_failed_cluster_says_so_first():
+    from experiment.progress import digest
+
+    lines = digest(
+        _record(
+            outcome="attempts_exhausted",
+            note=None,
+            normative_change=None,
+            diffstat=None,
+            citation_delta=None,
+            attempts=[{"attempt": 1}, {"attempt": 2}],
+            errors=["revision: no entry for c0020-pr-51e39"],
+        )
+    )
+
+    assert lines[0].startswith("[FAILED attempts_exhausted] cluster 20")
+    assert "2 attempts" in lines[0]
+    assert any("revision: no entry" in line for line in lines)
+
+
+def test_a_digest_note_cannot_corrupt_the_log():
+    from experiment.progress import digest
+
+    lines = digest(_record(note="one\rtwo\x1b[31m"))
+
+    assert not any("\r" in line for line in lines)
+    assert any("one two" in line for line in lines)
+
+
+def test_new_questions_are_named_in_the_digest():
+    from experiment.progress import digest
+
+    lines = digest(
+        _record(
+            questions={
+                "new_count": 3,
+                "new": [{"id": "q-039", "first_line": "Is the unit seconds?"}],
+            }
+        )
+    )
+
+    assert any("3 new question(s): q-039" in line for line in lines), lines
