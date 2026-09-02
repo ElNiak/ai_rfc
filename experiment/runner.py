@@ -218,7 +218,10 @@ def launch(campaign: Campaign, ref: RunRef) -> RunStatus:
         )
     if (ref.run_dir / STATUS_FILE).exists():
         raise ExperimentError(
-            f"{ref.run_id} already ran; a run is never relaunched in place"
+            f"{ref.run_id} already ran; a run is never relaunched in place. "
+            f"Its workspace holds whatever it finished, so continue by chaining "
+            f"a new campaign onto it: experiment workspace reseal "
+            f"{ref.workspace} --as <name>, then campaign init --baseline <name>"
         )
     argv = prepare_run_argv(campaign, ref)
     # Digest the settings the guard is mounted from, before the process that

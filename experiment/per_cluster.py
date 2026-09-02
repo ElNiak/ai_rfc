@@ -126,7 +126,7 @@ def run_per_cluster(
     campaign: Campaign,
     ref: RunRef,
     *,
-    report: Callable[[str], None] = lambda _: None,
+    report: Callable[[str], None] = print,
 ) -> tuple[int | None, bool, int]:
     """Spawn one session per remaining cluster, appending to one transcript.
 
@@ -139,7 +139,10 @@ def run_per_cluster(
     Args:
         campaign: The frozen campaign.
         ref: The run being launched; its workspace must already exist.
-        report: Where progress lines go.
+        report: Where progress lines go. Defaults to printing, as
+            :func:`driver.execute` does: a sweep of sixty-nine clusters runs for
+            hours, and the caller that discards these lines leaves an operator
+            unable to tell a working run from a stalled one.
 
     Returns:
         ``(exit_code, timed_out, sessions)``. The exit code is the last

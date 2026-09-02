@@ -531,7 +531,17 @@ def _run_all(
     """
     outcomes: dict[str, dict[str, Any]] = {}
     log: list[dict[str, Any]] = []
-    for invocation in invocations:
+    total = len(invocations)
+    for index, invocation in enumerate(invocations, start=1):
+        # Each of these launches a real session and may sit for the whole
+        # timeout. Announced before it runs rather than after, because a line
+        # that appears once the call returns says nothing while it is the one
+        # you are waiting on — and a silent quarter of an hour reads as a hang.
+        print(
+            f"preflight {index}/{total}: {invocation.name} "
+            f"(up to {timeout_s}s)",
+            file=sys.stderr,
+        )
         outcome = run_invocation(invocation, timeout_s)
         if outcome["exit_code"] == 0 and not outcome["events"]:
             # A run can exit 0 having written nothing at all; that is a harness

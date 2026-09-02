@@ -10,7 +10,13 @@ requires-python = ">=3.10"
 dependencies = ["pyyaml>=6"]
 
 [project.optional-dependencies]
-mcp = ["mcp>=1.0"]
+# Upper-bounded deliberately: this server is written against the v1 API, and
+# mcp 2.x renamed FastMCP to MCPServer. Without the bound a fresh install
+# resolves to 2.x, the server dies at import, and Claude Code mounts no tools —
+# which does not fail the session, it just removes every write and gate tool
+# from it. See the 2026-09-02 run that spent $5.90 mining 39 claims in an
+# invented vocabulary because nothing was there to validate them.
+mcp = ["mcp>=1.0,<2"]
 tests = ["pytest>=8"]
 
 [project.scripts]
