@@ -14,6 +14,7 @@ import os
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Callable
 
 from . import ExperimentError
 from .arms import MCP_FILE, arm_profile, claude_argv, mcp_config
@@ -198,12 +199,20 @@ def load_status(run_dir: Path) -> RunStatus | None:
     return RunStatus(**json.loads(path.read_text()))
 
 
-def launch(campaign: Campaign, ref: RunRef) -> RunStatus:
+def launch(
+    campaign: Campaign,
+    ref: RunRef,
+    *,
+    report: Callable[[str], None] = print,
+) -> RunStatus:
     """Run one session to completion or timeout, streaming its output to disk.
 
     Args:
         campaign: The frozen campaign.
         ref: The run to launch; its workspace copy must already exist.
+        report: Where the per-cluster loop's progress lines go. Without it they
+            fall back to printing, so a run's own lines arrive split across two
+            streams and redirecting one loses half of them.
 
     Returns:
         The status record, also written as ``status.json``.
@@ -244,7 +253,7 @@ def launch(campaign: Campaign, ref: RunRef) -> RunStatus:
         # that a cycle.
         from .per_cluster import run_per_cluster
 
-        exit_code, timed_out, _ = run_per_cluster(campaign, ref)
+        exit_code, timed_out, _ = run_per_cluster(campaign, ref, report=report)
     else:
         exit_code, timed_out = spawn(
             argv,

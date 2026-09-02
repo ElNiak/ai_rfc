@@ -466,3 +466,42 @@ def test_a_silent_first_session_does_not_forfeit_the_guard(
     assert exit_code == 1, "the second session's verdict must still stop the run"
     assert sessions == 2
     assert any("declares the ai_rfc tool surface" in line for line in lines), lines
+
+
+def test_a_per_cluster_run_reports_through_the_launcher(
+    per_cluster_campaign, monkeypatch
+):
+    """launch() never forwarded report, so the loop's lines split onto stdout.
+
+    Entering at launch_pending rather than run_per_cluster is the whole point:
+    the loop already accepted a report callable, and only the launcher failed
+    to hand one over.
+    """
+    import experiment.per_cluster as per_cluster
+
+    state = {"done": False}
+
+    def fake_spawn(*_args, events_path, **_kwargs):
+        events_path.write_text(
+            json.dumps({"type": "result", "subtype": "success"}) + "\n"
+        )
+        state["done"] = True
+        return 0, False
+
+    monkeypatch.setattr(per_cluster, "spawn", fake_spawn)
+    monkeypatch.setattr(
+        per_cluster,
+        "cluster_artifacts",
+        lambda _ws, _row: {"artifacts": state["done"], "pre_seeded": False},
+    )
+    monkeypatch.setattr(
+        per_cluster, "window_clusters", lambda _ws: [{"ordinal": 1, "id": "c1"}]
+    )
+    lines: list[str] = []
+
+    launch_pending(per_cluster_campaign, report=lines.append)
+
+    # "attempt" and not "cluster": the campaign is *named* per-cluster, so its
+    # id lands in the transcript path the driver reports and would match a
+    # laxer needle whether or not the loop's own lines ever arrived.
+    assert any("attempt" in line for line in lines), lines

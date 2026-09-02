@@ -201,9 +201,9 @@ def run_per_cluster(
         campaign: The frozen campaign.
         ref: The run being launched; its workspace must already exist.
         report: Where progress lines go. Defaults to printing, as
-            :func:`driver.execute` does: a sweep of sixty-nine clusters runs for
-            hours, and the caller that discards these lines leaves an operator
-            unable to tell a working run from a stalled one.
+            :func:`driver.launch_pending` does: a sweep of sixty-nine clusters
+            runs for hours, and the caller that discards these lines leaves an
+            operator unable to tell a working run from a stalled one.
 
     Returns:
         ``(exit_code, timed_out, sessions)``. The exit code is the last

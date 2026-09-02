@@ -93,7 +93,7 @@ def launch_pending(
         # that moves while it does, and an operator who does not know its name
         # cannot tell a working run from a stalled one.
         report(f"{run_id}: transcript at {ref.run_dir} (events.jsonl, sessions.jsonl)")
-        status = launch(campaign, ref)
+        status = launch(campaign, ref, report=report)
         report(
             f"{run_id}: exit {status.exit_code} timed_out={status.timed_out} "
             f"budget_hit={status.budget_hit}"
