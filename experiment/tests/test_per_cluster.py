@@ -6,7 +6,7 @@ import pytest
 from experiment.config import CampaignConfig, init_campaign
 from experiment.driver import launch_pending
 from experiment.metrics import analyze_run
-from experiment.per_cluster import next_cluster
+from experiment.per_cluster import next_cluster, surface_shortfall
 from experiment.runner import EVENTS_FILE, RESULT_FILE
 from experiment.stream import parse_stream, result_events
 
@@ -341,3 +341,52 @@ def test_a_single_session_run_records_exactly_what_it_always_did(
 
     analyzed = analyze_run(per_cluster_campaign, "A1")
     assert analyzed["cost"]["total_cost_usd"] == pytest.approx(1.0 * sessions)
+
+
+def _transcript(tmp_path, *servers):
+    """A transcript whose init event announces ``servers``, as a session does."""
+    path = tmp_path / "events.jsonl"
+    init = {
+        "type": "system",
+        "subtype": "init",
+        "mcp_servers": [{"name": n, "status": s} for n, s in servers],
+    }
+    path.write_text(json.dumps(init) + "\n")
+    return path
+
+
+def test_a_failed_server_is_named_for_the_arm_that_declared_it(tmp_path):
+    """The exact shape a real run emitted while spending $5.90 on no tools.
+
+    Its first event said ai_rfc had failed and nothing read it, so the run mined
+    thirty-nine claims the schema rejects and exited 0 — the tools that validate
+    every write being the ones that were missing.
+    """
+    events = _transcript(tmp_path, ("ai_rfc", "failed"))
+    assert surface_shortfall("A", events) == "ai_rfc=failed"
+
+
+def test_a_connected_server_is_no_shortfall(tmp_path):
+    events = _transcript(tmp_path, ("ai_rfc", "connected"))
+    assert surface_shortfall("A", events) is None
+
+
+def test_the_plugin_loading_path_counts_as_connected(tmp_path):
+    """``--plugin-dir`` names the same server ``plugin:<plugin>:ai_rfc``."""
+    events = _transcript(tmp_path, ("plugin:ai-rfc:ai_rfc", "connected"))
+    assert surface_shortfall("A", events) is None
+
+
+def test_an_arm_that_mounts_no_server_is_never_short(tmp_path):
+    """B and C reach the substrate through the CLI, so no server is correct."""
+    events = _transcript(tmp_path, ("ai_rfc", "failed"))
+    assert surface_shortfall("B", events) is None
+    assert surface_shortfall("C", events) is None
+
+
+def test_a_session_that_never_announced_is_not_judged(tmp_path):
+    """No init event is a session too young to have said, not a fault."""
+    path = tmp_path / "events.jsonl"
+    path.write_text("")
+    assert surface_shortfall("A", path) is None
+    assert surface_shortfall("A", tmp_path / "absent.jsonl") is None

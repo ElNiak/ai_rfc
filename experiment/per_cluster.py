@@ -25,11 +25,18 @@ from pathlib import Path
 from typing import Any, Callable
 
 from . import ExperimentError
+from .arms import arm_profile
 from .config import Campaign, render_task
 from .metrics import cluster_artifacts, window_clusters
 from .runner import EVENTS_FILE, STDERR_FILE, RunRef, build_env, prepare_run_argv
 from .spawn import spawn
-from .stream import parse_stream, result_events
+from .stream import (
+    ai_rfc_connected,
+    init_event,
+    mcp_servers,
+    parse_stream,
+    result_events,
+)
 
 #: How many times one cluster is attempted before the run halts. A second
 #: attempt gets a clean context, which is the plausible cure for a session that
@@ -86,6 +93,40 @@ def partial_reason(artifacts: dict[str, Any]) -> str | None:
     if not artifacts.get("tag_exists"):
         return "checkpoint present, revision entry recorded, tag missing"
     return None
+
+
+def surface_shortfall(arm: str, events_path: Path) -> str | None:
+    """What the arm declared it would mount, against what the session did.
+
+    An arm states its surface as data and every session announces what actually
+    mounted, and nothing joined the two — so a server that failed to start gave
+    a session carrying the arm's name and none of its tools. That is not a
+    weaker arm, it is a different one: every write the substrate validates goes
+    through those tools, so without them a session writes unchecked. It still
+    exits 0, which is why one produced thirty-nine claims in a vocabulary the
+    schema rejects and reported success.
+
+    Args:
+        arm: The arm the run declares.
+        events_path: The run's transcript.
+
+    Returns:
+        A description of what mounted instead, or None when the surface is
+        whole — including when the arm mounts no server, and when the session
+        never got far enough to say.
+    """
+    if not arm_profile(arm).uses_mcp:
+        return None
+    try:
+        events = parse_stream(events_path.read_text(errors="replace"))
+    except (ExperimentError, OSError):
+        return None
+    if init_event(events) is None:
+        return None
+    if ai_rfc_connected(events):
+        return None
+    mounted = mcp_servers(events)
+    return ", ".join(f"{n}={s}" for n, s in sorted(mounted.items())) or "no server"
 
 
 def _session_cost(events_path: Path, seen: int) -> tuple[float, int]:
@@ -225,6 +266,19 @@ def run_per_cluster(
                     )
                     + "\n"
                 )
+            # Checked once, on the first session, because it is a property of
+            # how the run was launched rather than of any cluster: whatever the
+            # first session mounted, the rest will mount too. Retrying a session
+            # that had no tools only buys a second session with no tools.
+            shortfall = surface_shortfall(ref.arm, events_path)
+            if sessions == 1 and shortfall is not None:
+                report(
+                    f"{ref.run_id}: arm {ref.arm} declares the ai_rfc tool "
+                    f"surface and the session mounted {shortfall}; stopping "
+                    f"after ${spent:.2f} rather than spending the window on "
+                    f"sessions that cannot checkpoint, gate or tag"
+                )
+                return 1, any_timeout, sessions
             if cluster_artifacts(ref.workspace, row)["artifacts"]:
                 break
             budget_left = campaign.budget_usd - spent

@@ -55,6 +55,39 @@ def init_event(events: list[dict[str, Any]]) -> dict[str, Any] | None:
     return None
 
 
+def mcp_servers(events: list[dict[str, Any]]) -> dict[str, str]:
+    """Each MCP server the session mounted, and the status it reported.
+
+    Args:
+        events: One session's stream-json events.
+
+    Returns:
+        Server name to status, empty when the session announced none.
+    """
+    init = init_event(events) or {}
+    return {
+        str(server.get("name")): str(server.get("status"))
+        for server in (init.get("mcp_servers") or [])
+        if isinstance(server, dict)
+    }
+
+
+def ai_rfc_connected(events: list[dict[str, Any]]) -> bool:
+    """Whether the substrate's MCP server mounted, under either loading path.
+
+    Args:
+        events: One session's stream-json events.
+
+    Returns:
+        True when a connected server is named ``ai_rfc`` (``--mcp-config``) or
+        ``plugin:<plugin>:ai_rfc`` (``--plugin-dir``).
+    """
+    return any(
+        (name == "ai_rfc" or name.endswith(":ai_rfc")) and status == "connected"
+        for name, status in mcp_servers(events).items()
+    )
+
+
 def result_event(events: list[dict[str, Any]]) -> dict[str, Any] | None:
     """The final result event, if any.
 
