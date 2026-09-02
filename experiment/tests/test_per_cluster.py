@@ -507,9 +507,7 @@ def test_a_per_cluster_run_reports_through_the_launcher(
     assert any("attempt" in line for line in lines), lines
 
 
-def test_window_progress_counts_only_the_work_this_run_can_do(
-    tmp_path, monkeypatch
-):
+def test_window_progress_counts_only_the_work_this_run_can_do(tmp_path, monkeypatch):
     """Pre-seeded clusters are a baseline's work, not this run's.
 
     Counting them would report progress the run did not make, and the
@@ -629,3 +627,85 @@ def test_a_pr_whose_members_contradict_its_anchor_is_refused(tmp_path):
 
     with pytest.raises(ExperimentError, match="anchor merge"):
         cluster_span(tmp_path, cluster)
+
+
+def test_the_bar_fills_with_finished_clusters():
+    from experiment.per_cluster import _bar
+
+    assert _bar(0, 10) == "[----------]"
+    assert _bar(3, 10) == "[###-------]"
+    assert _bar(10, 10) == "[##########]"
+    # A window with nothing countable must not divide by zero.
+    assert _bar(0, 0) == "[----------]"
+
+
+def test_durations_read_as_wall_clock():
+    from experiment.per_cluster import _duration
+
+    assert _duration(41 * 60) == "41m"
+    assert _duration(8 * 3600) == "8h00m"
+    assert _duration(90 * 60) == "1h30m"
+
+
+def test_a_cluster_is_described_from_whatever_the_row_carries():
+    from experiment.per_cluster import _describe
+
+    full = {
+        "id": "c0043-pr-9f3e21ab77c1",
+        "kind": "pr",
+        "member_count": 7,
+        "title": "Add BGP path attributes (#412)",
+    }
+    assert _describe(full, "c84a5f0..9f3e21a") == (
+        "c0043-pr-9f3e21ab77c1 - pr, 7 commits - c84a5f0..9f3e21a"
+        ' - "Add BGP path attributes (#412)"'
+    )
+
+    epoch = {
+        "id": "c0044-epoch-3a91",
+        "kind": "epoch",
+        "member_count": 12,
+        "title": "Bump dependency pins",
+    }
+    assert _describe(epoch, "9f3e21a..7c02be1") == (
+        "c0044-epoch-3a91 - epoch, 12 commits - 9f3e21a..7c02be1"
+        ' - from "Bump dependency pins"'
+    )
+
+    # The stubbed rows the loop's other tests use carry nothing but id/ordinal.
+    assert _describe({"id": "c1"}, None) == "c1"
+
+
+def test_a_long_subject_is_truncated():
+    from experiment.per_cluster import _describe
+
+    row = {"id": "c1", "kind": "pr", "member_count": 1, "title": "x" * 90}
+    described = _describe(row, None)
+    assert "x" * 57 + "..." in described and "x" * 61 not in described
+
+
+def test_the_attempt_line_shows_the_window_and_the_budget(
+    per_cluster_campaign, monkeypatch
+):
+    import experiment.per_cluster as per_cluster
+
+    _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
+    monkeypatch.setattr(
+        per_cluster,
+        "window_clusters",
+        lambda _ws: [{"ordinal": 41, "id": "c1"}, {"ordinal": 42, "id": "c2"}],
+    )
+    lines: list[str] = []
+
+    per_cluster.run_per_cluster(
+        per_cluster_campaign, _ref(per_cluster_campaign), report=lines.append
+    )
+
+    assert any(
+        "[----------] starting cluster 1 of 2 remaining (ordinal 41)"
+        ", attempt 1 of 2" in line
+        for line in lines
+    ), lines
+    assert any("left of $1.00" in line for line in lines), lines
+    # The word a test elsewhere counts must stay out of the loop's lines.
+    assert not any("launching" in line for line in lines), lines

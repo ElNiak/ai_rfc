@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import Callable, Iterable
 
 from . import ExperimentError
+from .arms import arm_profile
 from .config import Campaign
 from .runner import RunStatus, launch, load_status, run_ref
 from .workspace import copy_workspace, verify_digest
@@ -88,7 +89,10 @@ def launch_pending(
             )
         ref.run_dir.mkdir(parents=True)
         copy_workspace(campaign.pristine_dir, ref.workspace)
-        report(f"{run_id}: launching arm {ref.arm}, repeat {ref.repeat}")
+        report(
+            f"{run_id}: launching arm {ref.arm} - {arm_profile(ref.arm).label}"
+            f", repeat {ref.repeat} of {campaign.repeats}"
+        )
         # A per-cluster sweep runs for hours. The transcript is the only thing
         # that moves while it does, and an operator who does not know its name
         # cannot tell a working run from a stalled one.

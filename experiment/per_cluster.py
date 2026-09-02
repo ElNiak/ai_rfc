@@ -146,6 +146,68 @@ def cluster_span(workspace: Path, cluster: dict[str, Any]) -> str | None:
     return f"{base[:7] if base else 'root'}..{head[:7]}"
 
 
+def _bar(done: int, total: int, cells: int = 10) -> str:
+    """A fixed-width ASCII bar.
+
+    Deliberately static: a campaign's output is redirected to a log read hours
+    later, which carriage-return animation would corrupt.
+
+    Args:
+        done: Clusters finished.
+        total: Clusters countable in the window.
+        cells: Width of the bar in characters.
+
+    Returns:
+        The bar, e.g. ``[###-------]``.
+    """
+    filled = min(cells, done * cells // total) if total > 0 else 0
+    return "[" + "#" * filled + "-" * (cells - filled) + "]"
+
+
+def _duration(seconds: float) -> str:
+    """Whole minutes under an hour, hours and minutes above it.
+
+    Args:
+        seconds: A count of seconds.
+
+    Returns:
+        A short reading, e.g. ``41m`` or ``8h00m``.
+    """
+    minutes = int(seconds // 60)
+    return f"{minutes}m" if minutes < 60 else f"{minutes // 60}h{minutes % 60:02d}m"
+
+
+def _describe(cluster: dict[str, Any], span: str | None) -> str:
+    """Name what a cluster covers, from whatever fields its row carries.
+
+    Every field is optional. The loop's own tests drive it with rows holding
+    only an id and an ordinal, and a progress line must never be able to fail
+    a run that is otherwise fine.
+
+    Args:
+        cluster: One timeline row.
+        span: The commit range from :func:`cluster_span`, or None.
+
+    Returns:
+        A single dash-separated line.
+    """
+    parts = [str(cluster.get("id", "?"))]
+    kind, count = cluster.get("kind"), cluster.get("member_count")
+    if kind and count:
+        parts.append(f"{kind}, {count} commits")
+    elif kind:
+        parts.append(str(kind))
+    if span:
+        parts.append(span)
+    title = cluster.get("title")
+    if title:
+        text = title if len(title) <= 60 else title[:57] + "..."
+        # An epoch's title is its FIRST commit's subject, not a summary of the
+        # slice, so it is introduced rather than presented as the slice's name.
+        parts.append(f'from "{text}"' if kind == "epoch" else f'"{text}"')
+    return " - ".join(parts)
+
+
 def partial_reason(artifacts: dict[str, Any]) -> str | None:
     """Name a half-finished cluster's state, or None when it is untouched.
 
@@ -302,7 +364,7 @@ def run_per_cluster(
     any_timeout = False
 
     while True:
-        row = next_cluster(ref.workspace)
+        row, position, done, total = window_progress(ref.workspace)
         if row is None:
             report(f"{ref.run_id}: window complete after {sessions} session(s)")
             return exit_code, any_timeout, sessions
@@ -313,21 +375,40 @@ def run_per_cluster(
             reached = "budget" if budget_left <= 0 else "wall clock"
             report(
                 f"{ref.run_id}: {reached} exhausted after {sessions} session(s) "
-                f"(${spent:.2f}); {row['ordinal']} and later not attempted"
+                f"(${spent:.2f}); cluster {position} of {total} remaining "
+                f"(ordinal {row['ordinal']}) and later not attempted"
             )
             return exit_code or 1, any_timeout, sessions
 
         ordinal = row["ordinal"]
         outstanding = partial_reason(cluster_artifacts(ref.workspace, row))
         if outstanding is not None:
-            report(f"{ref.run_id}: cluster {ordinal} is half finished ({outstanding})")
+            report(
+                f"{ref.run_id}: cluster {position} of {total} remaining "
+                f"(ordinal {ordinal}) is half finished ({outstanding})"
+            )
         # A one-cluster window through the prompt the whole-window runs use, so
         # there is no second task prompt to drift from the first.
         task = render_task((ordinal, ordinal))
         for attempt in range(1, ATTEMPTS_PER_CLUSTER + 1):
+            try:
+                span = cluster_span(ref.workspace, row)
+            except ExperimentError as error:
+                # Loud, but never fatal: two files on disk disagreeing is worth
+                # saying, and is not worth killing a run of many hours over.
+                report(f"{ref.run_id}: {error}")
+                span = None
             report(
-                f"{ref.run_id}: cluster {ordinal} ({row['id']}), attempt "
-                f"{attempt}, ${budget_left:.2f} left"
+                f"{ref.run_id}: {_bar(done, total)} starting cluster "
+                f"{position} of {total} remaining (ordinal {ordinal}), "
+                f"attempt {attempt} of {ATTEMPTS_PER_CLUSTER}"
+            )
+            report(f"{ref.run_id}:   {_describe(row, span)}")
+            report(
+                f"{ref.run_id}:   ${budget_left:.2f} left of "
+                f"${campaign.budget_usd:.2f} - "
+                f"{_duration(time.monotonic() - started)} elapsed of "
+                f"{_duration(campaign.timeout_s)} cap"
             )
             argv = prepare_run_argv(campaign, ref, task=task, budget_usd=budget_left)
             exit_code, timed_out = spawn(
