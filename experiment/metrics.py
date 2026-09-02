@@ -22,9 +22,11 @@ from typing import Any
 import yaml
 
 from . import ExperimentError
+from .arms import arm_profile
 from .config import Campaign
 from .runner import EVENTS_FILE, RESULT_FILE, load_status
-from .stream import parse_stream, tool_uses, usage_series
+from .stream import (ai_rfc_connected, mcp_servers, parse_stream, tool_uses,
+                     usage_series)
 from .workspace import HARNESS_MARKER, RECORD_FILE
 
 DEFINITIONS = {
@@ -332,7 +334,43 @@ def analyze_run(campaign: Campaign, run_id: str) -> dict[str, Any]:
             "subtype": final.get("subtype"),
         },
         "trajectory": trajectory(events, status.arm, completed, window_size),
+        "surface": surface(events, status.arm),
         "audit": json.loads(audit_path.read_text()) if audit_path.exists() else None,
+    }
+
+
+def surface(events: list[dict[str, Any]], arm: str) -> dict[str, Any]:
+    """Whether the run had the tool surface its arm declares, and reached it.
+
+    This is the substrate's ``anchors_checked`` one layer up. There, an empty
+    findings list means nothing unless the check actually ran, so the report
+    records that it did. Here, "no tool-integrity violations" means nothing if
+    there were no tools — and without saying so, a session crippled by a server
+    that never started is indistinguishable afterwards from one that simply
+    chose not to call those tools.
+
+    The distinction is validity, not quality. Every write the substrate
+    validates goes through the MCP tools, so a session without them is not a
+    weaker arm A; it is an unvalidated arm that is not among the three under
+    study. Its numbers should be excluded, not averaged in.
+
+    Args:
+        events: The run's transcript.
+        arm: The arm the run declares.
+
+    Returns:
+        What the arm expected, what mounted, how many of its tools it called,
+        and whether the run's numbers describe the arm it claims to be.
+    """
+    profile = arm_profile(arm)
+    calls = sum(
+        1 for use in tool_uses(events) if use["name"].startswith("mcp__ai_rfc__")
+    )
+    return {
+        "expects_mcp": profile.uses_mcp,
+        "mcp_servers": mcp_servers(events),
+        "ai_rfc_tool_calls": calls,
+        "intact": (not profile.uses_mcp) or (ai_rfc_connected(events) and calls > 0),
     }
 
 
@@ -404,6 +442,13 @@ def _arm_summary(
         "cost_total": cost_total,
         "cost_mean": _mean(costs),
         "runs_with_unknown_cost": len(runs) - len(priced),
+        # Reported rather than silently averaged in, for the same reason the
+        # line above is: a run whose arm never got its tool surface measured a
+        # different arm, and folding it into this arm's mean states a result
+        # for a configuration nobody ran.
+        "runs_with_broken_surface": sum(
+            1 for run in runs if not run.get("surface", {}).get("intact", True)
+        ),
         "failure_cost_share": (failed_cost / cost_total) if cost_total else None,
         "cost_per_completed_cluster": (
             (cost_total / priced_completed) if priced_completed else None

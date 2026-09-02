@@ -7,6 +7,7 @@ from experiment.metrics import (
     analyze_campaign,
     analyze_run,
     checkpoint_calls,
+    surface,
     trajectory,
 )
 from experiment.stream import parse_stream
@@ -183,3 +184,73 @@ def test_a_run_with_no_result_event_has_unknown_cost_not_zero_cost():
     both_priced = [priced, _synthetic_run("A2", False, cost=6.0)]
     assert _arm_summary(both_priced, ["c1"], repeats=2)["failure_cost_share"] == 0.375
     assert _arm_summary(both_priced, ["c1"], repeats=2)["runs_with_unknown_cost"] == 0
+
+
+def _events_with(server_status: str | None, ai_rfc_calls: int) -> list[dict]:
+    """A transcript announcing a server and making that many ai_rfc calls."""
+    servers = (
+        [] if server_status is None else [{"name": "ai_rfc", "status": server_status}]
+    )
+    events: list[dict] = [{"type": "system", "subtype": "init", "mcp_servers": servers}]
+    for n in range(ai_rfc_calls):
+        events.append(
+            {
+                "type": "assistant",
+                "message": {
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "id": f"t{n}",
+                            "name": "mcp__ai_rfc__ai_rfc_checkpoint",
+                            "input": {},
+                        }
+                    ]
+                },
+            }
+        )
+    return events
+
+
+def test_an_arm_that_never_got_its_tools_is_not_intact():
+    """The run measured a different arm, so its numbers describe nothing.
+
+    Every write the substrate validates goes through these tools, so a session
+    without them is not a weaker arm A — it is an unvalidated arm that is not
+    among the three under study.
+    """
+    result = surface(_events_with("failed", ai_rfc_calls=0), "A")
+    assert result["intact"] is False
+    assert result["mcp_servers"] == {"ai_rfc": "failed"}
+    assert result["ai_rfc_tool_calls"] == 0
+
+
+def test_a_connected_server_that_was_never_called_is_not_intact():
+    """Mounting is necessary and not sufficient; the arm has to have used it."""
+    assert surface(_events_with("connected", ai_rfc_calls=0), "A")["intact"] is False
+
+
+def test_a_connected_server_that_was_used_is_intact():
+    assert surface(_events_with("connected", ai_rfc_calls=3), "A")["intact"] is True
+
+
+def test_a_cli_arm_is_intact_without_any_server():
+    """B and C reach the substrate through the CLI, so no server is correct."""
+    for arm in ("B", "C"):
+        assert surface(_events_with(None, ai_rfc_calls=0), arm)["intact"] is True
+
+
+def test_a_broken_surface_is_counted_rather_than_averaged_in():
+    intact = _synthetic_run("A1", True)
+    intact["surface"] = {"intact": True}
+    broken = _synthetic_run("A2", False)
+    broken["surface"] = {"intact": False}
+
+    summary = _arm_summary([intact, broken], ["c1"], repeats=2)
+
+    assert summary["runs_with_broken_surface"] == 1
+
+
+def test_runs_predating_the_field_are_assumed_intact():
+    """Older analyses carry no surface block and must not read as broken."""
+    runs = [_synthetic_run("A1", True), _synthetic_run("A2", True)]
+    assert _arm_summary(runs, ["c1"], repeats=2)["runs_with_broken_surface"] == 0
