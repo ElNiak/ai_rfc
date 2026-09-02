@@ -194,6 +194,173 @@ def seed_seen(campaign: Campaign, workspace: Path) -> tuple[frozenset[str], str 
         return frozenset(), f"seed_seen: {error}"
 
 
+#: Tool arguments that name a file the session looked at or changed.
+_PATH_KEYS = ("file_path", "path", "notebook_path")
+
+
+def transcript_facts(
+    events: list[dict[str, Any]], sessions: list[str]
+) -> dict[str, Any]:
+    """Timing, tokens, tool surface and files touched, for one cluster's slice.
+
+    Args:
+        events: The whole run transcript, already salvaged.
+        sessions: The session ids belonging to this cluster.
+
+    Returns:
+        ``{timing, tokens, surface, files_touched}``. A session killed on its
+        cap emits no result event, so timing and tokens report absence rather
+        than zero.
+    """
+    from .stream import init_event, result_events, session_events, tool_uses
+
+    sliced: list[dict[str, Any]] = []
+    for session in sessions:
+        sliced.extend(session_events(events, session))
+
+    results = result_events(sliced)
+    totals = {"input": 0, "output": 0, "cache_creation": 0, "cache_read": 0}
+    duration = api = ttft = None
+    for result in results:
+        usage = result.get("usage") or {}
+        totals["input"] += int(usage.get("input_tokens") or 0)
+        totals["output"] += int(usage.get("output_tokens") or 0)
+        totals["cache_creation"] += int(usage.get("cache_creation_input_tokens") or 0)
+        totals["cache_read"] += int(usage.get("cache_read_input_tokens") or 0)
+        duration = (duration or 0) + int(result.get("duration_ms") or 0)
+        api = (api or 0) + int(result.get("duration_api_ms") or 0)
+        ttft = ttft if ttft is not None else result.get("ttft_ms")
+
+    init = init_event(sliced) or {}
+    servers = {
+        str(server.get("name")): str(server.get("status"))
+        for server in (init.get("mcp_servers") or [])
+        if isinstance(server, dict)
+    }
+
+    touched: list[str] = []
+    for use in tool_uses(sliced):
+        arguments = use.get("input") or {}
+        for key in _PATH_KEYS:
+            value = arguments.get(key)
+            if isinstance(value, str) and value and value not in touched:
+                touched.append(value)
+
+    return {
+        "timing": {"duration_ms": duration, "duration_api_ms": api, "ttft_ms": ttft},
+        "tokens": {
+            **totals,
+            "total": sum(totals.values()),
+            "source": "result" if results else "absent",
+        },
+        "surface": {
+            "model": init.get("model"),
+            "tools_count": len(init.get("tools") or []),
+            "mcp_servers": servers,
+        },
+        "files_touched": touched,
+    }
+
+
+def build_summary(
+    campaign: Campaign,
+    ref: Any,
+    cluster: dict[str, Any],
+    *,
+    outcome: str,
+    attempts: list[dict[str, Any]],
+    events: list[dict[str, Any]],
+    sessions: list[str],
+    seen_claim_ids: frozenset[str],
+    held_ids: frozenset[str],
+    wall_s: float,
+    errors: list[str],
+) -> dict[str, Any]:
+    """Assemble one cluster's record. Never raises.
+
+    Args:
+        campaign: The frozen campaign.
+        ref: The run being executed.
+        cluster: The timeline row.
+        outcome: ``complete``, ``attempts_exhausted`` or ``surface_shortfall``.
+        attempts: One entry per attempt made on this cluster.
+        events: The whole run transcript, already salvaged.
+        sessions: The session ids belonging to this cluster.
+        seen_claim_ids: Every claim id held before this cluster.
+        held_ids: The claim ids this cluster's checkpoint holds.
+        wall_s: Seconds spent on this cluster, from the loop's own clock.
+        errors: Failures collected by the caller, extended in place.
+
+    Returns:
+        The record, with a null field and an ``errors`` entry for any section
+        that could not be computed.
+    """
+    from .progress import cluster_span
+
+    _extend_sys_path(campaign)
+    record: dict[str, Any] = {
+        "schema_version": 1,
+        "run_id": ref.run_id,
+        "arm": ref.arm,
+        "outcome": outcome,
+        "cluster": {
+            "id": cluster.get("id"),
+            "ordinal": cluster.get("ordinal"),
+            "kind": cluster.get("kind"),
+            "title": cluster.get("title"),
+            "span": None,
+        },
+        "attempts": attempts,
+        "sessions": sessions,
+        "wall_s": round(wall_s, 1),
+        "cost_usd": round(sum(a.get("cost_usd") or 0.0 for a in attempts), 4),
+        "claim_delta": {
+            "new_ids": sorted(held_ids - seen_claim_ids),
+            "held_count": len(held_ids),
+            "basis": "cumulative",
+        },
+        "citation_delta": None,
+        "diffstat": None,
+        "normative_change": None,
+        "note": None,
+        "questions": {"new_count": 0, "new": []},
+        "errors": errors,
+    }
+
+    try:
+        record["cluster"]["span"] = cluster_span(ref.workspace, cluster)
+    except Exception as error:  # noqa: BLE001 - a display line may not end a run
+        errors.append(f"span: {error}")
+
+    try:
+        record.update(transcript_facts(events, sessions))
+    except Exception as error:  # noqa: BLE001
+        errors.append(f"transcript: {error}")
+
+    try:
+        entry = revision_of(ref.workspace, str(cluster.get("id")))
+    except Exception as error:  # noqa: BLE001
+        errors.append(f"revision: {error}")
+        entry = None
+
+    if entry is None:
+        errors.append(f"revision: no entry for {cluster.get('id')}")
+        return record
+
+    record["normative_change"] = entry.get("normative_change")
+    record["note"] = entry.get("note")
+    tag = str(entry.get("tag"))
+    try:
+        record["citation_delta"] = citation_delta(ref.workspace, tag)
+    except Exception as error:  # noqa: BLE001
+        errors.append(f"citation_delta: {error}")
+    try:
+        record["diffstat"] = diffstat(ref.workspace, tag)
+    except Exception as error:  # noqa: BLE001
+        errors.append(f"diffstat: {error}")
+    return record
+
+
 def write_summary(run_dir: Path, cluster_id: str, record: dict[str, Any]) -> Path:
     """Write one record, replacing any previous one atomically.
 
