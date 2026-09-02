@@ -243,19 +243,19 @@ def test_a_killed_session_is_not_charged_the_previous_ones_cost(tmp_path):
     figure into the per-session record, on exactly the path this design exists
     to tolerate.
     """
-    from experiment.per_cluster import _session_cost
+    from experiment.per_cluster import _read_events, _session_cost
 
     events = tmp_path / "events.jsonl"
 
     _write_events(events, [2.0])
-    assert _session_cost(events, 0) == (2.0, 1, 0)
+    assert _session_cost(_read_events(events)[0], 0) == (2.0, 1)
 
     # The next session is killed: the transcript is unchanged.
-    assert _session_cost(events, 1) == (0.0, 1, 0)
+    assert _session_cost(_read_events(events)[0], 1) == (0.0, 1)
 
     # A session that emits several results is summed, not sampled.
     _write_events(events, [2.0, 1.0, 0.5])
-    assert _session_cost(events, 1) == (1.5, 3, 0)
+    assert _session_cost(_read_events(events)[0], 1) == (1.5, 3)
 
 
 def test_a_truncated_line_does_not_freeze_the_budget(tmp_path):
@@ -267,7 +267,7 @@ def test_a_truncated_line_does_not_freeze_the_budget(tmp_path):
     reached again and only the wall clock would still bound the run — the
     budget failing open on precisely the interruption it exists for.
     """
-    from experiment.per_cluster import _session_cost
+    from experiment.per_cluster import _read_events, _session_cost
 
     events = tmp_path / "events.jsonl"
     events.write_text(
@@ -282,9 +282,9 @@ def test_a_truncated_line_does_not_freeze_the_budget(tmp_path):
     # line is appended onto it and the two become one garbled line. That
     # session's figure is genuinely unrecoverable — which is the damage, not
     # the defect.
-    cost, seen, damaged = _session_cost(events, 0)
+    parsed, damaged = _read_events(events)
     assert damaged == 1, "the unreadable line must be counted, not hidden"
-    assert (cost, seen) == (2.0, 1)
+    assert _session_cost(parsed, 0) == (2.0, 1)
 
     # The defect is the freeze. Under a strict read every later call re-parses
     # from byte 0, hits the same garbled line and reports 0.0 forever, so spend
@@ -292,7 +292,16 @@ def test_a_truncated_line_does_not_freeze_the_budget(tmp_path):
     with events.open("a") as handle:
         handle.write(json.dumps({"type": "result", "total_cost_usd": 4.0}) + "\n")
 
-    assert _session_cost(events, seen) == (4.0, 2, 1), "spend must keep growing"
+    parsed, damaged = _read_events(events)
+    assert damaged == 1
+    assert _session_cost(parsed, 1) == (4.0, 2), "spend must keep growing"
+
+
+def test_an_unreadable_transcript_reads_as_empty(tmp_path):
+    """The OSError path moved out of _session_cost and must still be covered."""
+    from experiment.per_cluster import _read_events
+
+    assert _read_events(tmp_path / "absent.jsonl") == ([], 0)
 
 
 def test_the_budget_caps_the_run_not_each_session(per_cluster_campaign, monkeypatch):
@@ -308,7 +317,7 @@ def test_the_budget_caps_the_run_not_each_session(per_cluster_campaign, monkeypa
     monkeypatch.setattr(progress, "window_clusters", lambda _ws: _clusters(10))
     # Each session spends the whole $1.00 campaign budget.
     monkeypatch.setattr(
-        per_cluster, "_session_cost", lambda _p, seen: (1.0, seen + 1, 0)
+        per_cluster, "_session_cost", lambda _events, seen: (1.0, seen + 1)
     )
 
     ref = _ref(per_cluster_campaign)
@@ -333,7 +342,7 @@ def test_each_session_is_given_only_what_the_run_has_left(
     monkeypatch.setattr(progress, "window_clusters", lambda _ws: _clusters(3))
     monkeypatch.setattr(per_cluster, "prepare_run_argv", capture)
     monkeypatch.setattr(
-        per_cluster, "_session_cost", lambda _p, seen: (0.25, seen + 1, 0)
+        per_cluster, "_session_cost", lambda _events, seen: (0.25, seen + 1)
     )
 
     per_cluster.run_per_cluster(per_cluster_campaign, _ref(per_cluster_campaign))
@@ -349,7 +358,7 @@ def test_every_session_records_the_argv_it_actually_ran(
     _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
     monkeypatch.setattr(progress, "window_clusters", lambda _ws: _clusters(2))
     monkeypatch.setattr(
-        per_cluster, "_session_cost", lambda _p, seen: (0.1, seen + 1, 0)
+        per_cluster, "_session_cost", lambda _events, seen: (0.1, seen + 1)
     )
 
     ref = _ref(per_cluster_campaign)
@@ -398,7 +407,9 @@ def _transcript(tmp_path, *servers):
         "mcp_servers": [{"name": n, "status": s} for n, s in servers],
     }
     path.write_text(json.dumps(init) + "\n")
-    return path
+    from experiment.per_cluster import _read_events
+
+    return _read_events(path)[0]
 
 
 def test_a_failed_server_is_named_for_the_arm_that_declared_it(tmp_path):
@@ -430,12 +441,9 @@ def test_an_arm_that_mounts_no_server_is_never_short(tmp_path):
     assert surface_shortfall("C", events) == (True, None)
 
 
-def test_a_session_that_never_announced_is_not_judged(tmp_path):
+def test_a_session_that_never_announced_is_not_judged():
     """No init event is a session too young to have said, not a fault."""
-    path = tmp_path / "events.jsonl"
-    path.write_text("")
-    assert surface_shortfall("A", path) == (False, None)
-    assert surface_shortfall("A", tmp_path / "absent.jsonl") == (False, None)
+    assert surface_shortfall("A", []) == (False, None)
 
 
 def test_a_silent_first_session_does_not_forfeit_the_guard(
@@ -458,7 +466,7 @@ def test_a_silent_first_session_does_not_forfeit_the_guard(
     )
     verdicts = iter([(False, None), (True, "ai_rfc=failed")])
     monkeypatch.setattr(
-        per_cluster, "surface_shortfall", lambda _arm, _path: next(verdicts)
+        per_cluster, "surface_shortfall", lambda _arm, _events: next(verdicts)
     )
     lines: list[str] = []
 

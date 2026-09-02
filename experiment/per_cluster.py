@@ -75,7 +75,28 @@ def partial_reason(artifacts: dict[str, Any]) -> str | None:
     return None
 
 
-def surface_shortfall(arm: str, events_path: Path) -> tuple[bool, str | None]:
+def _read_events(events_path: Path) -> tuple[list[dict[str, Any]], int]:
+    """The transcript so far, and how many of its lines could not be read.
+
+    Salvaged rather than parsed strictly: a kill can truncate a line mid-write
+    and the next session appends onto that tail, so one unparseable line is a
+    normal outcome of the interruptions this loop exists to survive.
+
+    Args:
+        events_path: The run's transcript.
+
+    Returns:
+        ``(events, damaged)``; ``([], 0)`` when the file cannot be read.
+    """
+    try:
+        return salvage_stream(events_path.read_text(errors="replace"))
+    except OSError:
+        return [], 0
+
+
+def surface_shortfall(
+    arm: str, events: list[dict[str, Any]]
+) -> tuple[bool, str | None]:
     """What the arm declared it would mount, against what the session did.
 
     An arm states its surface as data and every session announces what actually
@@ -93,20 +114,16 @@ def surface_shortfall(arm: str, events_path: Path) -> tuple[bool, str | None]:
 
     Args:
         arm: The arm the run declares.
-        events_path: The run's transcript.
+        events: The session's events, already salvaged.
 
     Returns:
         ``(judged, shortfall)``. ``judged`` is False when nothing could be
-        decided — an unreadable transcript, or one whose session has not yet
+        decided — an empty transcript, or one whose session has not yet
         announced what it mounted. ``shortfall`` describes what mounted instead,
         and is None when the surface is whole or the arm mounts no server.
     """
     if not arm_profile(arm).uses_mcp:
         return True, None
-    try:
-        events, _ = salvage_stream(events_path.read_text(errors="replace"))
-    except OSError:
-        return False, None
     if init_event(events) is None:
         return False, None
     if ai_rfc_connected(events):
@@ -118,7 +135,7 @@ def surface_shortfall(arm: str, events_path: Path) -> tuple[bool, str | None]:
     )
 
 
-def _session_cost(events_path: Path, seen: int) -> tuple[float, int, int]:
+def _session_cost(events: list[dict[str, Any]], seen: int) -> tuple[float, int]:
     """What was spent by the result events appended since ``seen``.
 
     Read back off the transcript rather than tracked, for the same reason the
@@ -131,37 +148,26 @@ def _session_cost(events_path: Path, seen: int) -> tuple[float, int, int]:
     charging that a second time both overstates the run and writes the wrong
     figure into the per-session record.
 
-    Args:
-        events_path: The run's transcript.
-        seen: How many result events the transcript held before this session.
-
-    The transcript is salvaged rather than parsed strictly. A kill can truncate
-    a line mid-write and the next session appends onto that tail, so one
-    unparseable line is a normal outcome of the very interruptions this loop
-    exists to survive. Refusing the whole file there would freeze ``spent``, and
-    a frozen ``spent`` is a budget ceiling that can never be reached again.
+    The transcript reaches here salvaged rather than parsed strictly, because
+    refusing a file with one truncated line would freeze ``spent``, and a frozen
+    ``spent`` is a budget ceiling that can never be reached again.
 
     Args:
-        events_path: The run's transcript.
+        events: The run's transcript, already salvaged.
         seen: How many result events the transcript held before this session.
 
     Returns:
-        ``(cost, total, skipped)`` — what the new events report, the
-        transcript's new result-event count, and how many of its lines could not
-        be read. A session that produced none reports 0.0, because it said
-        nothing about its own spend.
+        ``(cost, total)`` — what the new events report, and the transcript's new
+        result-event count. A session that produced none reports 0.0, because it
+        said nothing about its own spend.
     """
-    try:
-        events, skipped = salvage_stream(events_path.read_text(errors="replace"))
-    except OSError:
-        return 0.0, seen, 0
     results = result_events(events)
     cost = 0.0
     for result in results[seen:]:
         value = result.get("total_cost_usd")
         if isinstance(value, (int, float)):
             cost += float(value)
-    return cost, len(results), skipped
+    return cost, len(results)
 
 
 def run_per_cluster(
@@ -267,7 +273,8 @@ def run_per_cluster(
             )
             sessions += 1
             any_timeout = any_timeout or timed_out
-            cost, results_seen, damaged = _session_cost(events_path, results_seen)
+            events, damaged = _read_events(events_path)
+            cost, results_seen = _session_cost(events, results_seen)
             spent += cost
             if damaged > reported_damage:
                 # Said once per new loss rather than per session: the count only
@@ -309,7 +316,7 @@ def run_per_cluster(
             # number would spend that silence: the check would be skipped and
             # could never fire again, leaving the rest of the window unguarded.
             if not surface_judged:
-                surface_judged, shortfall = surface_shortfall(ref.arm, events_path)
+                surface_judged, shortfall = surface_shortfall(ref.arm, events)
                 if shortfall is not None:
                     report(
                         f"{ref.run_id}: arm {ref.arm} declares the ai_rfc tool "
