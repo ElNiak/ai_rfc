@@ -6,7 +6,9 @@ import pytest
 from experiment.config import CampaignConfig, init_campaign
 from experiment.driver import launch_pending
 from experiment.metrics import analyze_run
-from experiment.per_cluster import next_cluster, surface_shortfall
+from experiment import progress
+from experiment.per_cluster import surface_shortfall
+from experiment.progress import window_progress
 from experiment.runner import EVENTS_FILE, RESULT_FILE
 from experiment.stream import parse_stream, result_events
 
@@ -85,7 +87,7 @@ def test_next_cluster_is_read_from_the_workspace_not_remembered(
     )
     launch_pending(per_cluster_campaign, report=lambda _: None)
     workspace = per_cluster_campaign.runs_dir / "A1" / "workspace"
-    outstanding = next_cluster(workspace)
+    outstanding = window_progress(workspace)[0]
     assert outstanding is not None and outstanding["ordinal"] == 1
 
 
@@ -110,6 +112,7 @@ def _stub_spawn(per_cluster, monkeypatch, *, sessions_per_cluster: int):
 
     monkeypatch.setattr(per_cluster, "spawn", fake_spawn)
     monkeypatch.setattr(per_cluster, "cluster_artifacts", fake_artifacts)
+    monkeypatch.setattr(progress, "cluster_artifacts", fake_artifacts)
     return calls
 
 
@@ -120,7 +123,7 @@ def test_one_session_is_spawned_per_outstanding_cluster(
 
     calls = _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
     monkeypatch.setattr(
-        per_cluster,
+        progress,
         "window_clusters",
         lambda _ws: [{"ordinal": 1, "id": "c1"}, {"ordinal": 2, "id": "c2"}],
     )
@@ -144,7 +147,7 @@ def test_a_cluster_that_will_not_finish_halts_rather_than_being_skipped(
 
     calls = _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=99)
     monkeypatch.setattr(
-        per_cluster,
+        progress,
         "window_clusters",
         lambda _ws: [{"ordinal": 1, "id": "c1"}, {"ordinal": 2, "id": "c2"}],
     )
@@ -171,10 +174,10 @@ def test_a_half_finished_cluster_is_named_before_it_is_retried(
 
     _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=99)
     monkeypatch.setattr(
-        per_cluster, "window_clusters", lambda _ws: [{"ordinal": 1, "id": "c1"}]
+        progress, "window_clusters", lambda _ws: [{"ordinal": 1, "id": "c1"}]
     )
     monkeypatch.setattr(
-        per_cluster,
+        progress,
         "cluster_artifacts",
         lambda _ws, _row: {
             "artifacts": False,
@@ -200,7 +203,7 @@ def test_an_untouched_cluster_is_not_described_as_half_finished(
 
     _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
     monkeypatch.setattr(
-        per_cluster, "window_clusters", lambda _ws: [{"ordinal": 1, "id": "c1"}]
+        progress, "window_clusters", lambda _ws: [{"ordinal": 1, "id": "c1"}]
     )
     lines: list[str] = []
 
@@ -302,7 +305,7 @@ def test_the_budget_caps_the_run_not_each_session(per_cluster_campaign, monkeypa
     import experiment.per_cluster as per_cluster
 
     calls = _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
-    monkeypatch.setattr(per_cluster, "window_clusters", lambda _ws: _clusters(10))
+    monkeypatch.setattr(progress, "window_clusters", lambda _ws: _clusters(10))
     # Each session spends the whole $1.00 campaign budget.
     monkeypatch.setattr(
         per_cluster, "_session_cost", lambda _p, seen: (1.0, seen + 1, 0)
@@ -327,7 +330,7 @@ def test_each_session_is_given_only_what_the_run_has_left(
         return ["fake"]
 
     _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
-    monkeypatch.setattr(per_cluster, "window_clusters", lambda _ws: _clusters(3))
+    monkeypatch.setattr(progress, "window_clusters", lambda _ws: _clusters(3))
     monkeypatch.setattr(per_cluster, "prepare_run_argv", capture)
     monkeypatch.setattr(
         per_cluster, "_session_cost", lambda _p, seen: (0.25, seen + 1, 0)
@@ -344,7 +347,7 @@ def test_every_session_records_the_argv_it_actually_ran(
     import experiment.per_cluster as per_cluster
 
     _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
-    monkeypatch.setattr(per_cluster, "window_clusters", lambda _ws: _clusters(2))
+    monkeypatch.setattr(progress, "window_clusters", lambda _ws: _clusters(2))
     monkeypatch.setattr(
         per_cluster, "_session_cost", lambda _p, seen: (0.1, seen + 1, 0)
     )
@@ -449,7 +452,7 @@ def test_a_silent_first_session_does_not_forfeit_the_guard(
 
     _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
     monkeypatch.setattr(
-        per_cluster,
+        progress,
         "window_clusters",
         lambda _ws: [{"ordinal": 1, "id": "c1"}, {"ordinal": 2, "id": "c2"}],
     )
@@ -489,13 +492,14 @@ def test_a_per_cluster_run_reports_through_the_launcher(
         return 0, False
 
     monkeypatch.setattr(per_cluster, "spawn", fake_spawn)
+    for module in (per_cluster, progress):
+        monkeypatch.setattr(
+            module,
+            "cluster_artifacts",
+            lambda _ws, _row: {"artifacts": state["done"], "pre_seeded": False},
+        )
     monkeypatch.setattr(
-        per_cluster,
-        "cluster_artifacts",
-        lambda _ws, _row: {"artifacts": state["done"], "pre_seeded": False},
-    )
-    monkeypatch.setattr(
-        per_cluster, "window_clusters", lambda _ws: [{"ordinal": 1, "id": "c1"}]
+        progress, "window_clusters", lambda _ws: [{"ordinal": 1, "id": "c1"}]
     )
     lines: list[str] = []
 
@@ -507,191 +511,15 @@ def test_a_per_cluster_run_reports_through_the_launcher(
     assert any("attempt" in line for line in lines), lines
 
 
-def test_window_progress_counts_only_the_work_this_run_can_do(tmp_path, monkeypatch):
-    """Pre-seeded clusters are a baseline's work, not this run's.
-
-    Counting them would report progress the run did not make, and the
-    denominator would stop meaning "remaining".
-    """
-    import experiment.per_cluster as per_cluster
-
-    rows = [{"ordinal": n, "id": f"c{n}"} for n in (1, 2, 3, 4)]
-    artifacts = {
-        "c1": {"artifacts": False, "pre_seeded": True},
-        "c2": {"artifacts": True, "pre_seeded": False},
-        "c3": {"artifacts": False, "pre_seeded": False},
-        "c4": {"artifacts": True, "pre_seeded": False},
-    }
-    monkeypatch.setattr(per_cluster, "window_clusters", lambda _ws: rows)
-    monkeypatch.setattr(
-        per_cluster, "cluster_artifacts", lambda _ws, row: artifacts[row["id"]]
-    )
-
-    row, position, done, total = per_cluster.window_progress(tmp_path)
-
-    assert row["id"] == "c3"
-    # c1 is pre-seeded: neither numerator nor denominator.
-    assert (position, done, total) == (2, 2, 3)
-    # c4 is finished but sits after c3, so position is not done + 1.
-    assert position != done + 1
-
-
-def test_next_cluster_still_returns_just_the_row(tmp_path, monkeypatch):
-    """The wrapper keeps the signature its existing callers use."""
-    import experiment.per_cluster as per_cluster
-
-    monkeypatch.setattr(
-        per_cluster, "window_clusters", lambda _ws: [{"ordinal": 1, "id": "c1"}]
-    )
-    monkeypatch.setattr(
-        per_cluster,
-        "cluster_artifacts",
-        lambda _ws, _row: {"artifacts": False, "pre_seeded": False},
-    )
-
-    assert per_cluster.next_cluster(tmp_path)["id"] == "c1"
-
-
-def _write_members(workspace, rows):
-    timeline = workspace / "timeline"
-    timeline.mkdir(parents=True, exist_ok=True)
-    (timeline / "members.jsonl").write_text(
-        "\n".join(json.dumps(row) for row in rows) + "\n"
-    )
-
-
-def test_a_pr_span_ends_at_its_anchor_merge(tmp_path):
-    from experiment.per_cluster import cluster_span
-
-    _write_members(
-        tmp_path,
-        [
-            {"cluster_id": "c1", "sha": "aaaaaaa111", "position": 0, "role": "branch"},
-            {"cluster_id": "c1", "sha": "bbbbbbb222", "position": 1, "role": "anchor"},
-        ],
-    )
-    cluster = {
-        "id": "c1",
-        "kind": "pr",
-        "anchor_sha": "bbbbbbb222",
-        "spine_prev_sha": "0000000999",
-    }
-
-    assert cluster_span(tmp_path, cluster) == "0000000..bbbbbbb"
-
-
-def test_an_epoch_span_ends_past_its_anchor(tmp_path):
-    """An epoch's anchor is its FIRST member, so ending there would drop the rest."""
-    from experiment.per_cluster import cluster_span
-
-    _write_members(
-        tmp_path,
-        [
-            {"cluster_id": "c2", "sha": "ccccccc333", "position": 0, "role": "spine"},
-            {"cluster_id": "c2", "sha": "ddddddd444", "position": 1, "role": "spine"},
-        ],
-    )
-    cluster = {
-        "id": "c2",
-        "kind": "epoch",
-        "anchor_sha": "ccccccc333",
-        "spine_prev_sha": None,
-    }
-
-    # spine_prev_sha is None at the root of the timeline.
-    assert cluster_span(tmp_path, cluster) == "root..ddddddd"
-
-
-def test_a_cluster_with_no_members_on_disk_has_no_span(tmp_path):
-    """The stubbed rows the loop's other tests use are not in members.jsonl."""
-    from experiment.per_cluster import cluster_span
-
-    assert cluster_span(tmp_path, {"id": "c1"}) is None
-
-
-def test_a_pr_whose_members_contradict_its_anchor_is_refused(tmp_path):
-    """Disagreement here means the printed span would not match span.diff."""
-    from experiment import ExperimentError
-    from experiment.per_cluster import cluster_span
-
-    _write_members(
-        tmp_path,
-        [{"cluster_id": "c3", "sha": "eeeeeee555", "position": 0, "role": "anchor"}],
-    )
-    cluster = {
-        "id": "c3",
-        "kind": "pr",
-        "anchor_sha": "fffffff666",
-        "spine_prev_sha": None,
-    }
-
-    with pytest.raises(ExperimentError, match="anchor merge"):
-        cluster_span(tmp_path, cluster)
-
-
-def test_the_bar_fills_with_finished_clusters():
-    from experiment.per_cluster import _bar
-
-    assert _bar(0, 10) == "[----------]"
-    assert _bar(3, 10) == "[###-------]"
-    assert _bar(10, 10) == "[##########]"
-    # A window with nothing countable must not divide by zero.
-    assert _bar(0, 0) == "[----------]"
-
-
-def test_durations_read_as_wall_clock():
-    from experiment.per_cluster import _duration
-
-    assert _duration(41 * 60) == "41m"
-    assert _duration(8 * 3600) == "8h00m"
-    assert _duration(90 * 60) == "1h30m"
-
-
-def test_a_cluster_is_described_from_whatever_the_row_carries():
-    from experiment.per_cluster import _describe
-
-    full = {
-        "id": "c0043-pr-9f3e21ab77c1",
-        "kind": "pr",
-        "member_count": 7,
-        "title": "Add BGP path attributes (#412)",
-    }
-    assert _describe(full, "c84a5f0..9f3e21a") == (
-        "c0043-pr-9f3e21ab77c1 - pr, 7 commits - c84a5f0..9f3e21a"
-        ' - "Add BGP path attributes (#412)"'
-    )
-
-    epoch = {
-        "id": "c0044-epoch-3a91",
-        "kind": "epoch",
-        "member_count": 12,
-        "title": "Bump dependency pins",
-    }
-    assert _describe(epoch, "9f3e21a..7c02be1") == (
-        "c0044-epoch-3a91 - epoch, 12 commits - 9f3e21a..7c02be1"
-        ' - from "Bump dependency pins"'
-    )
-
-    # The stubbed rows the loop's other tests use carry nothing but id/ordinal.
-    assert _describe({"id": "c1"}, None) == "c1"
-
-
-def test_a_long_subject_is_truncated():
-    from experiment.per_cluster import _describe
-
-    row = {"id": "c1", "kind": "pr", "member_count": 1, "title": "x" * 90}
-    described = _describe(row, None)
-    assert "x" * 57 + "..." in described and "x" * 61 not in described
-
-
 def test_the_attempt_line_shows_the_window_and_the_budget(
     per_cluster_campaign, monkeypatch
 ):
     import experiment.per_cluster as per_cluster
+    import experiment.progress as progress
 
     _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
     monkeypatch.setattr(
-        per_cluster,
+        progress,
         "window_clusters",
         lambda _ws: [{"ordinal": 41, "id": "c1"}, {"ordinal": 42, "id": "c2"}],
     )
@@ -702,10 +530,50 @@ def test_the_attempt_line_shows_the_window_and_the_budget(
     )
 
     assert any(
-        "[----------] starting cluster 1 of 2 remaining (ordinal 41)"
-        ", attempt 1 of 2" in line
+        "[----------] starting cluster 1 of 2 (ordinal 41), attempt 1 of 2" in line
         for line in lines
     ), lines
     assert any("left of $1.00" in line for line in lines), lines
     # The word a test elsewhere counts must stay out of the loop's lines.
     assert not any("launching" in line for line in lines), lines
+
+
+def test_a_contradicting_timeline_is_reported_but_does_not_stop_the_run(
+    per_cluster_campaign, monkeypatch
+):
+    """The never-abort invariant, exercised through the loop rather than asserted.
+
+    cluster_span refuses a PR whose members disagree with its anchor. That
+    refusal is deliberate, but it reaches the loop as an exception, and a
+    display line must not be able to end a run of many hours. Nothing proved
+    the loop actually caught it until this test.
+    """
+    import experiment.per_cluster as per_cluster
+    import experiment.progress as progress
+
+    _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
+    row = {
+        "ordinal": 1,
+        "id": "c1",
+        "kind": "pr",
+        "anchor_sha": "fffffff666",
+        "spine_prev_sha": None,
+    }
+    monkeypatch.setattr(progress, "window_clusters", lambda _ws: [row])
+    workspace = _ref(per_cluster_campaign).workspace
+    (workspace / "timeline").mkdir(parents=True, exist_ok=True)
+    (workspace / "timeline" / "members.jsonl").write_text(
+        json.dumps(
+            {"cluster_id": "c1", "sha": "eeeeeee555", "position": 0, "role": "anchor"}
+        )
+        + "\n"
+    )
+    lines: list[str] = []
+
+    exit_code, _, sessions = per_cluster.run_per_cluster(
+        per_cluster_campaign, _ref(per_cluster_campaign), report=lines.append
+    )
+
+    assert any("anchor merge" in line for line in lines), lines
+    assert (exit_code, sessions) == (0, 1), "the run must finish normally"
+    assert any("window complete" in line for line in lines), lines

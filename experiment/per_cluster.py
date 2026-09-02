@@ -27,7 +27,8 @@ from typing import Any, Callable
 from . import ExperimentError
 from .arms import arm_profile
 from .config import Campaign, render_task
-from .metrics import cluster_artifacts, window_clusters
+from .metrics import cluster_artifacts
+from .progress import _bar, _duration, cluster_span, describe, window_progress
 from .runner import EVENTS_FILE, STDERR_FILE, RunRef, build_env, prepare_run_argv
 from .spawn import spawn
 from .stream import (
@@ -47,165 +48,6 @@ ATTEMPTS_PER_CLUSTER = 2
 #: ``argv.json`` holds the whole-window vector built before dispatch, which is
 #: not what any session executed in this mode.
 SESSIONS_FILE = "sessions.jsonl"
-
-
-def next_cluster(workspace: Path) -> dict[str, Any] | None:
-    """The lowest-ordinal in-window cluster that is not finished.
-
-    Read from the workspace rather than counted in memory, so a resumed or
-    re-entered run agrees with what is actually on disk.
-
-    Args:
-        workspace: The run's workspace.
-
-    Returns:
-        The cluster row to process next, or ``None`` when the window is done.
-    """
-    return window_progress(workspace)[0]
-
-
-def window_progress(
-    workspace: Path,
-) -> tuple[dict[str, Any] | None, int, int, int]:
-    """The next unfinished cluster, and where it sits in the remaining work.
-
-    Pre-seeded clusters are excluded from both counts: they are work a baseline
-    already did, so counting them would report progress this run did not make.
-    The denominator therefore means "remaining", not "in window".
-
-    Args:
-        workspace: The run's workspace.
-
-    Returns:
-        ``(row, position, done, total)``. ``row`` is the cluster to process
-        next, or ``None`` when the window is done. ``position`` is that row's
-        1-based index among the counted clusters — not ``done + 1``, because a
-        finished cluster may sit after an unfinished one — and is 0 when there
-        is no row.
-    """
-    counted = [
-        (row, artifacts)
-        for row, artifacts in (
-            (row, cluster_artifacts(workspace, row))
-            for row in window_clusters(workspace)
-        )
-        if not artifacts.get("pre_seeded")
-    ]
-    done = sum(1 for _, artifacts in counted if artifacts.get("artifacts"))
-    for index, (row, artifacts) in enumerate(counted, start=1):
-        if not artifacts.get("artifacts"):
-            return row, index, done, len(counted)
-    return None, 0, done, len(counted)
-
-
-def _members(workspace: Path) -> list[dict[str, Any]]:
-    """Every member row in the workspace's timeline, or none when absent."""
-    try:
-        text = (workspace / "timeline" / "members.jsonl").read_text()
-    except OSError:
-        return []
-    return [json.loads(line) for line in text.splitlines() if line.strip()]
-
-
-def cluster_span(workspace: Path, cluster: dict[str, Any]) -> str | None:
-    """The commit range one cluster covers, as ``base..head``.
-
-    The span ends at the cluster's LAST member — a PR's anchor merge, or an
-    epoch's final spine commit — matching the rule :mod:`views.emit` uses to
-    build the ``span.diff`` the agent reads. The anchor names an epoch's FIRST
-    member, so ending at it would drop every later commit of the epoch.
-
-    Args:
-        workspace: The run's workspace.
-        cluster: One timeline row.
-
-    Returns:
-        ``"<base>..<head>"``, both abbreviated, with ``root`` for a cluster at
-        the start of the timeline. ``None`` when the workspace holds no members
-        for this cluster.
-
-    Raises:
-        ExperimentError: If a PR's last member is not the anchor its row names.
-            The two files disagree, so a span printed from them would not be
-            the one the agent was given.
-    """
-    members = [
-        row for row in _members(workspace) if row.get("cluster_id") == cluster.get("id")
-    ]
-    if not members:
-        return None
-    head = max(members, key=lambda row: row["position"])["sha"]
-    anchor = cluster.get("anchor_sha")
-    if cluster.get("kind") == "pr" and head != anchor:
-        raise ExperimentError(
-            f"{cluster.get('id')}: a PR's last member is its anchor merge, but "
-            f"members.jsonl ends at {head[:12]} and the row names "
-            f"{str(anchor)[:12]}"
-        )
-    base = cluster.get("spine_prev_sha")
-    return f"{base[:7] if base else 'root'}..{head[:7]}"
-
-
-def _bar(done: int, total: int, cells: int = 10) -> str:
-    """A fixed-width ASCII bar.
-
-    Deliberately static: a campaign's output is redirected to a log read hours
-    later, which carriage-return animation would corrupt.
-
-    Args:
-        done: Clusters finished.
-        total: Clusters countable in the window.
-        cells: Width of the bar in characters.
-
-    Returns:
-        The bar, e.g. ``[###-------]``.
-    """
-    filled = min(cells, done * cells // total) if total > 0 else 0
-    return "[" + "#" * filled + "-" * (cells - filled) + "]"
-
-
-def _duration(seconds: float) -> str:
-    """Whole minutes under an hour, hours and minutes above it.
-
-    Args:
-        seconds: A count of seconds.
-
-    Returns:
-        A short reading, e.g. ``41m`` or ``8h00m``.
-    """
-    minutes = int(seconds // 60)
-    return f"{minutes}m" if minutes < 60 else f"{minutes // 60}h{minutes % 60:02d}m"
-
-
-def _describe(cluster: dict[str, Any], span: str | None) -> str:
-    """Name what a cluster covers, from whatever fields its row carries.
-
-    Every field is optional. The loop's own tests drive it with rows holding
-    only an id and an ordinal, and a progress line must never be able to fail
-    a run that is otherwise fine.
-
-    Args:
-        cluster: One timeline row.
-        span: The commit range from :func:`cluster_span`, or None.
-
-    Returns:
-        A single dash-separated line.
-    """
-    parts = [str(cluster.get("id", "?"))]
-    kind, count = cluster.get("kind"), cluster.get("member_count")
-    if kind and count:
-        parts.append(f"{kind}, {count} commits")
-    elif kind:
-        parts.append(str(kind))
-    if span:
-        parts.append(span)
-    title = cluster.get("title")
-    if title:
-        text = title if len(title) <= 60 else title[:57] + "..."
-        # An epoch's title is its FIRST commit's subject, not a summary of the
-        # slice, so it is introduced rather than presented as the slice's name.
-        parts.append(f'from "{text}"' if kind == "epoch" else f'"{text}"')
-    return " - ".join(parts)
 
 
 def partial_reason(artifacts: dict[str, Any]) -> str | None:
@@ -364,7 +206,7 @@ def run_per_cluster(
     any_timeout = False
 
     while True:
-        row, position, done, total = window_progress(ref.workspace)
+        row, artifacts, position, done, total = window_progress(ref.workspace)
         if row is None:
             report(f"{ref.run_id}: window complete after {sessions} session(s)")
             return exit_code, any_timeout, sessions
@@ -375,35 +217,38 @@ def run_per_cluster(
             reached = "budget" if budget_left <= 0 else "wall clock"
             report(
                 f"{ref.run_id}: {reached} exhausted after {sessions} session(s) "
-                f"(${spent:.2f}); cluster {position} of {total} remaining "
+                f"(${spent:.2f}); cluster {position} of {total} "
                 f"(ordinal {row['ordinal']}) and later not attempted"
             )
             return exit_code or 1, any_timeout, sessions
 
         ordinal = row["ordinal"]
-        outstanding = partial_reason(cluster_artifacts(ref.workspace, row))
+        outstanding = partial_reason(artifacts)
         if outstanding is not None:
             report(
-                f"{ref.run_id}: cluster {position} of {total} remaining "
+                f"{ref.run_id}: cluster {position} of {total} "
                 f"(ordinal {ordinal}) is half finished ({outstanding})"
             )
+        # Once per cluster, not once per attempt: the row does not change
+        # between attempts, and a contradicting timeline would otherwise say so
+        # twice.
+        try:
+            span = cluster_span(ref.workspace, row)
+        except ExperimentError as error:
+            # Loud, but never fatal: two files on disk disagreeing is worth
+            # saying, and is not worth killing a run of many hours over.
+            report(f"{ref.run_id}: {error}")
+            span = None
         # A one-cluster window through the prompt the whole-window runs use, so
         # there is no second task prompt to drift from the first.
         task = render_task((ordinal, ordinal))
         for attempt in range(1, ATTEMPTS_PER_CLUSTER + 1):
-            try:
-                span = cluster_span(ref.workspace, row)
-            except ExperimentError as error:
-                # Loud, but never fatal: two files on disk disagreeing is worth
-                # saying, and is not worth killing a run of many hours over.
-                report(f"{ref.run_id}: {error}")
-                span = None
             report(
                 f"{ref.run_id}: {_bar(done, total)} starting cluster "
-                f"{position} of {total} remaining (ordinal {ordinal}), "
+                f"{position} of {total} (ordinal {ordinal}), "
                 f"attempt {attempt} of {ATTEMPTS_PER_CLUSTER}"
             )
-            report(f"{ref.run_id}:   {_describe(row, span)}")
+            report(f"{ref.run_id}:   {describe(row, span)}")
             report(
                 f"{ref.run_id}:   ${budget_left:.2f} left of "
                 f"${campaign.budget_usd:.2f} - "

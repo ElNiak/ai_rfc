@@ -80,7 +80,7 @@ A campaign's output names four things that are worth reading once before a run:
 | `c0001-epoch-c84a5f082e40` | A cluster id: `c`, the ordinal `0001`, the kind, and the first twelve characters of the anchor commit. |
 | kind | `pr` — a merge commit and its branch — or `epoch`, a run of direct pushes between merges. An epoch's title is its *first* commit's subject, so it is printed as `from "..."` rather than as a name for the slice. |
 | attempt | Of `ATTEMPTS_PER_CLUSTER`. A second attempt buys a clean context. |
-| `N of M remaining` | Position among the clusters this run still has to do. Pre-seeded clusters — work a baseline already did — are counted out of both numbers, so `M` is remaining work, not window size. |
+| `N of M` | Position among the clusters this run is responsible for. `M` is not the window's size: pre-seeded clusters — work a baseline already did — are counted out of it, and it does not shrink as clusters finish. The bar to its left carries finished-over-total. |
 
 The per-cluster progress lines exist only under `--session-mode per-cluster`; a
 `single`-mode run gives its whole window to one session and reports once.
