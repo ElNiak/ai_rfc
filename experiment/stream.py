@@ -55,6 +55,42 @@ def init_event(events: list[dict[str, Any]]) -> dict[str, Any] | None:
     return None
 
 
+def session_ids(events: list[dict[str, Any]]) -> list[str]:
+    """The distinct session ids, in the order they first appear.
+
+    A run that spawns one agent per cluster appends every session to one
+    transcript, so attributing work to a cluster means slicing by session
+    rather than reading the file as a whole.
+
+    Args:
+        events: Parsed transcript events.
+
+    Returns:
+        The ids, first-appearance order. Events carrying none are skipped.
+    """
+    seen: list[str] = []
+    for event in events:
+        session = event.get("session_id")
+        if isinstance(session, str) and session and session not in seen:
+            seen.append(session)
+    return seen
+
+
+def session_events(
+    events: list[dict[str, Any]], session_id: str
+) -> list[dict[str, Any]]:
+    """Every event belonging to one session, in transcript order.
+
+    Args:
+        events: Parsed transcript events.
+        session_id: The session to select.
+
+    Returns:
+        That session's events; empty when the id does not occur.
+    """
+    return [event for event in events if event.get("session_id") == session_id]
+
+
 def salvage_stream(text: str) -> tuple[list[dict[str, Any]], int]:
     """Parse what a transcript can still yield, and count what it cannot.
 

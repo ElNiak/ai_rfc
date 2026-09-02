@@ -190,3 +190,35 @@ def test_one_failed_session_makes_the_run_a_failure():
     )
     assert merged["subtype"] == "error_max_budget"
     assert merged["is_error"] is True
+
+
+def test_sessions_are_listed_in_first_appearance_order():
+    """A per-cluster transcript is N sessions appended to one file."""
+    from experiment.stream import session_ids
+
+    events = [
+        {"type": "system", "subtype": "init", "session_id": "s1"},
+        {"type": "assistant", "session_id": "s1"},
+        {"type": "system", "subtype": "init", "session_id": "s2"},
+        {"type": "assistant", "session_id": "s1"},
+    ]
+    assert session_ids(events) == ["s1", "s2"]
+
+
+def test_events_without_a_session_id_are_not_a_session():
+    """Absence is skipped rather than collected under a None key."""
+    from experiment.stream import session_ids
+
+    assert session_ids([{"type": "assistant"}, {"session_id": ""}]) == []
+
+
+def test_one_session_is_selected_whole():
+    from experiment.stream import session_events
+
+    events = [
+        {"type": "assistant", "session_id": "s1", "n": 1},
+        {"type": "assistant", "session_id": "s2", "n": 2},
+        {"type": "result", "session_id": "s1", "n": 3},
+    ]
+    assert [e["n"] for e in session_events(events, "s1")] == [1, 3]
+    assert session_events(events, "absent") == []

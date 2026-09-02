@@ -37,6 +37,7 @@ from .stream import (
     mcp_servers,
     result_events,
     salvage_stream,
+    session_ids,
 )
 
 #: How many times one cluster is attempted before the run halts. A second
@@ -207,6 +208,7 @@ def run_per_cluster(
     results_seen = 0
     reported_damage = 0
     surface_judged = False
+    known_sessions: set[str] = set()
     started = time.monotonic()
     exit_code: int | None = 0
     any_timeout = False
@@ -274,6 +276,12 @@ def run_per_cluster(
             sessions += 1
             any_timeout = any_timeout or timed_out
             events, damaged = _read_events(events_path)
+            attempt_sessions = [
+                session
+                for session in session_ids(events)
+                if session not in known_sessions
+            ]
+            known_sessions.update(attempt_sessions)
             cost, results_seen = _session_cost(events, results_seen)
             spent += cost
             if damaged > reported_damage:
@@ -302,6 +310,11 @@ def run_per_cluster(
                             "cost_usd": cost,
                             "cumulative_cost_usd": spent,
                             "budget_given_usd": budget_left,
+                            # Nullable: a session killed before its init event
+                            # never announced an id, so the row can only say so.
+                            "session_id": (
+                                attempt_sessions[0] if attempt_sessions else None
+                            ),
                             "argv": argv,
                         },
                         sort_keys=True,
