@@ -28,6 +28,9 @@ ai_rfc = "ai_rfc.server.cli:main"
 [tool.setuptools.packages.find]
 include = ["ai_rfc*"]
 
+[tool.setuptools.package-data]
+"ai_rfc.experiment" = ["prompts/*.md"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "--import-mode=importlib"
