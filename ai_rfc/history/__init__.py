@@ -4,7 +4,6 @@ Extracts a repository into a deterministic JSONL corpus plus a derived SQLite
 index. Makes no model calls and opens no sockets.
 """
 
-from .aggregates import HistoryShape, history_shape
 from .git_log import (
     DEFAULT_FILE_CAP,
     GitError,
@@ -27,12 +26,10 @@ __all__ = [
     "ExtractionReport",
     "FileChange",
     "GitError",
-    "HistoryShape",
     "ShallowRepositoryError",
     "StaleIndexError",
     "build_index",
     "extract",
-    "history_shape",
     "open_index",
     "extract_commits",
     "read_corpus",
