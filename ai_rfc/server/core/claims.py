@@ -39,7 +39,7 @@ _REQUIRED_FIELDS = ("text", "section", "level", "layer")
 
 
 def _substrate(ctx: Context):  # noqa: ANN202 - substrate modules, resolved lazily
-    """Import the substrate lazily, after ``resolve_context`` set sys.path."""
+    """Import the substrate lazily; it resolves because the package is installed."""
     del ctx
     from ai_rfc import promotion, schema
 
