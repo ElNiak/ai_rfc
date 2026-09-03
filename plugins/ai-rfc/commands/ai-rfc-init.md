@@ -22,7 +22,8 @@ fails or the workspace already holds a corpus.
    self-hosted GitLab requires the user's explicit go-ahead first. On
    failure, continue git-only and say so. When no route to the API exists at
    all, write the records to a JSON file by other means and use
-   `ai-rfc forge adopt <records.json> <URL>` instead.
+   `ai-rfc forge adopt <records.json> <URL> --repo $AI_RFC_WORKSPACE/clone
+   --out $AI_RFC_WORKSPACE/forge` instead.
 4. **Timeline**: `ai-rfc timeline $AI_RFC_WORKSPACE/corpus --repo
    $AI_RFC_WORKSPACE/clone --out $AI_RFC_WORKSPACE/timeline`, adding
    `--forge <snapshot dir>` when step 3 produced one. Report the
