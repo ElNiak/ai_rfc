@@ -3,10 +3,10 @@ description: Initialize a reconstruction workspace — clone, corpus, forge snap
 ---
 
 Initialize the reconstruction workspace at `$AI_RFC_WORKSPACE` for the target
-repository given as `$ARGUMENTS` (a forge URL). `AI_RFC_WORKSPACE` must be
-set and `ai-rfc --help` must answer (the `ai-rfc` distribution is installed
-in the interpreter `python3` resolves to); stop with a clear message if either
-fails or the workspace already holds a corpus.
+repository given as `$ARGUMENTS` (a forge URL). `AI_RFC_WORKSPACE` and
+`AI_RFC_PYTHON` must be set and `ai-rfc --help` must answer (the `ai-rfc`
+distribution is installed in the interpreter `AI_RFC_PYTHON` names); stop
+with a clear message if either fails or the workspace already holds a corpus.
 
 1. **Clone at full depth** into `$AI_RFC_WORKSPACE/clone` (shallow clones are
    refused by extraction). Record `git rev-parse HEAD` — this is the pin

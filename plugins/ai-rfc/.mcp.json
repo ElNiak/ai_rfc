@@ -1,6 +1,6 @@
 {
   "ai_rfc": {
-    "command": "python3",
+    "command": "${AI_RFC_PYTHON}",
     "args": ["-m", "ai_rfc.server"],
     "env": {
       "AI_RFC_WORKSPACE": "${AI_RFC_WORKSPACE}"

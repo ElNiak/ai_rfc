@@ -18,7 +18,7 @@ dependencies = ["PyYAML>=6.0,<7.0"]
 # invented vocabulary because nothing was there to validate them.
 mcp = ["mcp>=1.0,<2"]
 tests = ["pytest>=8", "pytest-xdist"]
-dev = ["types-PyYAML", "mypy", "black", "flake8"]
+dev = ["types-PyYAML", "mypy", "black", "isort", "flake8"]
 
 [project.scripts]
 ai-rfc = "ai_rfc.cli:main"
@@ -38,3 +38,10 @@ markers = ["unit: fast, no external dependency"]
 
 [tool.mypy]
 explicit_package_bases = true
+
+[tool.isort]
+profile = "black"
+line_length = 88
+
+[tool.black]
+line-length = 88

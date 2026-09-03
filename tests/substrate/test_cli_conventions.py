@@ -163,10 +163,10 @@ def test_every_entry_declares_a_section():
 def test_entries_sharing_a_section_are_contiguous():
     """Declaration order is the help's order, so a section must not be split.
 
-    ``setdefault`` in the group's ``format_commands`` merges a repeated heading
-    into its first occurrence rather than printing it twice, so a split section
-    silently hoists the later command up out of declaration order — quieter
-    than a duplicated heading, and the reason this is asserted here.
+    ``_usage()`` in ``ai_rfc/cli.py`` prints a heading whenever the section
+    changes from the previous entry, so a split section would print its
+    heading twice, and the second block would read as a different group —
+    the reason this is asserted here.
     """
     runs: list[str] = []
     for entry in ENTRY_POINTS:

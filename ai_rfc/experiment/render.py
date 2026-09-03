@@ -140,7 +140,7 @@ SLOT_TABLES: dict[str, dict[str, str]] = {
             "This session has no MCP server: drive the workspace with the `ai_rfc` "
             "command through Bash, exactly as written below."
         ),
-        "runtime": "`ai_rfc` is on `PATH` and reads both variables",
+        "runtime": "`ai_rfc` is on `PATH` and reads `AI_RFC_WORKSPACE`",
         "cluster_next": (
             "`ai_rfc cluster-next` (prints the lowest-ordinal cluster with neither "
             "checkpoint nor revision entry, or `null`)"
@@ -186,7 +186,9 @@ SLOT_TABLES: dict[str, dict[str, str]] = {
             "tools, exactly as named below, and edit prose with the Edit/Write "
             "tools."
         ),
-        "runtime": "the `ai_rfc` MCP server is connected and reads both variables",
+        "runtime": (
+            "the `ai_rfc` MCP server is connected and reads `AI_RFC_WORKSPACE`"
+        ),
         "cluster_next": (
             "`ai_rfc_cluster_next` (returns the lowest-ordinal cluster with neither "
             "checkpoint nor revision entry, or null)"

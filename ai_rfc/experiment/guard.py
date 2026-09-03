@@ -10,6 +10,10 @@ import json
 import sys
 from pathlib import Path
 
+# Claude Code invokes this hook by path as a standalone script, so only its
+# own directory is on sys.path. The insert makes the repository root
+# importable whether or not the distribution is installed in the interpreter
+# Claude Code spawns.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from ai_rfc.experiment.enforcement import is_allowed  # noqa: E402

@@ -8,7 +8,7 @@ PLUGIN = Path(__file__).resolve().parents[2] / "plugins" / "ai-rfc"
 
 def test_the_mcp_manifest_runs_the_installed_server():
     server = json.loads((PLUGIN / ".mcp.json").read_text())["ai_rfc"]
-    assert server["command"] == "python3"
+    assert server["command"] == "${AI_RFC_PYTHON}"
     assert server["args"] == ["-m", "ai_rfc.server"]
     assert set(server["env"]) == {"AI_RFC_WORKSPACE"}
 

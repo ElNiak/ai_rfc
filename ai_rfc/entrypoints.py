@@ -1,9 +1,10 @@
 """The commands this package exposes, declared once.
 
-Both front doors read this: ``panther ai-rfc`` builds its subcommands from it,
-and the conventions suite asserts its invariants across it. Modules are named
-by dotted string rather than imported, so reading the registry costs nothing
-and the eight argparse CLIs load only when one of them is invoked.
+The registry is read by ``ai_rfc.cli`` (the ``ai-rfc`` door), which builds its
+usage listing from it, and the conventions suite asserts its invariants
+across it. Modules are named by dotted string rather than imported, so
+reading the registry costs nothing and the eight argparse CLIs load only
+when one of them is invoked.
 """
 
 from __future__ import annotations
@@ -30,7 +31,7 @@ class EntryPoint:
     """One command, reachable through either front door.
 
     Attributes:
-        verb: The token following ``panther ai-rfc``.
+        verb: The token following ``ai-rfc``.
         prog: The sub-CLI's own ``argparse`` ``prog=``, which ``--version``
             prints and which the leaf's usage line shows. Always
             ``ai-rfc <verb>``, so a usage line names the command the user
@@ -41,8 +42,9 @@ class EntryPoint:
         summary: One line. Shown by ``--help`` and rendered into the generated
             CLI reference by ``mkdocs-click``, where it is the only description
             a reader gets, since the arguments forward untouched.
-        section: The heading ``panther ai-rfc --help`` lists this command
-            under. Entries sharing one are kept contiguous in
+        section: The heading ``ai-rfc --help`` prints this command under,
+            rendered by ``_usage()`` in ``ai_rfc/cli.py`` in registration
+            order. Entries sharing one are kept contiguous in
             :data:`ENTRY_POINTS`, because that order is the order the help
             prints.
     """
@@ -62,8 +64,8 @@ class EntryPoint:
         return cast(CommandModule, import_module(self.module))
 
 
-#: Headings ``panther ai-rfc --help`` lists commands under. Plain text: click's
-#: formatter writes them verbatim, so backticks would print as backticks.
+#: Headings ``ai-rfc --help`` lists commands under. Plain text: ``_usage()`` in
+#: ``ai_rfc/cli.py`` writes them verbatim, so backticks would print as backticks.
 DRIVEN = "Commands you drive"
 BY_HAND = "Run these yourself"
 PERFORMED = "Stages pipeline run reaches before it needs you"

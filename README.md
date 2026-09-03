@@ -23,18 +23,20 @@ ai-rfc --help                  # every verb, in workflow order
 claude plugin marketplace add /path/to/ai_rfc && claude plugin install ai-rfc
 ```
 
-The plugin runs `python3 -m ai_rfc.server`, so the distribution must be
-installed in the interpreter `python3` resolves to for the session.
+The plugin runs `${AI_RFC_PYTHON} -m ai_rfc.server`, so the distribution must
+be installed in the interpreter `AI_RFC_PYTHON` names for the session.
 
 PANTHER consumes this repository as the submodule
 `panther/plugins/services/testers/ai_rfc`; `panther build dev` installs it and
-`panther ai-rfc <verb>` forwards to `ai-rfc <verb>`.
+PANTHER's `ai-rfc` subcommand forwards to `ai-rfc <verb>`.
 
 ## Environment contract
 
-One variable: `AI_RFC_WORKSPACE`, a reconstruction workspace (clone, corpus,
-timeline, clusters, checkpoints, manifest, questions, revisions, draft).
-Missing it fails loudly; nothing guesses.
+Two variables: `AI_RFC_PYTHON`, the interpreter with the `ai-rfc` distribution
+installed (e.g. a venv's `bin/python`); and `AI_RFC_WORKSPACE`, a
+reconstruction workspace (clone, corpus, timeline, clusters, checkpoints,
+manifest, questions, revisions, draft). Missing either fails loudly; nothing
+guesses.
 
 ## Two doors, one behaviour
 
@@ -47,8 +49,8 @@ same eight programs (`history`, `forge`, `timeline`, `views`, `check`,
 ## Experiment harness
 
 `python -m ai_rfc.experiment` runs from any directory: `profile init`,
-`preflight`, `workspace prepare|reseal`, `campaign init`, `run`, `audit`,
-`questions`, `analyze`. State lives under `AI_RFC_EXPERIMENTS_ROOT` (default
+`preflight`, `render`, `workspace prepare|reseal`, `campaign init`, `run`,
+`audit`, `questions`, `analyze`. State lives under `AI_RFC_EXPERIMENTS_ROOT` (default
 `~/ai-rfc-experiments`), never inside a repository. The first full campaign is
 reported in `docs/experiments/2026-08-31-pilot-aioquic.md`; the protocol is
 `docs/experiment-protocol.md`; the tool-to-CLI parity table is
