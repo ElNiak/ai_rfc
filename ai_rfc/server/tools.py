@@ -1,7 +1,7 @@
 """The MCP tool surface, importable without the ``mcp`` package.
 
 Each function here is one tool: it resolves the environment contract and
-calls exactly one core operation. :mod:`ai_rfc_server.server` registers
+calls exactly one core operation. :mod:`ai_rfc.server.server` registers
 these callables with FastMCP; the parity tests call them directly, so the
 tool arm and the CLI arm are compared function-for-function even where the
 ``mcp`` runtime is not installed.

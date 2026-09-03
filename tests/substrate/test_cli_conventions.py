@@ -68,12 +68,17 @@ TRACKED_HELPERS = ("_report", "_git", "_digest", "_digest_bytes")
 
 
 def _package_sources() -> list[Path]:
-    """Every module the table speaks for: the package, minus the harness."""
+    """Every module the table speaks for: the substrate, minus the frontends.
+
+    ``server`` and ``experiment`` are separate programs that share no helper
+    with the substrate; their own ``_report`` copies are not what the register
+    tracks.
+    """
     return [
         path
         for path in sorted(PACKAGE_ROOT.rglob("*.py"))
-        if "harness" not in path.relative_to(PACKAGE_ROOT).parts
-        and "__pycache__" not in path.parts
+        if not {"server", "experiment", "__pycache__"}
+        & set(path.relative_to(PACKAGE_ROOT).parts)
     ]
 
 
@@ -141,6 +146,7 @@ def test_every_cli_module_on_disk_is_registered():
         # The package-root cli.py is the door that dispatches to these, not one
         # of them; the door has its own test module.
         if path != PACKAGE_ROOT / "cli.py"
+        and not {"server", "experiment"} & set(path.relative_to(PACKAGE_ROOT).parts)
     }
     assert on_disk == {entry.module for entry in ENTRY_POINTS}
 

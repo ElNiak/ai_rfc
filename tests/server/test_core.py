@@ -1,20 +1,20 @@
 import pytest
 
-from ai_rfc_server.core import CoreError, GuardrailError
-from ai_rfc_server.core.claims import (
+from ai_rfc.server.core import CoreError, GuardrailError
+from ai_rfc.server.core.claims import (
     adjudicate_preview,
     record_statuses,
     upsert_claim,
 )
-from ai_rfc_server.core.gates import citation_gate, manifest_gate, write_checkpoint
-from ai_rfc_server.core.queries import (
+from ai_rfc.server.core.gates import citation_gate, manifest_gate, write_checkpoint
+from ai_rfc.server.core.queries import (
     cluster_get,
     cluster_next,
     corpus_query,
     status,
 )
-from ai_rfc_server.core.questions import draft_question, export_open, record_answer
-from ai_rfc_server.core.revisions import record_revision
+from ai_rfc.server.core.questions import draft_question, export_open, record_answer
+from ai_rfc.server.core.revisions import record_revision
 
 
 def test_upsert_rejects_status(workspace):

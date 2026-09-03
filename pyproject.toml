@@ -22,6 +22,8 @@ dev = ["types-PyYAML", "mypy", "black", "flake8"]
 
 [project.scripts]
 ai-rfc = "ai_rfc.cli:main"
+# The AI+CLI arm's parity frontend keeps its name until SP3 folds it into ai-rfc.
+ai_rfc = "ai_rfc.server.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["ai_rfc*"]
@@ -30,3 +32,6 @@ include = ["ai_rfc*"]
 testpaths = ["tests"]
 addopts = "--import-mode=importlib"
 markers = ["unit: fast, no external dependency"]
+
+[tool.mypy]
+explicit_package_bases = true

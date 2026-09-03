@@ -1,16 +1,8 @@
-import sys
 from pathlib import Path
 
 import pytest
 
-SERVER_ROOT = Path(__file__).resolve().parents[1]
-PANTHER_ROOT = Path(__file__).resolve().parents[10]
-
-for entry in (str(SERVER_ROOT / "src"), str(PANTHER_ROOT)):
-    if entry not in sys.path:
-        sys.path.insert(0, entry)
-
-from ai_rfc_server.testing import build_workspace  # noqa: E402
+from ai_rfc.server.testing import build_workspace
 
 
 @pytest.fixture
@@ -21,7 +13,6 @@ def make_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         return build_workspace(tmp_path / name)
 
     def use(root: Path) -> None:
-        monkeypatch.setenv("PANTHER_REPO", str(PANTHER_ROOT))
         monkeypatch.setenv("AI_RFC_WORKSPACE", str(root))
 
     return build, use
@@ -33,6 +24,6 @@ def workspace(make_workspace):
     root = build("ws")
     use(root)
 
-    from ai_rfc_server.paths import resolve_context
+    from ai_rfc.server.paths import resolve_context
 
     return resolve_context()

@@ -1,10 +1,10 @@
 """Substrate stage runs: checkpoints and gates, exit codes surfaced raw.
 
 These shell out to the substrate CLIs — the same commands the AI+CLI arm
-types — with ``cwd`` at the PANTHER checkout, and never reinterpret an exit
-code: 3 from a strict gate is information, not an obstacle. The substrate
-leaves 2 to argparse, so a 2 here means the invocation was malformed, which
-is a defect in the caller rather than a finding about the manifest.
+types — with ``cwd`` at the workspace, and never reinterpret an exit code:
+3 from a strict gate is information, not an obstacle. The substrate leaves 2
+to argparse, so a 2 here means the invocation was malformed, which is a
+defect in the caller rather than a finding about the manifest.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from typing import Any
 
 from ..paths import Context
 
-_A_RFC = "panther.plugins.services.testers.ai_rfc"
+_A_RFC = "ai_rfc"
 
 
 def _run(ctx: Context, module: str, *args: str) -> tuple[int, list[str]]:
@@ -24,7 +24,7 @@ def _run(ctx: Context, module: str, *args: str) -> tuple[int, list[str]]:
         [sys.executable, "-m", module, *args],
         capture_output=True,
         text=True,
-        cwd=ctx.panther_repo,
+        cwd=ctx.workspace,
     )
     return result.returncode, [
         line for line in result.stderr.splitlines() if line.strip()
@@ -83,7 +83,7 @@ def manifest_gate(ctx: Context, strict: bool = False) -> dict[str, Any]:
     ]
     if strict:
         args.append("--strict")
-    code, stderr = _run(ctx, _A_RFC, *args)
+    code, stderr = _run(ctx, f"{_A_RFC}.check", *args)
     report_path = ctx.workspace / "out" / "report.json"
     report = json.loads(report_path.read_text()) if report_path.exists() else None
     return {

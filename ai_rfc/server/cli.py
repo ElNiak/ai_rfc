@@ -37,10 +37,7 @@ def _parse_fields(pairs: list[str]) -> dict[str, Any]:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="ai_rfc",
-        description=(
-            "Drive a reconstruction workspace (AI_RFC_WORKSPACE) against a "
-            "PANTHER checkout (PANTHER_REPO)."
-        ),
+        description="Drive a reconstruction workspace (AI_RFC_WORKSPACE).",
     )
     verbs = parser.add_subparsers(dest="verb", required=True)
 

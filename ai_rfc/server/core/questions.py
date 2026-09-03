@@ -12,7 +12,7 @@ from .claims import _atomic_write, _document, _normalize_and_write
 
 def _register(ctx: Context):  # noqa: ANN202
     del ctx
-    from panther.plugins.services.testers.ai_rfc.draft import questions as register
+    from ai_rfc.draft import questions as register
 
     return register
 

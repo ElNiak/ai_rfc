@@ -51,9 +51,9 @@ def build_workspace(root: Path) -> Path:
     Returns:
         The ``root`` path, once the workspace is fully built.
     """
-    from panther.plugins.services.testers.ai_rfc.history import cli as history_cli
-    from panther.plugins.services.testers.ai_rfc.timeline import cli as timeline_cli
-    from panther.plugins.services.testers.ai_rfc.views import cli as views_cli
+    from ai_rfc.history import cli as history_cli
+    from ai_rfc.timeline import cli as timeline_cli
+    from ai_rfc.views import cli as views_cli
 
     root.mkdir()
     clone = root / "clone"

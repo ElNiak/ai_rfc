@@ -89,7 +89,7 @@ def tag_revision(ctx: Context, tag: str, message: str) -> dict[str, Any]:
         CoreError: On a malformed or unrecorded tag, a dirty tree, an
             existing tag, or a git failure.
     """
-    from panther.plugins.services.testers.ai_rfc.draft.gate import (
+    from ai_rfc.draft.gate import (
         REVISION_TAG,
         GateError,
         load_revisions,

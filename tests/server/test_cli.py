@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from ai_rfc_server import cli
+from ai_rfc.server import cli
 
 
 def _emit(capsys) -> dict | list | None:

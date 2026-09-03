@@ -8,8 +8,8 @@ frontend they must still be.
 import json
 from pathlib import Path
 
-from ai_rfc_server import cli, tools
-from ai_rfc_server.testing import git
+from ai_rfc.server import cli, tools
+from ai_rfc.server.testing import git
 
 
 def _twins(make_workspace):
@@ -83,7 +83,7 @@ def test_read_parity_adjudicate(make_workspace, capsys):
 
 
 def test_every_tool_is_in_the_parity_table():
-    table = (Path(__file__).resolve().parents[4] / "docs" / "parity.md").read_text()
+    table = (Path(__file__).resolve().parents[2] / "docs" / "parity.md").read_text()
     for tool in tools.ALL_TOOLS:
         assert f"`{tool.__name__}`" in table, tool.__name__
 

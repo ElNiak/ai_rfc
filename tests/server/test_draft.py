@@ -1,12 +1,12 @@
 import pytest
 import yaml
 
-from ai_rfc_server.core import CoreError
-from ai_rfc_server.core.draft import commit_draft, tag_revision
-from ai_rfc_server.core.gates import citation_gate, write_checkpoint
-from ai_rfc_server.core.queries import cluster_next
-from ai_rfc_server.core.revisions import record_revision
-from ai_rfc_server.testing import git
+from ai_rfc.server.core import CoreError
+from ai_rfc.server.core.draft import commit_draft, tag_revision
+from ai_rfc.server.core.gates import citation_gate, write_checkpoint
+from ai_rfc.server.core.queries import cluster_next
+from ai_rfc.server.core.revisions import record_revision
+from ai_rfc.server.testing import git
 
 
 def _draft(workspace):
