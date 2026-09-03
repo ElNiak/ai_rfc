@@ -1,12 +1,8 @@
 {
   "ai_rfc": {
     "command": "python3",
-    "args": [
-      "-c",
-      "import sys, pathlib; root = pathlib.Path('${CLAUDE_PLUGIN_ROOT}') / 'server' / 'src'; sys.path.insert(0, str(root)); from ai_rfc_server.server import main; main()"
-    ],
+    "args": ["-m", "ai_rfc.server"],
     "env": {
-      "PANTHER_REPO": "${PANTHER_REPO}",
       "AI_RFC_WORKSPACE": "${AI_RFC_WORKSPACE}"
     }
   }

@@ -8,7 +8,7 @@
     {
       "name": "ai-rfc",
       "source": "./plugins/ai-rfc",
-      "description": "Progressive RFC reconstruction driver for the PANTHER ai_rfc substrate: skills, commands and an MCP server for evidence-honest, per-PR specification drafting."
+      "description": "Progressive RFC reconstruction driver for the ai_rfc substrate: skills, commands and an MCP server for evidence-honest, per-PR specification drafting."
     }
   ]
 }

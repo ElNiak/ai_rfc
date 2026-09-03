@@ -12,17 +12,17 @@ missing from this table.
 | `ai_rfc_cluster_next` | `ai_rfc cluster-next` | — (clusters.jsonl minus checkpoints/revisions) |
 | `ai_rfc_cluster_get` | `ai_rfc cluster-get ID [--patch]` | `cat clusters/<id>/view.json`, `span.diff`, `evidence/pr.json` |
 | `ai_rfc_claim_upsert` | `ai_rfc claim-upsert ID --text … --anchor …` | — (schema-validated write; hand-editing + linter is the unguarded fallback) |
-| `ai_rfc_claim_adjudicate` | `ai_rfc claim-adjudicate` | `python -m …ai_rfc <manifest> --out …` → report.json `claims` |
+| `ai_rfc_claim_adjudicate` | `ai_rfc claim-adjudicate` | `python -m ai_rfc check <manifest> --out …` → report.json `claims` |
 | `ai_rfc_claim_record_status` | `ai_rfc claim-record-status [IDS…]` | — (writes exactly the supported values) |
 | `ai_rfc_question_draft` | `ai_rfc question-draft TEXT --claim ID…` | — (strict register write) |
 | `ai_rfc_question_export` | `ai_rfc question-export` | — |
 | `ai_rfc_answer_record` | `ai_rfc answer-record QID --answer … --transcript … --quote …` | — (verbatim-quote + exact-wording guardrails) |
 | `ai_rfc_revision_record` | `ai_rfc revision-record TAG --cluster ID --normative/--no-normative --note …` | — (validated via the gate's own loader) |
-| `ai_rfc_checkpoint` | `ai_rfc checkpoint ID` | `python -m …ai_rfc.draft checkpoint …` |
-| `ai_rfc_gate` | `ai_rfc gate [--strict]` | `python -m …ai_rfc <manifest> --out … --repo … [--strict]` |
-| `ai_rfc_citation_gate` | `ai_rfc citation-gate [--strict]` | `python -m …ai_rfc.draft gate … [--strict]` |
+| `ai_rfc_checkpoint` | `ai_rfc checkpoint ID` | `python -m ai_rfc draft checkpoint …` |
+| `ai_rfc_gate` | `ai_rfc gate [--strict]` | `python -m ai_rfc check <manifest> --out … --repo … [--strict]` |
+| `ai_rfc_citation_gate` | `ai_rfc citation-gate [--strict]` | `python -m ai_rfc draft gate … [--strict]` |
 | `ai_rfc_draft_commit` | `ai_rfc draft-commit -m MSG` | `git -C draft add -A && git -C draft commit -m MSG` |
-| `ai_rfc_revision_tag` | `ai_rfc revision-tag TAG -m MSG` | `git -C draft tag -a TAG -m MSG`, then `python -m …ai_rfc.draft gate … --strict` (the tool deletes the tag on findings; the raw route leaves that to the author) |
+| `ai_rfc_revision_tag` | `ai_rfc revision-tag TAG -m MSG` | `git -C draft tag -a TAG -m MSG`, then `python -m ai_rfc draft gate … --strict` (the tool deletes the tag on findings; the raw route leaves that to the author) |
 
 ## Exit codes
 
