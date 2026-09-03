@@ -224,7 +224,7 @@ class Session:
                 "checkpoint",
                 {"cluster_id": cluster},
                 f"ai_rfc checkpoint {cluster}",
-                f"{RAW}.draft checkpoint {ws}/manifest.yaml --timeline {ws}/timeline --cluster {cluster} --out {ws}/checkpoints",
+                f"{RAW} draft checkpoint {ws}/manifest.yaml --timeline {ws}/timeline --cluster {cluster} --out {ws}/checkpoints",
                 json.dumps(result),
                 step,
             )
@@ -409,7 +409,9 @@ def main() -> int:
         )
     )
     tools = [tool for tool in (_flag("--tools") or "").split(",") if tool]
-    servers = [{"name": "ai_rfc", "status": "connected"}] if _flag("--mcp-config") else []
+    servers = (
+        [{"name": "ai_rfc", "status": "connected"}] if _flag("--mcp-config") else []
+    )
     _emit(
         {
             "type": "system",

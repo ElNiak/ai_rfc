@@ -183,7 +183,11 @@ def _cluster_of_call(arm: str, name: str, tool_input: dict[str, Any]) -> str | N
     if (
         arm == "C"
         and name == "Bash"
-        and ".draft checkpoint" in command
+        # Both invocation forms name the same call: the module form
+        # (``ai_rfc.draft checkpoint``, still a valid direct invocation) and
+        # the dispatcher form (``ai_rfc draft checkpoint``) the regenerated
+        # arm-C prompt now instructs.
+        and (".draft checkpoint" in command or " draft checkpoint" in command)
         and "--cluster" in command
     ):
         parts = command.split()

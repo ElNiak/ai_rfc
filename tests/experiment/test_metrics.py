@@ -120,6 +120,21 @@ def test_trajectory_points_follow_checkpoint_calls():
     assert trajectory(events, "B", set(), window_size=2)["auc"] == 0.0
 
 
+def test_checkpoint_calls_recognizes_either_arm_c_invocation_form():
+    """The regenerated arm-C prompt now says the dispatcher form (space);
+    the module form (dot) is still a valid, separately-reachable invocation,
+    so both must be recognized as the same checkpoint call.
+    """
+    events = parse_stream(
+        '{"type":"assistant","message":{"id":"m1","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"python -m ai_rfc.draft checkpoint /w/manifest.yaml --timeline /w/timeline --cluster c0002-a --out /w/checkpoints"}}]}}\n'
+        '{"type":"assistant","message":{"id":"m2","content":[{"type":"tool_use","id":"t2","name":"Bash","input":{"command":"python -m ai_rfc draft checkpoint /w/manifest.yaml --timeline /w/timeline --cluster c0003-b --out /w/checkpoints"}}]}}\n'
+    )
+    assert checkpoint_calls(events, "C") == [
+        {"index": 0, "cluster_id": "c0002-a"},
+        {"index": 1, "cluster_id": "c0003-b"},
+    ]
+
+
 def _synthetic_run(
     run_id: str, completed: bool, cost: float | None = 1.0, intact: bool = True
 ) -> dict:
