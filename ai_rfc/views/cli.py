@@ -23,14 +23,14 @@ def _report(message: str) -> None:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="ai_rfc.views",
+        prog="ai-rfc views",
         description=(
             "Emit one evidence folder per timeline cluster: metadata, the "
             "member file set, and a deterministic span diff."
         ),
     )
     parser.add_argument(
-        "--version", action="version", version=f"ai_rfc.views {__version__}"
+        "--version", action="version", version=f"ai-rfc views {__version__}"
     )
     parser.add_argument("timeline", type=Path, help="Timeline directory.")
     parser.add_argument(

@@ -64,7 +64,7 @@ def _add_target_arguments(parser: argparse.ArgumentParser) -> None:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="ai_rfc.forge",
+        prog="ai-rfc forge",
         description=(
             "Collect a repository's pull/merge requests, reviews and comments "
             "into an immutable disk snapshot — from the forge API, or from "
@@ -84,7 +84,7 @@ def _parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
-        "--version", action="version", version=f"ai_rfc.forge {__version__}"
+        "--version", action="version", version=f"ai-rfc forge {__version__}"
     )
     verbs = parser.add_subparsers(dest="verb", required=True)
 

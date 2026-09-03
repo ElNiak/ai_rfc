@@ -32,9 +32,10 @@ class EntryPoint:
     Attributes:
         verb: The token following ``panther ai-rfc``.
         prog: The sub-CLI's own ``argparse`` ``prog=``, which ``--version``
-            prints. Deliberately not derived from ``verb``: the root validator
-            answers to ``check`` but has always called itself ``ai_rfc``, and
-            changing that would alter output the harness records.
+            prints and which the leaf's usage line shows. Always
+            ``ai-rfc <verb>``, so a usage line names the command the user
+            typed; kept as data rather than derived so the conventions suite
+            can assert the two agree.
         module: Dotted path of the ``cli`` module, not of its package — the
             ``__main__`` guard test derives that name by trimming one segment.
         summary: One line. Shown by ``--help`` and rendered into the generated
@@ -71,7 +72,7 @@ PERFORMED = "Stages pipeline run reaches before it needs you"
 ENTRY_POINTS: tuple[EntryPoint, ...] = (
     EntryPoint(
         "pipeline",
-        "ai_rfc.pipeline",
+        "ai-rfc pipeline",
         f"{PACKAGE}.pipeline.cli",
         "Show where a workspace stands and run whatever stage is ready "
         "(status, substrate, run)",
@@ -79,7 +80,7 @@ ENTRY_POINTS: tuple[EntryPoint, ...] = (
     ),
     EntryPoint(
         "check",
-        "ai_rfc",
+        "ai-rfc check",
         f"{PACKAGE}.check.cli",
         "Report which manifest claims are not backed by the code their "
         "anchors point at",
@@ -87,7 +88,7 @@ ENTRY_POINTS: tuple[EntryPoint, ...] = (
     ),
     EntryPoint(
         "draft",
-        "ai_rfc.draft",
+        "ai-rfc draft",
         f"{PACKAGE}.draft.cli",
         "Freeze the manifest per cluster, then gate the prose against it "
         "(checkpoint, gate, completeness)",
@@ -95,35 +96,35 @@ ENTRY_POINTS: tuple[EntryPoint, ...] = (
     ),
     EntryPoint(
         "coverage",
-        "ai_rfc.coverage",
+        "ai-rfc coverage",
         f"{PACKAGE}.coverage.cli",
         "Propose anchors for the lines a test run actually executed",
         BY_HAND,
     ),
     EntryPoint(
         "history",
-        "ai_rfc.history",
+        "ai-rfc history",
         f"{PACKAGE}.history.cli",
         "Turn a pinned clone's commits into a queryable corpus",
         PERFORMED,
     ),
     EntryPoint(
         "forge",
-        "ai_rfc.forge",
+        "ai-rfc forge",
         f"{PACKAGE}.forge.cli",
         "Pull pull-request discussion from GitHub or GitLab (fetch, adopt)",
         PERFORMED,
     ),
     EntryPoint(
         "timeline",
-        "ai_rfc.timeline",
+        "ai-rfc timeline",
         f"{PACKAGE}.timeline.cli",
         "Group the corpus into ordered clusters, one per pull request",
         PERFORMED,
     ),
     EntryPoint(
         "views",
-        "ai_rfc.views",
+        "ai-rfc views",
         f"{PACKAGE}.views.cli",
         "Write the per-cluster evidence folder an author reads",
         PERFORMED,

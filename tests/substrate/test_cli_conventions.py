@@ -138,7 +138,9 @@ def test_every_cli_module_on_disk_is_registered():
     on_disk = {
         PACKAGE + "." + ".".join(path.relative_to(PACKAGE_ROOT).with_suffix("").parts)
         for path in PACKAGE_ROOT.rglob("cli.py")
-        if "harness" not in path.relative_to(PACKAGE_ROOT).parts
+        # The package-root cli.py is the door that dispatches to these, not one
+        # of them; the door has its own test module.
+        if path != PACKAGE_ROOT / "cli.py"
     }
     assert on_disk == {entry.module for entry in ENTRY_POINTS}
 

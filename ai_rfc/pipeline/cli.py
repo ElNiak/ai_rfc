@@ -28,14 +28,14 @@ def _report(message: str) -> None:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="ai_rfc.pipeline",
+        prog="ai-rfc pipeline",
         description=(
             "Run the deterministic stages of a reconstruction in order, "
             "stopping wherever a person or a model has to act."
         ),
     )
     parser.add_argument(
-        "--version", action="version", version=f"ai_rfc.pipeline {__version__}"
+        "--version", action="version", version=f"ai-rfc pipeline {__version__}"
     )
     verbs = parser.add_subparsers(dest="verb", required=True)
 

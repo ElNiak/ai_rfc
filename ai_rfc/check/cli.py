@@ -26,7 +26,7 @@ def _report(message: str) -> None:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="ai_rfc",
+        prog="ai-rfc check",
         description=(
             "Report which claims in a reconstructed requirement manifest are "
             "not backed by the code their anchors point at: check the schema, "
@@ -34,7 +34,7 @@ def _parser() -> argparse.ArgumentParser:
             "verify repository anchors against their pinned commits."
         ),
     )
-    parser.add_argument("--version", action="version", version=f"ai_rfc {__version__}")
+    parser.add_argument("--version", action="version", version=f"ai-rfc check {__version__}")
     parser.add_argument("manifest", type=Path, help="Path to the YAML manifest.")
     parser.add_argument(
         "--out",

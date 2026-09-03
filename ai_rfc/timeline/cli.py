@@ -45,14 +45,14 @@ def _report(message: str) -> None:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="ai_rfc.timeline",
+        prog="ai-rfc timeline",
         description=(
             "Cluster a commit corpus into a total-ordered timeline of PR "
             "clusters and epoch clusters of direct pushes."
         ),
     )
     parser.add_argument(
-        "--version", action="version", version=f"ai_rfc.timeline {__version__}"
+        "--version", action="version", version=f"ai-rfc timeline {__version__}"
     )
     parser.add_argument("corpus", type=Path, help="Directory holding the corpus.")
     parser.add_argument(
