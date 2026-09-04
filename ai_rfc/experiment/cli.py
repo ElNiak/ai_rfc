@@ -1,4 +1,4 @@
-"""The ``python -m experiment`` command-line surface."""
+"""The ``python -m ai_rfc.experiment`` command-line surface."""
 
 from __future__ import annotations
 

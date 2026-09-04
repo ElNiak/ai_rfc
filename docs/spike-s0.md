@@ -177,7 +177,7 @@ Superseded runs are preserved at `~/ai-rfc-experiments/spike.failed-auth-1/`,
 CLAUDE_CONFIG_DIR=~/ai-rfc-experiments/profile claude auth login
 
 # the spike
-cd $R && python -m experiment preflight --root ~/ai-rfc-experiments --panther-repo $W
+cd $R && python -m ai_rfc.experiment preflight --root ~/ai-rfc-experiments --panther-repo $W
 ```
 
 The subcommand is `preflight`; it still writes `spike-report.json` under

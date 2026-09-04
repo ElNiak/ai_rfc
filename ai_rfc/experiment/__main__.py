@@ -1,4 +1,4 @@
-"""``python -m experiment``."""
+"""``python -m ai_rfc.experiment``."""
 
 import sys
 
