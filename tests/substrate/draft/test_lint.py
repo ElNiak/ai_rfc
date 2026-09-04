@@ -56,12 +56,35 @@ def test_a_skeleton_abstract_is_a_finding():
     assert lint(_draft()).abstract["is_stub"] is False
 
 
+def test_a_wrapped_skeleton_abstract_is_still_a_finding():
+    # A real draft is hard-wrapped by xml2rfc, and the marker's own space can
+    # fall on a line break exactly as it does in the shipped MARK draft.
+    wrapped_marker = STUB_ABSTRACT_MARKER.replace("as it stood", "as it\nstood")
+    wrapped_stub = (
+        "This document reconstructs the specification of t from its\n"
+        "implementation history. " + wrapped_marker + ".\n"
+    )
+    report = lint(_draft(abstract=wrapped_stub))
+    assert report.abstract["is_stub"] is True
+
+
 def test_required_sections_are_checked_by_level_one_heading():
     text = _draft().replace("# IANA Considerations\n\nNone.\n", "")
     report = lint(text)
     assert report.sections["missing"] == ["IANA Considerations"]
     assert "section missing: IANA Considerations" in report.findings
     assert lint(_draft()).sections["missing"] == []
+
+
+def test_a_heading_anchor_does_not_hide_the_section_or_its_narration():
+    text = (
+        _draft(intro="The cluster grew.")
+        .replace("# Introduction\n", "# Introduction {#intro}\n")
+        .replace("# IANA Considerations\n", "# IANA Considerations {#iana}\n")
+    )
+    report = lint(text)
+    assert report.sections["missing"] == []
+    assert any(entry["pattern"] == "cluster" for entry in report.narration)
 
 
 def test_references_are_counted_from_the_front_matter():
@@ -128,12 +151,34 @@ def test_figures_need_a_citation_within_three_lines_of_the_closing_fence():
     )
 
 
+def test_a_citation_exactly_three_lines_after_the_fence_counts_but_four_does_not():
+    within = (
+        "~~~\n+---+\n| C |\n+---+\n~~~\n" "line1\nline2\nline3 with `ai_rfc:spec:1.1`\n"
+    )
+    beyond = (
+        "~~~\n+---+\n| D |\n+---+\n~~~\n"
+        "line1\nline2\nline3\nline4 with `ai_rfc:spec:1.1`\n"
+    )
+    assert lint(_draft(body=within)).blocks["figures_without_caption_citation"] == []
+    beyond_report = lint(_draft(body=beyond))
+    assert len(beyond_report.blocks["figures_without_caption_citation"]) == 1
+
+
 def test_tables_are_counted_by_their_rule_row():
     # `_TABLE_RULE` requires three or more dashes per cell, so an alignment row
     # must be written `|:---:|`, not `|:-:|`. The floor is deliberate: a shorter
     # run would also match a bare `---` thematic break.
     body = "| Field | Type |\n|---|---|\n| a | int |\n\n| X |\n|:---:|\n| 1 |\n"
     assert lint(_draft(body=body)).blocks["tables"] == 2
+
+
+def test_a_figure_in_the_back_matter_reports_its_true_line_number():
+    back = "--- back\n\n~~~\n+---+\n| Z |\n+---+\n~~~\n\nNo citation nearby at all.\n"
+    text = _draft(back=back)
+    report = lint(text)
+    assert len(report.blocks["figures_without_caption_citation"]) == 1
+    expected_line = text.splitlines().index("~~~") + 1
+    assert report.blocks["figures_without_caption_citation"][0]["line"] == expected_line
 
 
 def test_citations_are_measured_against_the_manifest(tmp_path):
@@ -167,6 +212,26 @@ def test_narration_is_detected_in_the_introduction_only():
         for f in report.findings
     )
     assert lint(_draft(body=body)).narration == []
+
+
+def test_the_generic_cluster_pattern_is_a_fallback_not_an_extra_entry():
+    # "first ... cluster" always satisfies the bare `cluster` pattern too
+    # (it requires the word "cluster"), so counting both would double-report
+    # the same tell under two names.
+    intro = "The first cluster was formed early."
+    report = lint(_draft(intro=intro))
+    assert [entry["pattern"] for entry in report.narration] == ["ordinal cluster"]
+
+
+def test_the_narration_finding_counts_distinct_lines_not_pattern_matches():
+    intro = "The first cluster was formed early.\nThe cluster grew over time."
+    report = lint(_draft(intro=intro))
+    assert len(report.narration) == 2
+    line = report.narration[0]["line"]
+    assert (
+        f"introduction: narrates the reconstruction (2 line(s), e.g. line {line})"
+        in report.findings
+    )
 
 
 def test_an_unloadable_manifest_is_a_finding_not_a_crash():
@@ -219,3 +284,25 @@ def test_cli_lint_strict_exits_three_and_the_report_is_byte_stable(
     main(["lint", str(lint_repo), "--out", str(out), "--strict"])
     assert (out / "lint-report.json").read_bytes() == first
     capsys.readouterr()
+
+
+def test_cli_lint_reports_a_malformed_manifest_as_a_finding_not_a_crash(
+    lint_repo, tmp_path, capsys
+):
+    broken_manifest = tmp_path / "broken.yaml"
+    broken_manifest.write_text("claims: [\n")
+    out = tmp_path / "out"
+    assert (
+        main(
+            [
+                "lint",
+                str(lint_repo),
+                "--out",
+                str(out),
+                "--manifest",
+                str(broken_manifest),
+            ]
+        )
+        == 0
+    )
+    assert "manifest: unloadable (" in capsys.readouterr().err

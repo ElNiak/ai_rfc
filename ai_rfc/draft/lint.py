@@ -50,6 +50,7 @@ FIGURE_CITATION_WINDOW = 3
 LEGACY_CITATION = re.compile(r"`a_rfc:([^`\s]+)`")
 _KEYWORD = re.compile(r"\b(" + "|".join(re.escape(t) for t in BCP14_TERMS) + r")\b")
 _HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*$")
+_HEADING_ATTRS = re.compile(r"\s*\{[#:][^}]*\}\s*$")
 _FENCE = re.compile(r"^(~~~+|```+)")
 _TABLE_RULE = re.compile(r"^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$")
 _ORDINAL = (
@@ -112,8 +113,9 @@ class LintReport:
         for claim_id in self.citations["cited_unknown"]:
             found.append(f"citation {claim_id}: not in the manifest")
         if self.narration:
+            lines = {entry["line"] for entry in self.narration}
             found.append(
-                f"introduction: narrates the reconstruction ({len(self.narration)} "
+                f"introduction: narrates the reconstruction ({len(lines)} "
                 f"line(s), e.g. line {self.narration[0]['line']})"
             )
         total = self.keywords["total"]
@@ -174,9 +176,19 @@ def _parts(text: str) -> dict[str, str]:
     return parts
 
 
+def _heading_title(match: re.Match[str]) -> str:
+    """A heading match's title, with any kramdown attribute list stripped.
+
+    ``# Introduction {#intro}`` must still read as ``"Introduction"``, or
+    every anchored heading in a real xml2rfc-built draft looks like a missing
+    section and the Introduction is never entered.
+    """
+    return _HEADING_ATTRS.sub("", match.group(2))
+
+
 def _sections(body: str) -> dict[str, list[str]]:
     present = [
-        match.group(2)
+        _heading_title(match)
         for match in (_HEADING.match(line) for line in body.splitlines())
         if match and len(match.group(1)) == 1
     ]
@@ -254,12 +266,7 @@ def _blocks(body: str, offset: int) -> dict[str, Any]:
                 opened = index
                 continue
             figures += 1
-            following = [
-                candidate
-                for candidate in lines[
-                    index + 1 : index + 1 + FIGURE_CITATION_WINDOW + 1
-                ]
-            ][: FIGURE_CITATION_WINDOW + 1]
+            following = lines[index + 1 : index + 1 + FIGURE_CITATION_WINDOW]
             window = "\n".join(following)
             if not CITATION.search(window):
                 uncited.append({"line": offset + opened + 1})
@@ -309,7 +316,7 @@ def _introduction(body: str) -> list[tuple[int, str]]:
     for number, line in _prose_lines(body):
         match = _HEADING.match(line)
         if match and len(match.group(1)) == 1:
-            inside = match.group(2) == "Introduction"
+            inside = _heading_title(match) == "Introduction"
             continue
         if inside:
             kept.append((number, line))
@@ -321,16 +328,29 @@ def _narration(body: str, offset: int) -> list[dict[str, Any]]:
 
     A single sentence can carry more than one tell (an ordinal-cluster
     reference and an added/withdrawn count both land on one unwrapped line),
-    so each pattern is checked independently rather than stopping at the
-    first hit — an early ``break`` here would silently drop the second.
+    so each specific pattern is checked independently rather than stopping at
+    the first hit. The generic ``cluster`` pattern is not independent,
+    though: it is guaranteed to co-fire wherever ``ordinal cluster`` does
+    (that pattern requires the word "cluster"), so counting it unconditionally
+    would double-report the same tell under two names. It is recorded only as
+    a fallback, when nothing more specific matched the line.
     """
     entries: list[dict[str, Any]] = []
     for number, line in _introduction(body):
+        specific: list[dict[str, Any]] = []
+        fallback: dict[str, Any] | None = None
         for name, pattern in NARRATION_PATTERNS:
-            if pattern.search(line):
-                entries.append(
-                    {"line": offset + number, "pattern": name, "text": line.strip()}
-                )
+            if not pattern.search(line):
+                continue
+            entry = {"line": offset + number, "pattern": name, "text": line.strip()}
+            if name == "cluster":
+                fallback = entry
+            else:
+                specific.append(entry)
+        if specific:
+            entries.extend(specific)
+        elif fallback is not None:
+            entries.append(fallback)
     return entries
 
 
@@ -361,7 +381,11 @@ def lint(
         if "--- middle" in text
         else 0
     )
-    body = parts["middle"] + parts["back"]
+    # `_parts` drops the `--- back` marker line itself; re-inserting the one
+    # line it took keeps every line after it aligned with its true physical
+    # number in `text` (`parts["middle"]` always ends with exactly one
+    # newline, so this adds exactly one blank line, not two).
+    body = parts["middle"] + "\n" + parts["back"]
     abstract_text = parts["abstract"].strip()
     provenance = dict(source or {})
     provenance["sha256"] = hashlib.sha256(text.encode()).hexdigest()

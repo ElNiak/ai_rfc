@@ -8,6 +8,8 @@ import os
 import sys
 from pathlib import Path
 
+import yaml
+
 from ai_rfc import __version__
 
 from ..schema import SchemaError, load
@@ -179,8 +181,8 @@ def main(argv: list[str] | None = None) -> int:
 
     Returns:
         0 on success, 1 if an input could not be read or interpreted, and 3
-        when ``gate --strict``, ``completeness --strict`` or ``build --strict``
-        reported findings.
+        when ``gate --strict``, ``completeness --strict``, ``build --strict``
+        or ``lint --strict`` reported findings.
     """
     args = _parser().parse_args(argv)
 
@@ -283,7 +285,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.manifest is not None:
             try:
                 manifest = load(args.manifest)
-            except (SchemaError, OSError) as error:
+            except (SchemaError, OSError, yaml.YAMLError) as error:
                 manifest_error = str(error)
         report = lint(
             text,
