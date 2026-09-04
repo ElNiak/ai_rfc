@@ -5,6 +5,11 @@ same core functions — the parity test suite keeps every write byte-identical
 and every read JSON-identical across arms, and a test fails if a tool is
 missing from this table.
 
+The middle column is the `ai_rfc` console script (underscore,
+`ai_rfc.server.cli`), a different program from `ai-rfc` / `python -m ai_rfc`
+(hyphen, the substrate dispatcher in the right-hand column). Transcribing an
+`ai_rfc` verb into the `python -m ai_rfc` form yields "unknown verb" and exit 2.
+
 | MCP tool | `ai_rfc` verb | Raw substrate command (when one exists) |
 |---|---|---|
 | `ai_rfc_status` | `ai_rfc status` | — (composite over report.json, timeline.json, questions.yaml, git describe) |

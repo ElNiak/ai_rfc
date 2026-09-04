@@ -2,8 +2,10 @@
 
 This package validates manifests produced by reconstruction agents running
 outside the framework, weighs every claim against the evidence its anchors
-point at, and reports the result. It makes no model calls and opens no
-sockets.
+point at, and reports the result. The substrate makes no model calls and opens
+no socket except in ``forge``; ``server`` (the MCP door) and ``experiment``
+(the harness that launches agents) are the two subpackages that are not
+substrate, and each says so in its own README.
 """
 
 __version__ = "0.1.0"

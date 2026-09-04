@@ -301,7 +301,7 @@ Separating what was left out on purpose from what is simply missing.
 **Deliberately out of scope.** Generation. No part of this package proposes,
 writes or edits a claim. Mining is model-driven and lives in agents outside the
 framework, and the boundary is what lets everything here stay deterministic,
-testable against fixtures and free of network access.
+testable against fixtures and, outside `forge`, free of network access.
 
 **No gap in this list remains open.**
 

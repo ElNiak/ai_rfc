@@ -116,7 +116,7 @@ Three conclusions, each load-bearing:
 
 `experiment/enforcement.py` derives each arm's command families from its existing
 `allowed_tools` declaration, so enforcement adds no second source of truth:
-A → none, B → `ai_rfc `, C → `python -m panther…ai_rfc`, `git `, `sqlite3 `.
+A → none, B → `ai_rfc `, C → `python -m panther…ai_rfc`, `git `, `sqlite3 ` (the C prefix as measured then; since the extraction it is `python -m ai_rfc`).
 `experiment/guard.py` is mounted per arm through `--settings` and exits 2 on
 anything outside them.
 
@@ -177,7 +177,7 @@ Superseded runs are preserved at `~/ai-rfc-experiments/spike.failed-auth-1/`,
 CLAUDE_CONFIG_DIR=~/ai-rfc-experiments/profile claude auth login
 
 # the spike
-cd $R && python -m ai_rfc.experiment preflight --root ~/ai-rfc-experiments --panther-repo $W
+cd $R && python -m ai_rfc.experiment preflight --root ~/ai-rfc-experiments
 ```
 
 The subcommand is `preflight`; it still writes `spike-report.json` under
