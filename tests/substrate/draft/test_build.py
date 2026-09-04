@@ -163,16 +163,20 @@ def test_build_runs_make_offline_in_a_scratch_clone(toolchain, draft_repo, tmp_p
 def test_build_accepts_relative_paths_from_another_cwd(
     toolchain, draft_repo, tmp_path, monkeypatch
 ):
-    monkeypatch.chdir(tmp_path)
+    """A nested relative draft path and a relative --out, from a working
+    directory above both, must resolve correctly rather than have git's -C
+    re-root them against each other."""
+    monkeypatch.chdir(tmp_path.parent)
     report = build(
-        Path(draft_repo.name),
+        Path(tmp_path.name) / "draft",
         toolchain=load_toolchain(toolchain),
-        out=Path("out"),
+        out=Path(tmp_path.name) / "out",
         runner=_fake_make(trace=("draft-test-spec kramdown-rfc 0",)),
     )
-    assert (tmp_path / "out" / "build" / "scratch" / ".git").exists()
-    assert Path(report.argv[2]) == tmp_path / "out" / "build" / "scratch"
     assert report.exit_code == 0
+    assert Path(report.argv[2]) == tmp_path / "out" / "build" / "scratch"
+    assert (tmp_path / "out" / "build" / "scratch" / ".git").exists()
+    assert not (tmp_path / tmp_path.name).exists()
     assert (tmp_path / "out" / "build" / "build-report.json").exists()
 
 
