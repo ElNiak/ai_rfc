@@ -3,8 +3,9 @@
 The prose Internet-Draft is the agent's artifact; this gate checks only what
 can be decided mechanically — that every revision tag exists, maps to a real
 cluster in increasing order, pins an unedited checkpoint, cites only claims
-that checkpoint holds, and that a "no normative change" revision really
-changed nothing it cites. Prose style is deliberately not gated.
+that checkpoint holds, that a "no normative change" revision really changed
+nothing it cites, and that a normative one really changed something. Prose
+style is deliberately not gated.
 """
 
 from __future__ import annotations
@@ -239,6 +240,7 @@ def run_gate(
         previous_ordinal = ordinal
 
     claim_ids_by_tag: dict[str, set[str]] = {}
+    manifest_sha_by_tag: dict[str, str] = {}
     for entry in entries:
         checkpoint_dir = checkpoints_dir / entry.cluster_id
         if not (checkpoint_dir / CHECKPOINT_FILE).exists():
@@ -248,6 +250,7 @@ def run_gate(
             )
             continue
         record = json.loads((checkpoint_dir / CHECKPOINT_FILE).read_text())
+        manifest_sha_by_tag[entry.tag] = record["manifest_sha256"]
         if record["manifest_sha256"] != entry.checkpoint_manifest_sha256:
             findings.append(
                 f"{entry.tag}: revisions.yaml pins manifest "
@@ -291,6 +294,26 @@ def run_gate(
 
     previous_entry: RevisionEntry | None = None
     for entry in entries:
+        if entry.normative_change:
+            sha = manifest_sha_by_tag.get(entry.tag)
+            previous_sha = (
+                manifest_sha_by_tag.get(previous_entry.tag)
+                if previous_entry is not None
+                else None
+            )
+            if previous_entry is None:
+                claim_ids = claim_ids_by_tag.get(entry.tag)
+                if claim_ids is not None and not claim_ids:
+                    findings.append(
+                        f"{entry.tag}: recorded as a normative change, but its "
+                        f"checkpoint manifest holds no claims"
+                    )
+            elif sha is not None and sha == previous_sha:
+                findings.append(
+                    f"{entry.tag}: recorded as a normative change, but its "
+                    f"checkpoint manifest is identical to the previous "
+                    f"revision's"
+                )
         if not entry.normative_change and entry.tag in cited_by_tag:
             previous_cited = (
                 cited_by_tag.get(previous_entry.tag, set())

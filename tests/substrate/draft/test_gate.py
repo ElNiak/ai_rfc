@@ -90,6 +90,81 @@ def test_no_change_marker_with_changed_citations_is_found(draft_workspace):
     assert any("normative" in finding for finding in findings)
 
 
+def _recheckpoint(
+    draft_workspace: dict[str, Path],
+    timeline_dir: Path,
+    tag: str,
+    manifest_text: str,
+    name: str,
+) -> None:
+    """Replace one revision's checkpoint with ``manifest_text`` and re-pin it."""
+    from ai_rfc.draft.checkpoint import write_checkpoint
+
+    from .conftest import _checkpoint_sha
+
+    document = yaml.safe_load(draft_workspace["revisions"].read_text())
+    cluster_id = document["revisions"][tag]["cluster_id"]
+    manifest = timeline_dir.parent / name
+    manifest.write_text(manifest_text)
+    stale = draft_workspace["checkpoints"] / cluster_id
+    (stale / "manifest.yaml").unlink()
+    (stale / "checkpoint.json").unlink()
+    stale.rmdir()
+    checkpoint_dir = write_checkpoint(
+        manifest, timeline_dir, cluster_id, draft_workspace["checkpoints"]
+    )
+    _patch_revisions(
+        draft_workspace, tag, checkpoint_manifest_sha256=_checkpoint_sha(checkpoint_dir)
+    )
+
+
+def test_a_normative_revision_repeating_the_previous_manifest_is_found(
+    draft_workspace, timeline_dir: Path
+):
+    """A normative change that checkpointed nothing new is not a change.
+
+    Without this the second revision can claim new normative content while
+    freezing the manifest it inherited, so the revision history reads as
+    progress that no evidence backs.
+    """
+    from .conftest import _manifest_text
+
+    _recheckpoint(
+        draft_workspace,
+        timeline_dir,
+        "draft-test-spec-01",
+        _manifest_text(with_second_claim=False),
+        "m2-unchanged.yaml",
+    )
+    findings = _gate(draft_workspace)
+    assert (
+        "draft-test-spec-01: recorded as a normative change, but its checkpoint "
+        "manifest is identical to the previous revision's" in findings
+    )
+
+
+def test_a_first_normative_revision_over_an_empty_manifest_is_found(
+    draft_workspace, timeline_dir: Path
+):
+    """The first revision must checkpoint at least one claim to be normative.
+
+    The harness pre-seeds an empty manifest, so a run that reconstructs
+    nothing and records a revision anyway would otherwise gate clean.
+    """
+    _recheckpoint(
+        draft_workspace,
+        timeline_dir,
+        "draft-test-spec-00",
+        "rfc: SPEC-1\ntitle: 'A reconstructed specification'\nrequirements: {}\n",
+        "m1-empty.yaml",
+    )
+    findings = _gate(draft_workspace)
+    assert (
+        "draft-test-spec-00: recorded as a normative change, but its checkpoint "
+        "manifest holds no claims" in findings
+    )
+
+
 def test_unregistered_question_id_is_found(draft_workspace, timeline_dir: Path):
     from ai_rfc.draft.checkpoint import write_checkpoint
 
