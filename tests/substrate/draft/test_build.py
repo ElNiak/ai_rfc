@@ -173,14 +173,29 @@ def test_a_broken_reference_is_a_finding_even_when_make_exits_zero(
     assert report.findings == ("broken reference RFC9999 (not in the refcache)",)
 
 
+@pytest.mark.parametrize(
+    ("token", "key"),
+    (
+        ("reference.RFC.9999.xml", "RFC9999"),
+        ("reference.I-D.ietf-quic-http-22.xml", "I-D.ietf-quic-http-22"),
+        ("RFC9999", "RFC9999"),
+    ),
+)
+def test_reference_key_recovers_the_citation_key(token, key):
+    assert build_module._reference_key(token) == key
+
+
 def test_a_broken_reference_names_the_real_toolchains_actual_wording(
     toolchain, draft_repo, tmp_path
 ):
-    """The regex fires on the real toolchain's actual wording too.
+    """The regex fires on the real toolchain's actual wording too, and the
+    reported identifier is normalized back to the citation key.
 
     Verified against a real build on 2026-09-04 (Task 1 report, Deviations):
-    kramdown-rfc names the refcache file it tried to fetch, not the bare
-    citation key written in the front matter.
+    kramdown-rfc names the refcache file it tried to fetch
+    (``reference.RFC.9999.xml``), not the bare citation key written in the
+    front matter (``RFC9999``); the finding must name the key so an author
+    knows which entry to fix.
     """
     record = load_toolchain(toolchain)
     runner = _fake_make(
@@ -191,10 +206,8 @@ def test_a_broken_reference_names_the_real_toolchains_actual_wording(
         ),
     )
     report = build(draft_repo, toolchain=record, out=tmp_path / "out", runner=runner)
-    assert report.broken_references == ("reference.RFC.9999.xml",)
-    assert report.findings == (
-        "broken reference reference.RFC.9999.xml (not in the refcache)",
-    )
+    assert report.broken_references == ("RFC9999",)
+    assert report.findings == ("broken reference RFC9999 (not in the refcache)",)
 
 
 def test_a_failed_stage_is_named_with_its_stderr(toolchain, draft_repo, tmp_path):

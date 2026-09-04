@@ -52,6 +52,8 @@ _IDNITS_SUMMARY = re.compile(r"^\s*(ERROR|WARNING|COMMENT)\s+(\d+) nit")
 #: The template's ``trace.sh`` writes ``<draft> <stage> <status>`` per stage and,
 #: on failure, ``<draft> <stage> <stderr line>`` for the last stderr lines.
 _TRACE_STATUS = re.compile(r"^(\S+) (\S+) (\d+)$")
+#: A numbered series's refcache filename, once ``reference.``/``.xml`` are gone.
+_REFERENCE_SERIES = re.compile(r"^(RFC|BCP|STD|FYI)\.(\d+)$")
 
 DEFAULT_RUNNER: Runner = subprocess.run
 
@@ -215,6 +217,29 @@ def _parse_trace(path: Path) -> tuple[dict[str, Any], ...]:
     return tuple(stages.values())
 
 
+def _reference_key(token: str) -> str:
+    """Recover the citation key an author wrote from a refcache filename.
+
+    kramdown-rfc's offline-stub message and xml2rfc's unresolved-request
+    message both name the cache file they tried to fetch
+    (``reference.RFC.9999.xml``), not the key the draft's front matter cited
+    (``RFC9999``); a finding must name the key so an author knows which
+    entry to fix. Any other shape (already a bare key, or an I-D name that
+    is itself the citation key) passes through unchanged.
+
+    Args:
+        token: The whitespace-delimited token a regex captured.
+
+    Returns:
+        The citation key.
+    """
+    key = token.removeprefix("reference.").removesuffix(".xml")
+    series = _REFERENCE_SERIES.match(key)
+    if series:
+        key = series.group(1) + series.group(2)
+    return key
+
+
 def _parse_output(
     text: str,
 ) -> tuple[tuple[dict[str, str], ...], tuple[str, ...], dict[str, int]]:
@@ -224,14 +249,14 @@ def _parse_output(
     for line in text.splitlines():
         stub = _OFFLINE_STUB.search(line)
         if stub:
-            broken.append(stub.group(1))
+            broken.append(_reference_key(stub.group(1)))
             diagnostics.append(
                 {"tool": "kramdown-rfc", "severity": "error", "message": line.strip()}
             )
             continue
         unresolved = _XML2RFC_UNRESOLVED.search(line)
         if unresolved:
-            broken.append(unresolved.group(1))
+            broken.append(_reference_key(unresolved.group(1)))
             diagnostics.append(
                 {"tool": "xml2rfc", "severity": "error", "message": line.strip()}
             )
