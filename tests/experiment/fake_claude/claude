@@ -219,7 +219,7 @@ class Session:
                 "anchors": [
                     {
                         "evidence_class": "code",
-                        "locator": "a.txt",
+                        "locator": step.get("locator", "a.txt"),
                         "commit": self.head(),
                     }
                 ],

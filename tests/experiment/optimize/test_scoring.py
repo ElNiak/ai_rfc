@@ -6,6 +6,7 @@ against a clone that really does or does not hold the commit.
 """
 
 import json
+import shutil
 
 import pytest
 import yaml
@@ -17,7 +18,9 @@ from ai_rfc.experiment.optimize.fixtures import (
     build_interview_pristine,
 )
 from ai_rfc.experiment.optimize.scoring import (
+    WHY_BAD_LEVEL,
     WHY_NO_ANCHOR,
+    WHY_NOT_IN_FILE_SET,
     WHY_OUT_OF_SPAN,
     WHY_UNVERIFIED,
     ZERO_BUDGET,
@@ -34,7 +37,7 @@ from ai_rfc.experiment.optimize.scoring import (
     anchored_claims,
     coverage_term,
     efficiency_term,
-    hunk_for,
+    evidence_for,
     member_shas,
     new_claims,
     previous_checkpoint_manifest,
@@ -43,6 +46,7 @@ from ai_rfc.experiment.optimize.scoring import (
     score_loop,
 )
 from ai_rfc.experiment.workspace import copy_workspace
+from ai_rfc.models import Anchor, EvidenceClass
 from ai_rfc.schema import dump, load
 from ai_rfc.server.testing import build_workspace, git
 
@@ -64,13 +68,16 @@ def _write_requirements(workspace, requirements):
     path.write_text(dump(load(path)))
 
 
-def _code_claim(text, level, locator, commit):
+def _code_claim(text, level, locator, commit, line=None):
+    anchor = {"evidence_class": "code", "locator": locator, "commit": commit}
+    if line is not None:
+        anchor["line"] = line
     return {
         "text": text,
         "section": "9.1",
         "level": level,
         "layer": "core",
-        "anchors": [{"evidence_class": "code", "locator": locator, "commit": commit}],
+        "anchors": [anchor],
     }
 
 
@@ -221,16 +228,61 @@ def test_new_claims_excludes_what_the_previous_checkpoint_already_held(
     assert new_claims(loop_workspace, "nope") == []
 
 
-def test_hunk_for_returns_the_whole_file_when_the_anchor_names_no_line(
+def test_the_evidence_leads_with_the_clusters_own_change_to_the_file(
     loop_workspace,
 ):
+    """A blob cannot answer "does this change introduce the behaviour?".
+
+    The judge is asked what the cluster's change did, so it is shown the
+    cluster's own diff for the anchored path first, and the snapshot at the
+    pinned line only as labelled context.
+    """
     claim, anchor = anchored_claims(loop_workspace, loop_workspace / "clone", SECOND)[0]
 
+    evidence = evidence_for(loop_workspace, loop_workspace / "clone", SECOND, anchor)
+
     assert claim.id == "t:2.1"
-    assert hunk_for(loop_workspace / "clone", anchor) == "two"
+    assert evidence.startswith("diff --git a/b.txt b/b.txt")
+    assert "+two" in evidence
+    assert "--- context at b.txt@" in evidence
+    assert evidence.rstrip().endswith("two")
 
 
-def test_hunk_for_counts_lines_the_way_the_anchor_verifier_does(loop_workspace):
+def test_the_evidence_carries_only_the_anchored_paths_diff(loop_workspace):
+    """One cluster's diff can name several files; only the anchored one helps."""
+    anchor = Anchor(
+        evidence_class=EvidenceClass.CODE,
+        locator="a.txt",
+        commit=json.loads(
+            (loop_workspace / "clusters" / FIRST / "view.json").read_text()
+        )["anchor_sha"],
+    )
+
+    evidence = evidence_for(loop_workspace, loop_workspace / "clone", FIRST, anchor)
+
+    assert "diff --git a/a.txt b/a.txt" in evidence
+    assert "c.txt" not in evidence
+
+
+def test_the_evidence_falls_back_to_a_labelled_snapshot_without_a_diff(
+    loop_workspace,
+):
+    """The fallback must announce itself, not pass a snapshot off as a change."""
+    anchor = Anchor(
+        evidence_class=EvidenceClass.CODE,
+        locator="a.txt",
+        commit=json.loads(
+            (loop_workspace / "clusters" / SECOND / "view.json").read_text()
+        )["anchor_sha"],
+    )
+
+    evidence = evidence_for(loop_workspace, loop_workspace / "clone", SECOND, anchor)
+
+    assert evidence.startswith("--- snapshot; no diff for this path in the cluster")
+    assert "one" in evidence
+
+
+def test_the_evidence_counts_lines_the_way_the_anchor_verifier_does(loop_workspace):
     """A form feed splits a line for ``str.splitlines`` and not for git.
 
     ``anchors.verify_detailed`` range-checks and digests a line by splitting
@@ -239,7 +291,6 @@ def test_hunk_for_counts_lines_the_way_the_anchor_verifier_does(loop_workspace):
     verified, and nothing about the result would look wrong.
     """
     from ai_rfc.anchors import verify_detailed
-    from ai_rfc.models import Anchor, EvidenceClass
 
     clone = loop_workspace / "clone"
     (clone / "ff.txt").write_bytes(b"a1\na2\na3\x0ca4\na5\na6\na7\n")
@@ -251,7 +302,8 @@ def test_hunk_for_counts_lines_the_way_the_anchor_verifier_does(loop_workspace):
     )
 
     assert verify_detailed(anchor, clone) is None
-    assert hunk_for(clone, anchor, context=1) == "a5\na6\na7"
+    evidence = evidence_for(loop_workspace, clone, SECOND, anchor, context=1)
+    assert evidence.endswith("a5\na6\na7")
 
 
 # --- rejection reasons -----------------------------------------------------
@@ -270,23 +322,62 @@ def _reject(workspace, claim_id, body):
 
 
 def test_an_anchor_outside_the_cluster_span_does_not_count(loop_workspace):
-    """The commit verifies, but it belongs to a cluster this one is not."""
+    """The path is one the cluster touched, but the commit is another's."""
     outside = sorted(member_shas(loop_workspace, FIRST))[0]
 
     whys = _reject(
-        loop_workspace, "t:9.1", _code_claim("Elsewhere.", "MUST", "a.txt", outside)
+        loop_workspace, "t:9.1", _code_claim("Elsewhere.", "MUST", "b.txt", outside)
     )
 
     assert whys["t:9.1"] == WHY_OUT_OF_SPAN
 
 
-def test_an_anchor_that_does_not_verify_does_not_count(loop_workspace):
+def test_an_anchor_on_a_file_the_cluster_never_touched_does_not_count(
+    loop_workspace,
+):
+    """The reward-hacking vector: claim long-standing behaviour in any file.
+
+    ``a.txt`` exists at this cluster's anchor commit and verifies there, so
+    without this check a claim describing it is new, in-span, verified and
+    judged 1 — for code the cluster did not write. Three such claims saturate
+    coverage against a denominator counting the cluster's own files.
+    """
     inside = json.loads(
         (loop_workspace / "clusters" / SECOND / "view.json").read_text()
     )["anchor_sha"]
 
     whys = _reject(
-        loop_workspace, "t:9.2", _code_claim("Absent.", "MUST", "zzz.txt", inside)
+        loop_workspace, "t:9.4", _code_claim("Untouched.", "MUST", "a.txt", inside)
+    )
+
+    assert whys["t:9.4"] == WHY_NOT_IN_FILE_SET
+
+
+def test_a_level_outside_the_bcp14_vocabulary_does_not_count(loop_workspace):
+    """Otherwise one invented word buys the whole citation term."""
+    inside = json.loads(
+        (loop_workspace / "clusters" / SECOND / "view.json").read_text()
+    )["anchor_sha"]
+
+    whys = _reject(
+        loop_workspace,
+        "t:9.5",
+        _code_claim("Invented level.", "OUGHT TO", "b.txt", inside),
+    )
+
+    assert whys["t:9.5"] == WHY_BAD_LEVEL
+
+
+def test_an_anchor_that_does_not_verify_does_not_count(loop_workspace):
+    """The right file at the right commit, but a line the file does not have."""
+    inside = json.loads(
+        (loop_workspace / "clusters" / SECOND / "view.json").read_text()
+    )["anchor_sha"]
+
+    whys = _reject(
+        loop_workspace,
+        "t:9.2",
+        _code_claim("Past the end.", "MUST", "b.txt", inside, line=99),
     )
 
     assert whys["t:9.2"] == WHY_UNVERIFIED
@@ -316,6 +407,75 @@ def test_a_missing_audit_is_a_harness_zero(loop_workspace):
 
     assert result.value == 0.0
     assert result.info["reason"] == ZERO_HARNESS
+
+
+def test_an_audit_predating_the_register_field_is_a_harness_zero(loop_workspace):
+    """Reading a missing count as zero disables the gate on every old record.
+
+    ``register_edits`` is new, so every audit already on disk lacks it, and
+    those records must never be scored as though the register was untouched:
+    that is the one defence against hand-writing the artifact the whole score
+    is computed from. Integrity already fails closed; so does this.
+    """
+    audit = analysis()["audit"]
+    del audit["register_edits"]
+
+    result = score(loop_workspace, audit=audit)
+
+    assert result.value == 0.0
+    assert result.info["reason"] == ZERO_HARNESS
+    assert "register_edits" in result.info["detail"]
+
+
+def test_the_interview_also_refuses_an_audit_predating_the_register_field(
+    interview, interview_workspace
+):
+    _conduct(interview_workspace, interview, confirmed={interview.exact_claim})
+    audit = analysis()["audit"]
+    del audit["register_edits"]
+
+    result = score_interview(
+        interview_analysis(audit=audit),
+        workspace=interview_workspace,
+        fixture=interview,
+    )
+
+    assert result.value == 0.0
+    assert result.info["reason"] == ZERO_HARNESS
+
+
+@pytest.mark.parametrize(
+    "broken,expected",
+    [
+        (("integrity", "register"), ZERO_INTEGRITY),
+        (("register", "budget"), ZERO_REGISTER_EDIT),
+        (("integrity", "budget"), ZERO_INTEGRITY),
+        (("budget", "incomplete"), ZERO_BUDGET),
+    ],
+)
+def test_the_first_failing_precondition_names_the_zero(
+    loop_workspace, broken, expected
+):
+    """Each reason has its own test, so nothing yet pins their order.
+
+    A zero says which failure to propose text for. Two failures at once must
+    report the earlier one, or the reflection LM is told to fix a budget stop
+    on a run that forged its register.
+    """
+    audit = analysis()["audit"]
+    overrides = {}
+    if "integrity" in broken:
+        audit["integrity"] = False
+    if "register" in broken:
+        audit["register_edits"] = 1
+    if "budget" in broken:
+        overrides["status"] = {"timed_out": True, "budget_hit": False}
+    if "incomplete" in broken:
+        overrides["clusters"] = [{"cluster_id": SECOND, "completed": False}]
+
+    result = score(loop_workspace, audit=audit, **overrides)
+
+    assert result.info["reason"] == expected
 
 
 def test_an_out_of_arm_call_is_an_integrity_zero(loop_workspace):
@@ -488,7 +648,7 @@ def test_the_weights_are_what_drives_the_value(loop_workspace):
     assert reweighted.value == pytest.approx(0.05 + 0.03 + 0.02 * 0.5)
 
 
-def test_the_judge_sees_the_claim_and_the_code_it_anchors_to(loop_workspace):
+def test_the_judge_sees_the_claim_and_the_change_it_anchors_to(loop_workspace):
     judge = stub_judge()
     score(loop_workspace, judge=judge)
 
@@ -496,17 +656,65 @@ def test_the_judge_sees_the_claim_and_the_code_it_anchors_to(loop_workspace):
     assert isinstance(hunk, ClaimHunk)
     assert hunk.claim_id == "t:2.1" and hunk.level == "SHOULD"
     assert hunk.text == "Thing two." and hunk.path == "b.txt"
-    assert hunk.hunk == "two"
+    assert hunk.hunk.startswith("diff --git a/b.txt b/b.txt")
+    assert "--- context at b.txt@" in hunk.hunk
 
 
-def test_an_uncited_normative_claim_costs_the_citation_term(loop_workspace):
+def test_an_uncited_claim_costs_the_citation_term(loop_workspace):
     _tag_the_draft(loop_workspace, "No citation here.", tag="draft-test-spec-01")
     _register_revision(loop_workspace, SECOND, tag="draft-test-spec-01")
 
     result = score(loop_workspace)
 
     assert result.info["cited"] == 0.0
-    assert result.info["uncited_normative"] == ["t:2.1"]
+    assert result.info["uncited"] == ["t:2.1"]
+
+
+def test_a_permissive_claim_counts_towards_the_citation_term_too(loop_workspace):
+    """MAY is not a free pass; every claim is expected in the prose.
+
+    With only MUST and SHOULD in the denominator, relabelling a claim ``MAY``
+    bought the whole citation term without citing anything.
+    """
+    requirements = _requirements(loop_workspace)
+    requirements["t:2.1"]["level"] = "MAY"
+    _write_requirements(loop_workspace, requirements)
+    shutil.rmtree(loop_workspace / "checkpoints" / SECOND)
+    _checkpoint(loop_workspace, SECOND)
+    _tag_the_draft(loop_workspace, "Nothing cited.", tag="draft-test-spec-01")
+    _register_revision(loop_workspace, SECOND, tag="draft-test-spec-01")
+
+    result = score(loop_workspace)
+
+    assert result.info["cited"] == 0.0
+    assert result.info["uncited"] == ["t:2.1"]
+
+
+def test_a_judge_that_skips_a_claim_scores_it_zero_rather_than_shifting_the_mean(
+    loop_workspace,
+):
+    """Dividing by the verdicts returned lets a broken judge inflate relevance."""
+    requirements = _requirements(loop_workspace)
+    inside = json.loads(
+        (loop_workspace / "clusters" / SECOND / "view.json").read_text()
+    )["anchor_sha"]
+    requirements["t:2.2"] = _code_claim("Thing two again.", "MUST", "b.txt", inside)
+    _write_requirements(loop_workspace, requirements)
+    shutil.rmtree(loop_workspace / "checkpoints" / SECOND)
+    _checkpoint(loop_workspace, SECOND)
+
+    def half_a_judge(hunks):
+        return [Judgement(hunks[0].claim_id, 1.0, "only the first")]
+
+    result = score(loop_workspace, judge=half_a_judge)
+
+    assert result.info["anchored"] == ["t:2.1", "t:2.2"]
+    assert result.info["relevance"] == 0.5
+    assert result.info["judgements"][1] == {
+        "claim_id": "t:2.2",
+        "score": 0.0,
+        "rationale": "no judgement returned",
+    }
 
 
 def test_coverage_saturates_at_three_claims_and_never_divides_by_zero():

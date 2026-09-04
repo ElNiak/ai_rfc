@@ -41,21 +41,27 @@ RUBRIC = """\
 You are grading one reconstructed requirement against the code it cites.
 
 You will be shown a single claim — its identifier, its RFC 2119 level, and its
-text — followed by one slice of a source file at one commit. Decide whether
-that slice introduces or changes the behaviour the claim states. Judge only
-what the slice shows; do not assume behaviour that would live elsewhere in the
-file or the project, and do not reward a claim for being plausible.
+text — followed by the evidence for it in two parts: first the cluster's own
+change to one file, as a unified diff, and then, under a "context" heading, a
+slice of that file as it stood at the pinned commit.
+
+Grade the CHANGE. The context is there to make the diff readable and nothing
+more; code that appears only in the context was already there, and a claim
+resting on it is a claim about work this change did not do. Judge only what
+you are shown: do not assume behaviour living elsewhere in the file or the
+project, and do not reward a claim for being plausible.
 
 Grade on exactly three values:
 
-1   — the slice plainly implements or changes exactly the behaviour claimed.
-      Someone reading the slice alone would write this claim.
-0.5 — the slice concerns that behaviour, but the claim misstates it: the level
-      is stronger or weaker than the code enforces, the condition differs, or
-      the claim asserts detail the slice does not show.
-0   — the slice does not support the claim. It is unrelated code, it is test
-      scaffolding or configuration rather than the behaviour itself, or the
-      claim describes something the slice simply does not do.
+1   — the change plainly implements or alters exactly the behaviour claimed.
+      Someone reading the diff alone would write this claim.
+0.5 — the change concerns that behaviour, but the claim misstates it: the
+      level is stronger or weaker than the code enforces, the condition
+      differs, or the claim asserts detail the change does not show.
+0   — the change does not support the claim. It is unrelated code, it is test
+      scaffolding or configuration rather than the behaviour itself, the claim
+      describes something the change does not do, or the claim describes code
+      that is only in the context and so predates this change.
 
 Reply with ONLY a JSON object, no prose before or after it, in exactly this
 shape:
@@ -144,8 +150,17 @@ def anthropic_transport(
 
 
 def _cache_key(hunk: ClaimHunk) -> str:
-    """What makes two judgements the same question: the claim and the code."""
-    return hashlib.sha256(f"{hunk.text}\0{hunk.hunk}".encode()).hexdigest()
+    """What makes two judgements the same question.
+
+    The level is part of the question, not a label on it: the rubric docks a
+    claim whose level is stronger or weaker than the code enforces. Keying on
+    the text and the code alone would let a relabelled claim hit the earlier
+    verdict, and that penalty — the only thing bounding a mislabelled claim —
+    would never fire.
+    """
+    return hashlib.sha256(
+        f"{hunk.level}\0{hunk.text}\0{hunk.hunk}".encode()
+    ).hexdigest()
 
 
 def _prompt(hunk: ClaimHunk) -> str:
@@ -156,7 +171,7 @@ def _prompt(hunk: ClaimHunk) -> str:
         f"Claim id: {hunk.claim_id}\n"
         f"Level: {hunk.level}\n"
         f"Claim: {hunk.text}\n\n"
-        f"From {hunk.path}{at} at commit {hunk.commit}:\n\n"
+        f"Evidence for {hunk.path}{at} at commit {hunk.commit}:\n\n"
         f"{hunk.hunk}\n"
     )
 

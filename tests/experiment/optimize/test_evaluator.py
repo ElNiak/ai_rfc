@@ -47,6 +47,16 @@ CLAIM_ONLY_STEPS = [
     {"kind": "checkpoint", "ordinal": 2},
 ]
 
+#: A complete run whose claim anchors a file the graded cluster touched. The
+#: shared steps anchor ``a.txt``, which belongs to the epoch cluster; the
+#: in-window cluster these examples grade is the PR, whose file set is
+#: ``b.txt`` alone. The scorer now requires the anchored path to be one the
+#: cluster changed, so anchoring anywhere else earns no claims at all.
+GRADED_STEPS = [
+    {**step, "locator": "b.txt"} if step["kind"] == "claim" else step
+    for step in COMPLETE_STEPS
+]
+
 
 def _judge(hunks):
     """Rate every claim a perfect fit, so the value tracks the other terms."""
@@ -162,7 +172,7 @@ def interview_fixture(tmp_path, panther_repo, template_repo):
 def test_a_complete_loop_run_is_graded_against_the_candidate_it_froze(
     settings, candidate, loop_example, write_scenario
 ):
-    settings = _with(settings, pre_launch=_scenario(write_scenario, COMPLETE_STEPS))
+    settings = _with(settings, pre_launch=_scenario(write_scenario, GRADED_STEPS))
     evaluator = Evaluator(settings)
 
     value, info = evaluator(candidate, loop_example)
@@ -206,7 +216,7 @@ def test_a_hand_edited_register_scores_zero_under_its_own_reason(
     The gate it dirties is read after the register-edit precondition, so the
     named reason is the edit rather than the failed gate.
     """
-    steps = COMPLETE_STEPS + [{"kind": "overstate", "id": "t:3.1"}]
+    steps = GRADED_STEPS + [{"kind": "overstate", "id": "t:3.1"}]
     settings = _with(settings, pre_launch=_scenario(write_scenario, steps))
 
     value, info = Evaluator(settings)(candidate, loop_example)
@@ -264,7 +274,7 @@ def test_signing_off_a_paraphrase_scores_zero(
 def test_every_evaluation_gets_its_own_campaign_across_evaluators(
     settings, candidate, loop_example, write_scenario
 ):
-    settings = _with(settings, pre_launch=_scenario(write_scenario, COMPLETE_STEPS))
+    settings = _with(settings, pre_launch=_scenario(write_scenario, GRADED_STEPS))
     first = Evaluator(settings)
 
     _, one = first(candidate, loop_example)
@@ -282,7 +292,7 @@ def test_every_evaluation_gets_its_own_campaign_across_evaluators(
 def test_one_harness_fault_is_retried_and_the_retry_is_graded(
     settings, candidate, loop_example, write_scenario
 ):
-    plant = _scenario(write_scenario, COMPLETE_STEPS)
+    plant = _scenario(write_scenario, GRADED_STEPS)
     seen = []
 
     def flaky(campaign, example):
@@ -326,7 +336,7 @@ def test_two_faults_return_a_harness_zero_and_a_second_pair_aborts(
 def test_a_graded_evaluation_resets_the_consecutive_fault_count(
     settings, candidate, loop_example, write_scenario
 ):
-    plant = _scenario(write_scenario, COMPLETE_STEPS)
+    plant = _scenario(write_scenario, GRADED_STEPS)
     broken = []
 
     def sometimes(campaign, example):
@@ -347,7 +357,7 @@ def test_a_graded_evaluation_resets_the_consecutive_fault_count(
 def test_the_materialized_plugin_is_reused_for_the_same_candidate(
     settings, candidate, loop_example, write_scenario
 ):
-    settings = _with(settings, pre_launch=_scenario(write_scenario, COMPLETE_STEPS))
+    settings = _with(settings, pre_launch=_scenario(write_scenario, GRADED_STEPS))
     evaluator = Evaluator(settings)
     evaluator(candidate, loop_example)
 
@@ -368,7 +378,7 @@ def test_the_materialized_plugin_is_reused_for_the_same_candidate(
 def test_a_different_candidate_gets_its_own_plugin_root(
     settings, candidate, loop_example, write_scenario
 ):
-    settings = _with(settings, pre_launch=_scenario(write_scenario, COMPLETE_STEPS))
+    settings = _with(settings, pre_launch=_scenario(write_scenario, GRADED_STEPS))
     evaluator = Evaluator(settings)
     other = encode(
         dataclasses.replace(
@@ -387,7 +397,7 @@ def test_the_default_build_compiles_the_revision_the_session_tagged(
     settings, candidate, loop_example, write_scenario
 ):
     settings = _with(
-        settings, build=None, pre_launch=_scenario(write_scenario, COMPLETE_STEPS)
+        settings, build=None, pre_launch=_scenario(write_scenario, GRADED_STEPS)
     )
 
     value, info = Evaluator(settings)(candidate, loop_example)

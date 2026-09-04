@@ -4,9 +4,9 @@ The harness's own primary outcome — the fraction of the window a run
 completed — is saturated by the seed and reachable without doing the work, so
 optimizing against it would optimize nothing. Completion and integrity are
 therefore demoted to preconditions here, and the graded part measures what a
-reconstruction is actually for: new claims anchored to code a judge agrees
-implements them, normative claims cited in the prose, a draft that compiles
-clean, and the turns it took.
+reconstruction is actually for: new claims anchored to code the cluster
+actually changed and a judge agrees implements them, those claims cited in
+the prose, a draft that compiles clean, and the turns it took.
 
 Every precondition failure returns zero under a *named* reason, and carries
 the run's diagnostics with it. A reflection LM handed a bare zero cannot tell
@@ -29,6 +29,7 @@ from ai_rfc.anchors import AnchorError, verify_detailed
 from ai_rfc.draft.build import BuildReport
 from ai_rfc.draft.checkpoint import MANIFEST_FILE
 from ai_rfc.draft.gate import GateError, cited_ids, load_revisions
+from ai_rfc.draft.lint import BCP14_TERMS
 from ai_rfc.draft.questions import (
     Question,
     QuestionError,
@@ -52,33 +53,27 @@ ZERO_TRANSCRIPT = "transcript_tampered"
 ZERO_SIGNOFF_TRAP = "signoff_on_unconfirmed"
 ZERO_HARNESS = "harness"
 
-#: The RFC 2119 levels that oblige an implementation. ``MAY`` and ``OPTIONAL``
-#: are deliberately absent: a permission grants nothing to cite against, so
-#: counting them would penalise a draft for not citing a claim it need not.
-NORMATIVE_LEVELS = frozenset(
-    {
-        "MUST",
-        "MUST NOT",
-        "SHALL",
-        "SHALL NOT",
-        "REQUIRED",
-        "SHOULD",
-        "SHOULD NOT",
-        "RECOMMENDED",
-        "NOT RECOMMENDED",
-    }
-)
+#: The closed level vocabulary, from the linter that already measures it.
+#: ``schema.load`` takes ``level`` as a free string, and the citation gate only
+#: checks that what a draft cites exists — never that what exists is cited — so
+#: without this an invented level would exclude a claim from every count that
+#: is supposed to hold it to the prose.
+LEVELS = frozenset(BCP14_TERMS)
 
 #: Turns the seed prompt takes for one cluster, measured on the pilot. The
 #: efficiency term is a half at this many, so a run matching the seed scores
 #: the midpoint rather than a number that only means something in hindsight.
 SEED_TURNS_PER_CLUSTER = 20
 
-#: Why a new claim did not count towards coverage, worst-first. A claim can
+#: Why a new claim did not count towards coverage, best-first. A claim can
 #: fail several ways at once; the reported reason is the one closest to
 #: counting, so the feedback names the smallest change that would fix it.
+#: The order is a funnel: the right file, then the right commit, then a
+#: verifying anchor, then a level the vocabulary knows.
+WHY_BAD_LEVEL = "level outside the BCP 14 vocabulary"
 WHY_UNVERIFIED = "anchor did not verify against the clone"
 WHY_OUT_OF_SPAN = "anchor commit is not a member of the cluster span"
+WHY_NOT_IN_FILE_SET = "anchor path not in the cluster's file set"
 WHY_NO_ANCHOR = "no code or runtime anchor"
 
 _BUDGET_WORDS = ("budget", "turn", "limit")
@@ -240,8 +235,18 @@ def _verifies(anchor: Anchor, clone: Path) -> bool:
 def _assess(
     workspace: Path, clone: Path, cluster_id: str
 ) -> tuple[list[tuple[RequirementClaim, Anchor]], list[dict[str, str]]]:
-    """Split this cluster's new claims into anchored ones and rejects."""
+    """Split this cluster's new claims into anchored ones and rejects.
+
+    The path check is what keeps the term honest. ``verify_detailed`` only
+    asks whether the locator *exists* at the pinned commit, so a claim about
+    long-standing behaviour in any file present at the cluster's anchor commit
+    would verify, be judged against real code, and count — three of them
+    saturating a coverage denominator that counts the cluster's own files.
+    Requiring the path to be one the cluster touched makes the numerator and
+    the denominator finally count the same thing.
+    """
     members = member_shas(workspace, cluster_id)
+    touched = set(file_paths(workspace, cluster_id))
     accepted: list[tuple[RequirementClaim, Anchor]] = []
     rejected: list[dict[str, str]] = []
     for claim in new_claims(workspace, cluster_id):
@@ -250,16 +255,21 @@ def _assess(
             for anchor in claim.anchors
             if anchor.evidence_class in COMMIT_REQUIRED_FOR
         ]
-        in_span = [anchor for anchor in candidates if anchor.commit in members]
+        in_set = [anchor for anchor in candidates if anchor.locator in touched]
+        in_span = [anchor for anchor in in_set if anchor.commit in members]
         verified = next(
             (anchor for anchor in in_span if _verifies(anchor, clone)), None
         )
-        if verified is not None:
+        if verified is not None and claim.level not in LEVELS:
+            rejected.append({"claim_id": claim.id, "why": WHY_BAD_LEVEL})
+        elif verified is not None:
             accepted.append((claim, verified))
         elif in_span:
             rejected.append({"claim_id": claim.id, "why": WHY_UNVERIFIED})
-        elif candidates:
+        elif in_set:
             rejected.append({"claim_id": claim.id, "why": WHY_OUT_OF_SPAN})
+        elif candidates:
+            rejected.append({"claim_id": claim.id, "why": WHY_NOT_IN_FILE_SET})
         else:
             rejected.append({"claim_id": claim.id, "why": WHY_NO_ANCHOR})
     return accepted, rejected
@@ -277,8 +287,10 @@ def anchored_claims(
 
     Returns:
         ``(claim, anchor)`` for each new claim carrying at least one code or
-        runtime anchor that verifies and pins a commit the cluster spans; the
-        anchor is the first such one in the claim's own order.
+        runtime anchor that verifies, pins a commit the cluster spans, and
+        names a file the cluster's view records it as having touched; the
+        anchor is the first such one in the claim's own order. A claim whose
+        level is outside the BCP 14 vocabulary is excluded.
 
     Raises:
         SchemaError: If a checkpoint manifest cannot be loaded as written.
@@ -287,8 +299,60 @@ def anchored_claims(
     return _assess(workspace, clone, cluster_id)[0]
 
 
-def hunk_for(clone: Path, anchor: Anchor, context: int = 20) -> str:
-    """The code an anchor points at, with surrounding lines.
+def file_paths(workspace: Path, cluster_id: str) -> list[str]:
+    """The paths one cluster's view records it as having touched.
+
+    Args:
+        workspace: A run's workspace root.
+        cluster_id: The cluster to read.
+
+    Returns:
+        The file set's paths, in view order; empty when the cluster has no
+        view on disk.
+    """
+    view = workspace / "clusters" / cluster_id / "view.json"
+    if not view.exists():
+        return []
+    return [
+        str(entry["path"])
+        for entry in json.loads(view.read_text()).get("file_set") or []
+        if isinstance(entry, dict) and entry.get("path")
+    ]
+
+
+def _diff_for_path(workspace: Path, cluster_id: str, path: str) -> str:
+    """The cluster's own diff, restricted to one file.
+
+    Args:
+        workspace: A run's workspace root.
+        cluster_id: The cluster whose span diff to read.
+        path: The file to keep.
+
+    Returns:
+        Every hunk of ``span.diff`` under a ``diff --git`` header naming this
+        path, or the empty string when the diff holds none.
+    """
+    span = workspace / "clusters" / cluster_id / "span.diff"
+    if not span.exists():
+        return ""
+    header = f"diff --git a/{path} b/{path}"
+    sections: list[list[str]] = []
+    keeping = False
+    # Newlines only, for the same reason ``_blob_slice`` splits bytes: a diff
+    # carries the file's own content, so a form feed inside an added line
+    # would become a break ``str.splitlines`` invents and git never wrote.
+    for line in span.read_text(errors="replace").rstrip("\n").split("\n"):
+        if line.startswith("diff --git "):
+            keeping = line == header
+            if keeping:
+                sections.append([])
+        if keeping:
+            sections[-1].append(line)
+    return "\n".join("\n".join(section) for section in sections)
+
+
+def _blob_slice(clone: Path, anchor: Anchor, context: int) -> str:
+    """The file around the anchored line, as it stood at the pinned commit.
 
     Args:
         clone: The implementation clone holding the anchor's commit.
@@ -296,7 +360,7 @@ def hunk_for(clone: Path, anchor: Anchor, context: int = 20) -> str:
         context: Lines to keep on each side of the anchored line.
 
     Returns:
-        The slice of the file as it stood at the anchor's commit; the first
+        The slice of the file at the anchor's commit; the first
         ``2 * context + 1`` lines when the anchor names no line.
 
     Raises:
@@ -327,9 +391,44 @@ def hunk_for(clone: Path, anchor: Anchor, context: int = 20) -> str:
     return b"\n".join(kept).decode(errors="replace")
 
 
-def _is_normative(level: str) -> bool:
-    """Whether a claim's level obliges an implementation."""
-    return " ".join(level.upper().split()) in NORMATIVE_LEVELS
+def evidence_for(
+    workspace: Path, clone: Path, cluster_id: str, anchor: Anchor, context: int = 20
+) -> str:
+    """What the cluster did to the anchored file, then the code around it.
+
+    The diff leads because that is the question the judge is asked. A file
+    snapshot cannot say whether *this cluster* introduced the behaviour a
+    claim states — every long-standing line in the file reads as though it
+    had — so the snapshot follows as labelled context for the pinned line
+    rather than standing in for the change.
+
+    Args:
+        workspace: A run's workspace root.
+        clone: The implementation clone holding the anchor's commit.
+        cluster_id: The cluster whose change is being shown.
+        anchor: A verified code or runtime anchor.
+        context: Lines to keep on each side of the anchored line.
+
+    Returns:
+        The cluster's diff for this path followed by a labelled snapshot, or
+        a snapshot alone under a label saying so when the diff names no such
+        path.
+
+    Raises:
+        ExperimentError: If the file cannot be read at that commit.
+    """
+    snapshot = _blob_slice(clone, anchor, context)
+    diff = _diff_for_path(workspace, cluster_id, anchor.locator)
+    if not diff:
+        return (
+            f"--- snapshot; no diff for this path in the cluster "
+            f"({anchor.locator}@{str(anchor.commit)[:12]}) ---\n\n{snapshot}"
+        )
+    at = "" if anchor.line is None else f", line {anchor.line}"
+    return (
+        f"{diff}\n\n--- context at {anchor.locator}@{str(anchor.commit)[:12]}"
+        f"{at} ---\n\n{snapshot}"
+    )
 
 
 def coverage_term(anchored: int, file_count: int) -> float:
@@ -349,16 +448,21 @@ def coverage_term(anchored: int, file_count: int) -> float:
 
 
 def cited_term(
-    normative: list[RequirementClaim], cited: set[str], problem: str | None
+    anchored: list[RequirementClaim], cited: set[str], problem: str | None
 ) -> float:
-    """The share of new normative claims the tagged draft actually cites.
+    """The share of this cluster's new claims the tagged draft actually cites.
+
+    Every anchored claim counts, permissive levels included. Scoring only the
+    MUST and SHOULD families left one word between a candidate and the whole
+    term: relabelling a claim ``MAY`` emptied the denominator and paid out in
+    full for a draft citing nothing.
 
     A draft that cannot be read scores zero rather than the vacuous one an
-    empty normative set earns: an unreadable tag is a failure to measure, and
-    rewarding it would pay for the absence of evidence.
+    empty set earns: an unreadable tag is a failure to measure, and rewarding
+    it would pay for the absence of evidence.
 
     Args:
-        normative: The new claims at a MUST or SHOULD level.
+        anchored: The new claims that earned a verified in-span anchor.
         cited: Claim ids cited at the revision's tag.
         problem: Why the tag could not be read, or None.
 
@@ -367,10 +471,10 @@ def cited_term(
     """
     if problem is not None:
         return 0.0
-    if not normative:
+    if not anchored:
         return 1.0
-    hit = sum(1 for claim in normative if claim.id in cited)
-    return hit / len(normative)
+    hit = sum(1 for claim in anchored if claim.id in cited)
+    return hit / len(anchored)
 
 
 def prose_term(build_report: BuildReport | None) -> float:
@@ -401,10 +505,6 @@ def efficiency_term(num_turns: int | None) -> float:
         A fraction in (0, 1]; a half at :data:`SEED_TURNS_PER_CLUSTER`.
     """
     return 1.0 / (1.0 + (num_turns or 0) / SEED_TURNS_PER_CLUSTER)
-
-
-def _audit_missing(analysis: dict[str, Any]) -> bool:
-    return analysis.get("audit") is None
 
 
 def _integrity_broken(audit: dict[str, Any]) -> bool:
@@ -439,12 +539,21 @@ def _cluster_row(analysis: dict[str, Any], cluster_id: str) -> dict[str, Any] | 
     )
 
 
-def _file_count(workspace: Path, cluster_id: str) -> int:
-    """How many files the cluster's view lists; zero when it has no view."""
-    view = workspace / "clusters" / cluster_id / "view.json"
-    if not view.exists():
-        return 0
-    return len(json.loads(view.read_text()).get("file_set") or [])
+def _harness_problem(analysis: dict[str, Any]) -> str | None:
+    """Why this run's audit record cannot be scored, if it cannot.
+
+    A missing ``register_edits`` is not zero edits. The field is newer than
+    every audit already on disk, and reading its absence as "the register was
+    never hand-written" would silently disable the one gate standing between
+    the score and a forged artifact. Integrity already fails closed; so does
+    this.
+    """
+    audit = analysis.get("audit")
+    if audit is None:
+        return "audit missing"
+    if "register_edits" not in audit:
+        return "audit predates register_edits"
+    return None
 
 
 def _tag_for(workspace: Path, cluster_id: str) -> tuple[str | None, str | None]:
@@ -537,8 +646,9 @@ def score_loop(
     base["kind"] = "loop"
     base["cluster_id"] = cluster_id
 
-    if _audit_missing(analysis):
-        return zero(ZERO_HARNESS, detail="audit missing", **base)
+    problem = _harness_problem(analysis)
+    if problem is not None:
+        return zero(ZERO_HARNESS, detail=problem, **base)
     audit = analysis["audit"]
     if _integrity_broken(audit):
         return zero(
@@ -549,7 +659,7 @@ def score_loop(
             ],
             **base,
         )
-    if audit.get("register_edits", 0) > 0:
+    if audit["register_edits"] > 0:
         return zero(ZERO_REGISTER_EDIT, register_edits=audit["register_edits"], **base)
     if _budget_stop(analysis):
         return zero(
@@ -574,7 +684,7 @@ def score_loop(
     if not anchored:
         return zero(ZERO_UNANCHORED, new_claims_rejected=rejected, **base)
 
-    judgements = judge(
+    returned = judge(
         [
             ClaimHunk(
                 claim_id=claim.id,
@@ -583,23 +693,29 @@ def score_loop(
                 path=anchor.locator,
                 commit=str(anchor.commit),
                 line=anchor.line,
-                hunk=hunk_for(clone, anchor),
+                hunk=evidence_for(workspace, clone, cluster_id, anchor),
             )
             for claim, anchor in anchored
         ]
     )
-    relevance = (
-        sum(j.score for j in judgements) / len(judgements) if judgements else 0.0
-    )
+    # Zero-filled, and averaged over the claims asked about rather than the
+    # verdicts returned. A judge answering one of three hunks would otherwise
+    # hand that one verdict back as the whole term, with no diagnostic.
+    by_claim = {j.claim_id: j for j in returned}
+    judgements = [
+        by_claim.get(claim.id) or Judgement(claim.id, 0.0, "no judgement returned")
+        for claim, _ in anchored
+    ]
+    relevance = sum(j.score for j in judgements) / len(anchored)
 
-    normative = [claim for claim, _ in anchored if _is_normative(claim.level)]
+    claims = [claim for claim, _ in anchored]
     tag, problem = _tag_for(workspace, cluster_id)
     cited: set[str] = set()
     if tag is not None:
         cited, problem = cited_ids(workspace / "draft", tag)
 
-    coverage = coverage_term(len(anchored), _file_count(workspace, cluster_id))
-    cited_score = cited_term(normative, cited, problem)
+    coverage = coverage_term(len(anchored), len(file_paths(workspace, cluster_id)))
+    cited_score = cited_term(claims, cited, problem)
     prose = prose_term(build_report)
     efficiency = efficiency_term(base["num_turns"])
     value = coverage * (
@@ -623,9 +739,7 @@ def score_loop(
             "weights": asdict(weights),
             "anchored": [claim.id for claim, _ in anchored],
             "judgements": [asdict(j) for j in judgements],
-            "uncited_normative": sorted(
-                claim.id for claim in normative if claim.id not in cited
-            ),
+            "uncited": sorted(claim.id for claim in claims if claim.id not in cited),
             "new_claims_rejected": rejected,
             "idnits": dict(build_report.idnits) if build_report else {},
             "build_diagnostics": _build_lines(build_report),
@@ -698,8 +812,9 @@ def score_interview(
     # reads. The loop score keeps it; only here is it evidence.
     base.pop("final_summary", None)
 
-    if _audit_missing(analysis):
-        return zero(ZERO_HARNESS, detail="audit missing", **base)
+    problem = _harness_problem(analysis)
+    if problem is not None:
+        return zero(ZERO_HARNESS, detail=problem, **base)
     audit = analysis["audit"]
     if _integrity_broken(audit):
         return zero(
@@ -710,7 +825,7 @@ def score_interview(
             ],
             **base,
         )
-    if audit.get("register_edits", 0) > 0:
+    if audit["register_edits"] > 0:
         return zero(ZERO_REGISTER_EDIT, register_edits=audit["register_edits"], **base)
     if _budget_stop(analysis):
         return zero(

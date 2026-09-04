@@ -171,6 +171,32 @@ def test_a_cache_hit_is_relabelled_with_the_claim_it_was_asked_about():
     assert again.claim_id == "t:9.9"
 
 
+def test_relabelling_the_level_asks_the_judge_again():
+    """The level is half the question, so it cannot be left out of the key.
+
+    The rubric docks a claim whose level is stronger or weaker than the code
+    enforces. If a relabelled claim hit the earlier verdict, that penalty
+    would never fire and mislabelling would become free.
+    """
+    transport = transport_returning('{"score": 1, "rationale": "yes"}')
+    judge = build_judge(transport, cache={})
+    must = hunk()
+    may = ClaimHunk(
+        claim_id=must.claim_id,
+        text=must.text,
+        level="MAY",
+        path=must.path,
+        commit=must.commit,
+        line=must.line,
+        hunk=must.hunk,
+    )
+
+    judge([must])
+    judge([may])
+
+    assert len(transport.prompts) == 2
+
+
 def test_a_different_hunk_for_the_same_claim_is_sent_again():
     transport = transport_returning('{"score": 1, "rationale": "yes"}')
     judge = build_judge(transport, cache={})
@@ -224,6 +250,17 @@ def test_the_rubric_states_all_three_grades():
     for grade in ("1", "0.5", "0"):
         assert grade in RUBRIC
     assert "RUBRIC" not in RUBRIC
+
+
+def test_the_rubric_asks_about_the_change_not_the_snapshot():
+    """The judge is shown a diff plus context, so it must be told which is which.
+
+    Asking whether a file *snapshot* "introduces or changes" behaviour is a
+    question the snapshot cannot answer, and a judge answering it anyway
+    scores long-standing code as though the cluster had written it.
+    """
+    assert "unified diff" in RUBRIC
+    assert "context" in RUBRIC
 
 
 # --- the anthropic transport -----------------------------------------------
