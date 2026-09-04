@@ -228,7 +228,12 @@ def gepa_config(
                 "max_workers": 1,
                 "seed": settings.seed,
                 "frontier_type": "hybrid",
-                "raise_on_exception": False,
+                # gepa's own default. Kept explicit so the whole set stays
+                # visible here. False would convert EvaluatorAbort (raised
+                # when the harness has faulted repeatedly) into a plain 0.0
+                # score, burning the rest of the budget on a run that should
+                # have stopped instead.
+                "raise_on_exception": True,
             },
         },
     )

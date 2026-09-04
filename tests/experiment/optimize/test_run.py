@@ -17,6 +17,7 @@ import dataclasses
 import importlib.util
 import json
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -25,6 +26,7 @@ from ai_rfc.experiment.metrics import window_clusters
 from ai_rfc.experiment.optimize.codec import decode, encode, seed_from_plugin
 from ai_rfc.experiment.optimize.evaluator import (
     Evaluator,
+    EvaluatorAbort,
     EvaluatorSettings,
     InterviewExample,
     LoopExample,
@@ -259,7 +261,7 @@ def test_the_config_is_built_from_keys_the_backend_accepts(tmp_path):
     assert parsed.engine.max_workers == 1
     assert parsed.engine.seed == 7
     assert parsed.engine.frontier_type == "hybrid"
-    assert parsed.engine.raise_on_exception is False
+    assert parsed.engine.raise_on_exception is True
 
 
 @requires_gepa
@@ -366,3 +368,33 @@ def test_stage_one_optimizes_end_to_end_without_a_model_call(
     assert set(record["best_example_scores"]) == {"loop-1", "int-1"}
     assert "SeedEchoLM" in record["settings"]["reflection_lm"]
     assert record["ai_rfc"]
+
+
+@requires_gepa
+@pytest.mark.slow
+def test_an_evaluator_abort_propagates_out_of_run(tmp_path, plugin_root, loop_example):
+    """A harness abort must stop the run rather than burn out the budget.
+
+    This is what ``raise_on_exception=True`` in :func:`~.run.gepa_config`
+    buys: with it False, gepa would instead catch ``EvaluatorAbort`` at the
+    evaluator wrapper and score the call 0.0, spending the rest of the eval
+    budget on a run that should have stopped.
+    """
+
+    class AbortsOnFirstCall:
+        """Stands in for :class:`Evaluator`; aborts before scoring anything."""
+
+        def __init__(self, seed):
+            self.settings = SimpleNamespace(seed=seed)
+
+        def __call__(self, candidate, example):
+            raise EvaluatorAbort("the harness cannot be reached")
+
+    settings = _settings(
+        name="abort",
+        root=tmp_path / "experiments",
+        examples=(loop_example,),
+    )
+
+    with pytest.raises(EvaluatorAbort):
+        run(settings, AbortsOnFirstCall(seed_from_plugin(plugin_root)))
