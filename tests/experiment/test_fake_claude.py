@@ -4,6 +4,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+import yaml
+
+from ai_rfc.draft.questions import load_questions
 from ai_rfc.experiment.stream import (
     denials,
     parse_stream,
@@ -13,7 +16,27 @@ from ai_rfc.experiment.stream import (
 )
 from ai_rfc.experiment.workspace import copy_workspace
 
-from .conftest import FAKE_CLAUDE
+from .conftest import (
+    FAKE_CLAUDE,
+    INTERVIEW_AUTHOR,
+    INTERVIEW_TRANSCRIPT,
+    interview_good_steps,
+    interview_trap_steps,
+)
+
+CLAIM_TEXT = "Thing three MAY hold."
+QUOTE = f'Confirmed as written: "{CLAIM_TEXT}"'
+
+
+def _plant_transcript(workspace: Path) -> None:
+    (workspace / "interviews" / INTERVIEW_TRANSCRIPT).write_text(
+        f"# Interview 001\n\n## t:3.1\n\n{QUOTE}\n"
+    )
+
+
+def _claim(workspace: Path) -> dict:
+    requirements = yaml.safe_load((workspace / "manifest.yaml").read_text())
+    return requirements["requirements"]["t:3.1"]
 
 
 def _launch(profile: Path, workspace: Path, panther_repo: Path, *argv: str):
@@ -126,6 +149,106 @@ def test_fake_records_denials_and_exit_codes(
     text = tool_results(events)[bash_call["id"]]["text"]
     assert text.startswith("PreToolUse:Bash hook error:")
     assert "refused: ai_rfc status" in text
+
+
+def test_fake_replays_an_interview_into_the_register_and_the_manifest(
+    pristine, panther_repo, tmp_path, write_scenario
+):
+    steps = [
+        {"kind": "claim", "id": "t:3.1", "section": "3.1", "text": CLAIM_TEXT},
+        *interview_good_steps(["t:3.1"], {"t:3.1": QUOTE}),
+    ]
+    for arm in "ABC":
+        profile = tmp_path / f"profile-{arm}"
+        workspace = copy_workspace(
+            pristine, tmp_path / "runs" / f"{arm}1" / "workspace"
+        )
+        _plant_transcript(workspace)
+        write_scenario(profile, f"{arm}1", {"arm": arm, "steps": steps})
+        events = _launch(profile, workspace, panther_repo)
+
+        names = [use["name"] for use in tool_uses(events)]
+        commands = [use["input"].get("command", "") for use in tool_uses(events)]
+        assert not any(
+            result["is_error"] for result in tool_results(events).values()
+        ), arm
+        if arm == "A":
+            assert "mcp__ai_rfc__ai_rfc_question_draft" in names
+            assert "mcp__ai_rfc__ai_rfc_answer_record" in names
+        elif arm == "B":
+            assert any("ai_rfc question-draft" in c for c in commands)
+            assert any("ai_rfc answer-record" in c for c in commands)
+            assert not any(name.startswith("mcp__") for name in names)
+        else:
+            edits = [
+                use["input"]["file_path"]
+                for use in tool_uses(events)
+                if use["name"] == "Edit"
+            ]
+            assert edits.count(str(workspace / "questions.yaml")) == 2, arm
+            assert not any(name.startswith("mcp__") for name in names)
+
+        entries = load_questions(workspace / "questions.yaml")
+        assert [(entry.id, entry.status.value) for entry in entries] == [
+            ("q-001", "answered")
+        ], arm
+        assert entries[0].claim_ids == ("t:3.1",)
+        assert entries[0].answered_by == INTERVIEW_AUTHOR
+
+        claim = _claim(workspace)
+        assert {
+            "evidence_class": "interview",
+            "locator": "int-001",
+        } in claim["anchors"], arm
+        assert claim["signed_off_by"] == INTERVIEW_AUTHOR
+
+
+def test_fake_types_a_guardrail_refusal_instead_of_crashing(
+    pristine, panther_repo, tmp_path, write_scenario
+):
+    profile = tmp_path / "profile"
+    workspace = copy_workspace(pristine, tmp_path / "runs" / "A1" / "workspace")
+    _plant_transcript(workspace)
+    steps = [
+        {"kind": "claim", "id": "t:3.1", "section": "3.1", "text": CLAIM_TEXT},
+        *interview_good_steps(["t:3.1"], {"t:3.1": ""}),
+    ]
+    write_scenario(profile, "A1", {"arm": "A", "steps": steps})
+    events = _launch(profile, workspace, panther_repo)
+
+    call = next(
+        use
+        for use in tool_uses(events)
+        if use["name"] == "mcp__ai_rfc__ai_rfc_answer_record"
+    )
+    result = tool_results(events)[call["id"]]
+    assert result["is_error"]
+    assert result["text"].startswith("GuardrailError: quote must be a non-empty")
+    assert result_event(events)["subtype"] == "success"
+
+    entries = load_questions(workspace / "questions.yaml")
+    assert [entry.status.value for entry in entries] == ["open"]
+    claim = _claim(workspace)
+    assert "signed_off_by" not in claim
+    assert all(anchor["evidence_class"] != "interview" for anchor in claim["anchors"])
+
+
+def test_interview_builders_differ_only_in_the_paraphrase_sign_off():
+    claim_ids = ["t:1.1", "t:2.1", "t:3.1"]
+    quotes = {claim_id: f"line for {claim_id}" for claim_id in claim_ids}
+
+    good = interview_good_steps(claim_ids, quotes)
+    trap = interview_trap_steps(claim_ids, quotes)
+
+    assert [step["kind"] for step in good] == ["question_draft"] * 3 + [
+        "answer_record"
+    ] * 3
+    assert [step["id"] for step in good[:3]] == ["q-001", "q-002", "q-003"]
+    assert [step["claim_ids"] for step in good[:3]] == [[c] for c in claim_ids]
+    assert [step["confirmed"] for step in good[3:]] == [True, False, False]
+    assert [step["confirmed"] for step in trap[3:]] == [True, True, False]
+    assert [step["quote"] for step in good[3:]] == [quotes[c] for c in claim_ids]
+    assert {step["transcript"] for step in good[3:]} == {INTERVIEW_TRANSCRIPT}
 
 
 def test_fake_answers_version():

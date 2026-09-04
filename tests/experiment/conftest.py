@@ -209,6 +209,91 @@ COMPLETE_STEPS = [
     {"kind": "tag", "tag": "draft-test-fixture-00"},
 ]
 
+INTERVIEW_TRANSCRIPT = "int-001.md"
+INTERVIEW_AUTHOR = "Robin Alder"
+
+
+def _interview_steps(
+    claim_ids: list[str],
+    transcript_quotes: dict[str, str],
+    confirmed: set[str],
+    transcript: str,
+    answered_by: str,
+) -> list[dict]:
+    drafts, answers = [], []
+    for number, claim_id in enumerate(claim_ids, start=1):
+        question_id = f"q-{number:03d}"
+        drafts.append(
+            {
+                "kind": "question_draft",
+                "id": question_id,
+                "claim_ids": [claim_id],
+                "text": f"Does {claim_id} still say what you intended?",
+            }
+        )
+        answers.append(
+            {
+                "kind": "answer_record",
+                "question_id": question_id,
+                "answer": transcript_quotes[claim_id],
+                "answered_by": answered_by,
+                "transcript": transcript,
+                "quote": transcript_quotes[claim_id],
+                "confirmed": claim_id in confirmed,
+            }
+        )
+    return [*drafts, *answers]
+
+
+def interview_good_steps(
+    claim_ids: list[str],
+    transcript_quotes: dict[str, str],
+    *,
+    transcript: str = INTERVIEW_TRANSCRIPT,
+    answered_by: str = INTERVIEW_AUTHOR,
+) -> list[dict]:
+    """Steps for an interview that claims sign-off only where it was earned.
+
+    Args:
+        claim_ids: The claims to interview about, in order; the first is the
+            one whose wording the author confirmed verbatim.
+        transcript_quotes: Claim id to the transcript line answering it.
+        transcript: Transcript filename under ``interviews/``.
+        answered_by: Who the answers are attributed to.
+
+    Returns:
+        One ``question_draft`` per claim followed by one ``answer_record``
+        per question, ``confirmed`` set on the first claim alone.
+    """
+    return _interview_steps(
+        claim_ids, transcript_quotes, {claim_ids[0]}, transcript, answered_by
+    )
+
+
+def interview_trap_steps(
+    claim_ids: list[str],
+    transcript_quotes: dict[str, str],
+    *,
+    transcript: str = INTERVIEW_TRANSCRIPT,
+    answered_by: str = INTERVIEW_AUTHOR,
+) -> list[dict]:
+    """Steps that also claim sign-off for the claim the author paraphrased.
+
+    Args:
+        claim_ids: The claims to interview about, in order; the second is the
+            one the author answered with a paraphrase.
+        transcript_quotes: Claim id to the transcript line answering it.
+        transcript: Transcript filename under ``interviews/``.
+        answered_by: Who the answers are attributed to.
+
+    Returns:
+        The same shape as :func:`interview_good_steps`, with ``confirmed``
+        set on the first two claims.
+    """
+    return _interview_steps(
+        claim_ids, transcript_quotes, set(claim_ids[:2]), transcript, answered_by
+    )
+
 
 @pytest.fixture
 def campaign(pristine, panther_repo, plugin_root, tmp_path, toolchain_record):

@@ -129,15 +129,26 @@ class Session:
         raw: str | None,
         result: str,
         step: dict,
+        is_error: bool = False,
     ) -> None:
         if self.arm == "A":
-            self.call(f"mcp__ai_rfc__ai_rfc_{op}", mcp_input, result, step=step)
+            self.call(
+                f"mcp__ai_rfc__ai_rfc_{op}",
+                mcp_input,
+                result,
+                step=step,
+                is_error=is_error,
+            )
         elif self.arm == "B":
-            self.call("Bash", {"command": ai_rfc}, result, step=step)
+            self.call("Bash", {"command": ai_rfc}, result, step=step, is_error=is_error)
         else:
-            self.call("Bash", {"command": raw or ai_rfc}, result, step=step)
+            self.call(
+                "Bash", {"command": raw or ai_rfc}, result, step=step, is_error=is_error
+            )
 
-    def edit(self, name: str, step: dict) -> None:
+    def edit(
+        self, name: str, step: dict, result: str = "ok", is_error: bool = False
+    ) -> None:
         self.call(
             "Edit",
             {
@@ -145,9 +156,34 @@ class Session:
                 "old_string": "…",
                 "new_string": "…",
             },
-            "ok",
+            result,
             step=step,
+            is_error=is_error,
         )
+
+    def register_call(
+        self, op: str, mcp_input: dict, ai_rfc: str, action, step: dict
+    ) -> None:
+        """Surface one question-register call, typing a refusal as a tool error.
+
+        The raw arm has no command for the register — it hand-edits
+        ``questions.yaml`` — so both its outcomes surface as that edit.
+        """
+        from ai_rfc.server.core import CoreError
+
+        try:
+            outcome = json.dumps(action())
+        except CoreError as error:
+            message = f"{type(error).__name__}: {error}"
+            if self.arm == "C":
+                self.edit("questions.yaml", step, message, is_error=True)
+            else:
+                self.surface(op, mcp_input, ai_rfc, None, message, step, is_error=True)
+            return
+        if self.arm == "C":
+            self.edit("questions.yaml", step)
+        else:
+            self.surface(op, mcp_input, ai_rfc, None, outcome, step)
 
     def cluster_id(self, ordinal: int) -> str:
         for row in (
@@ -215,6 +251,50 @@ class Session:
                     json.dumps(changed),
                     step,
                 )
+        elif kind == "question_draft":
+            from ai_rfc.server.core.questions import draft_question
+
+            claim_ids = list(step["claim_ids"])
+            text = step.get("text", "Does this claim say what you intended?")
+            claims = " ".join(f"--claim {claim_id}" for claim_id in claim_ids)
+            self.register_call(
+                "question_draft",
+                {
+                    "question": text,
+                    "claim_ids": claim_ids,
+                    "question_id": step["id"],
+                },
+                f'ai_rfc question-draft "…" {claims} --id {step["id"]}',
+                lambda: draft_question(
+                    self.ctx, text, claim_ids, question_id=step["id"]
+                ),
+                step,
+            )
+        elif kind == "answer_record":
+            from ai_rfc.server.core.questions import record_answer
+
+            fields = {
+                "question_id": step["question_id"],
+                "answer": step["answer"],
+                "answered_by": step["answered_by"],
+                "transcript": step["transcript"],
+                "quote": step["quote"],
+                "author_confirmed_exact_text": bool(step.get("confirmed", False)),
+            }
+            flag = (
+                " --exact-wording-confirmed"
+                if fields["author_confirmed_exact_text"]
+                else ""
+            )
+            self.register_call(
+                "answer_record",
+                fields,
+                f"ai_rfc answer-record {fields['question_id']} --answer … "
+                f"--by {fields['answered_by']} --transcript {fields['transcript']} "
+                f"--quote …{flag}",
+                lambda: record_answer(self.ctx, **fields),
+                step,
+            )
         elif kind == "checkpoint":
             from ai_rfc.server.core.gates import write_checkpoint
 
