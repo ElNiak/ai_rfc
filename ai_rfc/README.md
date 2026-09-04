@@ -6,21 +6,31 @@ than written by a standards body — as a validated, anchored, reproducible
 manifest in which a claim's evidential status is **computed from its evidence
 rather than asserted by its author**.
 
-It is a plain library module plus a CLI, deliberately **not** registered under
-any `PluginType`. A tester executes scenarios against a live implementation;
-this module executes nothing and never opens a socket. It validates a manifest
-file that reconstruction agents (running entirely outside this framework)
-wrote to disk.
+It is a plain library plus a CLI. The manifest it validates is a file that
+reconstruction agents wrote to disk; the substrate itself executes nothing
+against a live implementation.
 
-## This module makes no model calls
+## The substrate makes no model calls
 
-Despite what the name may suggest: **nothing in this package calls a language
-model, and nothing reaches the network.** Every operation is schema
-validation, rule adjudication or anchor checking over local data. The tests
-run against fixtures built in a temp directory. The framework's runtime
-dependency set is unchanged (standard library plus PyYAML, already a
-dependency). Generation — the model-driven part of the pipeline — lives in
-agents outside the framework; this is the model-free substrate they emit into.
+Despite what the name may suggest, the eight substrate subpackages — `history`,
+`forge`, `timeline`, `views`, `check`, `draft`, `coverage`, `pipeline` — and the
+manifest core around them (`schema`, `promotion`, `anchors`, `report`) **call no
+language model**, and only `forge` reaches the network. Every other operation is
+schema validation, rule adjudication or anchor checking over local data, and the
+tests run against fixtures built in a temp directory. The runtime dependency set
+is the standard library plus PyYAML.
+
+Two subpackages under the same directory are deliberately *not* substrate:
+
+- `server/` is the MCP server (`python -m ai_rfc.server`, stdio) and its parity
+  CLI (`ai_rfc <verb>`). It opens no network socket either, but it exists to be
+  driven by a model.
+- `experiment/` is the harness that spawns `claude -p` sessions to measure the
+  arms; it is the one place in the repository that launches an agent. See
+  `experiment/README.md`.
+
+Generation — the model-driven part of the pipeline — lives in those agents;
+this is the model-free substrate they emit into.
 
 ## The `history/` subpackage
 
@@ -35,8 +45,9 @@ assume otherwise, which is why it is stated here.
 ## The `forge/`, `timeline/`, `views/` and `draft/` subpackages
 
 Four further stages carry the corpus toward a progressive, per-PR
-reconstruction (design spec:
-`docs/superpowers/specs/2026-08-25-arfc-progressive-rfc-design.md`):
+reconstruction (the design spec lives in the PANTHER repository this package
+was extracted from, at `docs/superpowers/specs/2026-08-25-arfc-progressive-rfc-design.md`
+there):
 
 - `forge/` is the package's ONLY networked stage: it fetches a repository's
   pull/merge requests, reviews and comments (GitHub and GitLab adapters,
@@ -81,7 +92,7 @@ timeline artifacts only as files on disk.
 
 ## The `pipeline/` subpackage
 
-`pipeline/` holds the sequence the six commands above do not: it runs the
+`pipeline/` holds the sequence the other seven programs do not: it runs the
 deterministic stages in order and **stops** at the two that produce content —
 mining claims and writing prose — because those need a model and nothing here
 calls one. Reaching such a boundary exits 0 and names whose turn it is.
@@ -91,7 +102,7 @@ digests the substrate already writes into its own outputs, because a run ledger
 would start lying the first time somebody ran a sub-CLI by hand — which the
 authoring loop below actively tells them to do. See `pipeline/README.md`.
 
-It is a seventh caller of the same CLIs, not a seventh layer: it imports each
+It is one more caller of the same CLIs, not a layer over them: it imports each
 sub-package's `cli.main` and nothing else, so data still hands over on disk.
 
 | Command | Purpose |
@@ -446,25 +457,26 @@ exits zero while producing wrong results.
    counts, per-stratum checked fractions — vanishes from serialised output
    without complaint. Serialisation in `report.py` injects them explicitly.
 
-### These traps are live in this codebase today
+### Where these traps were observed
 
-`ivy_lsp/semantic/rfc_annotations.py` (in the `ivy-lsp` nested submodule) is a
-base-schema manifest loader that fails all three data-handling ways this
-module guards against, and it is the reason this module is strict:
+This package was built inside PANTHER, alongside a base-schema manifest loader
+in its `ivy-lsp` submodule (`ivy_lsp/semantic/rfc_annotations.py` there, not in
+this repository) that fails all three data-handling ways this module guards
+against. That loader is the reason this module is strict:
 
-| Site | Behaviour | Trap |
+| Site (in PANTHER's `ivy-lsp`) | Behaviour | Trap |
 |---|---|---|
 | `rfc_annotations.py:88` | `except (yaml.YAMLError, OSError): return {}` | A malformed manifest reads as "no requirements" |
 | `rfc_annotations.py:107` | `str(req_data.get("section", ""))` | Launders trap 3's float coercion instead of detecting it |
 | `rfc_annotations.py:111` | `bool(req_data.get("testable", True))` | Fails **open** on the field deciding whether a requirement is checked |
 
-### Integration hazard: never emit into `protocol-testing/`
+### Integration hazard: never emit into PANTHER's `protocol-testing/`
 
-`find_manifests` in that same file globs `*_requirements.yaml` under
-`protocol-testing/`. A manifest with extended fields written there would have
-every extended field — and the promotion rule with it — silently ignored by
-that loader. That is a concrete reason, beyond the boundary rule, never to
-emit this module's manifests into `protocol-testing/`.
+`find_manifests` in that same loader globs `*_requirements.yaml` under
+PANTHER's `protocol-testing/`. A manifest with extended fields written there
+would have every extended field — and the promotion rule with it — silently
+ignored by that loader. When this package runs as PANTHER's `ai-rfc`
+subcommand, that is a concrete reason never to emit its manifests there.
 
 ## Known duplication to consolidate
 
@@ -511,21 +523,34 @@ discovered twice.
 That last sentence is the table's whole job, and it is the part that has failed
 before: the counts above were once five `_report` copies and three `_git` ones,
 and drifted to eight and five as `coverage/`, `forge/` and `pipeline/` landed —
-so the debt *was* discovered twice. **Adding a subpackage means adding its
-copies here.** The bodies themselves have not drifted: all eight `_report`
-copies are identical but for one clause `check/cli.py` adds about its own
-exit-3 gate.
+so the debt *was* discovered twice. **Adding a substrate subpackage means
+adding its copies here**, and since then something counts them:
+`tests/substrate/test_cli_conventions.py` scans the package for every helper
+the table names and fails when a row and the code disagree. The bodies
+themselves have not drifted: all eight `_report` copies are identical but for
+one clause `check/cli.py` adds about its own exit-3 gate.
+
+**The register speaks for the substrate only.** `server/` and `experiment/`
+keep their own `_git` (`server/core/draft.py`, `experiment/workspace.py`) and
+`_report` (`server/cli.py`, `experiment/cli.py`) copies, and the test excludes
+them deliberately: they are separate programs that share no helper with the
+substrate, and their copies have different contracts — the server's `_git`
+takes its `Context` and always targets the workspace's `draft/` clone, and
+the experiment's raises `ExperimentError` and can pin commit dates so a
+scaffold commit hashes identically in every pristine workspace. They are
+named here so nobody counts them as drift.
 
 `anchors.py`'s `_git` additionally duplicates one the companion provenance
 module will provide once it lands. When that arrives, consolidation should
 consider all three call sites together — preserving the `check=True`
 distinction in each.
 
-## Framework gotcha: `panther.*` loggers swallow warnings
+## Why diagnostics go to stderr, never to a logger
 
-Every `panther.*` logger is configured with `propagate=False` and a handler
-admitting only `ERROR`, so `logger.warning` from a plugin is silently
-discarded. That is why `check/cli.py` writes diagnostics to stderr via its
-`_report` helper rather than logging them: a gate that exits non-zero without
-saying why is the exact failure this module exists to prevent. Any plugin
-author emitting operator-facing diagnostics should assume the same.
+Every CLI here writes its diagnostics to stderr via a `_report` helper rather
+than through `logging`. The rule was learned inside PANTHER, where every
+`panther.*` logger is configured with `propagate=False` and a handler admitting
+only `ERROR`, so a plugin's `logger.warning` is silently discarded. A gate that
+exits non-zero without saying why is the exact failure this module exists to
+prevent, and a host's logging configuration is not this package's to control,
+so the rule holds standalone too.

@@ -4,16 +4,21 @@
 whose every claim is gated against the evidence behind it. One repository
 holds all of it:
 
-- `ai_rfc/` — the deterministic **substrate**: corpus extraction, forge
-  snapshots, timeline clustering, evidence views, claim manifests, checkpoints
-  and gates. It makes no model calls and opens no socket except in `forge`.
-  Its design and schema are documented in `ai_rfc/README.md`.
+- `ai_rfc/` — the deterministic **substrate**: eight programs for corpus
+  extraction, forge snapshots, timeline clustering, evidence views, claim
+  manifests, checkpoints and gates. The substrate makes no model calls and
+  opens no socket except in `forge`; the two subpackages below live under the
+  same directory but are not substrate. Its design and schema are documented
+  in `ai_rfc/README.md`.
 - `ai_rfc/server/` — the **MCP server** and its parity CLI (`ai_rfc <verb>`):
   one core, two frontends, so an agent cannot overstate what the evidence
-  supports whichever door it uses.
+  supports whichever door it uses. Tool-to-verb table: `docs/parity.md`.
 - `ai_rfc/experiment/` — the **driver and instrument**: pristine workspaces,
-  hermetic `claude -p` sessions, per-cluster sweeps, audit and metrics.
-- `plugins/ai-rfc/` — the **Claude Code plugin**: skills, commands, `.mcp.json`.
+  hermetic `claude -p` sessions, per-cluster sweeps, audit and metrics. The
+  only code in the repository that launches an agent. Usage:
+  `ai_rfc/experiment/README.md`; design: `docs/experiment-protocol.md`.
+- `plugins/ai-rfc/` — the **Claude Code plugin**: four skills, five commands,
+  `.mcp.json`. See "Plugin" below.
 
 ## Install
 
@@ -38,13 +43,41 @@ reconstruction workspace (clone, corpus, timeline, clusters, checkpoints,
 manifest, questions, revisions, draft). Missing either fails loudly; nothing
 guesses.
 
-## Two doors, one behaviour
+## Three entry names, two dispatchers
 
-`ai-rfc <verb>` and `python -m ai_rfc <verb>` are the same dispatcher over the
-same eight programs (`history`, `forge`, `timeline`, `views`, `check`,
-`draft`, `coverage`, `pipeline`), each also reachable as
-`python -m ai_rfc.<sub>`. Exit codes everywhere: 0 clean, 1 unusable input,
-2 malformed invocation (argparse), 3 strict findings.
+| Entry | What it is | Surface |
+|---|---|---|
+| `ai-rfc <verb>` = `python -m ai_rfc <verb>` | The substrate door: one dispatcher (`ai_rfc/cli.py`) over the eight programs `history`, `forge`, `timeline`, `views`, `check`, `draft`, `coverage`, `pipeline`, each also reachable as `python -m ai_rfc.<sub>` | What a person, or the raw experiment arm, runs |
+| `ai_rfc <verb>` (underscore) | The parity CLI (`ai_rfc/server/cli.py`): sixteen workspace-level verbs, one per MCP tool, over the same core the server uses | What the AI+CLI experiment arm runs through Bash |
+| `python -m ai_rfc.server` | The stdio MCP server exposing the same sixteen operations as `ai_rfc_*` tools | What Claude Code mounts from the plugin's `.mcp.json`, and what the AI+MCP arm gets |
+
+The underscore name is interim: the one-door design folds it into `ai-rfc`
+(see the pyproject comment on `[project.scripts]`). Exit codes are the same
+through every door: 0 clean, 1 unusable input, 2 malformed invocation
+(argparse), 3 strict findings.
+
+## Plugin
+
+`plugins/ai-rfc/` is a Claude Code plugin marketplace entry (`.claude-plugin/`
+at the repository root). It carries:
+
+| Command | Follows |
+|---|---|
+| `/ai-rfc-init URL` | Runs the deterministic stages for a fresh workspace and scaffolds the draft |
+| `/ai-rfc-next-cluster` | One iteration of the `ai-rfc-reconstruction-loop` skill |
+| `/ai-rfc-interview-import PATH` | The `ai-rfc-interviewing` skill |
+| `/ai-rfc-release-revision` | The tagging tail of the loop, through the MCP tools or `ai_rfc` verbs |
+| `/ai-rfc-status` | A one-screen report computed from the workspace's own artifacts |
+
+Skills: `ai-rfc-reconstruction-loop` (the driver), `ai-rfc-evidence-hygiene`
+(claims and anchors), `ai-rfc-rfc-style` with `references/claim-citation.md`
+(prose), and `ai-rfc-interviewing` (author feedback). The loop skill is
+**generated**: `python -m ai_rfc.experiment render` writes it from
+`ai_rfc/experiment/prompts/loop.tmpl.md`, and a test pins the committed file
+to that rendering — edit the template, not the skill. The evidence-hygiene and
+RFC-style texts are hand-written and are also inlined verbatim into every
+experiment arm's system prompt, so one edit reaches both the plugin and the
+harness.
 
 ## Experiment harness
 
