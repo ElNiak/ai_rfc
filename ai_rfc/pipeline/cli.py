@@ -4,14 +4,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
 from ai_rfc import __version__
 
 from .run import PipelineError, perform, workspace_from
-from .stages import BY_NAME, STAGES, Performer
-from .state import State, next_stage, state
+from .stages import BY_NAME, OPTIONAL, STAGES, Performer, is_optional
+from .state import State, draft_head, next_stage, state
 from .substrate import check
 from .workspace import Workspace
 
@@ -63,8 +64,8 @@ def _parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "First stage to run; default is wherever the workspace stands. "
-            "The re-derivable checks (check, gate) run only inside a range "
-            "given explicitly with --from/--until."
+            "The re-derivable checks (check, gate, lint) run only inside a "
+            "range given explicitly with --from/--until."
         ),
     )
     run.add_argument(
@@ -74,8 +75,8 @@ def _parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "Last stage to run; default is the next agent boundary. The "
-            "re-derivable checks (check, gate) run only inside a range "
-            "given explicitly with --from/--until."
+            "re-derivable checks (check, gate, lint) run only inside a "
+            "range given explicitly with --from/--until."
         ),
     )
     run.add_argument(
@@ -89,6 +90,19 @@ def _parser() -> argparse.ArgumentParser:
     )
     run.add_argument(
         "--cluster", default=None, help="Cluster id, for the checkpoint stage."
+    )
+    run.add_argument(
+        "--toolchain",
+        type=Path,
+        default=(
+            Path(os.environ["AI_RFC_TOOLCHAIN"])
+            if os.environ.get("AI_RFC_TOOLCHAIN")
+            else None
+        ),
+        help=(
+            "toolchain.json for the build stage (default: $AI_RFC_TOOLCHAIN); "
+            "without it, build is skipped."
+        ),
     )
     run.add_argument(
         "--strict",
@@ -182,16 +196,21 @@ def _run(args: argparse.Namespace) -> int:
             continue
         if until is not None and stage.ordinal > until:
             break
-        if stage.name == "forge" and args.forge_url is None:
-            # Forge is the one networked stage and the only optional one: a
-            # git-only timeline is a narrower reconstruction, not a broken one.
-            # Skipping it without a URL matches how state steps over it, and
-            # the two disagreeing is what this branch exists to prevent.
-            if args.start == "forge":
-                _report("error: forge was asked for but no --forge-url was given")
-                return 1
-            _report("note: skipping forge; no --forge-url given")
-            continue
+        if is_optional(stage):
+            # Skipping without the stage's flag matches how `state` steps over
+            # it (`is_optional`/`OPTIONAL` is the one rule both read), and the
+            # two disagreeing is what asking for the stage explicitly (below)
+            # exists to prevent.
+            flag = OPTIONAL[stage.name]
+            given = getattr(args, flag.lstrip("-").replace("-", "_"))
+            if given is None:
+                if args.start == stage.name:
+                    _report(
+                        f"error: {stage.name} was asked for but no {flag} was given"
+                    )
+                    return 1
+                _report(f"note: skipping {stage.name}; no {flag} given")
+                continue
         if stage.performer is not Performer.DETERMINISTIC:
             # Reaching a boundary is the pipeline working, not failing: the
             # deterministic half is done and the next move is somebody else's.
@@ -209,6 +228,7 @@ def _run(args: argparse.Namespace) -> int:
             cluster=args.cluster,
             forge_url=args.forge_url,
             host=args.host,
+            toolchain=args.toolchain,
         )
         performed.append(
             {
@@ -238,12 +258,13 @@ def _perform_rederivable(
 ) -> int:
     """Run the checks the stage walk cannot reach, and return the worst exit code.
 
-    ``check`` and ``gate`` are the only re-derivable stages: neither records
-    doneness and neither mutates the workspace beyond its own report, so both
-    are safe to run whenever their inputs exist. The walk cannot reach them
-    reliably — ``check`` sits at ordinal 6 but the agent boundary ``prose`` at 7
-    ends the walk, and ``gate`` at 9 needs the draft ``prose`` produces — so
-    they are performed by state instead, after the walk. This includes a walk
+    ``check``, ``gate`` and ``lint`` are the re-derivable stages: none records
+    doneness and none mutates the workspace beyond its own report, so all
+    three are safe to run whenever their inputs exist. The walk cannot reach
+    them reliably — ``check`` sits at ordinal 6 but the agent boundary
+    ``prose`` at 7 ends the walk, and ``gate`` at 9 and ``lint`` at 10 both
+    need the draft ``prose`` produces — so they are performed by state
+    instead, after the walk. This includes a walk
     that performed nothing at all: ``_run`` no longer returns early when
     ``next_stage`` reports nothing outstanding, so a finished workspace still
     reaches this function.
@@ -280,7 +301,7 @@ def _perform_rederivable(
     already = {entry["stage"] for entry in performed}
     states = {entry.stage.name: entry.state for entry in state(ws)}
     worst = 0
-    for name in ("check", "gate"):
+    for name in ("check", "gate", "lint"):
         if name in already:
             continue
         if explicit_start is not None and BY_NAME[name].ordinal < explicit_start:
@@ -296,6 +317,12 @@ def _perform_rederivable(
             # and revisions.yaml alone; no stage this walk performs ever
             # writes questions.yaml, so the register's existence is checked
             # here directly rather than assumed from `prose`'s state.
+            continue
+        if name == "lint" and draft_head(ws) is None:
+            # `_prose` grades doneness from the draft repository and
+            # revisions.yaml alone, not from a commit existing, so a draft
+            # repository that was only `git init`ed reads DONE while
+            # `draft lint`'s default `--ref HEAD` has nothing to read.
             continue
         result = perform(BY_NAME[name], ws, strict=args.strict, cluster=args.cluster)
         performed.append(

@@ -20,9 +20,11 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
+from ..draft.build import BUILD_DIR, REPORT_FILE
 from ..forge.store import FIDELITY_CEILINGS, FULL_FIDELITY
 from ..schema import SchemaError, load
-from .stages import STAGES, Performer, Stage
+from .stages import STAGES, Performer, Stage, is_optional
+from .substrate import _git as _git_status
 from .workspace import Workspace, digest
 
 
@@ -244,6 +246,40 @@ def _prose(ws: Workspace, mining: State) -> tuple[State, str]:
     return State.DONE, ""
 
 
+def draft_head(ws: Workspace) -> str | None:
+    """The draft repository's current commit, or ``None`` if it has none.
+
+    Shared between :func:`_build`, which grades a build report stale once it
+    was written for another commit, and the CLI's re-derivable guard, which
+    must not run ``lint`` against a draft repository ``_prose`` reads as DONE
+    but that was only ``git init``ed and never committed.
+
+    Args:
+        ws: The workspace whose draft repository to read.
+
+    Returns:
+        The commit hash at ``HEAD``, or ``None`` when the draft repository
+        has no commit yet (or is not a git repository at all).
+    """
+    code, out = _git_status(ws.draft, "rev-parse", "HEAD")
+    return out if code == 0 and out else None
+
+
+def _build(ws: Workspace, prose: State) -> tuple[State, str]:
+    if prose is not State.DONE:
+        return State.BLOCKED, "there is no prose to build"
+    report_path = ws.out / BUILD_DIR / REPORT_FILE
+    if not report_path.exists():
+        return State.BLOCKED, "no build report yet; run with --toolchain"
+    report = json.loads(report_path.read_text())
+    head = draft_head(ws)
+    if head is None or report.get("commit") != head:
+        return State.STALE, "the build report is for another draft commit"
+    if report.get("exit_code", 1) != 0 or report.get("findings"):
+        return State.STALE, "the last build had findings"
+    return State.DONE, ""
+
+
 def state(ws: Workspace) -> tuple[StageState, ...]:
     """Read every stage's state off the workspace.
 
@@ -266,6 +302,7 @@ def state(ws: Workspace) -> tuple[StageState, ...]:
         if mining[0] is State.DONE
         else (State.BLOCKED, "there is no manifest to check")
     )
+    prose = _prose(ws, mining[0])
     by_name: dict[str, tuple[State, str]] = {
         "pin": pin,
         "history": history,
@@ -274,9 +311,15 @@ def state(ws: Workspace) -> tuple[StageState, ...]:
         "views": views,
         "mining": mining,
         "check": rederivable,
-        "prose": _prose(ws, mining[0]),
+        "prose": prose,
         "checkpoint": _checkpoint(ws, mining[0]),
         "gate": rederivable,
+        "lint": (
+            (State.RECOMPUTED, "")
+            if prose[0] is State.DONE
+            else (State.BLOCKED, "there is no prose to lint")
+        ),
+        "build": _build(ws, prose[0]),
     }
     return tuple(StageState(stage, *by_name[stage.name]) for stage in STAGES)
 
@@ -288,9 +331,10 @@ def next_stage(ws: Workspace) -> NextStage | None:
     next and whether the runner or a model does it, without the caller needing
     to know the stage table.
 
-    ``forge`` never blocks. Its enrichment is optional — a git-only timeline is
-    a narrower reconstruction, not a broken one — so a workspace with no
-    snapshot is reported by :func:`state` and stepped over here.
+    ``forge`` and ``build`` never block. Both are optional — a git-only
+    timeline is a narrower reconstruction and an unrendered draft is still a
+    reconstruction, not a broken one — so a workspace missing either is
+    reported by :func:`state` and stepped over here.
 
     Args:
         ws: The workspace to read.
@@ -302,7 +346,7 @@ def next_stage(ws: Workspace) -> NextStage | None:
         OSError: If an artifact exists but cannot be read.
     """
     for entry in state(ws):
-        if entry.stage.name == "forge":
+        if is_optional(entry.stage):
             continue
         if entry.state in (State.DONE, State.RECOMPUTED):
             continue

@@ -10,17 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from ai_rfc.pipeline.run import (
-    DISPATCH,
-    PipelineError,
-    perform,
-    workspace_from,
-)
-from ai_rfc.pipeline.stages import (
-    STAGES,
-    Performer,
-    stage,
-)
+from ai_rfc.pipeline.run import DISPATCH, PipelineError, perform, workspace_from
+from ai_rfc.pipeline.stages import STAGES, Performer, stage
 
 pytestmark = pytest.mark.unit
 
@@ -76,3 +67,30 @@ def test_every_deterministic_stage_has_a_builder():
     assert set(DISPATCH) == {
         item.name for item in STAGES if item.performer is Performer.DETERMINISTIC
     }
+
+
+def test_lint_and_build_requests_name_the_workspace_paths(tmp_path):
+    from ai_rfc.pipeline.run import DISPATCH, _Request
+    from ai_rfc.pipeline.workspace import Workspace
+
+    ws = Workspace(tmp_path)
+    argv, module = DISPATCH["lint"](_Request(ws, strict=True))
+    assert argv == [
+        "lint",
+        str(ws.draft),
+        "--out",
+        str(ws.out),
+        "--manifest",
+        str(ws.manifest),
+        "--strict",
+    ]
+    assert module.__name__ == "ai_rfc.draft.cli"
+    argv, module = DISPATCH["build"](_Request(ws, toolchain=tmp_path / "tc.json"))
+    assert argv == [
+        "build",
+        str(ws.draft),
+        "--out",
+        str(ws.out),
+        "--toolchain",
+        str(tmp_path / "tc.json"),
+    ]

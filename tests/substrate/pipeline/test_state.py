@@ -4,13 +4,7 @@ from pathlib import Path
 import pytest
 
 from ai_rfc.pipeline import cli
-from ai_rfc.pipeline.state import (
-    State,
-    _checkpoint,
-    _cluster_ids,
-    next_stage,
-    state,
-)
+from ai_rfc.pipeline.state import State, _checkpoint, _cluster_ids, next_stage, state
 from ai_rfc.pipeline.workspace import Workspace
 
 pytestmark = pytest.mark.unit
@@ -242,3 +236,29 @@ def test_a_snapshot_without_a_declaration_grades_as_before(workspace: Path):
     entry = next(e for e in state(Workspace(root=workspace)) if e.stage.name == "forge")
     assert entry.state is State.STALE
     assert "GITLAB_TOKEN" in entry.reason
+
+
+def test_build_is_blocked_until_prose_then_stale_until_rebuilt(drafted_workspace):
+    from ai_rfc.draft.build import BUILD_DIR, REPORT_FILE
+    from ai_rfc.pipeline.state import State, state
+
+    by_name = {entry.stage.name: entry for entry in state(drafted_workspace)}
+    assert by_name["lint"].state is State.RECOMPUTED
+    assert by_name["build"].state is State.BLOCKED
+    report_dir = drafted_workspace.out / BUILD_DIR
+    report_dir.mkdir(parents=True)
+    (report_dir / REPORT_FILE).write_text(
+        json.dumps({"commit": "0" * 40, "exit_code": 0, "findings": []})
+    )
+    by_name = {entry.stage.name: entry for entry in state(drafted_workspace)}
+    assert by_name["build"].state is State.STALE
+
+
+def test_optional_stages_are_stepped_over_by_next_stage(drafted_workspace):
+    from ai_rfc.pipeline.stages import BY_NAME, is_optional
+    from ai_rfc.pipeline.state import next_stage
+
+    assert is_optional(BY_NAME["forge"]) and is_optional(BY_NAME["build"])
+    assert not is_optional(BY_NAME["lint"])
+    outstanding = next_stage(drafted_workspace)
+    assert outstanding is None or outstanding.stage.name not in ("forge", "build")

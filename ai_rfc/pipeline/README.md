@@ -33,13 +33,17 @@ package reserves to `forge`, so obtaining the repository stays a human step.
 | 7 | `prose` | **agent** | evidence → `draft/`, `revisions.yaml` |
 | 8 | `checkpoint` | deterministic | `manifest.yaml` → `checkpoints/<id>/` |
 | 9 | `gate` | deterministic | `draft/` → `out/gate-report.json` |
+| 10 | `lint` | deterministic | `draft/` → `out/lint-report.json` |
+| 11 | `build` | deterministic | `draft/` → `out/build/` |
 
-`forge` is the only optional stage. Its enrichment matters — on a squash-heavy
+`forge` and `build` are optional: each is skipped without its flag and
+stepped over by `status`. `forge`'s enrichment matters — on a squash-heavy
 repository a git-only timeline sees far fewer pull requests — but a
-reconstruction without it is narrower, not broken. Both `state` and the runner
-step over it when no `--forge-url` is given, and they are written to agree:
-skipping in one and requiring it in the other is the disagreement the runner's
-explicit branch exists to prevent.
+reconstruction without it is narrower, not broken; `build` without a
+toolchain leaves a workspace unrendered but still a complete reconstruction.
+`state` and the runner agree on both because `is_optional` is the one
+predicate both read — a second hardcoded check is what let them disagree
+before.
 
 ## State is derived, never recorded
 

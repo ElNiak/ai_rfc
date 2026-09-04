@@ -61,6 +61,7 @@ class _Request:
     cluster: str | None = None
     forge_url: str | None = None
     host: str | None = None
+    toolchain: Path | None = None
 
 
 _Builder = Callable[[_Request], "tuple[list[str], CommandModule]"]
@@ -159,6 +160,34 @@ def _gate(req: _Request) -> tuple[list[str], CommandModule]:
     return argv, draft_cli
 
 
+def _lint(req: _Request) -> tuple[list[str], CommandModule]:
+    argv = [
+        "lint",
+        str(req.ws.draft),
+        "--out",
+        str(req.ws.out),
+        "--manifest",
+        str(req.ws.manifest),
+    ]
+    if req.strict:
+        argv.append("--strict")
+    return argv, draft_cli
+
+
+def _build(req: _Request) -> tuple[list[str], CommandModule]:
+    argv = [
+        "build",
+        str(req.ws.draft),
+        "--out",
+        str(req.ws.out),
+        "--toolchain",
+        str(req.toolchain),
+    ]
+    if req.strict:
+        argv.append("--strict")
+    return argv, draft_cli
+
+
 #: Stage name to the builder that turns a request into that stage's argv. A
 #: table rather than a chain of ``elif``s, because the correspondence with
 #: ``STAGES`` is then one assertion instead of seven branches nobody re-reads:
@@ -172,6 +201,8 @@ DISPATCH: dict[str, _Builder] = {
     "check": _check,
     "checkpoint": _checkpoint,
     "gate": _gate,
+    "lint": _lint,
+    "build": _build,
 }
 
 
@@ -183,6 +214,7 @@ def perform(
     cluster: str | None = None,
     forge_url: str | None = None,
     host: str | None = None,
+    toolchain: Path | None = None,
 ) -> StageResult:
     """Run one deterministic stage.
 
@@ -194,6 +226,7 @@ def perform(
         cluster: The cluster id ``checkpoint`` freezes against.
         forge_url: The repository URL ``forge`` fetches.
         host: The forge kind, when it cannot be inferred from the URL.
+        toolchain: The toolchain.json ``build`` compiles the draft with.
 
     Returns:
         What the stage's CLI returned.
@@ -211,7 +244,14 @@ def perform(
         )
 
     argv, module = builder(
-        _Request(ws, strict=strict, cluster=cluster, forge_url=forge_url, host=host)
+        _Request(
+            ws,
+            strict=strict,
+            cluster=cluster,
+            forge_url=forge_url,
+            host=host,
+            toolchain=toolchain,
+        )
     )
     ws.root.mkdir(parents=True, exist_ok=True)
     return StageResult(stage, module.main(argv), tuple(argv))

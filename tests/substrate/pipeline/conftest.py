@@ -5,10 +5,7 @@ import pytest
 
 from ai_rfc.draft.checkpoint import write_checkpoint
 from ai_rfc.pipeline import cli
-from ai_rfc.pipeline.state import (
-    _cluster_ids,
-    next_stage,
-)
+from ai_rfc.pipeline.state import _cluster_ids, next_stage
 from ai_rfc.pipeline.workspace import Workspace
 
 
@@ -95,3 +92,21 @@ def finished_workspace(mined_workspace: Path) -> Path:
 
     assert next_stage(ws) is None
     return mined_workspace
+
+
+@pytest.fixture
+def drafted_workspace(finished_workspace: Path) -> Workspace:
+    """`finished_workspace` with a committed draft file.
+
+    `finished_workspace` only `git init`s the draft repository, so `draft lint`
+    and `draft build` — which read the draft at a ref — have nothing to read.
+    """
+    ws = Workspace(root=finished_workspace)
+    _run(ws.draft, "config", "user.email", "t@t")
+    _run(ws.draft, "config", "user.name", "t")
+    (ws.draft / "draft-test-spec.md").write_text(
+        "# Spec\n\nThe system does the thing. `ai_rfc:spec:1.1`\n"
+    )
+    _run(ws.draft, "add", "draft-test-spec.md")
+    _run(ws.draft, "commit", "-m", "revision 00")
+    return ws

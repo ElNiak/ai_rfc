@@ -69,9 +69,22 @@ STAGES: tuple[Stage, ...] = (
     ),
     Stage(8, "checkpoint", Performer.DETERMINISTIC),
     Stage(9, "gate", Performer.DETERMINISTIC),
+    Stage(10, "lint", Performer.DETERMINISTIC),
+    Stage(11, "build", Performer.DETERMINISTIC),
 )
 
 BY_NAME = {stage.name: stage for stage in STAGES}
+
+#: Stages a workspace may lack without being broken, and the run flag that
+#: enables each: a git-only timeline is a narrower reconstruction, and an
+#: unrendered draft is still a reconstruction. ``next_stage`` steps over these
+#: and the runner skips them when the flag is absent — one rule, two callers.
+OPTIONAL: dict[str, str] = {"forge": "--forge-url", "build": "--toolchain"}
+
+
+def is_optional(stage: Stage) -> bool:
+    """Whether ``stage`` may be skipped without leaving the workspace incomplete."""
+    return stage.name in OPTIONAL
 
 
 def stage(name: str) -> Stage:

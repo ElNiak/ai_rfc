@@ -145,6 +145,24 @@ def test_gate_is_skipped_when_the_question_register_is_missing(
     assert "error:" not in captured.err
 
 
+def test_lint_is_skipped_when_the_draft_has_no_commit(finished_workspace, capsys):
+    """``_prose`` grades doneness without requiring a commit; ``lint`` needs one.
+
+    `finished_workspace`'s draft repository is only `git init`ed, never
+    committed, so `draft lint`'s default `--ref HEAD` has nothing to read.
+    Performing it anyway would turn a missing commit into a spurious
+    `error:` line, exactly like the gate register guard above.
+    """
+    code = cli.main(["run", str(finished_workspace), "--strict", "--json"])
+    captured = capsys.readouterr()
+
+    assert code == 3
+    performed = [entry["stage"] for entry in json.loads(captured.out)["performed"]]
+    assert "lint" not in performed
+    assert "check" in performed
+    assert "error:" not in captured.err
+
+
 def test_until_bounds_the_rederivable_checks_too(mined_workspace, capsys):
     """``--until``'s contract must hold for the whole command, not just the walk.
 
@@ -233,3 +251,24 @@ def test_a_corrupt_artifact_reads_as_stale_rather_than_crashing(
     assert by_name["timeline"]["state"] == "stale"
     assert "unreadable" in by_name["timeline"]["reason"]
     assert payload["next_action"]["stage"] == "timeline"
+
+
+def test_run_skips_build_without_a_toolchain_and_says_so(
+    drafted_workspace, capsys, monkeypatch
+):
+    from ai_rfc.pipeline.cli import main
+
+    monkeypatch.delenv("AI_RFC_TOOLCHAIN", raising=False)
+    root = str(drafted_workspace.root)
+    assert main(["run", root, "--from", "lint", "--until", "build"]) == 0
+    assert "skipping build; no --toolchain given" in capsys.readouterr().err
+
+
+def test_run_asked_for_build_without_a_toolchain_is_an_error(
+    drafted_workspace, capsys, monkeypatch
+):
+    from ai_rfc.pipeline.cli import main
+
+    monkeypatch.delenv("AI_RFC_TOOLCHAIN", raising=False)
+    assert main(["run", str(drafted_workspace.root), "--from", "build"]) == 1
+    assert "build was asked for but no --toolchain was given" in capsys.readouterr().err
