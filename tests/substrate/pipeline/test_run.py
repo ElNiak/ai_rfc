@@ -107,3 +107,20 @@ def test_lint_and_build_requests_name_the_workspace_paths(tmp_path):
         str(tmp_path / "tc.json"),
         "--strict",
     ]
+
+
+def test_build_request_includes_the_sealed_refcache_when_present(tmp_path):
+    """D46 seals a workspace's own refcache; the pipeline's build stage must
+    pass it through exactly as `server/core/build.py`'s `draft_build` does,
+    or the seal is unenforced on the operator path."""
+    from ai_rfc.pipeline.run import DISPATCH, _Request
+    from ai_rfc.pipeline.workspace import Workspace
+
+    ws = Workspace(tmp_path)
+    argv, _ = DISPATCH["build"](_Request(ws, toolchain=tmp_path / "tc.json"))
+    assert "--refcache" not in argv
+
+    (tmp_path / "refcache").mkdir()
+    argv, _ = DISPATCH["build"](_Request(ws, toolchain=tmp_path / "tc.json"))
+    assert "--refcache" in argv
+    assert argv[argv.index("--refcache") + 1] == str(tmp_path / "refcache")

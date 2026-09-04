@@ -68,6 +68,13 @@ def test_a_wrapped_skeleton_abstract_is_still_a_finding():
     assert report.abstract["is_stub"] is True
 
 
+def test_an_empty_abstract_is_a_finding():
+    report = lint(_draft(abstract=""))
+    assert report.abstract["word_count"] == 0
+    assert "abstract: empty" in report.findings
+    assert "abstract: empty" not in lint(_draft()).findings
+
+
 def test_required_sections_are_checked_by_level_one_heading():
     text = _draft().replace("# IANA Considerations\n\nNone.\n", "")
     report = lint(text)
@@ -118,6 +125,16 @@ def test_keywords_are_counted_outside_fences_and_the_boilerplate_line():
         "MAY": 1,
     }
     assert report.keywords["total"] == 4 and report.keywords["must_fraction"] == 0.5
+
+
+def test_a_literal_comment_marker_inside_artwork_does_not_silence_the_rest():
+    # `{::comment}` written as artwork text inside a fence must not be read as
+    # a real kramdown-rfc comment directive: with no matching `{:/comment}`
+    # outside the fence, the flag it wrongly set would never clear and every
+    # later line would be dropped from the prose.
+    body = "~~~\n{::comment}\n~~~\n\nThe server MUST answer. It MUST NOT lie.\n"
+    report = lint(_draft(body=body))
+    assert report.keywords["total"] == 2
 
 
 def test_a_must_monoculture_is_a_finding_only_over_twenty_keywords():

@@ -221,9 +221,19 @@ def launch(
         The status record, also written as ``status.json``.
 
     Raises:
-        ExperimentError: If the workspace is missing or the run already has
-            a status record.
+        ExperimentError: If the campaign carries no toolchain, the workspace
+            is missing, or the run already has a status record.
     """
+    if campaign.toolchain is None:
+        # `Campaign.toolchain` defaults to `None` so a campaign frozen before
+        # the build gate existed still loads for `audit`; it must not also be
+        # launchable, since `build_env` would then silently omit
+        # `AI_RFC_TOOLCHAIN` and the session would run with no build gate.
+        raise ExperimentError(
+            f"campaign {campaign.id} carries no toolchain; it was frozen "
+            "before the build gate existed — initialise a new campaign with "
+            "--toolchain"
+        )
     if not ref.workspace.is_dir():
         raise ExperimentError(
             f"{ref.workspace} is missing; copy the pristine workspace first"

@@ -99,6 +99,20 @@ def test_launch_refuses_a_campaign_whose_task_template_was_never_frozen(
     assert str(per_cluster_campaign.task_template) in str(excinfo.value)
 
 
+def test_launch_refuses_a_campaign_with_no_toolchain(campaign):
+    """A campaign frozen before the build gate existed (`toolchain=None`, kept
+    as `Campaign`'s default so old campaigns still load for `audit`) must not
+    be launched: `build_env` would silently omit `AI_RFC_TOOLCHAIN` and the
+    session would run with no build gate at all."""
+    no_toolchain = dataclasses.replace(campaign, toolchain=None)
+    ref = _ready(no_toolchain, "A1")
+    with pytest.raises(ExperimentError) as excinfo:
+        launch(no_toolchain, ref, report=lambda _: None)
+    assert "toolchain" in str(excinfo.value)
+    assert not (ref.run_dir / "prompt.md").exists()
+    assert load_status(ref.run_dir) is None
+
+
 def test_arm_a_mounts_mcp_and_has_no_bash(campaign):
     ref_a = _ready(campaign, "A1")
     argv = prepare_run_argv(campaign, ref_a)

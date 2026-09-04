@@ -86,7 +86,8 @@ blocking on it would hide a corpus and timeline that are perfectly current.
 ```bash
 ai-rfc pipeline status WORKSPACE [--json]
 ai-rfc pipeline run WORKSPACE [--from STAGE] [--until STAGE] \
-    [--forge-url URL] [--host github|gitlab] [--cluster ID] [--strict] [--json]
+    [--forge-url URL] [--host github|gitlab] [--cluster ID] [--toolchain PATH] \
+    [--strict] [--json]
 ```
 
 Exit codes follow the package's table: 0 on success *including* a clean stop at

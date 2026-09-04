@@ -532,6 +532,8 @@ def main(argv: list[str] | None = None) -> int:
                 default_toolchain = root / "tools" / "toolchain.json"
                 if default_toolchain.exists():
                     toolchain = default_toolchain
+            if toolchain is not None:
+                toolchain = toolchain.resolve()
             parity = None if args.skip_parity else _run_parity(args.python)
             campaign = init_campaign(
                 CampaignConfig(

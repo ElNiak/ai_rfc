@@ -15,6 +15,8 @@ from ai_rfc.draft.cli import main
 
 from .conftest import git
 
+pytestmark = pytest.mark.unit
+
 DATE = "2026-01-01T00:00:09+00:00"
 
 
@@ -280,6 +282,21 @@ def test_build_refuses_an_unknown_ref(toolchain, draft_repo, tmp_path):
             runner=_fake_make(),
         )
     assert "nope" in str(excinfo.value)
+
+
+def test_a_stale_build_report_does_not_survive_a_refused_build(
+    toolchain, draft_repo, tmp_path
+):
+    """A build that raises before writing a fresh report — here, an unknown
+    ref — must not leave a previous run's report looking current."""
+    record = load_toolchain(toolchain)
+    out = tmp_path / "out"
+    stale = out / "build" / "build-report.json"
+    stale.parent.mkdir(parents=True)
+    stale.write_text("{}")
+    with pytest.raises(BuildError):
+        build(draft_repo, toolchain=record, out=out, ref="nope", runner=_fake_make())
+    assert not stale.exists()
 
 
 def test_cli_build_exits_three_only_under_strict(

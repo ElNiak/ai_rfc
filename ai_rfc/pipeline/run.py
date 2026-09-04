@@ -185,6 +185,12 @@ def _build(req: _Request) -> tuple[list[str], CommandModule]:
         "--toolchain",
         str(req.toolchain),
     ]
+    # Mirrors `server/core/build.py`'s `draft_build`: a workspace's own sealed
+    # refcache (D46) must override the toolchain's shared one here too, or the
+    # seal is enforced on the MCP path but not the operator's `pipeline run`.
+    refcache = req.ws.root / "refcache"
+    if refcache.is_dir():
+        argv += ["--refcache", str(refcache)]
     if req.strict:
         argv.append("--strict")
     return argv, draft_cli

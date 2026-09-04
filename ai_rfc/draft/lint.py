@@ -99,6 +99,8 @@ class LintReport:
             found.append(f"manifest: unloadable ({self.manifest_error})")
         if self.abstract["is_stub"]:
             found.append("abstract: still the skeleton stub")
+        if self.abstract["word_count"] == 0:
+            found.append("abstract: empty")
         for name in self.sections["missing"]:
             found.append(f"section missing: {name}")
         if self.references["normative"] + self.references["informative"] == 0:
@@ -225,16 +227,22 @@ def _prose_lines(body: str) -> list[tuple[int, str]]:
         if _FENCE.match(line):
             fenced = not fenced
             continue
+        if fenced:
+            continue
         # kramdown-rfc drops comment blocks, so their bodies never reach the
         # built draft and must not be linted. Skipping only lines starting
         # `{::` left both the body and the `{:/comment}` closer in the prose.
+        # This check must run only outside a fence: a `{::comment}` written
+        # as artwork text inside one is not a real directive, and setting the
+        # flag from it left no matching closer to ever clear it, silencing
+        # every line for the rest of the draft.
         if stripped.startswith("{::comment}"):
             commented = True
             continue
         if stripped.startswith("{:/comment}"):
             commented = False
             continue
-        if fenced or commented or stripped.startswith("{::"):
+        if commented or stripped.startswith("{::"):
             continue
         kept.append((number, line))
     return kept

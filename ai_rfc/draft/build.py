@@ -11,8 +11,9 @@ Offline is a property of the invocation, not of the tools: ``KRAMDOWN_OFFLINE``
 makes kramdown-rfc read only its reference cache (and insert a *stub* for a
 missing reference, which this module promotes to an error), ``xml2rfc -N``
 refuses network fetches outright, and a black-hole proxy catches anything
-else. A build therefore reproduces byte-for-byte from the same cache and the
-same ``-D`` date.
+else. A build therefore reproduces from the same cache, date and tool
+versions — ``HOME`` is inherited from the caller, though, so user-level gem
+and git configuration can still vary a build.
 """
 
 from __future__ import annotations
@@ -312,6 +313,14 @@ def build(
     run = runner or DEFAULT_RUNNER
     draft_repo = draft_repo.resolve()
     out = out.resolve()
+    build_dir = out / BUILD_DIR
+    # Cleared before anything else can raise: a stale report from a previous
+    # run must not go on looking current once this call has started a new
+    # one, however early it is refused. `missing_ok=True` also tolerates
+    # `build_dir` not existing yet (a first-ever build) — `unlink` raises
+    # `FileNotFoundError` the same way whether the file or its parent is
+    # missing, and `missing_ok` ignores that exception either way.
+    (build_dir / REPORT_FILE).unlink(missing_ok=True)
     resolved = _git(draft_repo, "rev-parse", "--verify", f"{ref}^{{commit}}")
     if resolved.returncode != 0:
         raise BuildError(
@@ -327,7 +336,6 @@ def build(
     )
     cache = refcache or toolchain.refcache
 
-    build_dir = out / BUILD_DIR
     scratch = build_dir / SCRATCH_DIR
     if scratch.exists():
         shutil.rmtree(scratch)
