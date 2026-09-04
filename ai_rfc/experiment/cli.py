@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import importlib.util
 import json
 import os
 import subprocess
@@ -12,12 +13,28 @@ from pathlib import Path
 
 from . import DEFAULT_MODEL, EFFORTS, ExperimentError
 from .arms import ARMS
-from .paths import default_root
+from .paths import default_root, profile_dir
 from .profile import init_profile, login_command
 from .workspace import TARGETS, TEMPLATE_COMMIT, TEMPLATE_URL
 from .workspace import migrate_draft as migrate_draft_workspace
 from .workspace import prepare as prepare_workspace
 from .workspace import reseal as reseal_workspace
+
+#: Printed after every ``optimize apply``. The verb writes the working tree
+#: and stops there, and a diff nobody was told to read is a diff that gets
+#: committed unread.
+NOT_COMMITTED = (
+    "Nothing was committed; review the diff, then run "
+    "tests/experiment/test_render.py."
+)
+
+
+#: Evaluations one whole search round costs, as a multiple of the example
+#: count: the seed over the selection set, the current candidate over a
+#: minibatch, and the proposal over that same minibatch, with the minibatch
+#: being the selection set. A rehearsal given less than this never scores a
+#: proposal at all and reports a converged search rather than a starved one.
+_REHEARSAL_ROUNDS = 3
 
 
 def _report(message: str) -> None:
@@ -99,9 +116,19 @@ def _model(value: str) -> str:
     return model
 
 
+def _repo_root() -> Path:
+    """The repository this package is installed from."""
+    return Path(__file__).resolve().parents[2]
+
+
 def _default_plugin_dir() -> Path:
     """The ai-rfc plugin beside this package."""
-    return Path(__file__).resolve().parents[2] / "plugins" / "ai-rfc"
+    return _repo_root() / "plugins" / "ai-rfc"
+
+
+def _fake_claude() -> Path:
+    """The stand-in agent a rehearsal drives; it ships with the tests."""
+    return _repo_root() / "tests" / "experiment" / "fake_claude" / "claude"
 
 
 def _run_parity(python: str) -> dict:
@@ -126,6 +153,140 @@ def _run_parity(python: str) -> dict:
         "passed": completed.returncode == 0,
         "summary": lines[-1] if lines else completed.stderr[-200:],
     }
+
+
+def _optimize_run(args: argparse.Namespace, root: Path) -> int:
+    """Search for a better bundle, or refuse to start.
+
+    A pilot pays for every evaluation and for every proposal, so it names each
+    model and both ceilings itself, prints what the worst case costs and waits
+    to be told to go ahead. A rehearsal names nothing: it drives the fake agent
+    the tests ship, rates every anchored claim a perfect fit and proposes the
+    seed straight back, so it exercises the whole loop without a paid call.
+
+    Args:
+        args: The parsed ``optimize run`` arguments.
+        root: The experiments root; this optimization owns
+            ``<root>/optimize/<name>``.
+
+    Returns:
+        0 once the search has finished and written its result.
+
+    Raises:
+        ExperimentError: If the stage's preconditions are not met, in which
+            case nothing has been created.
+    """
+    from .optimize.codec import encode, seed_from_plugin
+    from .optimize.evaluator import Evaluator, EvaluatorSettings
+    from .optimize.judge import anthropic_transport, build_judge
+    from .optimize.run import RESULT_FILE, RunSettings, SeedEchoLM, load_examples, log
+    from .optimize.run import run as optimize
+    from .optimize.scoring import ClaimHunk, Judge, Judgement
+
+    def rehearsal_judge(hunks: list[ClaimHunk]) -> list[Judgement]:
+        """Rate every anchored claim a perfect fit, calling nothing."""
+        return [Judgement(hunk.claim_id, 1.0, "rehearsal stub") for hunk in hunks]
+
+    plugin_root = (args.plugin_root or _default_plugin_dir()).resolve()
+    seed = seed_from_plugin(plugin_root)
+    max_evals = args.max_evals
+    max_token_cost = args.max_token_cost
+    judge: Judge
+    reflection_lm: str | SeedEchoLM
+
+    if args.stage == "pilot":
+        missing = [
+            flag
+            for flag, value in (
+                ("--max-evals", args.max_evals),
+                ("--max-token-cost", args.max_token_cost),
+                ("--model", args.model),
+                ("--reflection-lm", args.reflection_lm),
+                ("--judge-model", args.judge_model),
+            )
+            if value is None
+        ]
+        if missing:
+            raise ExperimentError(
+                "a pilot pays for every evaluation and every proposal, so it "
+                f"names each cost itself; missing {', '.join(missing)}"
+            )
+        judge = build_judge(anthropic_transport(args.judge_model))
+        reflection_lm = args.reflection_lm
+        model = args.model
+        claude_bin = args.claude_bin or "claude"
+    else:
+        claude_bin = args.claude_bin or str(_fake_claude())
+        if not Path(claude_bin).exists():
+            raise ExperimentError(
+                f"{claude_bin} is not there; a rehearsal drives the fake agent "
+                "that ships with the tests, so point --claude-bin at one"
+            )
+        judge = rehearsal_judge
+        reflection_lm = SeedEchoLM(encode(seed))
+        model = args.model or "fake-model"
+        # max_token_cost is left unset rather than zeroed. It becomes gepa's
+        # max_reflection_cost, and MaxReflectionCostStopper stops as soon as
+        # cost >= the cap; a callable reflection LM is wrapped in TrackingLM,
+        # which always reports 0.0, so a zero cap would end the rehearsal
+        # before it scored anything. SeedEchoLM cannot spend either way, and
+        # --max-evals still bounds the run.
+
+    examples = load_examples(json.loads(args.examples.read_text()))
+    if max_evals is None:
+        max_evals = _REHEARSAL_ROUNDS * len(examples)
+
+    if args.stage == "pilot":
+        per_example = max(example.budget_usd for example in examples)
+        worst_case = max_evals * per_example + max_token_cost
+        print(
+            f"worst case: {max_evals} evaluations x ${per_example:.2f} + "
+            f"${max_token_cost:.2f} proposer = ${worst_case:.2f}"
+        )
+        if not args.yes:
+            raise ExperimentError("pass --yes to spend it")
+
+    # Last, so that a pilot's cost refusals are reported on any interpreter:
+    # they are what stops money being spent, and this only stops a traceback.
+    if importlib.util.find_spec("gepa") is None:
+        raise ExperimentError(
+            "no search backend on this interpreter; gepa installs under the "
+            "optimize extra, which needs Python 3.11 - run this verb with that "
+            "environment's python"
+        )
+
+    settings = RunSettings(
+        name=args.name,
+        stage=args.stage,
+        root=root,
+        examples=examples,
+        max_evals=max_evals,
+        max_token_cost=max_token_cost,
+        reflection_lm=reflection_lm,
+        seed=args.seed,
+    )
+    evaluator = Evaluator(
+        EvaluatorSettings(
+            root=settings.directory,
+            profile_dir=args.profile_dir or profile_dir(root),
+            python=args.python,
+            claude_bin=claude_bin,
+            model=model,
+            effort=args.effort,
+            timeout_s=args.timeout_s,
+            panther_repo=(args.panther_repo or _repo_root()).resolve(),
+            toolchain=args.toolchain.resolve(),
+            source_plugin_root=plugin_root,
+            seed=seed,
+            judge=judge,
+            log=log,
+        )
+    )
+    result = optimize(settings, evaluator)
+    print(f"best score: {result.best_score}")
+    print(f"candidates: {len(result.candidates)}  evaluations: {result.total_evals}")
+    print(f"result: {settings.directory / RESULT_FILE}")
+    return 0
 
 
 def _add_root(parser: argparse.ArgumentParser) -> None:
@@ -419,6 +580,200 @@ def _parser() -> argparse.ArgumentParser:
     )
     analyze.add_argument("campaign", type=Path, help="Campaign directory.")
 
+    optimize = commands.add_parser(
+        "optimize", help="Search for better skill texts, and apply what it finds."
+    )
+    optimize_verbs = optimize.add_subparsers(dest="verb", required=True)
+
+    seed_cmd = optimize_verbs.add_parser(
+        "seed", help="Print the bundle an optimization starts from."
+    )
+    seed_cmd.add_argument(
+        "--plugin-root",
+        type=Path,
+        required=True,
+        help="The plugin whose loop template and three prose skills are encoded.",
+    )
+    seed_cmd.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help="Write the encoding here instead of to standard output.",
+    )
+
+    prepare_interview = optimize_verbs.add_parser(
+        "prepare-interview", help="Build the interview task's pristine workspace."
+    )
+    _add_root(prepare_interview)
+    prepare_interview.add_argument(
+        "--panther-repo",
+        type=Path,
+        required=True,
+        help="Checkout the prepared workspace records and resolves against.",
+    )
+    prepare_interview.add_argument(
+        "--template",
+        default=TEMPLATE_URL,
+        help="Internet-Draft template repository (default: %(default)s).",
+    )
+    prepare_interview.add_argument(
+        "--template-commit",
+        default=TEMPLATE_COMMIT,
+        help="Template commit to pin (default: %(default)s).",
+    )
+    prepare_interview.add_argument(
+        "--toolchain",
+        type=Path,
+        default=None,
+        help="Toolchain record; the interview target declares no references, "
+        "so it goes unused.",
+    )
+    prepare_interview.add_argument(
+        "--name",
+        default="interview-fixture",
+        help="Directory name of the sealed baseline (default: %(default)s).",
+    )
+
+    optimize_run = optimize_verbs.add_parser(
+        "run", help="Search for a bundle that scores better than the plugin's."
+    )
+    _add_root(optimize_run)
+    optimize_run.add_argument(
+        "--name",
+        required=True,
+        help="Names the optimization, and its directory under <root>/optimize.",
+    )
+    optimize_run.add_argument(
+        "--stage",
+        choices=("fake", "pilot"),
+        required=True,
+        help=(
+            "fake rehearses the whole loop against the agent the tests ship, "
+            "paying for nothing; pilot runs it for real."
+        ),
+    )
+    optimize_run.add_argument(
+        "--examples",
+        type=Path,
+        required=True,
+        help="JSON spec naming what every candidate is measured on.",
+    )
+    optimize_run.add_argument(
+        "--max-evals",
+        type=int,
+        default=None,
+        help=(
+            "Cap on evaluator calls; required by a pilot. A rehearsal defaults "
+            f"to {_REHEARSAL_ROUNDS} per example, which is one whole round."
+        ),
+    )
+    optimize_run.add_argument(
+        "--max-token-cost",
+        type=float,
+        default=None,
+        help="USD ceiling on the proposer's own spend; required by a pilot.",
+    )
+    optimize_run.add_argument(
+        "--reflection-lm",
+        type=_model,
+        default=None,
+        help="Pilot only: the LiteLLM model id the proposer runs on.",
+    )
+    optimize_run.add_argument(
+        "--judge-model",
+        type=_model,
+        default=None,
+        help="Pilot only: the model rating each anchored claim.",
+    )
+    optimize_run.add_argument(
+        "--model",
+        type=_model,
+        default=None,
+        help="Model every evaluation's run is launched against.",
+    )
+    optimize_run.add_argument(
+        "--effort",
+        choices=EFFORTS,
+        default="high",
+        help="Reasoning effort per launch (default: %(default)s).",
+    )
+    optimize_run.add_argument(
+        "--timeout-s",
+        type=int,
+        default=7200,
+        help="Seconds before one evaluation's run is killed (default: %(default)s).",
+    )
+    optimize_run.add_argument(
+        "--profile-dir",
+        type=Path,
+        default=None,
+        help="The authenticated profile every run shares (default: <root>/profile).",
+    )
+    optimize_run.add_argument(
+        "--toolchain",
+        type=Path,
+        required=True,
+        help="toolchain.json every evaluation's campaign records; a campaign "
+        "cannot be frozen without one.",
+    )
+    optimize_run.add_argument(
+        "--claude-bin",
+        default=None,
+        help="Agent binary to launch (default: claude, or the fake one for a "
+        "rehearsal).",
+    )
+    optimize_run.add_argument(
+        "--python",
+        default=sys.executable,
+        help="Interpreter the runs' substrate shim executes (default: this one).",
+    )
+    optimize_run.add_argument(
+        "--plugin-root",
+        type=Path,
+        default=None,
+        help="The plugin the search starts from. Default: the ai-rfc plugin "
+        "beside this package.",
+    )
+    optimize_run.add_argument(
+        "--panther-repo",
+        type=Path,
+        default=None,
+        help="Checkout each campaign records its revision of. Default: the "
+        "repository this package is installed from.",
+    )
+    optimize_run.add_argument(
+        "--seed",
+        type=int,
+        default=0,
+        help="The backend's own RNG seed (default: %(default)s).",
+    )
+    optimize_run.add_argument(
+        "--yes",
+        action="store_true",
+        help="Required by a pilot: proceed with the spend it prints.",
+    )
+
+    optimize_apply = optimize_verbs.add_parser(
+        "apply", help="Write a candidate into the plugin, committing nothing."
+    )
+    optimize_apply.add_argument(
+        "candidate", type=Path, help="File holding the candidate to write."
+    )
+    optimize_apply.add_argument(
+        "--plugin-root",
+        type=Path,
+        required=True,
+        help="The plugin to write into. Named rather than defaulted: this "
+        "verb changes a working tree.",
+    )
+    optimize_apply.add_argument(
+        "--template",
+        type=Path,
+        default=None,
+        help="Where the loop template is written, and what the loop skill is "
+        "then rendered from. Default: the packaged template.",
+    )
+
     return parser
 
 
@@ -638,6 +993,43 @@ def main(argv: list[str] | None = None) -> int:
             report_path.write_text(render_report(aggregate))
             print(f"aggregate: {campaign.analysis_dir / 'aggregate.json'}")
             print(f"report: {report_path}")
+        elif args.command == "optimize" and args.verb == "seed":
+            from .optimize.codec import encode, seed_from_plugin
+
+            text = encode(seed_from_plugin(args.plugin_root.resolve()))
+            if args.out is None:
+                sys.stdout.write(text)
+            else:
+                args.out.write_text(text)
+                print(f"seed: {args.out}")
+        elif args.command == "optimize" and args.verb == "prepare-interview":
+            from .optimize.fixtures import build_interview_pristine
+
+            fixture = build_interview_pristine(
+                root,
+                panther_repo=args.panther_repo.resolve(),
+                template=args.template,
+                template_commit=args.template_commit,
+                toolchain=args.toolchain,
+                name=args.name,
+            )
+            print(f"pristine: {fixture.pristine_dir}")
+        elif args.command == "optimize" and args.verb == "run":
+            return _optimize_run(args, root)
+        elif args.command == "optimize" and args.verb == "apply":
+            from .optimize.apply import apply as apply_candidate
+            from .optimize.apply import diff_stat
+            from .render import TEMPLATE
+
+            plugin_root = args.plugin_root.resolve()
+            applied = apply_candidate(
+                args.candidate.read_text(),
+                plugin_root,
+                template_path=args.template.resolve() if args.template else TEMPLATE,
+            )
+            print(diff_stat(plugin_root, applied.written), end="")
+            print(f"rendered: {applied.rendered_skill}")
+            print(NOT_COMMITTED)
     except (ExperimentError, OSError) as error:
         _report(f"error: {error}")
         return 1
