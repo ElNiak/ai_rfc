@@ -13,7 +13,6 @@ import hashlib
 import json
 import random
 import shutil
-import string
 import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -23,11 +22,10 @@ from typing import Any
 from . import ExperimentError
 from . import toolchain as toolchain_module
 from .arms import ARMS
-from .render import arm_prompt, unified_diff
+from .render import TASK_TEMPLATE, arm_prompt, render_task, task_template_path
+from .render import unified_diff
 from .workspace import DIGEST_FILE, RECORD_FILE
 
-PROMPTS = Path(__file__).parent / "prompts"
-TASK_TEMPLATE = PROMPTS / "task.md"
 TASK_TEMPLATE_FILE = "task.tmpl.md"
 CAMPAIGN_FILE = "campaign.json"
 _SHIM = """#!/bin/sh
@@ -179,21 +177,6 @@ def run_order(arms: tuple[str, ...], repeats: int, seed: int) -> tuple[str, ...]
         random.Random(seed + block).shuffle(shuffled)
         order.extend(f"{arm}{block}" for arm in shuffled)
     return tuple(order)
-
-
-def render_task(window: tuple[int, int], template: Path = TASK_TEMPLATE) -> str:
-    """The task prompt, identical across arms, with the window spelled out.
-
-    Args:
-        window: Inclusive first and last cluster ordinals.
-        template: The template to render; a campaign passes its frozen copy so
-            a session's prompt cannot drift from the campaign record.
-
-    Returns:
-        The rendered prompt.
-    """
-    low, high = window
-    return string.Template(template.read_text()).substitute(low=low, high=high)
 
 
 def git_describe(path: Path) -> str:
