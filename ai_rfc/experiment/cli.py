@@ -529,7 +529,9 @@ def main(argv: list[str] | None = None) -> int:
                 pristine = root / "pristine" / args.baseline
             toolchain = args.toolchain
             if toolchain is None:
-                toolchain = root / "tools" / "toolchain.json"
+                default_toolchain = root / "tools" / "toolchain.json"
+                if default_toolchain.exists():
+                    toolchain = default_toolchain
             parity = None if args.skip_parity else _run_parity(args.python)
             campaign = init_campaign(
                 CampaignConfig(

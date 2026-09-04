@@ -152,7 +152,9 @@ def toolchain_record(tmp_path: Path) -> Path:
 
 
 @pytest.fixture(autouse=True)
-def _toolchain_always_verifies(monkeypatch: pytest.MonkeyPatch) -> None:
+def _toolchain_always_verifies(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Every campaign fixture's toolchain passes verify without a real build.
 
     ``init_campaign`` calls ``toolchain_module.verify`` for real otherwise,
@@ -161,9 +163,17 @@ def _toolchain_always_verifies(monkeypatch: pytest.MonkeyPatch) -> None:
     for the many campaign/runner/CLI tests that only need a campaign to
     exist. Patching the module attribute (not a local import) is what makes
     this take effect inside ``init_campaign``, which reads ``toolchain_module
-    .verify`` fresh on every call; test_toolchain.py imports ``verify``
-    itself by name, so its own calls are unaffected by this patch.
+    .verify`` fresh on every call.
+
+    test_toolchain.py's tests import ``verify`` itself by name, so their own
+    direct calls are unaffected by this patch either way -- but ``provision``
+    calls ``verify`` by bare name too (a lookup in its own module's globals),
+    and ``cli.py``'s ``toolchain verify`` dispatch re-imports it fresh on
+    every call, so both *would* be silently bypassed for test_toolchain.py's
+    tests if this patch applied unconditionally. Hence the module-name guard.
     """
+    if request.module.__name__.endswith("test_toolchain"):
+        return
     from ai_rfc.experiment import toolchain as toolchain_module
 
     monkeypatch.setattr(

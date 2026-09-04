@@ -162,7 +162,7 @@ def test_init_refuses_without_a_verified_toolchain(
     assert "refcache digest differs" in str(excinfo.value)
     with pytest.raises(ExperimentError) as excinfo:
         _init(tmp_path, pristine, panther_repo, plugin_root, toolchain=None)
-    assert "toolchain" in str(excinfo.value)
+    assert "needs a verified toolchain" in str(excinfo.value)
 
 
 def test_init_records_the_toolchain_digest(
@@ -180,3 +180,57 @@ def test_init_records_the_toolchain_digest(
     assert campaign.toolchain_sha256 == hashlib.sha256(record.read_bytes()).hexdigest()
     stored = json.loads((campaign.dir / "campaign.json").read_text())
     assert stored["toolchain_sha256"] == campaign.toolchain_sha256
+
+
+def test_a_campaign_frozen_before_the_toolchain_fields_existed_still_loads(
+    tmp_path, pristine, panther_repo, plugin_root
+):
+    """The three new fields default to None, so a pre-existing campaign.json loads.
+
+    Mirrors test_per_cluster.py's precedent for session_mode; that file is
+    outside this fix round's file list, so this is the equivalent coverage
+    for toolchain/toolchain_sha256/template_home, kept here instead.
+    """
+    campaign = _init(tmp_path, pristine, panther_repo, plugin_root)
+    stored_path = campaign.dir / "campaign.json"
+    payload = json.loads(stored_path.read_text())
+    for key in ("toolchain", "toolchain_sha256", "template_home"):
+        del payload[key]
+    stored_path.write_text(json.dumps(payload))
+    loaded = load_campaign(campaign.dir)
+    assert loaded.toolchain is None
+    assert loaded.toolchain_sha256 is None
+    assert loaded.template_home is None
+
+
+def test_campaign_init_cli_needs_a_toolchain_when_none_is_provisioned(
+    tmp_path, pristine, panther_repo, capsys
+):
+    """`--toolchain` omitted, and no ``<root>/tools/toolchain.json`` exists.
+
+    cli.py's default resolution must leave ``CampaignConfig.toolchain`` as
+    ``None`` (mirroring ``workspace prepare``'s guard) so the brief's "needs
+    a verified toolchain" message is reachable from the CLI, rather than
+    always resolving to a path that then fails for an unrelated reason.
+    """
+    from ai_rfc.experiment import cli
+
+    code = cli.main(
+        [
+            "campaign",
+            "init",
+            "--root",
+            str(tmp_path / "root"),
+            "--id",
+            "x",
+            "--baseline",
+            str(pristine),
+            "--panther-repo",
+            str(panther_repo),
+            "--claude",
+            "/bin/echo",
+            "--skip-parity",
+        ]
+    )
+    assert code == 1
+    assert "needs a verified toolchain" in capsys.readouterr().err

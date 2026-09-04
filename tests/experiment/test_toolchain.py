@@ -10,9 +10,11 @@ import pytest
 from ai_rfc.experiment import ExperimentError
 from ai_rfc.experiment.toolchain import (
     DEFAULT_REFERENCES,
+    EXAMPLE_DRAFT,
     RECORD_FILE,
     REFCACHE_DIGEST,
     TOOLS_DIR,
+    _version,
     provision,
     verify,
 )
@@ -127,3 +129,106 @@ def test_verify_passes_a_fresh_record_and_names_what_broke(tmp_path, template_re
     (root / TOOLS_DIR / ".refcache" / "reference.RFC.9000.xml").write_text("changed\n")
     ok, reasons = verify(record, runner=fake)
     assert not ok and any("refcache" in reason for reason in reasons)
+
+
+def test_verify_names_the_specific_refcache_entry_that_changed(tmp_path, template_repo):
+    template, commit = template_repo
+    root = tmp_path / "root"
+    fake = _fake_tools(root)
+    record = provision(root, template=template, template_commit=commit, runner=fake)
+    (root / TOOLS_DIR / ".refcache" / "reference.RFC.9000.xml").write_text("changed\n")
+    ok, reasons = verify(record, runner=fake)
+    assert not ok
+    assert any("reference.RFC.9000.xml" in reason for reason in reasons)
+
+
+def test_verify_reports_a_reason_instead_of_crashing_when_the_example_is_missing(
+    tmp_path, template_repo
+):
+    """`verify` wraps staging and building the example, not just the record load.
+
+    Only ``load_toolchain`` was wrapped before; the copyfile/`_git`/`build`
+    calls that stage and build the template's own example ran bare, so an
+    incomplete ``template_home`` reached the caller as a traceback instead of
+    a reason.
+    """
+    template, commit = template_repo
+    root = tmp_path / "root"
+    fake = _fake_tools(root)
+    record = provision(root, template=template, template_commit=commit, runner=fake)
+    home = root / TOOLS_DIR / "i-d-template"
+    (home / "example" / EXAMPLE_DRAFT).unlink()
+    ok, reasons = verify(record, runner=fake)
+    assert not ok
+    assert any("example" in reason for reason in reasons)
+
+
+def test_provision_raises_and_leaves_no_record_when_its_own_verify_fails(
+    tmp_path, template_repo, monkeypatch
+):
+    """A failed self-check must not poison a retry with a half-provisioned record.
+
+    ``provision`` writes ``toolchain.json`` and then verifies it; if that
+    verify fails, the record must not remain on disk, or a retry hits
+    "exists; a toolchain is provisioned once" instead of actually retrying.
+    """
+    from ai_rfc.experiment import toolchain as toolchain_module
+
+    template, commit = template_repo
+    root = tmp_path / "root"
+    fake = _fake_tools(root)
+    monkeypatch.setattr(
+        toolchain_module, "verify", lambda record, runner=None: (False, ("nope",))
+    )
+    with pytest.raises(ExperimentError) as excinfo:
+        provision(root, template=template, template_commit=commit, runner=fake)
+    assert "provisioned, but verify failed" in str(excinfo.value)
+    assert not (root / TOOLS_DIR / RECORD_FILE).exists()
+
+
+def test_version_takes_the_first_line_and_is_empty_on_a_nonzero_exit():
+    """make's banner puts the version first; the last line is the build target."""
+
+    def banner(argv, **kwargs):
+        return subprocess.CompletedProcess(
+            argv,
+            0,
+            stdout=(
+                "GNU Make 3.81\n"
+                "Copyright (C) 2006  Free Software Foundation, Inc.\n"
+                "This program built for i386-apple-darwin11.3.0\n"
+            ),
+            stderr="",
+        )
+
+    assert _version(banner, "make", "--version") == "GNU Make 3.81"
+
+    def failing(argv, **kwargs):
+        return subprocess.CompletedProcess(argv, 1, stdout="", stderr="not found")
+
+    assert _version(failing, "make", "--version") == ""
+
+
+def test_cli_toolchain_verify_reports_a_reason_naming_the_record_and_exits_one(
+    tmp_path, capsys
+):
+    from ai_rfc.experiment.cli import main
+
+    code = main(["toolchain", "verify", "--root", str(tmp_path)])
+    out = capsys.readouterr().out
+    assert code == 1
+    assert str(tmp_path / TOOLS_DIR / RECORD_FILE) in out
+
+
+def test_cli_toolchain_help_is_wired_for_both_verbs(capsys):
+    from ai_rfc.experiment.cli import main
+
+    with pytest.raises(SystemExit) as excinfo:
+        main(["toolchain", "provision", "--help"])
+    assert excinfo.value.code == 0
+    assert "--template" in capsys.readouterr().out
+
+    with pytest.raises(SystemExit) as excinfo:
+        main(["toolchain", "verify", "--help"])
+    assert excinfo.value.code == 0
+    assert "--root" in capsys.readouterr().out

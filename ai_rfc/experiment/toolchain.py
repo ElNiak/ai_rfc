@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from ai_rfc.draft.build import build, load_toolchain, probe_toolchain
+from ai_rfc.draft.build import BuildError, build, load_toolchain, probe_toolchain
 
 from . import ExperimentError
 from .workspace import TEMPLATE_COMMIT, TEMPLATE_URL, _git, _run_git
@@ -95,8 +95,10 @@ def _version(run: Runner, *argv: str) -> str:
         result = run(list(argv), capture_output=True, text=True)
     except OSError as error:
         raise ExperimentError(f"cannot run {argv[0]}: {error}") from None
+    if result.returncode != 0:
+        return ""
     text = (result.stdout or result.stderr).strip()
-    return text.splitlines()[-1] if text else ""
+    return text.splitlines()[0] if text else ""
 
 
 def _seed_draft(references: tuple[str, ...]) -> str:
@@ -121,6 +123,16 @@ def _digest_refcache(refcache: Path) -> str:
     for entry in sorted(refcache.glob("*.xml")):
         lines.append(f"{hashlib.sha256(entry.read_bytes()).hexdigest()}  {entry.name}")
     return "\n".join(lines) + ("\n" if lines else "")
+
+
+def _parse_digest(text: str) -> dict[str, str]:
+    """Split a ``sha256  filename`` digest listing into a name -> digest map."""
+    entries: dict[str, str] = {}
+    for line in text.splitlines():
+        if line.strip():
+            digest, _, name = line.partition("  ")
+            entries[name] = digest
+    return entries
 
 
 def provision(
@@ -271,6 +283,9 @@ def provision(
     record_path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
     ok, reasons = verify(record_path, runner=run)
     if not ok:
+        # A retry must actually retry: leaving the record behind would make
+        # the next provision() hit "exists" instead of trying again.
+        record_path.unlink()
         raise ExperimentError("provisioned, but verify failed: " + "; ".join(reasons))
     return record_path
 
@@ -297,8 +312,19 @@ def verify(
     digest_file = tools / REFCACHE_DIGEST
     if not digest_file.exists():
         reasons.append(f"refcache digest {digest_file} is missing")
-    elif digest_file.read_text() != _digest_refcache(toolchain.refcache):
-        reasons.append("refcache contents differ from the recorded digest")
+    else:
+        recorded = _parse_digest(digest_file.read_text())
+        actual = _parse_digest(_digest_refcache(toolchain.refcache))
+        for name in sorted(set(recorded) | set(actual)):
+            if name not in actual:
+                reasons.append(f"refcache entry missing: {name}")
+                break
+            if name not in recorded:
+                reasons.append(f"refcache entry unexpected: {name}")
+                break
+            if recorded[name] != actual[name]:
+                reasons.append(f"refcache entry modified: {name}")
+                break
     if reasons:
         return False, tuple(reasons)
     example = toolchain.template_home / "example" / EXAMPLE_DRAFT
@@ -307,26 +333,34 @@ def verify(
     with tempfile.TemporaryDirectory(prefix="ai-rfc-toolchain-verify-") as staging:
         scratch = Path(staging)
         repo = scratch / "example"
-        repo.mkdir(parents=True)
-        shutil.copyfile(example, repo / EXAMPLE_DRAFT)
-        shutil.copyfile(
-            toolchain.template_home / "template" / "Makefile", repo / "Makefile"
-        )
-        _git(repo, "init", "-q", "-b", "main")
-        _git(repo, "config", "user.name", "ai-rfc-harness")
-        _git(repo, "config", "user.email", "ai-rfc-harness@localhost")
-        _git(repo, "add", EXAMPLE_DRAFT, "Makefile")
-        _git(repo, "commit", "-q", "-m", "example", date="2026-08-26T00:00:00+00:00")
+        try:
+            repo.mkdir(parents=True)
+            shutil.copyfile(example, repo / EXAMPLE_DRAFT)
+            shutil.copyfile(
+                toolchain.template_home / "template" / "Makefile", repo / "Makefile"
+            )
+            _git(repo, "init", "-q", "-b", "main")
+            _git(repo, "config", "user.name", "ai-rfc-harness")
+            _git(repo, "config", "user.email", "ai-rfc-harness@localhost")
+            _git(repo, "add", EXAMPLE_DRAFT, "Makefile")
+            _git(
+                repo, "commit", "-q", "-m", "example", date="2026-08-26T00:00:00+00:00"
+            )
+        except (OSError, ExperimentError) as error:
+            return False, (f"could not stage the example draft: {error}",)
         digests = []
         for attempt in ("first", "second"):
-            report = build(
-                repo,
-                toolchain=toolchain,
-                out=scratch / attempt,
-                targets=("txt",),
-                date=VERIFY_DATE,
-                runner=runner,
-            )
+            try:
+                report = build(
+                    repo,
+                    toolchain=toolchain,
+                    out=scratch / attempt,
+                    targets=("txt",),
+                    date=VERIFY_DATE,
+                    runner=runner,
+                )
+            except (BuildError, OSError) as error:
+                return False, (f"could not build the example ({attempt}): {error}",)
             if report.exit_code != 0 or report.findings:
                 reasons.append(
                     f"the example did not build offline ({attempt}): "
