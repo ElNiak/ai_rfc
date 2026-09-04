@@ -43,13 +43,20 @@ When the `ai_rfc` MCP server is connected, prefer its tools (`ai_rfc_cluster_nex
    `python -m ai_rfc check $AI_RFC_WORKSPACE/manifest.yaml --out $AI_RFC_WORKSPACE/out --repo $AI_RFC_WORKSPACE/clone --strict` — exit 0 is the bar.
 6. **Decide spec relevance**:
    - Normative behaviour changed → update the draft per the RFC-style
-     rules, citing the new/changed claims.
+     rules, citing the new/changed claims. Prose goes to the section that
+     owns the behaviour (Protocol Operation, Data Model and Structures,
+     Configuration and Defaults, Error Handling) — never to the
+     Introduction, which describes the system, not the reconstruction. The
+     keyword comes from the claim's level and the keyword policy.
    - Nothing normative → no prose edit; the revision entry will say so.
 7. **Checkpoint**: `python -m ai_rfc draft checkpoint $AI_RFC_WORKSPACE/manifest.yaml --timeline $AI_RFC_WORKSPACE/timeline --cluster <id> --out $AI_RFC_WORKSPACE/checkpoints`.
-8. **Record and tag the revision**: append the entry to `$AI_RFC_WORKSPACE/revisions.yaml` under `revisions:` (`cluster_id`, `checkpoint_manifest_sha256` copied from the checkpoint's `checkpoint.json`, `normative_change`, `note`) — the tag
+8. **Record, build and tag the revision**: append the entry to `$AI_RFC_WORKSPACE/revisions.yaml` under `revisions:` (`cluster_id`, `checkpoint_manifest_sha256` copied from the checkpoint's `checkpoint.json`, `normative_change`, `note`) — the tag
    `draft-<name>-NN` (two digits, monotone in cluster ordinal), the cluster
    id, an explicit `normative_change`, a one-line note. Commit any prose
-   change (`git -C $AI_RFC_WORKSPACE/draft add -A && git -C $AI_RFC_WORKSPACE/draft commit -m "<message>"`), then create the annotated tag
+   change (`git -C $AI_RFC_WORKSPACE/draft add -A && git -C $AI_RFC_WORKSPACE/draft commit -m "<message>"`), then **build** it: `ai_rfc_draft_build()` or `ai_rfc draft-build` (the template's `make txt html lint idnits`, offline; the findings name the failed stage or the broken reference). Exit 0 with
+   no findings is the bar before tagging — a failed stage names the line,
+   a broken reference names a citation the sealed cache does not hold (cite
+   it inline in the front matter instead). Then create the annotated tag
    (`git -C $AI_RFC_WORKSPACE/draft tag -a draft-<name>-NN -m "<message>"` — only after the strict manifest gate exited 0). Every revision entry needs its tag, no-change
    revisions included.
 9. **Gate**: `python -m ai_rfc draft gate $AI_RFC_WORKSPACE/draft --timeline $AI_RFC_WORKSPACE/timeline --checkpoints $AI_RFC_WORKSPACE/checkpoints --questions $AI_RFC_WORKSPACE/questions.yaml --revisions $AI_RFC_WORKSPACE/revisions.yaml --out $AI_RFC_WORKSPACE/out --strict` — exit 0 before advancing.

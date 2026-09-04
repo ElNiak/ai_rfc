@@ -71,3 +71,18 @@ def test_the_raw_arm_uses_the_dispatcher():
     assert "python -m ai_rfc draft checkpoint " in c
     assert "python -m ai_rfc draft gate " in c
     assert "python -m ai_rfc.draft" not in c and "python -m ai_rfc $" not in c
+
+
+def test_every_arm_names_its_build_step():
+    a, b, c, interactive = (render_loop(arm) for arm in ("A", "B", "C", "interactive"))
+    assert "ai_rfc_draft_build" in a and "before" in a
+    assert "ai_rfc draft-build" in b
+    assert "not available in this arm" in c and "draft-build" not in c
+    assert "ai_rfc_draft_build" in interactive and "ai_rfc draft-build" in interactive
+
+
+def test_arm_prompt_bundles_the_keyword_policy_and_the_figures_skill(plugin_root):
+    prompt = arm_prompt("A", plugin_root)
+    assert "# Keyword policy" in prompt
+    assert "# Figures in a reconstructed specification" in prompt
+    assert "CLAUDE.md" not in prompt

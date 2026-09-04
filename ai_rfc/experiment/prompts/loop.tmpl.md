@@ -33,13 +33,20 @@ clusters in ordinal order; never skip silently.
    {{gate}} — exit 0 is the bar.
 6. **Decide spec relevance**:
    - Normative behaviour changed → update the draft per the RFC-style
-     rules, citing the new/changed claims.
+     rules, citing the new/changed claims. Prose goes to the section that
+     owns the behaviour (Protocol Operation, Data Model and Structures,
+     Configuration and Defaults, Error Handling) — never to the
+     Introduction, which describes the system, not the reconstruction. The
+     keyword comes from the claim's level and the keyword policy.
    - Nothing normative → no prose edit; the revision entry will say so.
 7. **Checkpoint**: {{checkpoint}}.
-8. **Record and tag the revision**: {{revision_record}} — the tag
+8. **Record, build and tag the revision**: {{revision_record}} — the tag
    `draft-<name>-NN` (two digits, monotone in cluster ordinal), the cluster
    id, an explicit `normative_change`, a one-line note. Commit any prose
-   change ({{draft_commit}}), then create the annotated tag
+   change ({{draft_commit}}), then **build** it: {{draft_build}}. Exit 0 with
+   no findings is the bar before tagging — a failed stage names the line,
+   a broken reference names a citation the sealed cache does not hold (cite
+   it inline in the front matter instead). Then create the annotated tag
    ({{revision_tag}}). Every revision entry needs its tag, no-change
    revisions included.
 9. **Gate**: {{citation_gate}} — exit 0 before advancing.

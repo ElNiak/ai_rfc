@@ -631,3 +631,37 @@ def test_migrate_draft_leaves_the_draft_untouched_when_the_template_is_incomplet
     assert git(draft, "status", "--porcelain") == ""
     assert "main.mk" in git(draft, "ls-files")
     assert git(draft, "rev-parse", "HEAD") == before
+
+
+def test_the_skeleton_compiles_as_a_stub_that_lint_recognises(template_repo, tmp_path):
+    from ai_rfc.draft.lint import lint
+
+    template, commit = template_repo
+    dest = tmp_path / "draft"
+    scaffold_draft(
+        dest, fixture_target(tmp_path), template=template, template_commit=commit
+    )
+    text = (dest / "draft-test-fixture.md").read_text()
+    assert "$" not in text
+    assert "RFC2119:" not in text and "RFC8174:" not in text
+    report = lint(text)
+    assert report.abstract["is_stub"] is True
+    assert report.sections["missing"] == []
+    assert report.sections["present"][:3] == [
+        "Introduction",
+        "Conventions and Definitions",
+        "Architecture Overview",
+    ]
+    assert (
+        "Change Log" in report.sections["present"]
+        and "Acknowledgements" in report.sections["present"]
+    )
+    assert report.blocks["figures"] == 0 and report.citations["tokens"] == 0
+    # The skeleton declares exactly one informative reference, inline. This
+    # asserts against the real closing convention (`--- abstract`, never a bare
+    # `---`) and is the cheapest check that `_parts` did not collapse `front`.
+    assert report.references == {"normative": 0, "informative": 1, "inline": 1}
+    # `## Reconstruction Method` legitimately names the unit of reconstruction,
+    # so the bare `cluster` pattern fires twice; none of the shapes the detector
+    # actually targets — ordinals, added/withdrawn counts, "this revision" — may.
+    assert {entry["pattern"] for entry in report.narration} <= {"cluster"}

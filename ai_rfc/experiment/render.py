@@ -21,6 +21,8 @@ SLOT_RE = re.compile(r"\{\{([a-z_]+)\}\}")
 NEUTRAL_TEXTS = (
     ("skills", "ai-rfc-rfc-style", "SKILL.md"),
     ("skills", "ai-rfc-rfc-style", "references", "claim-citation.md"),
+    ("skills", "ai-rfc-rfc-style", "references", "keyword-policy.md"),
+    ("skills", "ai-rfc-figures", "SKILL.md"),
     ("skills", "ai-rfc-evidence-hygiene", "SKILL.md"),
 )
 
@@ -108,6 +110,11 @@ _RAW = {
 SLOT_TABLES: dict[str, dict[str, str]] = {
     "interactive": {
         **_RAW,
+        "draft_build": (
+            "`ai_rfc_draft_build()` or `ai_rfc draft-build` (the template's "
+            "`make txt html lint idnits`, offline; the findings name the failed "
+            "stage or the broken reference)"
+        ),
         "guidance": (
             "Load `ai-rfc-evidence-hygiene` before touching claims and "
             "`ai-rfc-rfc-style` before touching prose."
@@ -127,6 +134,9 @@ SLOT_TABLES: dict[str, dict[str, str]] = {
     },
     "C": {
         **_RAW,
+        "draft_build": (
+            "not available in this arm — skip this step and note it in the summary"
+        ),
         "guidance": _EXPERIMENT_GUIDANCE,
         "preamble": (
             "This session has no MCP server and no `ai_rfc` command: drive the "
@@ -172,6 +182,7 @@ SLOT_TABLES: dict[str, dict[str, str]] = {
             '--normative|--no-normative --note "…"`'
         ),
         "draft_commit": '`ai_rfc draft-commit -m "<message>"`',
+        "draft_build": "`ai_rfc draft-build` (exit 0 and no findings before the tag)",
         "revision_tag": (
             '`ai_rfc revision-tag draft-<name>-NN -m "<message>"` — it runs the '
             "strict manifest gate, creates the tag, runs the strict citation gate "
@@ -223,6 +234,10 @@ SLOT_TABLES: dict[str, dict[str, str]] = {
             "normative_change, note)`"
         ),
         "draft_commit": "`ai_rfc_draft_commit(message)`",
+        "draft_build": (
+            "`ai_rfc_draft_build()` — exit 0 and no findings before the tag; "
+            "`ai_rfc_revision_tag` runs it again and refuses on findings"
+        ),
         "revision_tag": (
             "`ai_rfc_revision_tag(tag, message)` — it runs the strict manifest gate, "
             "creates the tag, runs the strict citation gate and deletes the tag "
