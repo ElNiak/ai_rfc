@@ -86,6 +86,56 @@ def test_round_trip_returns_the_seed(plugin_root: Path) -> None:
     assert decode(encode(seed), seed=seed) == seed
 
 
+def test_round_trip_preserves_a_form_feed_inside_a_word(plugin_root: Path) -> None:
+    seed = seed_from_plugin(plugin_root)
+    proposed = replace(seed, rfc_style=seed.rfc_style.replace("prose", "pro\x0cse", 1))
+    assert proposed != seed
+    decoded = decode(encode(proposed), seed=seed)
+    assert decoded == proposed
+    assert "pro\x0cse" in decoded.rfc_style
+    assert "pro\nse" not in decoded.rfc_style
+
+
+def test_round_trip_preserves_the_other_unicode_line_breaks(
+    plugin_root: Path,
+) -> None:
+    seed = seed_from_plugin(plugin_root)
+    for separator in ("\x0b", "\x1c", "\x1d", "\x1e", "\x85", " ", " "):
+        body = seed.interviewing.replace("The", f"The{separator}", 1)
+        proposed = replace(seed, interviewing=body)
+        assert decode(encode(proposed), seed=seed) == proposed
+
+
+def test_decode_normalizes_crlf_line_endings(plugin_root: Path) -> None:
+    seed = seed_from_plugin(plugin_root)
+    candidate = encode(seed).replace("\n", "\r\n")
+    assert "\r\n" in candidate
+    decoded = decode(candidate, seed=seed)
+    assert decoded == seed
+    assert "\r" not in decoded.rfc_style
+
+
+def test_decode_rejects_a_header_broken_by_a_lone_carriage_return(
+    plugin_root: Path,
+) -> None:
+    seed = seed_from_plugin(plugin_root)
+    header = SECTION_HEADER.format(name="loop")
+    candidate = encode(seed).replace(header, header.replace("loop", "lo\rop"), 1)
+    reasons = _rejects(candidate, seed)
+    assert "loop: missing section header" in reasons
+    assert any(
+        reason.startswith("unknown section header on line ") for reason in reasons
+    )
+
+
+def test_round_trip_preserves_a_lone_carriage_return_in_a_body(
+    plugin_root: Path,
+) -> None:
+    seed = seed_from_plugin(plugin_root)
+    proposed = replace(seed, interviewing=seed.interviewing.replace("The", "T\rhe", 1))
+    assert decode(encode(proposed), seed=seed) == proposed
+
+
 def test_decode_rejects_a_missing_header(plugin_root: Path) -> None:
     seed = seed_from_plugin(plugin_root)
     header = SECTION_HEADER.format(name="interviewing")

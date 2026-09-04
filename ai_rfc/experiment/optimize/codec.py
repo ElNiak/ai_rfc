@@ -158,7 +158,7 @@ def encode(bundle: Bundle) -> str:
 
 
 def _split_sections(candidate: str, reasons: list[str]) -> dict[str, str]:
-    lines = candidate.splitlines()
+    lines = candidate.replace("\r\n", "\n").split("\n")
     marks: list[tuple[int, str | None]] = []
     for number, line in enumerate(lines, start=1):
         if not line.startswith(_SECTION_MARK):
@@ -233,6 +233,12 @@ def decode(candidate: str, *, seed: Bundle) -> Bundle:
     one trailing newline, which is the shape :func:`encode` writes and the
     shape the plugin's own files carry, so decoding an encoded bundle
     returns it unchanged.
+
+    ``\\r\\n`` is normalized to ``\\n`` first and is the only rewriting done:
+    every other byte survives, including a lone ``\\r`` and the control and
+    Unicode characters that :meth:`str.splitlines` would treat as line
+    breaks. A proposal is never silently reflowed, so a header line broken by
+    one of those is reported rather than repaired.
 
     Args:
         candidate: The proposed string.
