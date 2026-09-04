@@ -141,6 +141,10 @@ From the aioquic pilot, `pilot-aioquic-w02-11-20260831`; full report at
   counts as secondary.
 - [ ] Reporting commitments: assignment-integrity rate per cell, failure-cost share per arm, bypass-attempt taxonomy, raw gate-exit counts with uncertainty, API-condition log.
 
+---
+
+*Distilled from `12-report.md` Section 6 (Revision 2). The report carries the full evidence base, tier gradings, and the coverage limits under which every cited finding holds.*
+
 ### 2026-09-03 — draft quality v2, SP7a
 
 - **Tool surface**: 18 tools (`ai_rfc_draft_build` and `ai_rfc_draft_lint`
@@ -172,7 +176,3 @@ From the aioquic pilot, `pilot-aioquic-w02-11-20260831`; full report at
   line, not two); the abstract stub-marker check ignores `{::comment}`
   blocks, so a comment that quotes the marker to explain it does not itself
   trip the finding.
-
----
-
-*Distilled from `12-report.md` Section 6 (Revision 2). The report carries the full evidence base, tier gradings, and the coverage limits under which every cited finding holds.*

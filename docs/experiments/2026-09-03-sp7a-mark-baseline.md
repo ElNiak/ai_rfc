@@ -23,11 +23,10 @@ SP7 code landed — is sealed at
 ## Whole suite
 
 Measured against `ai_rfc` commit `9085781` (`test: pin the arm prompts to
-the loop template a campaign was handed`). Peer sessions kept committing to
-this checkout while this task ran: this document's own commit lands on
-`a350f3b`, three commits later, not on `9085781` itself. The suite count
-below reflects the tree at `9085781`, the commit it was actually run
-against.
+the loop template a campaign was handed`). A peer session committed to this
+checkout while this task ran: this document's own commit lands on
+`a350f3b`, one commit later, not on `9085781` itself. The suite count below
+reflects the tree at `9085781`, the commit it was actually run against.
 
 ```
 ======================= 928 passed, 1 skipped in 27.41s ========================
@@ -136,18 +135,53 @@ hand-written fake `make` stderr.
   `build-report.json`'s `idnits` field correctly recorded `{"WARNING": 2}`.
   Both are WARNING-severity, so `BuildReport.findings` correctly reported no
   finding (it only promotes `idnits["ERROR"]`).
-- **`_OFFLINE_STUB` — not exercised by this run** (`broken_references` is
-  empty: every reference this draft cites is already in the sealed
-  refcache). Reported by the build implementer as validated against real
-  output previously; this run is consistent with, but does not itself
-  re-confirm, that claim.
+- **`_OFFLINE_STUB` — positively validated first-hand, on scratch, against
+  the production toolchain.** `broken_references` is empty for the MARK
+  draft itself (every reference it cites is already in the sealed
+  refcache), so this build alone does not exercise the regex. To get a real
+  positive match rather than trust a secondhand report, I scaffolded a
+  throwaway draft (`ai_rfc.experiment.workspace.scaffold_draft`, MARK
+  target, template pinned to `dcdd985a86afad97a50f7b5e1b613f57c194b774`) at
+  `/tmp/claude/sp7a/stub-probe/draft`, added `RFC9999:` under its front
+  matter's `normative:` block and a `{{RFC9999}}` citation in its "Protocol
+  Operation" section (RFC 9999 does not exist, so it cannot be in the
+  refcache), committed the edit (`f04c802`), and built it against the same
+  `AI_RFC_TOOLCHAIN` used throughout this document. Result, from that run's
+  `build-report.json`:
+
+  ```json
+  {
+    "exit_code": 0,
+    "findings": ["broken reference RFC9999 (not in the refcache)"],
+    "broken_references": ["RFC9999"],
+    "diagnostics": [
+      {
+        "tool": "kramdown-rfc",
+        "severity": "error",
+        "message": "*** KRAMDOWN_OFFLINE: Inserting broken reference for reference.RFC.9999.xml"
+      }
+    ]
+  }
+  ```
+
+  This confirms both `_OFFLINE_STUB` itself and the citation-key
+  normalisation beside it (deviation D14): the regex captures
+  `reference.RFC.9999.xml` from the raw kramdown-rfc line, and
+  `_reference_key` correctly recovers the citation key `RFC9999` — the name
+  the draft's front matter actually used — for both the `broken_references`
+  list and the `findings` message, rather than surfacing the cache
+  filename. Task 1's earlier real run (2026-09-04, against the hand-made
+  toolchain record) reported this same regex as validated; this run
+  corroborates that with an independent, first-hand repro against the
+  current production toolchain record.
 - **`_KRAMDOWN_WARNING` and `_XML2RFC_UNRESOLVED` — not exercised, and
-  confirmed not silently broken.** `diagnostics` came back empty for both.
-  To distinguish "kramdown-rfc/xml2rfc emitted nothing to match" from "they
-  emitted matching lines the regex missed", the exact `make` invocation
-  (argv and env reconstructed verbatim from the report, listed above) was
-  rerun by hand into a fresh scratch clone with raw stdout+stderr captured
-  independently of `_parse_output`. The raw capture is 3665 bytes, saved at
+  confirmed not silently broken.** `diagnostics` came back empty for both
+  on the real MARK build. To distinguish "kramdown-rfc/xml2rfc emitted
+  nothing to match" from "they emitted matching lines the regex missed",
+  the exact `make` invocation (argv and env reconstructed verbatim from the
+  report, listed above) was rerun by hand into a fresh scratch clone with
+  raw stdout+stderr captured independently of `_parse_output`. The raw
+  capture is 4341 bytes, saved at
   `/tmp/claude/sp7a/mark-a1/out/verify-raw.txt`; grepping it directly for
   `^\*\* \(` (the `_KRAMDOWN_WARNING` shape) and `Unable to resolve external
   request` (the `_XML2RFC_UNRESOLVED` shape) found zero matches. kramdown-rfc

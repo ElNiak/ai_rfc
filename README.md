@@ -48,8 +48,7 @@ Three more are read where named and are optional there: `AI_RFC_TOOLCHAIN`, a
 `toolchain.json` that `draft build` and the pipeline's build stage use when no
 `--toolchain` is passed (without either, `draft build` refuses and says so);
 the server's `revision_tag` also runs `draft build` before creating the tag
-whenever a toolchain is configured, refusing the tag on any build finding,
-and `campaign init` refuses to start without a verified toolchain;
+whenever a toolchain is configured, refusing the tag on any build finding;
 `GITHUB_TOKEN` / `GITLAB_TOKEN`, a credential `forge fetch` sends when present
 and never stores (without it the discussion endpoints are refused and the
 snapshot records the fidelity it reached); and `AI_RFC_EXPERIMENTS_ROOT`, the
@@ -60,8 +59,8 @@ experiment harness's state root (default `~/ai-rfc-experiments`).
 | Entry | What it is | Surface |
 |---|---|---|
 | `ai-rfc <verb>` = `python -m ai_rfc <verb>` | The substrate door: one dispatcher (`ai_rfc/cli.py`) over the eight programs `history`, `forge`, `timeline`, `views`, `check`, `draft`, `coverage`, `pipeline`, each also reachable as `python -m ai_rfc.<sub>` | What a person, or the raw experiment arm, runs |
-| `ai_rfc <verb>` (underscore) | The parity CLI (`ai_rfc/server/cli.py`): sixteen workspace-level verbs, one per MCP tool, over the same core the server uses | What the AI+CLI experiment arm runs through Bash |
-| `python -m ai_rfc.server` | The stdio MCP server exposing the same sixteen operations as `ai_rfc_*` tools | What Claude Code mounts from the plugin's `.mcp.json`, and what the AI+MCP arm gets |
+| `ai_rfc <verb>` (underscore) | The parity CLI (`ai_rfc/server/cli.py`): eighteen workspace-level verbs, one per MCP tool, over the same core the server uses | What the AI+CLI experiment arm runs through Bash |
+| `python -m ai_rfc.server` | The stdio MCP server exposing the same eighteen operations as `ai_rfc_*` tools | What Claude Code mounts from the plugin's `.mcp.json`, and what the AI+MCP arm gets |
 
 The underscore name is interim: the one-door design folds it into `ai-rfc`
 (see the pyproject comment on `[project.scripts]`). Exit codes are the same
@@ -105,7 +104,10 @@ A whole-repository sweep is a target whose window spans every cluster, in a
 campaign initialised with `--session-mode per-cluster`; see
 `ai_rfc/experiment/per_cluster.py`. The draft repository is scaffolded as a
 template adopter (`Makefile`, `.gitignore`, `.editorconfig`); the shared
-library lives under `<root>/tools/i-d-template`.
+library lives under `<root>/tools/i-d-template`. `campaign init` does not
+read `AI_RFC_TOOLCHAIN`; it takes `--toolchain` (defaulting to
+`<root>/tools/toolchain.json` when that file exists) and verifies the
+record by default.
 
 ## Tests
 
