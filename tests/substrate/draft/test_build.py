@@ -130,6 +130,7 @@ def test_build_runs_make_offline_in_a_scratch_clone(toolchain, draft_repo, tmp_p
     )
     assert "KRAMDOWN_OFFLINE=1" in argv and "NO_NODEJS=true" in argv
     assert f"idnits={record.idnits}" in argv and "idnits_bin=" in argv
+    assert "idnits_mode=submission" in argv
     opts = next(a for a in argv if a.startswith("XML2RFC_OPTS="))
     assert f"-N --cache={record.refcache} -D 2026-01-01" in opts
     assert argv[-4:] == ["txt", "html", "lint", "idnits"]

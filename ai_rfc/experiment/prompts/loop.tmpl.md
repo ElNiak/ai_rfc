@@ -43,12 +43,9 @@ clusters in ordinal order; never skip silently.
 8. **Record, build and tag the revision**: {{revision_record}} — the tag
    `draft-<name>-NN` (two digits, monotone in cluster ordinal), the cluster
    id, an explicit `normative_change`, a one-line note. Commit any prose
-   change ({{draft_commit}}), then **build** it: {{draft_build}}. Exit 0 with
-   no findings is the bar before tagging — a failed stage names the line,
-   a broken reference names a citation the sealed cache does not hold (cite
-   it inline in the front matter instead). Then create the annotated tag
-   ({{revision_tag}}). Every revision entry needs its tag, no-change
-   revisions included.
+   change ({{draft_commit}}), then build it: {{draft_build}}. Then create
+   the annotated tag ({{revision_tag}}). Every revision entry needs its
+   tag, no-change revisions included.
 9. **Gate**: {{citation_gate}} — exit 0 before advancing.
 10. **Open questions**: any claim stuck at `gap`/`inferred` that blocks a
     section gets a question: {{question_draft}}.

@@ -367,6 +367,12 @@ def build(
         f"XML2RFC_OPTS={XML2RFC_BASE_OPTS} --cache={cache} -D {built_date}",
         f"idnits={toolchain.idnits}",
         "idnits_bin=",
+        # `normal` (the template's own default) flags INVALID_REFERENCES_NAME
+        # on the combined Normative/Informative wrapper kramdown-rfc/xml2rfc
+        # auto-generate whenever both are present — which every draft citing
+        # the BCP 14 boilerplate plus any informative reference has;
+        # `submission` is the datatracker's own idnits mode and does not.
+        "idnits_mode=submission",
         f"TRACE_FILE={trace}",
         *targets,
     ]

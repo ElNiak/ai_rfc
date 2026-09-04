@@ -1,11 +1,16 @@
+import re
+
 import pytest
 
 from ai_rfc.experiment import ExperimentError
 from ai_rfc.experiment.render import (
+    INTERVIEW_PREAMBLE,
     SKILL_FRONTMATTER,
     SLOT_TABLES,
+    TEMPLATE,
     arm_prompt,
     render_loop,
+    render_task,
     unified_diff,
     write_plugin_skill,
 )
@@ -75,7 +80,7 @@ def test_the_raw_arm_uses_the_dispatcher():
 
 def test_every_arm_names_its_build_step():
     a, b, c, interactive = (render_loop(arm) for arm in ("A", "B", "C", "interactive"))
-    assert "ai_rfc_draft_build" in a and "before" in a
+    assert "ai_rfc_draft_build" in a and "refuses on findings" in a
     assert "ai_rfc draft-build" in b
     assert "not available in this arm" in c and "draft-build" not in c
     assert "ai_rfc_draft_build" in interactive and "ai_rfc draft-build" in interactive
@@ -86,3 +91,81 @@ def test_arm_prompt_bundles_the_keyword_policy_and_the_figures_skill(plugin_root
     assert "# Keyword policy" in prompt
     assert "# Figures in a reconstructed specification" in prompt
     assert "CLAUDE.md" not in prompt
+
+
+def test_arm_c_prompt_has_no_build_tool_or_verb_names(plugin_root):
+    # Arm C has neither the MCP server nor the `ai_rfc` command, so its
+    # bundled prompt (the loop rendering plus the arm-neutral skill texts)
+    # must never leak a tool or CLI-verb name it cannot use.
+    prompt = arm_prompt("C", plugin_root)
+    assert "ai_rfc_draft_build" not in prompt
+    assert "ai_rfc draft-build" not in prompt
+
+
+def test_the_package_template_is_what_an_absent_override_renders():
+    """The override seam must not move the default path by one byte."""
+    for arm in SLOT_TABLES:
+        assert render_loop(arm) == render_loop(arm, template=TEMPLATE.read_text())
+
+
+def test_render_loop_renders_an_overriding_template():
+    text = render_loop("A", template="{{preamble}}\n\n{{guidance}}\n")
+    assert text == f"{SLOT_TABLES['A']['preamble']}\n\n{SLOT_TABLES['A']['guidance']}\n"
+    assert "{{" not in text
+
+
+def test_an_overriding_template_naming_an_unknown_slot_is_refused():
+    with pytest.raises(ExperimentError) as excinfo:
+        render_loop("A", template="{{nonesuch}}\n")
+    assert "nonesuch" in str(excinfo.value)
+
+
+def test_write_plugin_skill_writes_an_overriding_template(tmp_path):
+    root = tmp_path / "plugin"
+    (root / "skills" / "ai-rfc-reconstruction-loop").mkdir(parents=True)
+    written = write_plugin_skill(root, template="{{guidance}}\n")
+    body = f"{SLOT_TABLES['interactive']['guidance']}\n"
+    assert written.read_text() == SKILL_FRONTMATTER + body
+
+
+def test_the_interview_bundle_carries_only_its_own_skills(plugin_root):
+    prompt = arm_prompt("A", plugin_root, profile="interview")
+    assert prompt.startswith(INTERVIEW_PREAMBLE.rstrip("\n"))
+    assert "# The author-feedback loop" in prompt
+    assert "# Evidence hygiene for reconstruction manifests" in prompt
+    assert "# The reconstruction loop" not in prompt
+    assert "# RFC prose for a reconstructed specification" not in prompt
+    assert "\nname: ai-rfc-" not in prompt
+
+
+def test_the_interview_preamble_names_only_mcp_tools():
+    """Arm A has no shell, so every ai_rfc token must be a real MCP tool."""
+    from ai_rfc.server.tools import ALL_TOOLS
+
+    named = set(re.findall(r"\bai_rfc[\w-]*", INTERVIEW_PREAMBLE))
+    assert named
+    assert named <= {tool.__name__ for tool in ALL_TOOLS}
+
+
+def test_the_interview_profile_is_arm_A_only(plugin_root):
+    with pytest.raises(ExperimentError):
+        arm_prompt("B", plugin_root, profile="interview")
+    with pytest.raises(ExperimentError):
+        arm_prompt("A", plugin_root, profile="no-such-profile")
+
+
+def test_render_task_renders_the_profile_it_is_given():
+    task = render_task((2, 2), profile="interview")
+    assert "$low" not in task and "$high" not in task
+    assert "interviews/int-001.md" in task
+    assert task != render_task((2, 2))
+
+
+def test_render_task_leaves_a_placeholder_it_cannot_fill(tmp_path):
+    """A proposed template may name anything; an unknown $name is not a crash."""
+    template = tmp_path / "task.tmpl.md"
+    template.write_text("Ordinals $low..$high under $AI_RFC_WORKSPACE.\n")
+    assert (
+        render_task((3, 3), template=template)
+        == "Ordinals 3..3 under $AI_RFC_WORKSPACE.\n"
+    )

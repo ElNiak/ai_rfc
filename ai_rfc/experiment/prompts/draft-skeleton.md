@@ -41,8 +41,8 @@ adjudicated from anchored evidence rather than asserted.
 {::comment}
 Replace the paragraph above once the system is understood: what $target is,
 what problem it solves, and who would implement this specification. The
-sentence "Each revision reflects the implementation as it stood at one
-cluster" is how the lint recognises an unwritten abstract.
+sentence about a revision reflecting the implementation as it stood at one
+cluster of its timeline is how the lint recognises an unwritten abstract.
 {:/comment}
 
 
@@ -61,16 +61,6 @@ withdrawn — that history belongs in the Change Log appendix.
 {::comment}
 Which behaviours this document specifies and which it leaves out.
 {:/comment}
-
-## Reconstruction Method
-
-This specification was reconstructed from the implementation's repository
-history, one timeline cluster at a time. Each cluster's evidence was mined
-into claims, each claim was anchored to code, decision records, papers,
-interviews or test runs, and each claim's evidential status was adjudicated
-from those anchors rather than asserted. Every normative statement below
-cites the claim that supports it, and the manifest checkpointed beside each
-revision is what the citation gate verifies those citations against.
 
 ## Organization
 
@@ -135,6 +125,9 @@ described, never as requirements.
 
 # Security Considerations
 
+The security properties of $target are those its implementation enforces;
+each is recorded here, with its evidence, as the reconstruction reaches it.
+
 {::comment}
 The threats the interface is exposed to and what the implementation does or
 does not do about each: authentication, authorization, confidentiality,
@@ -148,6 +141,17 @@ This document has no IANA actions.
 
 
 --- back
+
+# Reconstruction Method
+
+This specification was reconstructed from the implementation's repository
+history, one timeline cluster at a time. Each cluster's evidence was mined
+into claims, each claim was anchored to code, decision records, papers,
+interviews or test runs, and each claim's evidential status was adjudicated
+from those anchors rather than asserted. Every normative statement in this
+document cites the claim that supports it, and the manifest checkpointed
+beside each revision is what the citation gate verifies those citations
+against.
 
 # Change Log
 

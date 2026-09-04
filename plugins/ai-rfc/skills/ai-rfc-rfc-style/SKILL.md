@@ -1,6 +1,6 @@
 ---
 name: ai-rfc-rfc-style
-description: Internet-Draft prose discipline for reconstructed specifications — section ownership, keyword policy, claim citations, references, revision tagging and the build. Use when writing or revising the draft document of a reconstruction workspace.
+description: Internet-Draft prose discipline — section ownership, RFC 2119 keyword policy, claim citations, references, revision tagging and the build. Use when writing or revising the draft document of a reconstruction workspace.
 ---
 
 # RFC prose for a reconstructed specification
@@ -75,9 +75,10 @@ listing them again is a build warning.
 
 ## The build
 
-The draft is compiled only through `draft build` (the `ai_rfc_draft_build`
-tool or the `ai_rfc draft-build` verb): the template's `make txt html lint
-idnits`, run offline in a scratch clone of the committed draft. It must exit 0
-with no findings before a revision is tagged; the tag tool runs it again and
-refuses on findings. Never run `make` yourself and never edit the template's
-own files.
+Before every revision tag, the draft is compiled once through the
+template's own toolchain (`make txt html lint idnits`), offline, in a
+scratch clone of the committed draft. It must exit 0 with no findings
+before the tag is created — the reconstruction loop's own step names the
+exact command for the arm in use, and the tagging step runs the build
+again and refuses on findings. Never run `make` yourself and never edit
+the template's own files.

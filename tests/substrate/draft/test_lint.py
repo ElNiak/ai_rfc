@@ -244,6 +244,43 @@ def test_an_unloadable_manifest_is_a_finding_not_a_crash():
     )
 
 
+def test_a_rewritten_abstract_with_the_stub_comment_still_present_is_not_a_stub():
+    # A comment that explains the stub marker by quoting it verbatim must not
+    # itself keep the abstract flagged once the real paragraph is rewritten —
+    # kramdown-rfc drops the comment at render time, and the lint must
+    # measure the abstract the same way.
+    real_paragraph = "T answers queries about the things it stores for its clients."
+    abstract = (
+        real_paragraph
+        + "\n\n{::comment}\nReplace the paragraph above once the system is "
+        'understood. The sentence "' + STUB_ABSTRACT_MARKER + '" is how the '
+        "lint recognises an unwritten abstract.\n{:/comment}\n"
+    )
+    report = lint(_draft(abstract=abstract))
+    assert report.abstract["is_stub"] is False
+    assert report.abstract["word_count"] == len(real_paragraph.split())
+
+
+def test_the_figures_reference_examples_citation_is_within_the_window():
+    # Mirrors plugins/ai-rfc/skills/ai-rfc-figures/references/figure-example.md:
+    # the closing fence's next line is the `{: ...}` attribute, which counts
+    # as the first of the three lines the lint's citation window checks, so
+    # the caption and its citations must land within the next two.
+    example = (
+        "~~~\n"
+        "+--------+   raw data   +--------+   evidence   +---------+\n"
+        "| Client | -----------> | Server | -----------> | Storage |\n"
+        "+--------+              +--------+              +---------+\n"
+        "~~~\n"
+        '{: #fig-overview title="Components of the system"}\n\n'
+        "Clients submit raw data that the server stores as evidence. "
+        "`ai_rfc:mark:arch.1` `ai_rfc:mark:store.2`\n"
+    )
+    report = lint(_draft(body=example))
+    assert report.blocks["figures_without_caption_citation"] == []
+    assert not any(f.startswith("figure at line") for f in report.findings)
+
+
 @pytest.fixture
 def lint_repo(tmp_path: Path) -> Path:
     repo = tmp_path / "draft"

@@ -388,7 +388,12 @@ def lint(
     # number in `text` (`parts["middle"]` always ends with exactly one
     # newline, so this adds exactly one blank line, not two).
     body = parts["middle"] + "\n" + parts["back"]
-    abstract_text = parts["abstract"].strip()
+    # A `{::comment}` block that explains the stub marker by quoting it
+    # verbatim must not itself keep the abstract flagged: kramdown-rfc drops
+    # comments at render time, so the abstract must be measured the same way
+    # the body already is.
+    abstract_text = "\n".join(line for _, line in _prose_lines(parts["abstract"]))
+    abstract_text = abstract_text.strip()
     provenance = dict(source or {})
     provenance["sha256"] = hashlib.sha256(text.encode()).hexdigest()
     return LintReport(

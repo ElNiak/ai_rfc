@@ -1,16 +1,25 @@
-"""Render the reconstruction-loop prompt for the plugin and for each arm.
+"""Render a task's prompts for the plugin and for each arm.
 
 One template, four invocation tables: ``interactive`` becomes the plugin's
 SKILL.md (a test pins the file to this rendering), ``A``/``B``/``C`` become
 the appended system prompts of the experiment arms. Every arm prompt is the
 rendered loop plus the arm-neutral style and hygiene texts verbatim, so the
 arms differ only where a slot names the arm's surface.
+
+That bundle is one :class:`TaskProfile` among several: a profile names the
+task prompt a session is given and the texts its arm prompt carries, so a
+second scenario — the author interview — can be run through the same
+harness without a second renderer. Every text a profile bundles can be
+overridden by the caller, which is what lets an optimizer freeze a campaign
+on proposed text rather than on what happens to be on disk.
 """
 
 from __future__ import annotations
 
 import difflib
 import re
+import string
+from dataclasses import dataclass
 from pathlib import Path
 
 from . import ExperimentError
@@ -25,6 +34,30 @@ NEUTRAL_TEXTS = (
     ("skills", "ai-rfc-figures", "SKILL.md"),
     ("skills", "ai-rfc-evidence-hygiene", "SKILL.md"),
 )
+INTERVIEW_TEXTS = (
+    ("skills", "ai-rfc-interviewing", "SKILL.md"),
+    ("skills", "ai-rfc-evidence-hygiene", "SKILL.md"),
+)
+#: The interview profile's own opening, in place of a rendered loop. Only
+#: arm A runs this task, so it names MCP tools and nothing else; a test
+#: holds every ``ai_rfc`` token in it to the server's tool registry.
+INTERVIEW_PREAMBLE = """# The author interview
+
+This session has no shell: drive the workspace with the MCP tools, exactly
+as named below.
+
+- `ai_rfc_claim_adjudicate()` lists every claim with its stored and its
+  supported status.
+- `ai_rfc_question_draft(question, claim_ids)` drafts one open question;
+  `ai_rfc_question_export()` renders every open one as a bundle.
+- `ai_rfc_answer_record(question_id, answer, answered_by, transcript,
+  quote, author_confirmed_exact_text)` ingests one answer.
+- `ai_rfc_claim_record_status()` then `ai_rfc_gate(strict=true)` record the
+  newly supported statuses and re-run the strict manifest gate.
+
+The author's reply is already saved under `interviews/`. Never ask the user
+anything; there is no user in this session.
+"""
 
 SKILL_FRONTMATTER = """---
 name: ai-rfc-reconstruction-loop
@@ -112,8 +145,17 @@ SLOT_TABLES: dict[str, dict[str, str]] = {
         **_RAW,
         "draft_build": (
             "`ai_rfc_draft_build()` or `ai_rfc draft-build` (the template's "
-            "`make txt html lint idnits`, offline; the findings name the failed "
-            "stage or the broken reference)"
+            "`make txt html lint idnits`, offline). Exit 0 and no findings is "
+            "the bar before tagging — a failed stage names the line, a broken "
+            "reference names a front-matter reference the sealed cache does "
+            "not hold (cite it inline instead)"
+        ),
+        "revision_tag": (
+            '`git -C $AI_RFC_WORKSPACE/draft tag -a draft-<name>-NN -m "<message>"` '
+            "— only after the strict manifest gate and the build both exited 0 "
+            "with no findings; `ai_rfc_revision_tag` (or `ai_rfc revision-tag`) "
+            "runs manifest gate, build, tag and the strict citation gate "
+            "together and deletes the tag again on any finding"
         ),
         "guidance": (
             "Load `ai-rfc-evidence-hygiene` before touching claims and "
@@ -182,11 +224,17 @@ SLOT_TABLES: dict[str, dict[str, str]] = {
             '--normative|--no-normative --note "…"`'
         ),
         "draft_commit": '`ai_rfc draft-commit -m "<message>"`',
-        "draft_build": "`ai_rfc draft-build` (exit 0 and no findings before the tag)",
+        "draft_build": (
+            "`ai_rfc draft-build` — exit 0 and no findings is the bar before "
+            "tagging; a failed stage names the line, a broken reference names "
+            "a front-matter reference the sealed cache does not hold (cite it "
+            "inline instead)"
+        ),
         "revision_tag": (
             '`ai_rfc revision-tag draft-<name>-NN -m "<message>"` — it runs the '
-            "strict manifest gate, creates the tag, runs the strict citation gate "
-            "and deletes the tag again on findings"
+            "strict manifest gate, builds the draft and refuses on findings, "
+            "creates the tag, runs the strict citation gate and deletes the "
+            "tag again on findings"
         ),
         "citation_gate": "`ai_rfc citation-gate --strict`",
         "question_draft": (
@@ -235,13 +283,17 @@ SLOT_TABLES: dict[str, dict[str, str]] = {
         ),
         "draft_commit": "`ai_rfc_draft_commit(message)`",
         "draft_build": (
-            "`ai_rfc_draft_build()` — exit 0 and no findings before the tag; "
-            "`ai_rfc_revision_tag` runs it again and refuses on findings"
+            "`ai_rfc_draft_build()` — exit 0 and no findings is the bar before "
+            "tagging; a failed stage names the line, a broken reference names "
+            "a front-matter reference the sealed cache does not hold (cite it "
+            "inline instead); `ai_rfc_revision_tag` runs it again and refuses "
+            "on findings"
         ),
         "revision_tag": (
-            "`ai_rfc_revision_tag(tag, message)` — it runs the strict manifest gate, "
-            "creates the tag, runs the strict citation gate and deletes the tag "
-            "again on findings"
+            "`ai_rfc_revision_tag(tag, message)` — it runs the strict manifest "
+            "gate, builds the draft and refuses on findings, creates the tag, "
+            "runs the strict citation gate and deletes the tag again on "
+            "findings"
         ),
         "citation_gate": "`ai_rfc_citation_gate(strict=true)`",
         "question_draft": (
@@ -252,8 +304,91 @@ SLOT_TABLES: dict[str, dict[str, str]] = {
 }
 
 
-def render_loop(arm: str) -> str:
+@dataclass(frozen=True)
+class TaskProfile:
+    """One scenario: the task a session is given and the texts it reads.
+
+    Attributes:
+        task_file: The task prompt's file name under ``prompts/``.
+        texts: Plugin-relative paths bundled into the arm prompt, in order.
+        preamble: Fixed text opening the bundle. ``None`` opens it with the
+            rendered loop instead, which is what makes the loop profile's
+            bundle the arm-dependent one.
+        arms: The arms that may run this task; ``None`` allows every table.
+        session_modes: The session modes it may run under; ``None`` allows
+            both.
+    """
+
+    task_file: str
+    texts: tuple[tuple[str, ...], ...]
+    preamble: str | None = None
+    arms: tuple[str, ...] | None = None
+    session_modes: tuple[str, ...] | None = None
+
+
+TASK_PROFILES: dict[str, TaskProfile] = {
+    "loop": TaskProfile(task_file="task.md", texts=NEUTRAL_TEXTS),
+    "interview": TaskProfile(
+        task_file="task-interview.md",
+        texts=INTERVIEW_TEXTS,
+        preamble=INTERVIEW_PREAMBLE,
+        # Only arm A carries the MCP tools the preamble names, and the
+        # fixture workspace is checkpointed through its window, so a
+        # per-cluster session would find no cluster to open on.
+        arms=("A",),
+        session_modes=("single",),
+    ),
+}
+
+
+def task_profile(name: str) -> TaskProfile:
+    """Look one profile up by name.
+
+    Args:
+        name: A key of :data:`TASK_PROFILES`.
+
+    Returns:
+        The profile.
+
+    Raises:
+        ExperimentError: If no profile carries that name.
+    """
+    if name not in TASK_PROFILES:
+        raise ExperimentError(
+            f"no task profile {name!r}; profiles: {', '.join(TASK_PROFILES)}"
+        )
+    return TASK_PROFILES[name]
+
+
+def task_template_path(profile: str = "loop") -> Path:
+    """The packaged task template one profile renders from.
+
+    Args:
+        profile: A key of :data:`TASK_PROFILES`.
+
+    Returns:
+        The template's path inside the package.
+
+    Raises:
+        ExperimentError: If no profile carries that name.
+    """
+    return PROMPTS / task_profile(profile).task_file
+
+
+TASK_TEMPLATE = task_template_path()
+
+
+def render_loop(arm: str, template: str | None = None) -> str:
     """Render the loop template with one invocation table.
+
+    Args:
+        arm: A key of :data:`SLOT_TABLES`.
+        template: Template text to render instead of the packaged one, so a
+            campaign can be frozen on proposed text; ``None`` reads the
+            package template.
+
+    Returns:
+        The rendered loop.
 
     Raises:
         ExperimentError: If ``arm`` has no table or a slot stays unfilled.
@@ -263,11 +398,42 @@ def render_loop(arm: str) -> str:
             f"no invocation table for {arm!r}; tables: {', '.join(SLOT_TABLES)}"
         )
     table = SLOT_TABLES[arm]
-    template = TEMPLATE.read_text()
+    if template is None:
+        template = TEMPLATE.read_text()
     missing = sorted(set(SLOT_RE.findall(template)) - set(table))
     if missing:
         raise ExperimentError(f"table {arm!r} leaves slots unfilled: {missing}")
     return SLOT_RE.sub(lambda match: table[match.group(1)], template)
+
+
+def render_task(
+    window: tuple[int, int],
+    template: Path | None = None,
+    *,
+    profile: str = "loop",
+) -> str:
+    """The task prompt, identical across arms, with the window spelled out.
+
+    Placeholders the window does not fill are left standing: a profile's task
+    may state no window at all, and proposed text may name anything.
+
+    Args:
+        window: Inclusive first and last cluster ordinals.
+        template: The template to render; a campaign passes its frozen copy so
+            a session's prompt cannot drift from the campaign record. ``None``
+            reads the profile's packaged template.
+        profile: A key of :data:`TASK_PROFILES`, selecting that template.
+
+    Returns:
+        The rendered prompt.
+
+    Raises:
+        ExperimentError: If no profile carries that name.
+    """
+    low, high = window
+    if template is None:
+        template = task_template_path(profile)
+    return string.Template(template.read_text()).safe_substitute(low=low, high=high)
 
 
 def strip_frontmatter(text: str) -> str:
@@ -278,18 +444,55 @@ def strip_frontmatter(text: str) -> str:
     return text if end < 0 else text[end + len("\n---\n") :].lstrip("\n")
 
 
-def arm_prompt(arm: str, plugin_root: Path) -> str:
-    """The appended system prompt of one arm: loop plus the neutral texts."""
-    parts = [render_loop(arm)]
-    for relative in NEUTRAL_TEXTS:
+def arm_prompt(
+    arm: str,
+    plugin_root: Path,
+    *,
+    template: str | None = None,
+    profile: str = "loop",
+) -> str:
+    """The appended system prompt of one arm under one task profile.
+
+    Args:
+        arm: A key of :data:`SLOT_TABLES`.
+        plugin_root: The plugin whose skill texts are bundled.
+        template: Loop template text to render instead of the packaged one;
+            a profile that opens on a fixed preamble renders no loop and
+            ignores it.
+        profile: A key of :data:`TASK_PROFILES`.
+
+    Returns:
+        The bundle: the profile's opening followed by its skill texts, each
+        stripped of its frontmatter.
+
+    Raises:
+        ExperimentError: If no profile carries that name, or the profile does
+            not run on ``arm``.
+    """
+    spec = task_profile(profile)
+    if spec.arms is not None and arm not in spec.arms:
+        raise ExperimentError(
+            f"task profile {profile!r} runs on {', '.join(spec.arms)}, not {arm!r}"
+        )
+    opening = spec.preamble if spec.preamble is not None else render_loop(arm, template)
+    parts = [opening]
+    for relative in spec.texts:
         parts.append(strip_frontmatter(plugin_root.joinpath(*relative).read_text()))
     return "\n\n".join(part.rstrip("\n") for part in parts) + "\n"
 
 
-def write_plugin_skill(plugin_root: Path) -> Path:
-    """Regenerate the plugin's loop SKILL.md from the interactive table."""
+def write_plugin_skill(plugin_root: Path, template: str | None = None) -> Path:
+    """Regenerate the plugin's loop SKILL.md from the interactive table.
+
+    Args:
+        plugin_root: The plugin whose SKILL.md is rewritten.
+        template: Template text to render instead of the packaged one.
+
+    Returns:
+        The path written.
+    """
     target = plugin_root / "skills" / "ai-rfc-reconstruction-loop" / "SKILL.md"
-    target.write_text(SKILL_FRONTMATTER + render_loop("interactive"))
+    target.write_text(SKILL_FRONTMATTER + render_loop("interactive", template))
     return target
 
 

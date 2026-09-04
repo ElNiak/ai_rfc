@@ -661,7 +661,37 @@ def test_the_skeleton_compiles_as_a_stub_that_lint_recognises(template_repo, tmp
     # asserts against the real closing convention (`--- abstract`, never a bare
     # `---`) and is the cheapest check that `_parts` did not collapse `front`.
     assert report.references == {"normative": 0, "informative": 1, "inline": 1}
-    # `## Reconstruction Method` legitimately names the unit of reconstruction,
-    # so the bare `cluster` pattern fires twice; none of the shapes the detector
-    # actually targets — ordinals, added/withdrawn counts, "this revision" — may.
-    assert {entry["pattern"] for entry in report.narration} <= {"cluster"}
+    # The Introduction holds only Scope and Organization; the reconstruction
+    # narrative moved to a back-matter section, so no narration pattern fires.
+    assert report.narration == []
+    assert "Reconstruction Method" in report.sections["present"]
+
+
+def test_the_skeleton_abstract_clears_once_real_prose_replaces_the_stub(
+    template_repo, tmp_path
+):
+    from ai_rfc.draft.lint import lint
+
+    template, commit = template_repo
+    dest = tmp_path / "draft"
+    scaffold_draft(
+        dest, fixture_target(tmp_path), template=template, template_commit=commit
+    )
+    path = dest / "draft-test-fixture.md"
+    text = path.read_text()
+    stub_paragraph = (
+        "This document reconstructs the specification of fixture from its\n"
+        "implementation history. Each revision reflects the implementation as it\n"
+        "stood at one cluster of its development timeline; every normative "
+        "statement\ncites a claim in the accompanying evidence manifest, whose "
+        "status is\nadjudicated from anchored evidence rather than asserted."
+    )
+    assert stub_paragraph in text, "the abstract paragraph moved; re-anchor this test"
+    real_prose = (
+        "Fixture stores widgets on behalf of its clients and answers queries "
+        "about them. This specification describes the wire protocol its "
+        "clients and servers exchange."
+    )
+    text = text.replace(stub_paragraph, real_prose)
+    report = lint(text)
+    assert report.abstract["is_stub"] is False

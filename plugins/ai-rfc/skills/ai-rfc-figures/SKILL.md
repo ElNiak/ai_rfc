@@ -20,22 +20,11 @@ sentence: what it asserts, a claim supports.
 
 ## The caption cites
 
-Within three lines after the closing fence, one sentence states what the
-figure shows and cites the claims it depicts, one backticked token per claim,
-exactly as a normative sentence would. A figure without such a sentence is a
-lint finding.
-
-```
-~~~
-+--------+   raw data   +--------+   evidence   +---------+
-| Client | -----------> | Server | -----------> | Storage |
-+--------+              +--------+              +---------+
-~~~
-{: #fig-overview title="Components of the system"}
-
-Clients submit raw data to the server, which stores the evidence it
-derives. `ai_rfc:mark:arch.1` `ai_rfc:mark:store.2`
-```
+Within three lines after the closing fence — the attribute line counts as
+the first of the three — one sentence states what the figure shows and
+cites the claims it depicts, one backticked token per claim, exactly as a
+normative sentence would. A figure without such a sentence is a lint
+finding. A worked example is in `references/figure-example.md`.
 
 ## What not to draw
 

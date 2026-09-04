@@ -53,12 +53,9 @@ When the `ai_rfc` MCP server is connected, prefer its tools (`ai_rfc_cluster_nex
 8. **Record, build and tag the revision**: append the entry to `$AI_RFC_WORKSPACE/revisions.yaml` under `revisions:` (`cluster_id`, `checkpoint_manifest_sha256` copied from the checkpoint's `checkpoint.json`, `normative_change`, `note`) — the tag
    `draft-<name>-NN` (two digits, monotone in cluster ordinal), the cluster
    id, an explicit `normative_change`, a one-line note. Commit any prose
-   change (`git -C $AI_RFC_WORKSPACE/draft add -A && git -C $AI_RFC_WORKSPACE/draft commit -m "<message>"`), then **build** it: `ai_rfc_draft_build()` or `ai_rfc draft-build` (the template's `make txt html lint idnits`, offline; the findings name the failed stage or the broken reference). Exit 0 with
-   no findings is the bar before tagging — a failed stage names the line,
-   a broken reference names a citation the sealed cache does not hold (cite
-   it inline in the front matter instead). Then create the annotated tag
-   (`git -C $AI_RFC_WORKSPACE/draft tag -a draft-<name>-NN -m "<message>"` — only after the strict manifest gate exited 0). Every revision entry needs its tag, no-change
-   revisions included.
+   change (`git -C $AI_RFC_WORKSPACE/draft add -A && git -C $AI_RFC_WORKSPACE/draft commit -m "<message>"`), then build it: `ai_rfc_draft_build()` or `ai_rfc draft-build` (the template's `make txt html lint idnits`, offline). Exit 0 and no findings is the bar before tagging — a failed stage names the line, a broken reference names a front-matter reference the sealed cache does not hold (cite it inline instead). Then create
+   the annotated tag (`git -C $AI_RFC_WORKSPACE/draft tag -a draft-<name>-NN -m "<message>"` — only after the strict manifest gate and the build both exited 0 with no findings; `ai_rfc_revision_tag` (or `ai_rfc revision-tag`) runs manifest gate, build, tag and the strict citation gate together and deletes the tag again on any finding). Every revision entry needs its
+   tag, no-change revisions included.
 9. **Gate**: `python -m ai_rfc draft gate $AI_RFC_WORKSPACE/draft --timeline $AI_RFC_WORKSPACE/timeline --checkpoints $AI_RFC_WORKSPACE/checkpoints --questions $AI_RFC_WORKSPACE/questions.yaml --revisions $AI_RFC_WORKSPACE/revisions.yaml --out $AI_RFC_WORKSPACE/out --strict` — exit 0 before advancing.
 10. **Open questions**: any claim stuck at `gap`/`inferred` that blocks a
     section gets a question: append a `q-NNN` entry (`question`, `claim_ids`, `status: open`, `asked_at`) to `$AI_RFC_WORKSPACE/questions.yaml`.
