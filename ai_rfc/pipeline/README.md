@@ -1,6 +1,6 @@
 # `pipeline/` — chaining the deterministic stages
 
-The six substrate commands each do one stage and take every path explicitly.
+The substrate programs each do one stage and take every path explicitly.
 That is right for them: a stage should not assume a layout it did not create.
 But it left nobody holding the sequence, so running a reconstruction meant
 typing five commands with matching paths in an order documented only in prose.
@@ -10,7 +10,7 @@ This package holds the sequence and nothing else.
 ## What it does not do
 
 It does not call a model, and it does not reach the network except through the
-`forge` stage it delegates to. Two of the ten stages produce content — mining
+`forge` stage it delegates to. Two of the twelve stages produce content — mining
 claims and writing prose — and this package **stops** at them. Reaching such a
 boundary is success, not failure: the deterministic half is finished and the
 next move belongs to somebody else, so the command exits 0 and says whose turn
@@ -76,8 +76,8 @@ blocking on it would hide a corpus and timeline that are perfectly current.
 ## Commands
 
 ```bash
-python -m …ai_rfc.pipeline status WORKSPACE [--json]
-python -m …ai_rfc.pipeline run WORKSPACE [--from STAGE] [--until STAGE] \
+ai-rfc pipeline status WORKSPACE [--json]
+ai-rfc pipeline run WORKSPACE [--from STAGE] [--until STAGE] \
     [--forge-url URL] [--host github|gitlab] [--cluster ID] [--strict] [--json]
 ```
 

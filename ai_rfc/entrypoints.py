@@ -93,7 +93,7 @@ ENTRY_POINTS: tuple[EntryPoint, ...] = (
         "ai-rfc draft",
         f"{PACKAGE}.draft.cli",
         "Freeze the manifest per cluster, then gate the prose against it "
-        "(checkpoint, gate, completeness)",
+        "(checkpoint, gate, completeness, build, lint)",
         BY_HAND,
     ),
     EntryPoint(
