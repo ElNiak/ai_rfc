@@ -104,6 +104,7 @@ sub-package's `cli.main` and nothing else, so data still hands over on disk.
 | `ai-rfc draft checkpoint MANIFEST --timeline DIR --cluster ID --out DIR` | Freeze the manifest against one cluster |
 | `ai-rfc draft gate DRAFTREPO --timeline DIR --checkpoints DIR --questions FILE --revisions FILE --out DIR [--strict]` | Citation gate; findings exit 3 under `--strict` |
 | `ai-rfc draft build DRAFTREPO --out DIR [--ref REF] [--toolchain PATH] [--strict]` | Compile a revision with the template toolchain, offline; findings exit 3 under `--strict` |
+| `ai-rfc draft lint DRAFTREPO --out DIR [--ref REF \| --worktree] [--manifest PATH] [--strict]` | Deterministic quality metrics; findings exit 3 under `--strict` |
 | `ai-rfc pipeline status WORKSPACE [--json]` | Report every stage's state and what to do next |
 | `ai-rfc pipeline run WORKSPACE [--from STAGE] [--until STAGE] [--forge-url URL] [--cluster ID] [--strict] [--json]` | Chain the deterministic stages; stop at the next agent stage |
 | `ai-rfc coverage MANIFEST --coverage FILE --repo CLONE --commit SHA --out DIR` | Propose `runtime` anchors for cited lines a test run reached |

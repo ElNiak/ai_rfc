@@ -10,7 +10,7 @@ from pathlib import Path
 
 from ai_rfc import __version__
 
-from ..schema import SchemaError
+from ..schema import SchemaError, load
 from .build import (
     BUILD_DIR,
     DEFAULT_TARGETS,
@@ -26,7 +26,9 @@ from .completeness import CompletenessError
 from .completeness import build as build_completeness
 from .completeness import findings as completeness_findings
 from .completeness import to_json as completeness_json
-from .gate import GateError, run_gate
+from .gate import GateError, draft_text, run_gate
+from .lint import REPORT_FILE as LINT_REPORT_FILE
+from .lint import lint
 
 
 def _report(message: str) -> None:
@@ -144,6 +146,28 @@ def _parser() -> argparse.ArgumentParser:
     build_verb.add_argument(
         "--strict", action="store_true", help="Exit 3 when the build has findings."
     )
+
+    lint_verb = verbs.add_parser("lint", help="Measure a draft revision's quality.")
+    lint_verb.add_argument("draftrepo", type=Path, help="The nested draft repository.")
+    lint_verb.add_argument(
+        "--out", type=Path, required=True, help="Directory for lint-report.json."
+    )
+    which = lint_verb.add_mutually_exclusive_group()
+    which.add_argument("--ref", default="HEAD", help="Tag, branch or commit to read.")
+    which.add_argument(
+        "--worktree",
+        action="store_true",
+        help="Read the uncommitted draft file instead of a ref.",
+    )
+    lint_verb.add_argument(
+        "--manifest",
+        type=Path,
+        default=None,
+        help="Manifest for citation coverage (unloadable → a finding, not an error).",
+    )
+    lint_verb.add_argument(
+        "--strict", action="store_true", help="Exit 3 when any finding is reported."
+    )
     return parser
 
 
@@ -230,6 +254,48 @@ def main(argv: list[str] | None = None) -> int:
             f"note: build of {report.commit[:12]} exited {report.exit_code}; "
             f"report at {args.out / BUILD_DIR / REPORT_FILE}"
         )
+        if report.findings and args.strict:
+            return 3
+        return 0
+
+    if args.verb == "lint":
+        try:
+            if args.worktree:
+                candidates = sorted(
+                    p
+                    for p in args.draftrepo.iterdir()
+                    if p.name.startswith("draft-") and p.suffix == ".md"
+                )
+                if len(candidates) != 1:
+                    raise GateError(
+                        f"{args.draftrepo}: expected exactly one draft-*.md, "
+                        f"found {len(candidates)}"
+                    )
+                text, ref = candidates[0].read_text(), "worktree"
+            else:
+                _, text = draft_text(args.draftrepo, args.ref)
+                ref = args.ref
+        except (GateError, OSError) as error:
+            _report(f"error: {error}")
+            return 1
+        manifest = None
+        manifest_error = None
+        if args.manifest is not None:
+            try:
+                manifest = load(args.manifest)
+            except (SchemaError, OSError) as error:
+                manifest_error = str(error)
+        report = lint(
+            text,
+            manifest=manifest,
+            manifest_error=manifest_error,
+            source={"path": str(args.draftrepo), "ref": ref},
+        )
+        args.out.mkdir(parents=True, exist_ok=True)
+        (args.out / LINT_REPORT_FILE).write_text(report.to_json())
+        for finding in report.findings:
+            _report(f"finding: {finding}")
+        _report(f"note: lint report at {args.out / LINT_REPORT_FILE}")
         if report.findings and args.strict:
             return 3
         return 0
