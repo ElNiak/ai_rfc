@@ -58,8 +58,9 @@ def draft_build(ctx: Context, ref: str = "HEAD") -> dict[str, Any]:
     refcache = ctx.workspace / "refcache"
     if refcache.is_dir():
         args += ["--refcache", str(refcache)]
-    code, stderr = _run(ctx, _DRAFT, *args)
     report_path = ctx.workspace / "out" / BUILD_DIR / BUILD_REPORT
+    report_path.unlink(missing_ok=True)
+    code, stderr = _run(ctx, _DRAFT, *args)
     report = json.loads(report_path.read_text()) if report_path.exists() else None
     return {
         "exit_code": code,
@@ -91,8 +92,9 @@ def draft_lint(ctx: Context, worktree: bool = True) -> dict[str, Any]:
     ]
     if worktree:
         args.append("--worktree")
-    code, stderr = _run(ctx, _DRAFT, *args)
     report_path = ctx.workspace / "out" / LINT_REPORT
+    report_path.unlink(missing_ok=True)
+    code, stderr = _run(ctx, _DRAFT, *args)
     report = json.loads(report_path.read_text()) if report_path.exists() else None
     return {
         "exit_code": code,

@@ -1,4 +1,5 @@
-"""Resolve the one environment handle everything here depends on.
+"""Resolve the environment handles everything here depends on: a required
+workspace and an optional toolchain.
 
 ``AI_RFC_WORKSPACE`` names one reconstruction workspace. It is required;
 nothing guesses, because a tool quietly operating on the wrong workspace is

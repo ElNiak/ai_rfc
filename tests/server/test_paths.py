@@ -1,4 +1,4 @@
-"""The environment contract is one variable: the workspace."""
+"""The environment contract: a required workspace, and an optional toolchain."""
 
 import pytest
 
