@@ -147,21 +147,40 @@ def out_of_window(ordinals: Iterable[int], window: tuple[int, int]) -> list[int]
     return [ordinal for ordinal in ordinals if ordinal < low or ordinal > high]
 
 
-def _write_adopter_files(dest: Path, *, template: str, template_commit: str) -> None:
-    """Copy the template's adopter files into ``dest`` and extend its ignores."""
+def _fetch_adopter_files(template: str, template_commit: str) -> dict[str, str]:
+    """Clone ``template`` at its pin and read the adopter files' text.
+
+    Args:
+        template: Clone source (URL or local path).
+        template_commit: The commit to read the adopter files from.
+
+    Returns:
+        Each of ``ADOPTER_FILES`` mapped to its file content.
+
+    Raises:
+        ExperimentError: If the clone fails or an adopter file is missing.
+    """
     with tempfile.TemporaryDirectory(prefix="i-d-template-") as staging:
         library = Path(staging) / "template"
         cloned = _run_git("clone", "-q", template, str(library))
         if cloned.returncode != 0:
             raise ExperimentError(f"cloning {template} failed: {cloned.stderr.strip()}")
         _git(library, "checkout", "-q", template_commit)
+        files: dict[str, str] = {}
         for name in ADOPTER_FILES:
             source = library / "template" / name
             if not source.exists():
                 raise ExperimentError(
                     f"{template}@{template_commit[:12]} has no template/{name}"
                 )
-            shutil.copyfile(source, dest / name)
+            files[name] = source.read_text()
+        return files
+
+
+def _write_adopter_files(dest: Path, files: dict[str, str]) -> None:
+    """Write already-fetched adopter files into ``dest`` and extend its ignores."""
+    for name, text in files.items():
+        (dest / name).write_text(text)
     ignored = [
         line for line in (dest / ".gitignore").read_text().splitlines() if line.strip()
     ]
@@ -185,10 +204,11 @@ def scaffold_draft(
     Raises:
         ExperimentError: If ``dest`` exists or any git step fails.
     """
+    files = _fetch_adopter_files(template, template_commit)
     if dest.exists():
         raise ExperimentError(f"{dest} exists; a draft is scaffolded once")
     dest.mkdir(parents=True)
-    _write_adopter_files(dest, template=template, template_commit=template_commit)
+    _write_adopter_files(dest, files)
     skeleton = string.Template(DRAFT_SKELETON.read_text()).substitute(
         title=target.title,
         abbrev=target.abbrev,
@@ -250,10 +270,11 @@ def migrate_draft(
         )
     if "main.mk" not in tracked and "Makefile" in tracked:
         raise ExperimentError(f"{draft} is already an adopter; nothing to migrate")
-    for name in tracked:
-        if name != drafts[0]:
-            _git(draft, "rm", "-q", "--", name)
-    _write_adopter_files(draft, template=template, template_commit=template_commit)
+    files = _fetch_adopter_files(template, template_commit)
+    to_remove = [name for name in tracked if name != drafts[0]]
+    if to_remove:
+        _git(draft, "rm", "-q", "--", *to_remove)
+    _write_adopter_files(draft, files)
     _git(draft, "add", "--", *ADOPTER_FILES)
     _git(draft, "config", "user.name", HARNESS_NAME)
     _git(draft, "config", "user.email", HARNESS_EMAIL)

@@ -559,6 +559,7 @@ def test_migrate_draft_adopts_the_layout_in_one_commit_and_keeps_tags(
     before = git(draft, "rev-parse", "HEAD")
     head = migrate_draft(tmp_path / "ws", template=template, template_commit=commit)
     assert head != before and git(draft, "rev-parse", "HEAD") == head
+    assert git(draft, "rev-parse", "HEAD~1") == before
     assert (
         git(draft, "log", "--format=%s", "-1").strip()
         == "adopt the Internet-Draft template layout"
@@ -595,3 +596,38 @@ def test_migrate_draft_refuses_a_dirty_or_already_migrated_draft(
     with pytest.raises(ExperimentError) as excinfo:
         migrate_draft(tmp_path / "ws", template=template, template_commit=commit)
     assert "already" in str(excinfo.value)
+
+
+def test_migrate_draft_leaves_the_draft_untouched_when_the_template_is_incomplete(
+    template_repo, tmp_path
+):
+    from ai_rfc.experiment.workspace import migrate_draft
+
+    template, commit = template_repo
+    draft = _library_root_draft(tmp_path / "ws")
+    before = git(draft, "rev-parse", "HEAD")
+
+    incomplete = tmp_path / "template-incomplete"
+    git(tmp_path, "clone", "-q", template, str(incomplete))
+    git(incomplete, "config", "user.email", "t@t")
+    git(incomplete, "config", "user.name", "t")
+    git(incomplete, "rm", "-q", "--", "template/.editorconfig")
+    git(
+        incomplete,
+        "commit",
+        "-q",
+        "-m",
+        "drop .editorconfig",
+        date="2026-01-01T00:00:09+00:00",
+    )
+    incomplete_commit = git(incomplete, "rev-parse", "HEAD")
+
+    with pytest.raises(ExperimentError, match="no template/.editorconfig"):
+        migrate_draft(
+            tmp_path / "ws",
+            template=str(incomplete),
+            template_commit=incomplete_commit,
+        )
+    assert git(draft, "status", "--porcelain") == ""
+    assert "main.mk" in git(draft, "ls-files")
+    assert git(draft, "rev-parse", "HEAD") == before
