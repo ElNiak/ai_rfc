@@ -10,12 +10,15 @@ import shutil
 
 import pytest
 
+from ai_rfc.experiment import ExperimentError
 from ai_rfc.experiment.optimize.apply import (
     apply,
+    by_repository,
     diff_stat,
     dirty_paths,
     repo_root,
     targets,
+    uncommitted_work,
 )
 from ai_rfc.experiment.optimize.codec import (
     SKILL_DIRS,
@@ -61,6 +64,16 @@ def template_copy(tmp_path):
     return path
 
 
+def _commit(repo):
+    """Initialize ``repo`` and commit everything already in it."""
+    git(repo, "init", "-q", "-b", "main")
+    git(repo, "config", "user.email", "t@t")
+    git(repo, "config", "user.name", "t")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "committed")
+    return repo
+
+
 @pytest.fixture
 def plugin_repo(tmp_path, plugin_root):
     """A committed repository holding a plugin copy and a loop template.
@@ -73,12 +86,30 @@ def plugin_repo(tmp_path, plugin_root):
     template = repo / "prompts" / "loop.tmpl.md"
     template.parent.mkdir(parents=True)
     template.write_text(TEMPLATE.read_text())
-    git(repo, "init", "-q", "-b", "main")
-    git(repo, "config", "user.email", "t@t")
-    git(repo, "config", "user.name", "t")
-    git(repo, "add", "-A")
-    git(repo, "commit", "-q", "-m", "plugin")
+    _commit(repo)
     return repo, repo / "plugins" / "ai-rfc", template
+
+
+@pytest.fixture
+def split_repos(tmp_path, plugin_root):
+    """A plugin and its loop template committed in two separate repositories.
+
+    This is the ordinary shape, not a corner case: the template ships with
+    the harness's own source, and a deployed plugin is checked out on its
+    own. One ``git status`` cannot span the two.
+
+    Returns:
+        The plugin, and the template in the other repository.
+    """
+    plugin_side = tmp_path / "plugin-side"
+    shutil.copytree(plugin_root, plugin_side / "plugins" / "ai-rfc")
+    _commit(plugin_side)
+    harness_side = tmp_path / "harness-side"
+    template = harness_side / "prompts" / "loop.tmpl.md"
+    template.parent.mkdir(parents=True)
+    template.write_text(TEMPLATE.read_text())
+    _commit(harness_side)
+    return plugin_side / "plugins" / "ai-rfc", template
 
 
 def test_applying_the_seed_encoding_changes_not_one_byte(plugin_copy, template_copy):
@@ -221,6 +252,78 @@ def test_dirty_paths_counts_a_file_git_keeps_no_copy_of(plugin_repo):
     fresh.write_text(TEMPLATE.read_text())
 
     assert dirty_paths(repo, [fresh]) == ("prompts/proposed.tmpl.md",)
+
+
+def test_dirty_paths_refuses_when_git_cannot_answer(plugin_repo, split_repos):
+    """A check that could not run must never read as a check that passed.
+
+    Asked about a path in another repository, git exits 128 and prints
+    nothing to stdout, so returning what it printed would report every file
+    clean and wave the write through.
+    """
+    repo, _, _ = plugin_repo
+    _, elsewhere = split_repos
+
+    with pytest.raises(ExperimentError) as error:
+        dirty_paths(repo, [elsewhere])
+
+    assert "status" in str(error.value)
+    assert "outside repository" in str(error.value)
+
+
+def test_by_repository_groups_each_path_under_its_own_top_level(split_repos, tmp_path):
+    plugin_copy, template = split_repos
+    loose = tmp_path / "loose" / "SKILL.md"
+    loose.parent.mkdir()
+    loose.write_text("body\n")
+    skill = _skill(plugin_copy, "rfc-style")
+
+    grouped, unchecked = by_repository([skill, template, loose])
+
+    assert grouped == {
+        repo_root(skill.parent): (skill,),
+        repo_root(template.parent): (template,),
+    }
+    assert unchecked == (loose,)
+
+
+def test_uncommitted_work_sees_a_dirty_target_beside_one_in_another_repository(
+    split_repos,
+):
+    """The defect this exists to stop: two repositories, one silent pass.
+
+    A single status over both exits 128 and prints nothing, so the modified
+    skill went unreported and was overwritten with a clean exit.
+    """
+    plugin_copy, template = split_repos
+    watched = targets(plugin_copy, template_path=template)
+    assert uncommitted_work(watched).dirty == ()
+
+    _skill(plugin_copy, "rfc-style").write_text("a hand edit nobody committed\n")
+
+    work = uncommitted_work(watched)
+
+    assert work.dirty == ("plugins/ai-rfc/skills/ai-rfc-rfc-style/SKILL.md",)
+    assert work.unchecked == ()
+
+
+def test_uncommitted_work_sees_a_dirty_template_in_the_other_repository(split_repos):
+    plugin_copy, template = split_repos
+    template.write_text(TEMPLATE.read_text() + "\nAn uncommitted line.\n")
+
+    work = uncommitted_work(targets(plugin_copy, template_path=template))
+
+    assert work.dirty == ("prompts/loop.tmpl.md",)
+
+
+def test_uncommitted_work_reports_what_it_could_not_check(plugin_copy, template_copy):
+    """Nothing vouched for these; the caller has to be able to say so."""
+    watched = targets(plugin_copy, template_path=template_copy)
+
+    work = uncommitted_work(watched)
+
+    assert work.dirty == ()
+    assert set(work.unchecked) == set(watched)
 
 
 def test_diff_stat_names_the_files_a_candidate_changed(plugin_repo):

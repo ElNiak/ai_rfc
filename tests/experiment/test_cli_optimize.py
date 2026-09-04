@@ -37,6 +37,18 @@ def template_copy(tmp_path):
     return path
 
 
+def _commit(repo):
+    """Initialize ``repo`` and commit everything already in it."""
+    from ai_rfc.server.testing import git
+
+    git(repo, "init", "-q", "-b", "main")
+    git(repo, "config", "user.email", "t@t")
+    git(repo, "config", "user.name", "t")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "committed")
+    return repo
+
+
 @pytest.fixture
 def plugin_repo(tmp_path, plugin_root):
     """A committed repository holding a plugin copy and a loop template.
@@ -44,19 +56,35 @@ def plugin_repo(tmp_path, plugin_root):
     Returns:
         The plugin inside the repository, and the template beside it.
     """
-    from ai_rfc.server.testing import git
-
     repo = tmp_path / "repo"
     shutil.copytree(plugin_root, repo / "plugins" / "ai-rfc")
     template = repo / "prompts" / "loop.tmpl.md"
     template.parent.mkdir(parents=True)
     template.write_text(TEMPLATE.read_text())
-    git(repo, "init", "-q", "-b", "main")
-    git(repo, "config", "user.email", "t@t")
-    git(repo, "config", "user.name", "t")
-    git(repo, "add", "-A")
-    git(repo, "commit", "-q", "-m", "plugin")
+    _commit(repo)
     return repo / "plugins" / "ai-rfc", template
+
+
+@pytest.fixture
+def split_repos(tmp_path, plugin_root):
+    """A plugin and its loop template committed in two separate repositories.
+
+    The default deployment: the template ships with the harness's own source
+    while the plugin is checked out on its own. One ``git status`` cannot
+    span the two, which is what made the guard pass everything.
+
+    Returns:
+        The plugin, and the template in the other repository.
+    """
+    plugin_side = tmp_path / "plugin-side"
+    shutil.copytree(plugin_root, plugin_side / "plugins" / "ai-rfc")
+    _commit(plugin_side)
+    harness_side = tmp_path / "harness-side"
+    template = harness_side / "prompts" / "loop.tmpl.md"
+    template.parent.mkdir(parents=True)
+    template.write_text(TEMPLATE.read_text())
+    _commit(harness_side)
+    return plugin_side / "plugins" / "ai-rfc", template
 
 
 def _apply(candidate, plugin_root, template, *extra):
@@ -223,6 +251,72 @@ def test_force_applies_over_uncommitted_work(plugin_repo, tmp_path, capsys):
     assert code == 0
     assert cli.NOT_COMMITTED in capsys.readouterr().out
     assert "Be terse." in skill.read_text()
+
+
+def test_apply_refuses_across_two_repositories(split_repos, tmp_path, capsys):
+    """The default layout, and the one the guard used to wave through.
+
+    The template lives with the harness's source and the plugin in its own
+    checkout, so a single status over both exits 128 printing nothing — which
+    read as "everything clean" and overwrote the skill.
+    """
+    plugin_copy, template = split_repos
+    skill = plugin_copy / "skills" / "ai-rfc-rfc-style" / "SKILL.md"
+    skill.write_text("half-finished rewrite\n")
+    candidate = _candidate(tmp_path, plugin_copy)
+
+    code = cli.main(_apply(candidate, plugin_copy, template))
+
+    err = capsys.readouterr().err
+    assert code == 1
+    assert "skills/ai-rfc-rfc-style/SKILL.md" in err and "--force" in err
+    assert skill.read_text() == "half-finished rewrite\n"
+
+
+def test_apply_refuses_on_a_template_dirty_in_the_other_repository(
+    split_repos, tmp_path, capsys
+):
+    plugin_copy, template = split_repos
+    template.write_text(TEMPLATE.read_text() + "\nAn uncommitted line.\n")
+    candidate = _candidate(tmp_path, plugin_copy)
+
+    code = cli.main(_apply(candidate, plugin_copy, template))
+
+    assert code == 1
+    assert "prompts/loop.tmpl.md" in capsys.readouterr().err
+    assert template.read_text().endswith("An uncommitted line.\n")
+
+
+def test_force_applies_across_two_repositories(split_repos, tmp_path, capsys):
+    plugin_copy, template = split_repos
+    skill = plugin_copy / "skills" / "ai-rfc-rfc-style" / "SKILL.md"
+    skill.write_text("half-finished rewrite\n")
+    candidate = _candidate(tmp_path, plugin_copy)
+
+    code = cli.main(_apply(candidate, plugin_copy, template, "--force"))
+
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "Be terse." in skill.read_text()
+    assert "1 file changed" in out and cli.NOT_COMMITTED in out
+
+
+def test_apply_still_guards_the_plugin_when_the_template_is_in_no_repository(
+    plugin_repo, template_copy, tmp_path, capsys
+):
+    """One unreachable target must not disarm the check on the others."""
+    plugin_copy, _ = plugin_repo
+    skill = plugin_copy / "skills" / "ai-rfc-rfc-style" / "SKILL.md"
+    skill.write_text("half-finished rewrite\n")
+    candidate = _candidate(tmp_path, plugin_copy)
+
+    code = cli.main(_apply(candidate, plugin_copy, template_copy))
+
+    captured = capsys.readouterr()
+    assert code == 1
+    assert "skills/ai-rfc-rfc-style/SKILL.md" in captured.err
+    assert str(template_copy) in captured.out and "not checked" in captured.out
+    assert skill.read_text() == "half-finished rewrite\n"
 
 
 def test_apply_says_so_when_the_plugin_is_in_no_repository(

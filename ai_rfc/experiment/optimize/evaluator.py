@@ -186,6 +186,11 @@ def draft_build_report(
     The working tree is never built: a run that tagged nothing is built at
     ``HEAD``, which is the last thing it committed.
 
+    Every ``OSError`` is caught, not only a missing tool, so a pilot whose
+    build fails on a full disk, an unwritable scratch directory or a copy it
+    could not make scores this term zero and logs the reason rather than
+    stopping the optimization. The reason is the only place that shows.
+
     Args:
         campaign: The campaign whose frozen toolchain record is used.
         workspace: The run's final workspace.

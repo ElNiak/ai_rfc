@@ -1061,32 +1061,36 @@ def main(argv: list[str] | None = None) -> int:
             return _optimize_run(args, root)
         elif args.command == "optimize" and args.verb == "apply":
             from .optimize.apply import apply as apply_candidate
-            from .optimize.apply import diff_stat, dirty_paths, repo_root, targets
+            from .optimize.apply import (
+                by_repository,
+                diff_stat,
+                targets,
+                uncommitted_work,
+            )
             from .render import TEMPLATE
 
             plugin_root = args.plugin_root.resolve()
             template_path = args.template.resolve() if args.template else TEMPLATE
-            repo = repo_root(plugin_root)
-            if repo is None:
+            work = uncommitted_work(targets(plugin_root, template_path=template_path))
+            if work.unchecked:
                 print(
-                    f"{plugin_root} is in no git repository: nothing was checked "
-                    "for uncommitted work, and there is no diff to show."
+                    "not checked, in no git repository: "
+                    + ", ".join(str(path) for path in work.unchecked)
                 )
-            elif not args.force:
-                overwritten = dirty_paths(
-                    repo, targets(plugin_root, template_path=template_path)
+            if work.dirty and not args.force:
+                raise ExperimentError(
+                    "these files hold work nobody committed and would be "
+                    f"overwritten: {', '.join(work.dirty)}; commit them, or "
+                    "pass --force"
                 )
-                if overwritten:
-                    raise ExperimentError(
-                        "these files hold work nobody committed and would be "
-                        f"overwritten: {', '.join(overwritten)}; commit them, "
-                        "or pass --force"
-                    )
             applied = apply_candidate(
                 args.candidate.read_text(), plugin_root, template_path=template_path
             )
-            if repo is not None:
-                print(diff_stat(plugin_root, applied.written), end="")
+            # One diff per repository, for the same reason the guard asks each
+            # one separately: a pathspec that leaves its repository is refused.
+            written, _ = by_repository(applied.written)
+            for repo, owned in written.items():
+                print(diff_stat(repo, owned), end="")
             print(f"rendered: {applied.rendered_skill}")
             print(NOT_COMMITTED)
     except (ExperimentError, OSError) as error:

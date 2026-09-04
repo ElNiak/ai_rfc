@@ -11,10 +11,12 @@ The candidate is decoded against the plugin it is being written into, so the
 same guards that protect a campaign protect the working tree. A proposal that
 dropped a section or a template slot is refused before the first byte lands.
 
-:func:`apply` itself never runs git. The three functions beside it only ask
-questions — which paths would be written, which repository they belong to,
+:func:`apply` itself never runs git. The functions beside it only ask
+questions — which paths would be written, which repository each belongs to,
 which of them already hold uncommitted work — so that a caller can decide to
-refuse before calling it, and read the diff after.
+refuse before calling it, and read the diff after. Each of those questions is
+put to one repository at a time: the paths this verb writes routinely straddle
+two, and git answers a pathspec that leaves its repository by failing.
 """
 
 from __future__ import annotations
@@ -24,6 +26,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
+from .. import ExperimentError
 from ..render import TEMPLATE, write_plugin_skill
 from .codec import SKILL_DIRS, decode, frontmatters_from_plugin, seed_from_plugin
 
@@ -48,6 +51,21 @@ class Applied:
 
     written: tuple[Path, ...]
     rendered_skill: Path
+
+
+@dataclass(frozen=True)
+class Uncommitted:
+    """What a check of the working tree found, and what it could not reach.
+
+    Attributes:
+        dirty: Every target that does not match HEAD, as git spells it.
+        unchecked: Every target in no repository at all. Nothing vouches for
+            these, which is not the same as their being clean, so a caller
+            says so rather than passing them over in silence.
+    """
+
+    dirty: tuple[str, ...]
+    unchecked: tuple[Path, ...]
 
 
 def targets(plugin_root: Path, *, template_path: Path = TEMPLATE) -> tuple[Path, ...]:
@@ -89,38 +107,97 @@ def repo_root(path: Path) -> Path | None:
     return Path(completed.stdout.strip())
 
 
+def by_repository(
+    paths: Iterable[Path],
+) -> tuple[dict[Path, tuple[Path, ...]], tuple[Path, ...]]:
+    """Group paths by the repository each one belongs to.
+
+    Each path is located from its own parent directory, because git cannot be
+    pointed at a file.
+
+    Args:
+        paths: The files to group.
+
+    Returns:
+        The paths each repository owns, keyed by that repository's top level
+        in first-seen order, and the paths that belong to no repository.
+    """
+    grouped: dict[Path, list[Path]] = {}
+    loose: list[Path] = []
+    for path in paths:
+        repo = repo_root(path.parent)
+        if repo is None:
+            loose.append(path)
+        else:
+            grouped.setdefault(repo, []).append(path)
+    return {repo: tuple(owned) for repo, owned in grouped.items()}, tuple(loose)
+
+
 def dirty_paths(repo: Path, paths: Iterable[Path]) -> tuple[str, ...]:
-    """Which of ``paths`` hold work that writing over them would destroy.
+    """Which of one repository's ``paths`` hold work a write would destroy.
 
     Untracked files count: those are the ones git keeps no copy of, so
     overwriting one loses the content outright.
 
     Args:
-        repo: A directory inside the repository to ask.
+        repo: A directory inside the repository to ask. Every path must
+            belong to it; :func:`by_repository` is what establishes that.
         paths: The files to ask about.
 
     Returns:
         Every path git reports as not matching HEAD, in git's order and its
-        spelling. Empty when they are all clean — and also empty when git
-        refuses, so a caller must establish there is a repository with
-        :func:`repo_root` first rather than read this as a passed check.
+        spelling.
+
+    Raises:
+        ExperimentError: If git will not answer. It exits non-zero having
+            printed nothing to stdout — asked about a path in another
+            repository, for one — so returning what it printed would report
+            every file clean and wave the write through.
     """
-    completed = subprocess.run(
-        [
-            "git",
-            "-C",
-            str(repo),
-            "status",
-            "--porcelain",
-            "--",
-            *(str(path) for path in paths),
-        ],
-        capture_output=True,
-        text=True,
-    )
+    argv = [
+        "git",
+        "-C",
+        str(repo),
+        "status",
+        "--porcelain",
+        "--",
+        *(str(path) for path in paths),
+    ]
+    completed = subprocess.run(argv, capture_output=True, text=True)
     if completed.returncode != 0:
-        return ()
+        raise ExperimentError(
+            f"`{' '.join(argv)}` exited {completed.returncode}: "
+            f"{completed.stderr.strip()}"
+        )
     return tuple(line[3:] for line in completed.stdout.splitlines() if line.strip())
+
+
+def uncommitted_work(paths: Iterable[Path]) -> Uncommitted:
+    """Which of these paths hold work that writing over them would destroy.
+
+    Every path is asked of its own repository rather than all of them of one.
+    A single ``git status`` spanning two repositories exits 128 having printed
+    nothing, which reads as "all clean" — and the paths this verb writes
+    straddle two repositories in the ordinary case, since the loop template
+    ships with the harness's source while a deployed plugin is checked out on
+    its own.
+
+    Args:
+        paths: The files about to be written.
+
+    Returns:
+        What git reports as not matching HEAD, and what belongs to no
+        repository and so was not checked at all.
+
+    Raises:
+        ExperimentError: If git will not answer for a repository it just
+            resolved.
+    """
+    grouped, unchecked = by_repository(paths)
+    dirty: list[str] = []
+    for repo, owned in grouped.items():
+        dirty.extend(dirty_paths(repo, owned))
+    return Uncommitted(dirty=tuple(dirty), unchecked=unchecked)
 
 
 def apply(
