@@ -145,8 +145,8 @@ def record_answer(
 
     Raises:
         CoreError: If the question or transcript is missing.
-        GuardrailError: If ``quote`` is not found verbatim in the
-            transcript.
+        GuardrailError: If ``quote`` is blank, or is not found verbatim in
+            the transcript.
     """
     register = _register(ctx)
     entries = list(register.load_questions(ctx.questions))
@@ -159,6 +159,11 @@ def record_answer(
         raise CoreError(
             f"transcript {transcript_path} does not exist; save the "
             f"author's reply verbatim before recording answers"
+        )
+    if not quote.strip():
+        raise GuardrailError(
+            "quote must be a non-empty excerpt of the transcript; a blank "
+            "quote is a substring of every transcript and points at nothing"
         )
     if quote not in transcript_path.read_text():
         raise GuardrailError(

@@ -188,3 +188,27 @@ def test_gates_and_status(workspace):
     assert composite["clusters_processed"] == 0
     assert composite["next_cluster"].startswith("c0001-")
     assert composite["questions"] == {"open": 0, "answered": 0, "withdrawn": 0}
+
+
+@pytest.mark.parametrize("quote", ["", "   "])
+def test_a_blank_quote_is_refused(workspace, quote):
+    """A blank quote is a substring of every transcript, so it must be refused.
+
+    Without this the sign-off path is reachable on evidence nobody quoted:
+    ``"" in transcript`` is True, and a whitespace-only quote points at
+    nothing an author can be held to either.
+    """
+    draft_question(workspace, "Is 'Thing one.' deliberate?", ["t:1.1"])
+    transcript = workspace.workspace / "interviews" / "int-001.md"
+    transcript.write_text("2026-08-25, dev-01: yes it is deliberate.\n")
+    with pytest.raises(GuardrailError) as excinfo:
+        record_answer(
+            workspace,
+            "q-001",
+            "yes",
+            "dev-01",
+            "int-001.md",
+            quote,
+            author_confirmed_exact_text=True,
+        )
+    assert "non-empty" in str(excinfo.value)
