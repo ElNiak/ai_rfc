@@ -22,11 +22,19 @@ from typing import Any
 from . import ExperimentError
 from . import toolchain as toolchain_module
 from .arms import ARMS
-from .render import TASK_TEMPLATE, arm_prompt, render_task, task_template_path
-from .render import unified_diff
+from .paths import profile_dir as default_profile_dir
+from .render import (
+    TASK_TEMPLATE,
+    arm_prompt,
+    render_task,
+    task_profile,
+    task_template_path,
+    unified_diff,
+)
 from .workspace import DIGEST_FILE, RECORD_FILE
 
 TASK_TEMPLATE_FILE = "task.tmpl.md"
+LOOP_TEMPLATE_FILE = "loop.tmpl.md"
 CAMPAIGN_FILE = "campaign.json"
 _SHIM = """#!/bin/sh
 exec "{python}" -c "import sys; from ai_rfc.server.cli import main; sys.exit(main())" "$@"
@@ -64,6 +72,20 @@ class CampaignConfig:
     #: A ``toolchain.json`` from ``experiment toolchain provision``; required —
     #: :func:`init_campaign` refuses without one it can verify.
     toolchain: Path | None = None
+    #: Loop template *text* the arm prompts are rendered from; ``None`` reads
+    #: the package template. An optimizer passes its proposal here, and the
+    #: campaign freezes it beside the prompts it produced.
+    loop_template: str | None = None
+    #: Which task the runs perform: a key of
+    #: :data:`~ai_rfc.experiment.render.TASK_PROFILES`.
+    task_profile: str = "loop"
+    #: ``CLAUDE_CONFIG_DIR`` for every run; ``None`` uses ``<root>/profile``.
+    #: A campaign that borrows an authenticated profile from elsewhere names
+    #: it here rather than copying credentials into its own root.
+    profile_dir: Path | None = None
+    #: Whether to verify ``toolchain`` here. ``False`` says the caller has
+    #: already verified this record; the campaign still records it.
+    verify_toolchain: bool = True
 
 
 @dataclass(frozen=True)
@@ -107,6 +129,12 @@ class Campaign:
     toolchain: str | None = None
     toolchain_sha256: str | None = None
     template_home: str | None = None
+    #: The task the runs perform. Defaulted, like ``session_mode``, so
+    #: campaigns frozen before profiles existed still load.
+    task_profile: str = "loop"
+    #: The digest of the loop template the arm prompts were rendered from,
+    #: when the caller supplied one instead of the package template.
+    loop_template_sha256: str | None = None
 
     @property
     def dir(self) -> Path:
@@ -213,6 +241,11 @@ def _sha256(text: str) -> str:
 def init_campaign(config: CampaignConfig) -> Campaign:
     """Freeze a campaign on disk.
 
+    ``config.verify_toolchain`` false skips the toolchain verification: the
+    caller states it has already verified that record, which is how a
+    campaign per proposal avoids re-verifying one toolchain hundreds of
+    times. The record is frozen either way.
+
     Args:
         config: What to freeze. See :class:`CampaignConfig`.
 
@@ -220,7 +253,9 @@ def init_campaign(config: CampaignConfig) -> Campaign:
         The frozen campaign.
 
     Raises:
-        ExperimentError: If the campaign exists, an arm is unknown, the
+        ExperimentError: If the campaign exists, an arm is unknown, the task
+            profile is unknown or does not run these arms in this session
+            mode, a supplied loop template leaves a slot unfilled, the
             pristine workspace lacks its digest or record, or the claude
             binary cannot be found.
     """
@@ -238,14 +273,28 @@ def init_campaign(config: CampaignConfig) -> Campaign:
     for arm in arms:
         if arm not in ARMS:
             raise ExperimentError(f"unknown arm {arm!r}")
+    profile = config.task_profile
+    spec = task_profile(profile)
+    if spec.arms is not None and tuple(arms) != spec.arms:
+        raise ExperimentError(
+            f"task profile {profile!r} runs on {', '.join(spec.arms)}, "
+            f"not {', '.join(arms)}"
+        )
+    if spec.session_modes is not None and config.session_mode not in spec.session_modes:
+        raise ExperimentError(
+            f"task profile {profile!r} runs in "
+            f"{', '.join(spec.session_modes)} session mode, "
+            f"not {config.session_mode!r}"
+        )
     if config.toolchain is None:
         raise ExperimentError(
             "a campaign needs a verified toolchain: run `experiment toolchain "
             "provision` once, then pass --toolchain"
         )
-    ok, reasons = toolchain_module.verify(config.toolchain)
-    if not ok:
-        raise ExperimentError(f"toolchain verify failed: {'; '.join(reasons)}")
+    if config.verify_toolchain:
+        ok, reasons = toolchain_module.verify(config.toolchain)
+        if not ok:
+            raise ExperimentError(f"toolchain verify failed: {'; '.join(reasons)}")
     toolchain_record = json.loads(config.toolchain.read_text())
     # Freeze the binary, not a name. A run's PATH is minimal and deliberately
     # excludes the user's own bin directories, so a bare name that resolves
@@ -266,24 +315,39 @@ def init_campaign(config: CampaignConfig) -> Campaign:
         raise ExperimentError(f"{pristine_dir} is not a prepared pristine workspace")
     record = json.loads(record_path.read_text())
 
+    # Rendered before the directory exists: a campaign is frozen once, so a
+    # proposal that leaves a slot unfilled must not leave a half-built
+    # campaign behind that blocks the retry.
+    rendered = {
+        arm: arm_prompt(
+            arm, plugin_root, template=config.loop_template, profile=profile
+        )
+        for arm in arms
+    }
+    task = render_task(tuple(record["window"]), profile=profile)
+    task_template = task_template_path(profile)
+
     prompts_dir = campaign_dir / "prompts"
     prompts_dir.mkdir(parents=True)
-    rendered = {arm: arm_prompt(arm, plugin_root) for arm in arms}
     prompt_sha256: dict[str, str] = {}
     for arm, text in rendered.items():
         (prompts_dir / f"arm-{arm}.md").write_text(text)
         prompt_sha256[f"arm-{arm}.md"] = _sha256(text)
-    task = render_task(tuple(record["window"]))
     (prompts_dir / "task.md").write_text(task)
     prompt_sha256["task.md"] = _sha256(task)
     frozen_template = prompts_dir / TASK_TEMPLATE_FILE
-    frozen_template.write_bytes(TASK_TEMPLATE.read_bytes())
+    frozen_template.write_bytes(task_template.read_bytes())
     # Hashed as bytes, not re-read as text: a text round trip normalises line
     # endings, so a CRLF or BOM template would record a digest that does not
     # match what write_bytes actually put on disk.
     prompt_sha256[TASK_TEMPLATE_FILE] = hashlib.sha256(
-        TASK_TEMPLATE.read_bytes()
+        task_template.read_bytes()
     ).hexdigest()
+    loop_template_sha256 = None
+    if config.loop_template is not None:
+        loop_template_sha256 = _sha256(config.loop_template)
+        (prompts_dir / LOOP_TEMPLATE_FILE).write_text(config.loop_template)
+        prompt_sha256[LOOP_TEMPLATE_FILE] = loop_template_sha256
     for index, first in enumerate(arms):
         for second in arms[index + 1 :]:
             (prompts_dir / f"diff-{first}-{second}.patch").write_text(
@@ -312,7 +376,7 @@ def init_campaign(config: CampaignConfig) -> Campaign:
         effort=config.effort,
         budget_usd=config.budget_usd,
         timeout_s=config.timeout_s,
-        profile_dir=root / "profile",
+        profile_dir=config.profile_dir or default_profile_dir(root),
         pristine_dir=pristine_dir,
         panther_repo=panther_repo,
         plugin_root=plugin_root,
@@ -332,6 +396,8 @@ def init_campaign(config: CampaignConfig) -> Campaign:
         toolchain=str(config.toolchain),
         toolchain_sha256=hashlib.sha256(config.toolchain.read_bytes()).hexdigest(),
         template_home=toolchain_record.get("template_home"),
+        task_profile=profile,
+        loop_template_sha256=loop_template_sha256,
     )
     (campaign_dir / CAMPAIGN_FILE).write_text(_dump(campaign))
     return campaign

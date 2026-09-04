@@ -13,6 +13,7 @@ from ai_rfc.experiment.config import (
     render_task,
     run_order,
 )
+from ai_rfc.experiment.render import arm_prompt, task_template_path
 
 
 def test_run_order_is_seeded_and_covers_every_block():
@@ -256,3 +257,150 @@ def test_init_freezes_the_task_template_beside_the_rendering(
         == hashlib.sha256(frozen.read_bytes()).hexdigest()
     )
     assert "task.md" in campaign.prompt_sha256
+
+
+def test_init_freezes_the_template_and_the_profile_it_was_given(
+    tmp_path, pristine, panther_repo, plugin_root
+):
+    """What an optimizer proposes is what the campaign is pinned to."""
+    template = "{{preamble}}\n\n{{guidance}}\n"
+    campaign = _init(
+        tmp_path,
+        pristine,
+        panther_repo,
+        plugin_root,
+        arms=("A",),
+        loop_template=template,
+        task_profile="interview",
+    )
+    loaded = load_campaign(campaign.dir)
+    assert loaded.task_profile == "interview"
+    assert loaded.loop_template_sha256 == hashlib.sha256(template.encode()).hexdigest()
+    frozen = campaign.prompts_dir / "loop.tmpl.md"
+    assert frozen.read_text() == template
+    assert campaign.prompt_sha256["loop.tmpl.md"] == loaded.loop_template_sha256
+    assert (campaign.prompts_dir / "arm-A.md").read_text() == arm_prompt(
+        "A", plugin_root, profile="interview"
+    )
+    assert (campaign.prompts_dir / "task.md").read_text() == render_task(
+        (2, 2), profile="interview"
+    )
+    assert (
+        campaign.task_template.read_bytes()
+        == task_template_path("interview").read_bytes()
+    )
+
+
+def test_a_campaign_without_a_template_records_no_template_digest(
+    tmp_path, pristine, panther_repo, plugin_root
+):
+    campaign = _init(tmp_path, pristine, panther_repo, plugin_root)
+    assert campaign.loop_template_sha256 is None
+    assert campaign.task_profile == "loop"
+    assert not (campaign.prompts_dir / "loop.tmpl.md").exists()
+    assert "loop.tmpl.md" not in campaign.prompt_sha256
+
+
+def test_a_campaign_frozen_before_the_profile_fields_existed_still_loads(
+    tmp_path, pristine, panther_repo, plugin_root
+):
+    campaign = _init(tmp_path, pristine, panther_repo, plugin_root)
+    stored_path = campaign.dir / "campaign.json"
+    payload = json.loads(stored_path.read_text())
+    for key in ("task_profile", "loop_template_sha256"):
+        del payload[key]
+    stored_path.write_text(json.dumps(payload))
+    loaded = load_campaign(campaign.dir)
+    assert loaded.task_profile == "loop"
+    assert loaded.loop_template_sha256 is None
+
+
+def test_the_interview_profile_is_one_arm_and_one_session(
+    tmp_path, pristine, panther_repo, plugin_root
+):
+    """Only arm A carries the tools, and the fixture has no cluster left."""
+    with pytest.raises(ExperimentError) as excinfo:
+        _init(
+            tmp_path,
+            pristine,
+            panther_repo,
+            plugin_root,
+            arms=("A", "B"),
+            task_profile="interview",
+        )
+    assert "interview" in str(excinfo.value)
+    assert not (tmp_path / "root" / "campaigns" / "pilot-test").exists()
+
+    with pytest.raises(ExperimentError):
+        _init(
+            tmp_path,
+            pristine,
+            panther_repo,
+            plugin_root,
+            arms=("A",),
+            task_profile="interview",
+            session_mode="per-cluster",
+        )
+    assert not (tmp_path / "root" / "campaigns" / "pilot-test").exists()
+
+
+def test_a_template_that_leaves_a_slot_unfilled_freezes_nothing(
+    tmp_path, pristine, panther_repo, plugin_root
+):
+    """A campaign is frozen once, so a bad proposal must not half-build one."""
+    with pytest.raises(ExperimentError):
+        _init(
+            tmp_path,
+            pristine,
+            panther_repo,
+            plugin_root,
+            loop_template="{{nonesuch}}\n",
+        )
+    assert not (tmp_path / "root" / "campaigns" / "pilot-test").exists()
+    with pytest.raises(ExperimentError):
+        _init(tmp_path, pristine, panther_repo, plugin_root, task_profile="nope")
+    assert not (tmp_path / "root" / "campaigns" / "pilot-test").exists()
+
+
+def test_the_profile_dir_override_is_what_the_campaign_records(
+    tmp_path, pristine, panther_repo, plugin_root
+):
+    elsewhere = tmp_path / "shared-profile"
+    campaign = _init(
+        tmp_path, pristine, panther_repo, plugin_root, profile_dir=elsewhere
+    )
+    assert campaign.profile_dir == elsewhere
+    assert load_campaign(campaign.dir).profile_dir == elsewhere
+    assert (
+        _init(
+            tmp_path,
+            pristine,
+            panther_repo,
+            plugin_root,
+            campaign_id="default-profile",
+        ).profile_dir
+        == tmp_path / "root" / "profile"
+    )
+
+
+def test_verify_toolchain_false_leaves_the_toolchain_unverified(
+    tmp_path, pristine, panther_repo, plugin_root, monkeypatch
+):
+    from ai_rfc.experiment import toolchain as toolchain_module
+
+    verified: list[Path] = []
+
+    def _verify(record, runner=None):
+        verified.append(record)
+        return True, ()
+
+    monkeypatch.setattr(toolchain_module, "verify", _verify)
+    campaign = _init(
+        tmp_path, pristine, panther_repo, plugin_root, verify_toolchain=False
+    )
+    assert verified == []
+    assert campaign.toolchain == str(tmp_path / "toolchain.json")
+    _init(
+        tmp_path, pristine, panther_repo, plugin_root, campaign_id="verified-campaign"
+    )
+    assert verified == [tmp_path / "toolchain.json"]
