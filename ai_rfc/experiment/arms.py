@@ -139,19 +139,24 @@ def arm_flags(
     return flags
 
 
-def mcp_config(*, python: str, workspace: Path) -> dict[str, Any]:
+def mcp_config(
+    *, python: str, workspace: Path, toolchain: Path | None = None
+) -> dict[str, Any]:
     """The rendered MCP config mounting the ``ai_rfc`` server for one run.
 
     The server is a module of the installed package, so the config names the
     interpreter and the module and nothing else; there is no checkout to
     locate and no path to bootstrap.
     """
+    env = {"AI_RFC_WORKSPACE": str(workspace)}
+    if toolchain is not None:
+        env["AI_RFC_TOOLCHAIN"] = str(toolchain)
     return {
         "mcpServers": {
             "ai_rfc": {
                 "command": python,
                 "args": ["-m", "ai_rfc.server"],
-                "env": {"AI_RFC_WORKSPACE": str(workspace)},
+                "env": env,
             }
         }
     }

@@ -47,9 +47,11 @@ def test_launch_streams_events_and_records_status(campaign, write_scenario):
     env = json.loads((ref.run_dir / "env.json").read_text())
     assert env["PATH"].startswith(str(campaign.bin_dir))
     assert env["AI_RFC_WORKSPACE"] == str(ref.workspace)
+    assert env["AI_RFC_TOOLCHAIN"] == campaign.toolchain
     assert set(env) == {
         "CLAUDE_CONFIG_DIR",
         "AI_RFC_WORKSPACE",
+        "AI_RFC_TOOLCHAIN",
         "PATH",
         "HOME",
         "USER",
@@ -74,7 +76,11 @@ def test_arm_a_mounts_mcp_and_has_no_bash(campaign):
     argv_b = prepare_run_argv(campaign, ref_b)
     assert "--mcp-config" not in argv_b
     assert "Bash(ai_rfc *)" in argv_b[argv_b.index("--allowedTools") + 1]
-    assert build_env(campaign, ref_b)["CLAUDE_CONFIG_DIR"] == str(campaign.profile_dir)
+    env_b = build_env(campaign, ref_b)
+    assert env_b["CLAUDE_CONFIG_DIR"] == str(campaign.profile_dir)
+    assert env_b["AI_RFC_TOOLCHAIN"] == campaign.toolchain
+    no_toolchain = dataclasses.replace(campaign, toolchain=None)
+    assert "AI_RFC_TOOLCHAIN" not in build_env(no_toolchain, ref_b)
 
 
 def test_every_run_mounts_its_arms_guard(campaign):

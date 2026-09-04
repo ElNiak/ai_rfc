@@ -1,3 +1,4 @@
+import hashlib
 import json
 from pathlib import Path
 
@@ -48,6 +49,13 @@ def pristine(tmp_path: Path) -> Path:
 
 
 def _init(tmp_path, pristine, panther_repo, plugin_root, **overrides):
+    # The module's six pre-existing tests call _init(...) with no toolchain, and
+    # init_campaign now refuses without one; this default keeps them working
+    # without touching every call site. verify() is monkeypatched to (True, ())
+    # by the autouse fixture in conftest.py, so this minimal record is enough.
+    toolchain = tmp_path / "toolchain.json"
+    if not toolchain.exists():
+        toolchain.write_text('{"template_home": "/t"}\n')
     kwargs = dict(
         root=tmp_path / "root",
         campaign_id="pilot-test",
@@ -64,6 +72,7 @@ def _init(tmp_path, pristine, panther_repo, plugin_root, **overrides):
         python="/venv/bin/python",
         claude_bin="/bin/echo",
         parity={"passed": True, "summary": "38 passed"},
+        toolchain=toolchain,
     )
     kwargs.update(overrides)
     return init_campaign(CampaignConfig(**kwargs))
@@ -134,3 +143,40 @@ def test_init_campaign_freezes_an_absolute_claude_binary(
             claude_bin="definitely-not-a-real-binary-xyz",
         )
     assert "cannot find the claude binary" in str(excinfo.value)
+
+
+def test_init_refuses_without_a_verified_toolchain(
+    pristine, tmp_path, panther_repo, plugin_root, monkeypatch
+):
+    from ai_rfc.experiment import toolchain as toolchain_module
+
+    record = tmp_path / "toolchain.json"
+    record.write_text('{"template_home": "/t"}\n')
+    monkeypatch.setattr(
+        toolchain_module,
+        "verify",
+        lambda record, runner=None: (False, ("refcache digest differs",)),
+    )
+    with pytest.raises(ExperimentError) as excinfo:
+        _init(tmp_path, pristine, panther_repo, plugin_root, toolchain=record)
+    assert "refcache digest differs" in str(excinfo.value)
+    with pytest.raises(ExperimentError) as excinfo:
+        _init(tmp_path, pristine, panther_repo, plugin_root, toolchain=None)
+    assert "toolchain" in str(excinfo.value)
+
+
+def test_init_records_the_toolchain_digest(
+    pristine, tmp_path, panther_repo, plugin_root, monkeypatch
+):
+    from ai_rfc.experiment import toolchain as toolchain_module
+
+    record = tmp_path / "toolchain.json"
+    record.write_text('{"template_home": "/t"}\n')
+    monkeypatch.setattr(
+        toolchain_module, "verify", lambda record, runner=None: (True, ())
+    )
+    campaign = _init(tmp_path, pristine, panther_repo, plugin_root, toolchain=record)
+    assert campaign.toolchain == str(record) and campaign.template_home == "/t"
+    assert campaign.toolchain_sha256 == hashlib.sha256(record.read_bytes()).hexdigest()
+    stored = json.loads((campaign.dir / "campaign.json").read_text())
+    assert stored["toolchain_sha256"] == campaign.toolchain_sha256

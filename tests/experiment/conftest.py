@@ -6,6 +6,7 @@ fake ``claude``.
 """
 
 import json
+import stat
 import sys
 from pathlib import Path
 
@@ -13,6 +14,13 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FAKE_CLAUDE = Path(__file__).parent / "fake_claude" / "claude"
+
+
+def _executable(path: Path) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("#!/bin/sh\nexit 0\n")
+    path.chmod(path.stat().st_mode | stat.S_IXUSR)
+    return path
 
 
 @pytest.fixture
@@ -104,6 +112,66 @@ def pristine(fixture_workspace, panther_repo, template_repo, tmp_path) -> Path:
 
 
 @pytest.fixture
+def toolchain_record(tmp_path: Path) -> Path:
+    """A toolchain record whose executables exist and do nothing.
+
+    Mirrors ``tests/substrate/draft/test_build.py``'s fixture of the same
+    shape: real (no-op) executables so :func:`ai_rfc.draft.build.probe_toolchain`
+    would pass it for real, even though ``verify`` is monkeypatched below for
+    every campaign fixture that consumes this record.
+    """
+    home = tmp_path / "tools" / "i-d-template"
+    (home / "main.mk").parent.mkdir(parents=True)
+    (home / "main.mk").write_text("txt:\n")
+    refcache = tmp_path / "tools" / ".refcache"
+    refcache.mkdir()
+    (refcache / "reference.RFC.2119.xml").write_text("<reference/>\n")
+    record = {
+        "template_home": str(home),
+        "template_commit": "0" * 40,
+        "make": {"path": str(_executable(tmp_path / "bin" / "make"))},
+        "python": {"venv": str(home / ".venv")},
+        "ruby": {
+            "bin_dir": str(tmp_path / "ruby-bin"),
+            "gem_path": str(home / ".gems" / "ruby" / "4.0.0"),
+            "kramdown_rfc": str(
+                _executable(home / ".gems" / "ruby" / "4.0.0" / "bin" / "kramdown-rfc")
+            ),
+        },
+        "node": {
+            "bin_dir": str(tmp_path / "node-bin"),
+            "idnits": str(
+                _executable(tmp_path / "tools" / "node_modules" / ".bin" / "idnits")
+            ),
+        },
+        "refcache": {"dir": str(refcache)},
+    }
+    path = tmp_path / "tools" / "toolchain.json"
+    path.write_text(json.dumps(record, indent=2))
+    return path
+
+
+@pytest.fixture(autouse=True)
+def _toolchain_always_verifies(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every campaign fixture's toolchain passes verify without a real build.
+
+    ``init_campaign`` calls ``toolchain_module.verify`` for real otherwise,
+    which clones and builds the template twice offline (D49) — appropriate
+    for `test_toolchain.py`'s own direct tests of the real function, but not
+    for the many campaign/runner/CLI tests that only need a campaign to
+    exist. Patching the module attribute (not a local import) is what makes
+    this take effect inside ``init_campaign``, which reads ``toolchain_module
+    .verify`` fresh on every call; test_toolchain.py imports ``verify``
+    itself by name, so its own calls are unaffected by this patch.
+    """
+    from ai_rfc.experiment import toolchain as toolchain_module
+
+    monkeypatch.setattr(
+        toolchain_module, "verify", lambda record, runner=None: (True, ())
+    )
+
+
+@pytest.fixture
 def write_scenario():
     """Write one fake-claude scenario into an isolated profile directory."""
 
@@ -133,7 +201,7 @@ COMPLETE_STEPS = [
 
 
 @pytest.fixture
-def campaign(pristine, panther_repo, plugin_root, tmp_path):
+def campaign(pristine, panther_repo, plugin_root, tmp_path, toolchain_record):
     """A frozen three-arm campaign whose launches go through the fake claude."""
     from ai_rfc.experiment.config import CampaignConfig, init_campaign
 
@@ -158,5 +226,6 @@ def campaign(pristine, panther_repo, plugin_root, tmp_path):
             python=sys.executable,
             claude_bin=str(FAKE_CLAUDE),
             parity={"passed": True, "summary": "test"},
+            toolchain=toolchain_record,
         )
     )

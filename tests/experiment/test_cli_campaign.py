@@ -8,7 +8,9 @@ from ai_rfc.experiment import cli
 from .conftest import COMPLETE_STEPS, FAKE_CLAUDE
 
 
-def _init(tmp_path, pristine, panther_repo, capsys, *extra, skip_parity=True):
+def _init(
+    tmp_path, pristine, panther_repo, capsys, toolchain_record, *extra, skip_parity=True
+):
     code = cli.main(
         [
             "campaign",
@@ -35,6 +37,8 @@ def _init(tmp_path, pristine, panther_repo, capsys, *extra, skip_parity=True):
             sys.executable,
             "--claude",
             str(FAKE_CLAUDE),
+            "--toolchain",
+            str(toolchain_record),
             *(["--skip-parity"] if skip_parity else []),
             *extra,
         ]
@@ -44,9 +48,11 @@ def _init(tmp_path, pristine, panther_repo, capsys, *extra, skip_parity=True):
 
 
 def test_campaign_init_run_audit_analyze_round_trip(
-    tmp_path, pristine, panther_repo, write_scenario, capsys
+    tmp_path, pristine, panther_repo, write_scenario, capsys, toolchain_record
 ):
-    code, out, campaign_dir = _init(tmp_path, pristine, panther_repo, capsys)
+    code, out, campaign_dir = _init(
+        tmp_path, pristine, panther_repo, capsys, toolchain_record
+    )
     assert code == 0 and "run order:" in out and campaign_dir.exists()
     order = json.loads((campaign_dir / "campaign.json").read_text())["run_order"]
     for run_id in order:
@@ -68,14 +74,16 @@ def test_campaign_init_run_audit_analyze_round_trip(
 
 
 def test_run_returns_nonzero_when_a_launched_run_failed(
-    tmp_path, pristine, panther_repo, write_scenario, capsys
+    tmp_path, pristine, panther_repo, write_scenario, capsys, toolchain_record
 ):
     """A campaign driver must be able to branch on `run`'s exit code.
 
     Every run's exit code was printed and then discarded, so a script could not
     tell a campaign where every run failed from one where every run passed.
     """
-    _, _, campaign_dir = _init(tmp_path, pristine, panther_repo, capsys)
+    _, _, campaign_dir = _init(
+        tmp_path, pristine, panther_repo, capsys, toolchain_record
+    )
     order = json.loads((campaign_dir / "campaign.json").read_text())["run_order"]
     for run_id in order:
         write_scenario(
@@ -88,7 +96,7 @@ def test_run_returns_nonzero_when_a_launched_run_failed(
 
 
 def test_a_failing_parity_suite_exits_three_not_two(
-    tmp_path, pristine, panther_repo, capsys, monkeypatch
+    tmp_path, pristine, panther_repo, capsys, monkeypatch, toolchain_record
 ):
     """2 belongs to argparse, so a stop-ship gate must not also return it.
 
@@ -100,7 +108,9 @@ def test_a_failing_parity_suite_exits_three_not_two(
         cli, "_run_parity", lambda *_, **__: {"passed": False, "summary": "1 failed"}
     )
 
-    code, _, _ = _init(tmp_path, pristine, panther_repo, capsys, skip_parity=False)
+    code, _, _ = _init(
+        tmp_path, pristine, panther_repo, capsys, toolchain_record, skip_parity=False
+    )
 
     assert code == 3
 
@@ -231,7 +241,9 @@ def test_run_parity_reports_the_suite():
     assert result["passed"] is True and "passed" in result["summary"]
 
 
-def test_campaign_init_refuses_unknown_pristine(tmp_path, panther_repo, capsys):
+def test_campaign_init_refuses_unknown_pristine(
+    tmp_path, panther_repo, capsys, toolchain_record
+):
     code = cli.main(
         [
             "campaign",
@@ -246,6 +258,8 @@ def test_campaign_init_refuses_unknown_pristine(tmp_path, panther_repo, capsys):
             str(panther_repo),
             "--claude",
             str(FAKE_CLAUDE),
+            "--toolchain",
+            str(toolchain_record),
             "--skip-parity",
         ]
     )

@@ -183,6 +183,27 @@ def _parser() -> argparse.ArgumentParser:
         help="Default: the ai-rfc plugin beside this package.",
     )
 
+    toolchain = commands.add_parser(
+        "toolchain", help="The shared Internet-Draft toolchain."
+    )
+    toolchain_verbs = toolchain.add_subparsers(dest="verb", required=True)
+    provision = toolchain_verbs.add_parser(
+        "provision", help="Install it once (networked)."
+    )
+    _add_root(provision)
+    provision.add_argument(
+        "--template",
+        default=TEMPLATE_URL,
+        help="Template repository (default: %(default)s).",
+    )
+    provision.add_argument(
+        "--template-commit",
+        default=TEMPLATE_COMMIT,
+        help="Commit to pin (default: %(default)s).",
+    )
+    verify_cmd = toolchain_verbs.add_parser("verify", help="Re-check it offline.")
+    _add_root(verify_cmd)
+
     workspace = commands.add_parser("workspace", help="Pristine workspaces.")
     workspace_verbs = workspace.add_subparsers(dest="verb", required=True)
     prepare = workspace_verbs.add_parser("prepare", help="Build a pristine workspace.")
@@ -362,6 +383,15 @@ def _parser() -> argparse.ArgumentParser:
         ),
     )
     init.add_argument(
+        "--toolchain",
+        type=Path,
+        default=None,
+        help=(
+            "toolchain.json from `experiment toolchain provision` (default: "
+            "<root>/tools/toolchain.json)."
+        ),
+    )
+    init.add_argument(
         "--skip-parity",
         action="store_true",
         help="Skip the parity suite. It is the protocol's stop-ship check.",
@@ -434,6 +464,23 @@ def main(argv: list[str] | None = None) -> int:
 
             plugin_dir = args.plugin_dir or _default_plugin_dir()
             print(f"wrote {write_plugin_skill(plugin_dir.resolve())}")
+        elif args.command == "toolchain" and args.verb == "provision":
+            from .toolchain import provision as provision_toolchain
+
+            record = provision_toolchain(
+                root, template=args.template, template_commit=args.template_commit
+            )
+            print(f"toolchain: {record}")
+        elif args.command == "toolchain" and args.verb == "verify":
+            from .toolchain import verify as verify_toolchain
+
+            ok, reasons = verify_toolchain(root / "tools" / "toolchain.json")
+            if ok:
+                print("ok")
+            else:
+                for reason in reasons:
+                    print(reason)
+            return 0 if ok else 1
         elif args.command == "workspace" and args.verb == "prepare":
             target = TARGETS[args.target]
             if args.window is not None:
@@ -480,6 +527,9 @@ def main(argv: list[str] | None = None) -> int:
             pristine = Path(args.baseline)
             if not pristine.is_absolute():
                 pristine = root / "pristine" / args.baseline
+            toolchain = args.toolchain
+            if toolchain is None:
+                toolchain = root / "tools" / "toolchain.json"
             parity = None if args.skip_parity else _run_parity(args.python)
             campaign = init_campaign(
                 CampaignConfig(
@@ -499,6 +549,7 @@ def main(argv: list[str] | None = None) -> int:
                     claude_bin=args.claude,
                     parity=parity,
                     session_mode=args.session_mode,
+                    toolchain=toolchain,
                 )
             )
             print(f"campaign: {campaign.dir}")

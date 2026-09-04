@@ -98,6 +98,7 @@ def build_env(campaign: Campaign, ref: RunRef) -> dict[str, str]:
     return {
         "CLAUDE_CONFIG_DIR": str(campaign.profile_dir),
         "AI_RFC_WORKSPACE": str(ref.workspace),
+        **({"AI_RFC_TOOLCHAIN": campaign.toolchain} if campaign.toolchain else {}),
         "PATH": f"{campaign.bin_dir}:{venv_bin}:/usr/bin:/bin",
         "HOME": os.environ.get("HOME", ""),
         # Measured on Claude Code 2.1.247 / macOS: drop USER and the CLI cannot
@@ -142,7 +143,11 @@ def prepare_run_argv(
         mcp_path = ref.run_dir / MCP_FILE
         mcp_path.write_text(
             json.dumps(
-                mcp_config(python=campaign.python, workspace=ref.workspace),
+                mcp_config(
+                    python=campaign.python,
+                    workspace=ref.workspace,
+                    toolchain=Path(campaign.toolchain) if campaign.toolchain else None,
+                ),
                 indent=2,
             )
             + "\n"

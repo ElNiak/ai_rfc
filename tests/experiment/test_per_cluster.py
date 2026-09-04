@@ -3,10 +3,10 @@ import sys
 
 import pytest
 
+from ai_rfc.experiment import progress
 from ai_rfc.experiment.config import CampaignConfig, init_campaign
 from ai_rfc.experiment.driver import launch_pending
 from ai_rfc.experiment.metrics import analyze_run
-from ai_rfc.experiment import progress
 from ai_rfc.experiment.per_cluster import surface_shortfall
 from ai_rfc.experiment.progress import window_progress
 from ai_rfc.experiment.runner import EVENTS_FILE, RESULT_FILE
@@ -36,7 +36,9 @@ def wide_pristine(fixture_workspace, panther_repo, template_repo, tmp_path):
 
 
 @pytest.fixture
-def per_cluster_campaign(wide_pristine, panther_repo, plugin_root, tmp_path):
+def per_cluster_campaign(
+    wide_pristine, panther_repo, plugin_root, tmp_path, toolchain_record
+):
     """A one-arm campaign executed as one agent session per cluster."""
     return init_campaign(
         CampaignConfig(
@@ -56,6 +58,7 @@ def per_cluster_campaign(wide_pristine, panther_repo, plugin_root, tmp_path):
             claude_bin=str(FAKE_CLAUDE),
             parity={"passed": True, "summary": "test"},
             session_mode="per-cluster",
+            toolchain=toolchain_record,
         )
     )
 

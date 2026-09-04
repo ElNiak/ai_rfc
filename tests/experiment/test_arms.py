@@ -1,4 +1,5 @@
 import importlib.util
+from pathlib import Path
 
 import pytest
 
@@ -174,6 +175,16 @@ def test_the_mcp_config_launches_the_installed_server(tmp_path):
     assert server["command"] == "/venv/bin/python"
     assert server["args"] == ["-m", "ai_rfc.server"]
     assert server["env"] == {"AI_RFC_WORKSPACE": str(tmp_path / "ws")}
+
+    with_toolchain = mcp_config(
+        python="/venv/bin/python",
+        workspace=tmp_path / "ws",
+        toolchain=Path("/t/toolchain.json"),
+    )
+    assert (
+        with_toolchain["mcpServers"]["ai_rfc"]["env"]["AI_RFC_TOOLCHAIN"]
+        == "/t/toolchain.json"
+    )
 
 
 def test_claude_argv_starts_with_print_mode(tmp_path):

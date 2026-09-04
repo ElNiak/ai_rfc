@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from . import ExperimentError
+from . import toolchain as toolchain_module
 from .arms import ARMS
 from .render import arm_prompt, unified_diff
 from .workspace import DIGEST_FILE, RECORD_FILE
@@ -61,6 +62,9 @@ class CampaignConfig:
     parity: dict[str, Any] | None
     #: ``single`` or ``per-cluster``; see :attr:`Campaign.session_mode`.
     session_mode: str = "single"
+    #: A ``toolchain.json`` from ``experiment toolchain provision``; required —
+    #: :func:`init_campaign` refuses without one it can verify.
+    toolchain: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -98,6 +102,12 @@ class Campaign:
     #: everything after it. Defaulted so campaigns frozen before this existed
     #: still load, and recorded so a run says how it was executed.
     session_mode: str = "single"
+    #: The toolchain record path, its digest, and where its template lives —
+    #: frozen so a run's environment can point at the same build tools every
+    #: launch used, without re-verifying them per session.
+    toolchain: str | None = None
+    toolchain_sha256: str | None = None
+    template_home: str | None = None
 
     @property
     def dir(self) -> Path:
@@ -237,6 +247,15 @@ def init_campaign(config: CampaignConfig) -> Campaign:
     for arm in arms:
         if arm not in ARMS:
             raise ExperimentError(f"unknown arm {arm!r}")
+    if config.toolchain is None:
+        raise ExperimentError(
+            "a campaign needs a verified toolchain: run `experiment toolchain "
+            "provision` once, then pass --toolchain"
+        )
+    ok, reasons = toolchain_module.verify(config.toolchain)
+    if not ok:
+        raise ExperimentError(f"toolchain verify failed: {'; '.join(reasons)}")
+    toolchain_record = json.loads(config.toolchain.read_text())
     # Freeze the binary, not a name. A run's PATH is minimal and deliberately
     # excludes the user's own bin directories, so a bare name that resolves
     # here would not resolve at launch — and a campaign that records a name
@@ -311,6 +330,9 @@ def init_campaign(config: CampaignConfig) -> Campaign:
         parity=config.parity,
         created_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
         session_mode=config.session_mode,
+        toolchain=str(config.toolchain),
+        toolchain_sha256=hashlib.sha256(config.toolchain.read_bytes()).hexdigest(),
+        template_home=toolchain_record.get("template_home"),
     )
     (campaign_dir / CAMPAIGN_FILE).write_text(_dump(campaign))
     return campaign
