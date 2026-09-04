@@ -10,7 +10,13 @@ import shutil
 
 import pytest
 
-from ai_rfc.experiment.optimize.apply import apply, diff_stat
+from ai_rfc.experiment.optimize.apply import (
+    apply,
+    diff_stat,
+    dirty_paths,
+    repo_root,
+    targets,
+)
 from ai_rfc.experiment.optimize.codec import (
     SKILL_DIRS,
     CodecError,
@@ -53,6 +59,26 @@ def template_copy(tmp_path):
     path = tmp_path / "loop.tmpl.md"
     path.write_text(TEMPLATE.read_text())
     return path
+
+
+@pytest.fixture
+def plugin_repo(tmp_path, plugin_root):
+    """A committed repository holding a plugin copy and a loop template.
+
+    Returns:
+        The repository, the plugin inside it, and the template beside it.
+    """
+    repo = tmp_path / "repo"
+    shutil.copytree(plugin_root, repo / "plugins" / "ai-rfc")
+    template = repo / "prompts" / "loop.tmpl.md"
+    template.parent.mkdir(parents=True)
+    template.write_text(TEMPLATE.read_text())
+    git(repo, "init", "-q", "-b", "main")
+    git(repo, "config", "user.email", "t@t")
+    git(repo, "config", "user.name", "t")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "plugin")
+    return repo, repo / "plugins" / "ai-rfc", template
 
 
 def test_applying_the_seed_encoding_changes_not_one_byte(plugin_copy, template_copy):
@@ -145,18 +171,60 @@ def test_a_rejected_candidate_raises_and_writes_nothing(plugin_copy, template_co
     assert _snapshot(plugin_copy, template_copy) == before
 
 
-def test_diff_stat_names_the_files_a_candidate_changed(tmp_path, plugin_root):
-    repo = tmp_path / "repo"
-    shutil.copytree(plugin_root, repo / "plugins" / "ai-rfc")
-    template = repo / "prompts" / "loop.tmpl.md"
-    template.parent.mkdir(parents=True)
-    template.write_text(TEMPLATE.read_text())
-    git(repo, "init", "-q", "-b", "main")
-    git(repo, "config", "user.email", "t@t")
-    git(repo, "config", "user.name", "t")
-    git(repo, "add", "-A")
-    git(repo, "commit", "-q", "-m", "plugin")
-    plugin_copy = repo / "plugins" / "ai-rfc"
+def test_targets_names_exactly_what_apply_writes(plugin_copy, template_copy):
+    """The guard must know the paths before ``apply`` exists to report them.
+
+    ``targets`` spells the generated loop skill out rather than learning it
+    from the renderer, so this equality is the only thing keeping the two
+    from drifting apart.
+    """
+    named = targets(plugin_copy, template_path=template_copy)
+
+    applied = apply(
+        encode(seed_from_plugin(plugin_copy)), plugin_copy, template_path=template_copy
+    )
+
+    assert named == applied.written
+    assert named[-1] == applied.rendered_skill
+
+
+def test_repo_root_finds_the_repository_and_reports_none_outside_one(
+    plugin_repo, tmp_path
+):
+    repo, plugin_copy, _ = plugin_repo
+    outside = tmp_path / "loose"
+    outside.mkdir()
+
+    assert repo_root(plugin_copy) == repo.resolve()
+    assert repo_root(outside) is None
+
+
+def test_dirty_paths_names_a_modified_target_and_a_staged_one(plugin_repo):
+    repo, plugin_copy, template = plugin_repo
+    watched = targets(plugin_copy, template_path=template)
+    assert dirty_paths(repo, watched) == ()
+
+    _skill(plugin_copy, "rfc-style").write_text("a hand edit nobody committed\n")
+    template.write_text(TEMPLATE.read_text() + "\nA staged line.\n")
+    git(repo, "add", str(template))
+
+    assert set(dirty_paths(repo, watched)) == {
+        "plugins/ai-rfc/skills/ai-rfc-rfc-style/SKILL.md",
+        "prompts/loop.tmpl.md",
+    }
+
+
+def test_dirty_paths_counts_a_file_git_keeps_no_copy_of(plugin_repo):
+    """Untracked is the worst case: overwriting loses the content outright."""
+    repo, _, _ = plugin_repo
+    fresh = repo / "prompts" / "proposed.tmpl.md"
+    fresh.write_text(TEMPLATE.read_text())
+
+    assert dirty_paths(repo, [fresh]) == ("prompts/proposed.tmpl.md",)
+
+
+def test_diff_stat_names_the_files_a_candidate_changed(plugin_repo):
+    _, plugin_copy, template = plugin_repo
     seed = seed_from_plugin(plugin_copy)
     candidate = encode(
         dataclasses.replace(seed, rfc_style=seed.rfc_style + "\nBe terse.\n")

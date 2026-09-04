@@ -206,7 +206,13 @@ def draft_build_report(
             ref=_latest_tag(workspace),
             refcache=sealed if sealed.is_dir() else None,
         )
-    except BuildError as error:
+    except (BuildError, OSError) as error:
+        # OSError as well as BuildError: `build` invokes the record's
+        # executables through a bare `subprocess.run`, so a record naming a
+        # tool that is not installed raises `FileNotFoundError` from there.
+        # The caller scores outside the harness-fault wrapper, so an exception
+        # escaping here would end a whole optimization over a term worth a
+        # fifth of one evaluation.
         log(f"{campaign.id}: the draft did not build: {error}")
         return None
 

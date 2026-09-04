@@ -166,29 +166,38 @@ entry and 2.0 for an interview one.
 
 **Stage `fake`** rehearses the whole loop for nothing: it drives the fake agent
 under `tests/experiment/fake_claude/`, rates every anchored claim a perfect fit
-without a network call, and proposes the seed straight back, so no model is
-ever paid. It still freezes real campaigns and runs them, so it needs a
-`--toolchain` record (a stub one is fine) and a scenario for the fake agent to
-replay at `<profile-dir>/fake-scenarios/default.json`. `--max-evals` defaults
-to three per example, which is one whole round; below that the proposal is
-never scored and the search only looks converged.
+without a network call, reports a clean compile without running a toolchain,
+and proposes the seed straight back, so no model is ever paid. Two of the four
+graded terms — the judge's relevance and the draft's compile — are therefore
+constants rather than measurements. A rehearsal proves the wiring; its scores
+mean nothing beside a pilot's. It still
+freezes real campaigns and runs them, so it needs a `--toolchain` record and a
+scenario for the fake agent to replay at
+`<profile-dir>/fake-scenarios/default.json`. Because the build is stubbed here,
+any well-formed record will do: the executables it names are never invoked.
+`--max-evals` defaults to three per example, which is one whole round; below
+that the proposal is never scored and the search only looks converged.
 
 **Stage `pilot`** spends money and says so first. It refuses to start unless
 `ANTHROPIC_API_KEY` is set and `--max-evals`, `--max-token-cost`, `--model`,
 `--reflection-lm` and `--judge-model` are all given — nothing that costs is
 defaulted. It then prints the worst case (`--max-evals` × the largest example
-budget, plus the proposer ceiling) and stops until `--yes`. Everything lands
-under `<root>/optimize/<name>/`. A second run over an existing one **resumes**
-rather than starting over; `touch <root>/optimize/<name>/gepa/gepa.stop` is the
+budget, plus the proposer ceiling) and stops until `--yes`. It builds each
+draft for real, so its `--toolchain` record must name executables that exist:
+use one from `experiment toolchain provision`. Everything lands under
+`<root>/optimize/<name>/`. A second run over an existing one **resumes** rather
+than starting over; `touch <root>/optimize/<name>/gepa/gepa.stop` is the
 graceful stop.
 
 **Applying what it found.** `optimize apply <candidate> --plugin-root PATH`
 decodes the candidate against the plugin, writes the three prose bodies under
 the frontmatter each skill already carries, writes the loop template, and
-regenerates the loop SKILL.md from that file. It prints `git diff --stat` and
-commits nothing: the result is a working tree for a person to read, reject or
-keep. Re-run `pytest tests/experiment/test_render.py` afterwards — it pins the
-committed skill to the template.
+regenerates the loop SKILL.md from that file. It refuses first if any of those
+files holds work nobody committed — overwritten, it would be indistinguishable
+from the candidate in the diff — unless `--force` says otherwise. It prints
+`git diff --stat` and commits nothing: the result is a working tree for a
+person to read, reject or keep. Re-run `pytest tests/experiment/test_render.py`
+afterwards — it pins the committed skill to the template.
 
 ## Tests
 

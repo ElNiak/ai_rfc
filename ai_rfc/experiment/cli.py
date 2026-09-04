@@ -10,6 +10,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import Callable
 
 from . import DEFAULT_MODEL, EFFORTS, ExperimentError
 from .arms import ARMS
@@ -176,6 +177,9 @@ def _optimize_run(args: argparse.Namespace, root: Path) -> int:
         ExperimentError: If the stage's preconditions are not met, in which
             case nothing has been created.
     """
+    from ai_rfc.draft.build import BuildReport
+
+    from .config import Campaign
     from .optimize.codec import encode, seed_from_plugin
     from .optimize.evaluator import Evaluator, EvaluatorSettings
     from .optimize.judge import anthropic_transport, build_judge
@@ -187,12 +191,41 @@ def _optimize_run(args: argparse.Namespace, root: Path) -> int:
         """Rate every anchored claim a perfect fit, calling nothing."""
         return [Judgement(hunk.claim_id, 1.0, "rehearsal stub") for hunk in hunks]
 
+    def rehearsal_build(campaign: Campaign, workspace: Path) -> BuildReport:
+        """Report a clean compile without a toolchain to run one.
+
+        A rehearsal has no real toolchain — the point is to cost nothing —
+        so building for real would score every candidate's prose term zero
+        and leave a fifth of the value untried. This is a constant rather
+        than a measurement, which is the reason a rehearsal's scores mean
+        nothing next to a pilot's; what it buys is that the term, and the
+        scoring around it, is exercised at all.
+        """
+        return BuildReport(
+            ref="HEAD",
+            commit="0" * 40,
+            draft="rehearsal",
+            source_sha256="0" * 64,
+            date="1970-01-01",
+            targets=("txt",),
+            exit_code=0,
+            argv=(),
+            template={},
+            refcache="",
+            stages=(),
+            diagnostics=(),
+            broken_references=(),
+            idnits={},
+            outputs={},
+        )
+
     plugin_root = (args.plugin_root or _default_plugin_dir()).resolve()
     seed = seed_from_plugin(plugin_root)
     max_evals = args.max_evals
     max_token_cost = args.max_token_cost
     judge: Judge
     reflection_lm: str | SeedEchoLM
+    build: Callable[[Campaign, Path], BuildReport | None] | None
 
     if args.stage == "pilot":
         missing = [
@@ -215,6 +248,7 @@ def _optimize_run(args: argparse.Namespace, root: Path) -> int:
         reflection_lm = args.reflection_lm
         model = args.model
         claude_bin = args.claude_bin or "claude"
+        build = None
     else:
         claude_bin = args.claude_bin or str(_fake_claude())
         if not Path(claude_bin).exists():
@@ -223,6 +257,7 @@ def _optimize_run(args: argparse.Namespace, root: Path) -> int:
                 "that ships with the tests, so point --claude-bin at one"
             )
         judge = rehearsal_judge
+        build = rehearsal_build
         reflection_lm = SeedEchoLM(encode(seed))
         model = args.model or "fake-model"
         # max_token_cost is left unset rather than zeroed. It becomes gepa's
@@ -279,6 +314,7 @@ def _optimize_run(args: argparse.Namespace, root: Path) -> int:
             source_plugin_root=plugin_root,
             seed=seed,
             judge=judge,
+            build=build,
             log=log,
         )
     )
@@ -714,7 +750,9 @@ def _parser() -> argparse.ArgumentParser:
         type=Path,
         required=True,
         help="toolchain.json every evaluation's campaign records; a campaign "
-        "cannot be frozen without one.",
+        "cannot be frozen without one. A pilot builds each draft with it, so "
+        "the executables it names must exist (see `toolchain provision`); a "
+        "rehearsal stubs the build, so any well-formed record will load.",
     )
     optimize_run.add_argument(
         "--claude-bin",
@@ -772,6 +810,11 @@ def _parser() -> argparse.ArgumentParser:
         default=None,
         help="Where the loop template is written, and what the loop skill is "
         "then rendered from. Default: the packaged template.",
+    )
+    optimize_apply.add_argument(
+        "--force",
+        action="store_true",
+        help="Write even over uncommitted changes to the files it replaces.",
     )
 
     return parser
@@ -1018,16 +1061,32 @@ def main(argv: list[str] | None = None) -> int:
             return _optimize_run(args, root)
         elif args.command == "optimize" and args.verb == "apply":
             from .optimize.apply import apply as apply_candidate
-            from .optimize.apply import diff_stat
+            from .optimize.apply import diff_stat, dirty_paths, repo_root, targets
             from .render import TEMPLATE
 
             plugin_root = args.plugin_root.resolve()
+            template_path = args.template.resolve() if args.template else TEMPLATE
+            repo = repo_root(plugin_root)
+            if repo is None:
+                print(
+                    f"{plugin_root} is in no git repository: nothing was checked "
+                    "for uncommitted work, and there is no diff to show."
+                )
+            elif not args.force:
+                overwritten = dirty_paths(
+                    repo, targets(plugin_root, template_path=template_path)
+                )
+                if overwritten:
+                    raise ExperimentError(
+                        "these files hold work nobody committed and would be "
+                        f"overwritten: {', '.join(overwritten)}; commit them, "
+                        "or pass --force"
+                    )
             applied = apply_candidate(
-                args.candidate.read_text(),
-                plugin_root,
-                template_path=args.template.resolve() if args.template else TEMPLATE,
+                args.candidate.read_text(), plugin_root, template_path=template_path
             )
-            print(diff_stat(plugin_root, applied.written), end="")
+            if repo is not None:
+                print(diff_stat(plugin_root, applied.written), end="")
             print(f"rendered: {applied.rendered_skill}")
             print(NOT_COMMITTED)
     except (ExperimentError, OSError) as error:

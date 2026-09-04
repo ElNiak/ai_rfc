@@ -14,6 +14,7 @@ end to end by taking the audit away from the first attempt only.
 """
 
 import dataclasses
+import json
 import os
 import sys
 from pathlib import Path
@@ -499,3 +500,30 @@ def test_the_default_build_returns_nothing_without_a_toolchain(campaign):
     without = dataclasses.replace(campaign, toolchain=None)
 
     assert draft_build_report(without, campaign.pristine_dir) is None
+
+
+def test_the_default_build_survives_a_toolchain_whose_tools_are_missing(
+    campaign, tmp_path
+):
+    """A record naming an absent `make` costs a term, it does not end the run.
+
+    `build` invokes the record's executables through a bare `subprocess.run`,
+    so a path that is not there raises `FileNotFoundError` rather than
+    `BuildError`. `_score` is called outside the harness-fault wrapper, so an
+    exception escaping here would abort the whole optimization on the stub
+    toolchain a rehearsal is invited to use.
+    """
+    record = json.loads(Path(campaign.toolchain).read_text())
+    record["make"]["path"] = str(tmp_path / "no-such-make")
+    broken = tmp_path / "broken-toolchain.json"
+    broken.write_text(json.dumps(record))
+    reasons = []
+
+    report = draft_build_report(
+        dataclasses.replace(campaign, toolchain=broken),
+        campaign.pristine_dir,
+        log=reasons.append,
+    )
+
+    assert report is None
+    assert "no-such-make" in " ".join(reasons)

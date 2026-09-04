@@ -38,6 +38,50 @@ def template_copy(tmp_path):
 
 
 @pytest.fixture
+def plugin_repo(tmp_path, plugin_root):
+    """A committed repository holding a plugin copy and a loop template.
+
+    Returns:
+        The plugin inside the repository, and the template beside it.
+    """
+    from ai_rfc.server.testing import git
+
+    repo = tmp_path / "repo"
+    shutil.copytree(plugin_root, repo / "plugins" / "ai-rfc")
+    template = repo / "prompts" / "loop.tmpl.md"
+    template.parent.mkdir(parents=True)
+    template.write_text(TEMPLATE.read_text())
+    git(repo, "init", "-q", "-b", "main")
+    git(repo, "config", "user.email", "t@t")
+    git(repo, "config", "user.name", "t")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "plugin")
+    return repo / "plugins" / "ai-rfc", template
+
+
+def _apply(candidate, plugin_root, template, *extra):
+    return [
+        "optimize",
+        "apply",
+        str(candidate),
+        "--plugin-root",
+        str(plugin_root),
+        "--template",
+        str(template),
+        *extra,
+    ]
+
+
+def _candidate(tmp_path, plugin_root, name="best.txt"):
+    seed = seed_from_plugin(plugin_root)
+    path = tmp_path / name
+    path.write_text(
+        encode(dataclasses.replace(seed, rfc_style=seed.rfc_style + "\nBe terse.\n"))
+    )
+    return path
+
+
+@pytest.fixture
 def examples_file(tmp_path):
     path = tmp_path / "examples.json"
     path.write_text(
@@ -144,6 +188,55 @@ def test_apply_writes_the_candidate_and_says_nothing_was_committed(
         "Be terse."
         in (plugin_copy / "skills" / "ai-rfc-rfc-style" / "SKILL.md").read_text()
     )
+
+
+def test_apply_refuses_to_overwrite_work_nobody_committed(
+    plugin_repo, tmp_path, capsys
+):
+    """A dirty target is indistinguishable from the candidate in the diff.
+
+    The verb's whole contract is that a person reads the diff afterwards. An
+    uncommitted edit written over would show up as part of the candidate's
+    own change, with no way to tell the two apart and no copy to recover.
+    """
+    plugin_copy, template = plugin_repo
+    skill = plugin_copy / "skills" / "ai-rfc-rfc-style" / "SKILL.md"
+    skill.write_text("half-finished rewrite\n")
+    candidate = _candidate(tmp_path, plugin_copy)
+
+    code = cli.main(_apply(candidate, plugin_copy, template))
+
+    err = capsys.readouterr().err
+    assert code == 1
+    assert "skills/ai-rfc-rfc-style/SKILL.md" in err and "--force" in err
+    assert skill.read_text() == "half-finished rewrite\n"
+
+
+def test_force_applies_over_uncommitted_work(plugin_repo, tmp_path, capsys):
+    plugin_copy, template = plugin_repo
+    skill = plugin_copy / "skills" / "ai-rfc-rfc-style" / "SKILL.md"
+    skill.write_text("half-finished rewrite\n")
+    candidate = _candidate(tmp_path, plugin_copy)
+
+    code = cli.main(_apply(candidate, plugin_copy, template, "--force"))
+
+    assert code == 0
+    assert cli.NOT_COMMITTED in capsys.readouterr().out
+    assert "Be terse." in skill.read_text()
+
+
+def test_apply_says_so_when_the_plugin_is_in_no_repository(
+    plugin_copy, template_copy, tmp_path, capsys
+):
+    """Nothing was checked, and the reader is told rather than reassured."""
+    candidate = _candidate(tmp_path, plugin_copy)
+
+    code = cli.main(_apply(candidate, plugin_copy, template_copy))
+
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "no git repository" in out
+    assert cli.NOT_COMMITTED in out
 
 
 def test_apply_reports_a_rejected_candidate_and_leaves_the_plugin_alone(

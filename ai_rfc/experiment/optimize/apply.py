@@ -10,6 +10,11 @@ diff is what the proposal is argued from.
 The candidate is decoded against the plugin it is being written into, so the
 same guards that protect a campaign protect the working tree. A proposal that
 dropped a section or a template slot is refused before the first byte lands.
+
+:func:`apply` itself never runs git. The three functions beside it only ask
+questions — which paths would be written, which repository they belong to,
+which of them already hold uncommitted work — so that a caller can decide to
+refuse before calling it, and read the diff after.
 """
 
 from __future__ import annotations
@@ -21,6 +26,13 @@ from typing import Iterable
 
 from ..render import TEMPLATE, write_plugin_skill
 from .codec import SKILL_DIRS, decode, frontmatters_from_plugin, seed_from_plugin
+
+#: The directory holding the generated loop skill. ``write_plugin_skill`` owns
+#: the rendering and only names this path once it has written it, but a caller
+#: guarding a working tree has to know what would be overwritten *before*
+#: anything is. The two are held together by the test asserting that
+#: :func:`targets` names exactly what :func:`apply` writes.
+LOOP_SKILL_DIR = "ai-rfc-reconstruction-loop"
 
 
 @dataclass(frozen=True)
@@ -36,6 +48,79 @@ class Applied:
 
     written: tuple[Path, ...]
     rendered_skill: Path
+
+
+def targets(plugin_root: Path, *, template_path: Path = TEMPLATE) -> tuple[Path, ...]:
+    """Every path :func:`apply` would write, without writing one of them.
+
+    Args:
+        plugin_root: The plugin that would be written into.
+        template_path: Where the loop template would be written.
+
+    Returns:
+        The three prose skills, the template and the generated loop skill, in
+        the order :func:`apply` writes them.
+    """
+    skills = plugin_root / "skills"
+    return (
+        *(skills / directory / "SKILL.md" for directory in SKILL_DIRS.values()),
+        template_path,
+        skills / LOOP_SKILL_DIR / "SKILL.md",
+    )
+
+
+def repo_root(path: Path) -> Path | None:
+    """The git repository ``path`` sits in.
+
+    Args:
+        path: Any path; it need not exist.
+
+    Returns:
+        The repository's top level, or None when git reports none — the
+        ordinary case for a plugin unpacked outside version control.
+    """
+    completed = subprocess.run(
+        ["git", "-C", str(path), "rev-parse", "--show-toplevel"],
+        capture_output=True,
+        text=True,
+    )
+    if completed.returncode != 0:
+        return None
+    return Path(completed.stdout.strip())
+
+
+def dirty_paths(repo: Path, paths: Iterable[Path]) -> tuple[str, ...]:
+    """Which of ``paths`` hold work that writing over them would destroy.
+
+    Untracked files count: those are the ones git keeps no copy of, so
+    overwriting one loses the content outright.
+
+    Args:
+        repo: A directory inside the repository to ask.
+        paths: The files to ask about.
+
+    Returns:
+        Every path git reports as not matching HEAD, in git's order and its
+        spelling. Empty when they are all clean — and also empty when git
+        refuses, so a caller must establish there is a repository with
+        :func:`repo_root` first rather than read this as a passed check.
+    """
+    completed = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo),
+            "status",
+            "--porcelain",
+            "--",
+            *(str(path) for path in paths),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if completed.returncode != 0:
+        return ()
+    return tuple(line[3:] for line in completed.stdout.splitlines() if line.strip())
 
 
 def apply(
