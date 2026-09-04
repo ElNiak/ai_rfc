@@ -310,6 +310,8 @@ def build(
         BuildError: If ``ref`` does not resolve or names no single draft file.
     """
     run = runner or DEFAULT_RUNNER
+    draft_repo = draft_repo.resolve()
+    out = out.resolve()
     resolved = _git(draft_repo, "rev-parse", "--verify", f"{ref}^{{commit}}")
     if resolved.returncode != 0:
         raise BuildError(
@@ -331,7 +333,7 @@ def build(
         shutil.rmtree(scratch)
     build_dir.mkdir(parents=True, exist_ok=True)
     cloned = _git(
-        draft_repo.parent,
+        build_dir,
         "clone",
         "-q",
         "--no-hardlinks",

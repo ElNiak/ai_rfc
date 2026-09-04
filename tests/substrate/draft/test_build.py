@@ -160,6 +160,22 @@ def test_build_runs_make_offline_in_a_scratch_clone(toolchain, draft_repo, tmp_p
     assert written["exit_code"] == 0 and written["offline"] is True
 
 
+def test_build_accepts_relative_paths_from_another_cwd(
+    toolchain, draft_repo, tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    report = build(
+        Path(draft_repo.name),
+        toolchain=load_toolchain(toolchain),
+        out=Path("out"),
+        runner=_fake_make(trace=("draft-test-spec kramdown-rfc 0",)),
+    )
+    assert (tmp_path / "out" / "build" / "scratch" / ".git").exists()
+    assert Path(report.argv[2]) == tmp_path / "out" / "build" / "scratch"
+    assert report.exit_code == 0
+    assert (tmp_path / "out" / "build" / "build-report.json").exists()
+
+
 def test_a_broken_reference_is_a_finding_even_when_make_exits_zero(
     toolchain, draft_repo, tmp_path
 ):
@@ -208,6 +224,26 @@ def test_a_broken_reference_names_the_real_toolchains_actual_wording(
     report = build(draft_repo, toolchain=record, out=tmp_path / "out", runner=runner)
     assert report.broken_references == ("RFC9999",)
     assert report.findings == ("broken reference RFC9999 (not in the refcache)",)
+
+
+def test_an_xml2rfc_unresolved_request_is_a_broken_reference(
+    toolchain, draft_repo, tmp_path
+):
+    record = load_toolchain(toolchain)
+    runner = _fake_make(
+        trace=("draft-test-spec xml2rfc-txt 0",),
+        stderr="Unable to resolve external request: reference.RFC.9999.xml\n",
+    )
+    report = build(draft_repo, toolchain=record, out=tmp_path / "out", runner=runner)
+    assert report.broken_references == ("RFC9999",)
+    assert report.findings == ("broken reference RFC9999 (not in the refcache)",)
+    assert report.diagnostics == (
+        {
+            "tool": "xml2rfc",
+            "severity": "error",
+            "message": "Unable to resolve external request: reference.RFC.9999.xml",
+        },
+    )
 
 
 def test_a_failed_stage_is_named_with_its_stderr(toolchain, draft_repo, tmp_path):
