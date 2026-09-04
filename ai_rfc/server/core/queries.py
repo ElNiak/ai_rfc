@@ -9,6 +9,7 @@ from typing import Any
 
 import yaml
 
+from ...draft.checkpoint import CHECKPOINT_FILE
 from ..paths import Context
 from . import CoreError, GuardrailError
 
@@ -67,9 +68,16 @@ def _clusters(ctx: Context) -> list[dict[str, Any]]:
 
 
 def _processed_cluster_ids(ctx: Context) -> set[str]:
+    # A checkpoint directory counts only with its record in it: an empty
+    # directory named after a cluster would otherwise skip that cluster, and
+    # one per cluster would skip the whole window with nothing checkpointed.
     checkpoints = ctx.workspace / "checkpoints"
     processed = (
-        {entry.name for entry in checkpoints.iterdir() if entry.is_dir()}
+        {
+            entry.name
+            for entry in checkpoints.iterdir()
+            if entry.is_dir() and (entry / CHECKPOINT_FILE).exists()
+        }
         if checkpoints.is_dir()
         else set()
     )

@@ -100,6 +100,22 @@ def test_cluster_navigation_and_get(workspace):
         cluster_get(workspace, "c9999-pr-000000000000")
 
 
+def test_a_cluster_is_processed_only_once_its_checkpoint_record_exists(workspace):
+    """An empty directory named after a cluster does not process it.
+
+    Counting the directory alone lets a run skip the whole window by
+    creating one directory per cluster, with no checkpoint behind any of
+    them.
+    """
+    first = cluster_next(workspace)
+    bare = workspace.workspace / "checkpoints" / first["id"]
+    bare.mkdir(parents=True)
+    assert cluster_next(workspace)["id"] == first["id"]
+
+    (bare / "checkpoint.json").write_text("{}")
+    assert cluster_next(workspace)["id"] != first["id"]
+
+
 def test_checkpoint_revision_and_next_advance(workspace):
     first = cluster_next(workspace)
     result = write_checkpoint(workspace, first["id"])
