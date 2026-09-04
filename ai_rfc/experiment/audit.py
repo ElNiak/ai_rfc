@@ -355,6 +355,14 @@ def audit_events(
             )
             for name in STATE_FILES
         },
+        # Every register edit, whatever it landed on. ``hand_edits`` buckets
+        # the three state-file basenames, so an edit to a checkpoint record —
+        # classified register, named nothing in that vocabulary — was counted
+        # nowhere. A score that treats hand-writing the register as fatal has
+        # to read a number that covers all of it.
+        "register_edits": sum(
+            1 for c in calls if c.surface == "edit" and c.target == "register"
+        ),
         "prose_edits": sum(
             1 for c in calls if c.surface == "edit" and c.target == "prose"
         ),

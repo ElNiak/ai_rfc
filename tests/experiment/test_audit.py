@@ -284,3 +284,52 @@ def test_guard_stats_flags_a_run_that_recorded_no_digest():
     report = guard_stats([], "B", "", "abc")
     assert report["digest_recorded"] is False
     assert report["unmodified"] is False
+
+
+def test_a_write_to_a_checkpoint_record_is_counted_as_a_register_edit():
+    """``hand_edits`` buckets basenames, so a checkpoint record fell through it.
+
+    ``edit_target`` classifies anything under ``checkpoints/`` as a register
+    edit, but ``hand_edits`` only counts the three state-file basenames. A
+    ``Write`` to ``checkpoints/<id>/checkpoint.json`` was therefore classified
+    register and counted nowhere, which is exactly the forgery the register
+    counters exist to catch.
+    """
+    events = parse_stream(
+        '{"type":"assistant","message":{"id":"m1","content":[{"type":"tool_use",'
+        '"id":"t1","name":"Write","input":'
+        '{"file_path":"/w/checkpoints/c0002-a/checkpoint.json"}}],'
+        '"usage":{"input_tokens":1,"output_tokens":1}}}\n'
+        '{"type":"user","message":{"content":[{"type":"tool_result",'
+        '"tool_use_id":"t1","is_error":false,"content":"{}"}]}}\n'
+        '{"type":"result","subtype":"success","total_cost_usd":0.1,"usage":{},'
+        '"permission_denials":[]}\n'
+    )
+    audit = audit_events(events, "B", WS)
+
+    assert audit["register_edits"] == 1
+    assert audit["hand_edits"] == {
+        "manifest.yaml": 0,
+        "questions.yaml": 0,
+        "revisions.yaml": 0,
+    }
+
+
+def test_register_edits_totals_what_hand_edits_only_buckets():
+    """The two counters overlap on purpose: one buckets by file, one totals."""
+    events = parse_stream(
+        '{"type":"assistant","message":{"id":"m1","content":[{"type":"tool_use",'
+        '"id":"t1","name":"Edit","input":{"file_path":"/w/manifest.yaml"}},'
+        '{"type":"tool_use","id":"t2","name":"Write","input":'
+        '{"file_path":"/w/checkpoints/c1/manifest.yaml"}},'
+        '{"type":"tool_use","id":"t3","name":"Edit","input":'
+        '{"file_path":"/w/draft/draft-x.md"}}],'
+        '"usage":{"input_tokens":1,"output_tokens":1}}}\n'
+        '{"type":"result","subtype":"success","total_cost_usd":0.1,"usage":{},'
+        '"permission_denials":[]}\n'
+    )
+    audit = audit_events(events, "B", WS)
+
+    assert audit["register_edits"] == 2
+    assert audit["hand_edits"]["manifest.yaml"] == 2
+    assert audit["prose_edits"] == 1
