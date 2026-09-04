@@ -10,7 +10,7 @@ The comparison uses the binding three-class interface taxonomy: class 1, structu
 
 | Arm | Surface | Class |
 |---|---|---|
-| A | `arfc_*` MCP tools | 1: structured-typed |
+| A | `ai_rfc_*` MCP tools | 1: structured-typed |
 | B | `ai_rfc` CLI invoked through the Bash tool | 2: hybrid shell-via-tool |
 | C | Raw substrate `python -m` commands through the Bash tool | 2: hybrid, different command family |
 
@@ -27,7 +27,7 @@ The B-versus-C contrast is deliberately kept: it isolates within-class affordanc
 
 The controlling finding: "agents frequently ignored the interface they were assigned," so unverified comparisons measure an unknown mixture (Scaffolding Matters, 2026). Three mandatory elements follow.
 
-**Enforce by removal or allowlist, never by denylist or prompt instruction.** String-level denylists are 69.0-98.6% bypassable across 1,709 real-world configurations, including Claude Code's built-in denylist (One goal, many commands [ShellSieve], 2026). Concretely: arm A runs with the Bash tool absent, or with `ai_rfc` and `python -m` invocations denied by allowlist; arms B and C run with the `arfc_*` MCP server unmounted. The enforcement mechanism itself is disclosed in the paper.
+**Enforce by removal or allowlist, never by denylist or prompt instruction.** String-level denylists are 69.0-98.6% bypassable across 1,709 real-world configurations, including Claude Code's built-in denylist (One goal, many commands [ShellSieve], 2026). Concretely: arm A runs with the Bash tool absent, or with `ai_rfc` and `python -m` invocations denied by allowlist; arms B and C run with the `ai_rfc` MCP server unmounted. The enforcement mechanism itself is disclosed in the paper.
 
 **Audit every transcript.** Tool-call records are structured, so the audit is mechanical: scan each run for out-of-arm invocations. The **assignment-integrity rate is a reported metric per arm-target cell**, and integrity-violated runs are excluded by a pre-registered rule, never silently.
 
@@ -119,14 +119,19 @@ From the aioquic pilot, `pilot-aioquic-w02-11-20260831`; full report at
   violation was an instrument defect, not a run defect.
 - **Enforcement configuration per arm**: *unchanged from the protocol*. A: read tools plus
   16 `mcp__ai_rfc__*`, no Bash. B: read tools plus `Bash(ai_rfc *)`. C: read tools plus
-  `Bash(python -m panther…ai_rfc*)`, `Bash(git *)`, `Bash(sqlite3 *)`. Enforced by a
+  `Bash(python -m ai_rfc*)`, `Bash(git *)`, `Bash(sqlite3 *)`. Enforced by a
   `PreToolUse` hook, because `--allowedTools` does not confine a built-in tool.
 - **Model and harness**: `claude-opus-5`, effort `high`, `claude --version`
   **2.1.251 (Claude Code)** — *from the pilot*. Re-run the S0 spike whenever the CLI moves;
   the enforcement mechanism is a measured property of the CLI, not a contract.
-- **Prompt digests** (sha256, frozen): `arm-A.md` `15dd983b…2552ba`, `arm-B.md`
+- **Prompt digests** (sha256): the pilot froze `arm-A.md` `15dd983b…2552ba`, `arm-B.md`
   `a3128ee4…9d3aa`, `arm-C.md` `967a434b…8ead33`, `task.md` `05e731d3…f84539` — *from the
-  pilot*. No prompt change is indicated, so no re-freeze is required.
+  pilot*, **superseded**. Those files are campaign artefacts that `campaign init` renders
+  from `ai_rfc/experiment/prompts/loop.tmpl.md` and the two arm-neutral skill texts; the
+  MCP tools were renamed `arfc_*` → `ai_rfc_*` after the pilot (visible in the pilot's
+  `diff-A-C.patch`, kept unedited as the record), so today's rendering cannot reproduce
+  the pilot digests. Re-freeze before the main run from a fresh `campaign init`, whose
+  `campaign.json` records the digest of every rendered prompt file.
 - **Parity pre/post**: passed both — `7 passed in 3.56s` before, `7 passed in 3.77s` after —
   *from the pilot*. Treat as weak evidence pending better coverage: the suite's completeness
   check is a name-grep and only 5 of 16 documented rows carry a cross-arm behavioural
