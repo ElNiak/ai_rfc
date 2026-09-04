@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import yaml
@@ -25,7 +25,14 @@ from ai_rfc.schema import dump, load
 from ai_rfc.server.testing import build_workspace
 from ai_rfc.timeline.store import read_clusters
 
+from .. import ExperimentError
 from ..workspace import RECORD_FILE, Target, prepare, reseal
+
+#: Appended to a sealed baseline's directory name to reach the record of what
+#: was planted in it. The record names which claim the author confirmed word
+#: for word, which is the sign-off trap's answer, so it is deliberately not a
+#: file inside the baseline: every run copies that tree whole.
+SIDECAR_SUFFIX = ".interview.json"
 
 INTERVIEW_TRANSCRIPT = "int-001.md"
 INTERVIEW_AUTHOR = "Robin Alder"
@@ -85,6 +92,63 @@ class InterviewFixture:
     quotes: dict[str, str]
 
 
+def sidecar_path(pristine_dir: Path) -> Path:
+    """Where the record of what was planted in a baseline is kept.
+
+    Args:
+        pristine_dir: A sealed interview baseline.
+
+    Returns:
+        The sidecar's path, a sibling of ``pristine_dir``.
+    """
+    return pristine_dir.with_name(pristine_dir.name + SIDECAR_SUFFIX)
+
+
+def load_interview_fixture(pristine_dir: Path) -> InterviewFixture:
+    """Read back the fixture a baseline was built as.
+
+    The baseline's own path is not stored, so a copied or relocated baseline
+    loads under the path it is read from rather than the one it was built at.
+
+    Args:
+        pristine_dir: The sealed baseline whose sidecar is read.
+
+    Returns:
+        The fixture, naming the three claims and the lines that answer them.
+
+    Raises:
+        ExperimentError: If the sidecar is absent or is not a JSON object
+            carrying every field.
+    """
+    path = sidecar_path(pristine_dir)
+    try:
+        record = json.loads(path.read_text())
+    except FileNotFoundError as error:
+        raise ExperimentError(f"{path} is missing; rebuild the baseline") from error
+    except json.JSONDecodeError as error:
+        raise ExperimentError(f"{path} does not parse: {error}") from error
+    try:
+        return InterviewFixture(
+            pristine_dir=pristine_dir,
+            exact_claim=record["exact_claim"],
+            paraphrase_claim=record["paraphrase_claim"],
+            correction_claim=record["correction_claim"],
+            transcript_sha256=record["transcript_sha256"],
+            quotes=dict(record["quotes"]),
+        )
+    except (KeyError, TypeError) as error:
+        raise ExperimentError(f"{path} is not an interview record: {error}") from error
+
+
+def _write_sidecar(fixture: InterviewFixture) -> Path:
+    """Record what was planted, beside the baseline rather than inside it."""
+    path = sidecar_path(fixture.pristine_dir)
+    record = asdict(fixture)
+    del record["pristine_dir"]
+    path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
+    return path
+
+
 def _plant_claims(workspace: Path, clone_head: str) -> None:
     """Add the three claims, then round-trip the manifest through the schema."""
     anchors = [{"evidence_class": "adr", "locator": clone_head}]
@@ -142,7 +206,9 @@ def build_interview_pristine(
         name: Directory name of the sealed baseline.
 
     Returns:
-        The fixture, naming the three claims and the lines that answer them.
+        The fixture, naming the three claims and the lines that answer them,
+        also written to :func:`sidecar_path` so a later process can read it
+        back with :func:`load_interview_fixture`.
 
     Raises:
         ExperimentError: If the workspace cannot be prepared or resealed.
@@ -187,7 +253,7 @@ def build_interview_pristine(
     transcript.write_text(_transcript())
 
     sealed = reseal(workspace, root / "pristine" / name)
-    return InterviewFixture(
+    fixture = InterviewFixture(
         pristine_dir=sealed,
         exact_claim=EXACT_CLAIM,
         paraphrase_claim=PARAPHRASE_CLAIM,
@@ -197,3 +263,5 @@ def build_interview_pristine(
         ).hexdigest(),
         quotes=dict(_ANSWERS),
     )
+    _write_sidecar(fixture)
+    return fixture

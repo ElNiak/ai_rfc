@@ -271,6 +271,11 @@ class Evaluator:
         self._consecutive_faults = 0
 
     @property
+    def settings(self) -> EvaluatorSettings:
+        """What every evaluation shares, as this evaluator was built with."""
+        return self._settings
+
+    @property
     def evaluations(self) -> int:
         """How many calls returned a score."""
         return self._evaluations

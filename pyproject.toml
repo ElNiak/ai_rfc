@@ -17,6 +17,12 @@ dependencies = ["PyYAML>=6.0,<7.0"]
 # from it. See the 2026-09-02 run that spent $5.90 mining 39 claims in an
 # invented vocabulary because nothing was there to validate them.
 mcp = ["mcp>=1.0,<2"]
+# Pinned to a git commit: the released gepa 0.1.4 has no `optimize_anything`
+# entry point, and litellm (which `[full]` pulls) does not import on 3.10, so
+# this extra installs only under a 3.11 interpreter of its own.
+optimize = [
+    "gepa[full] @ git+https://github.com/gepa-ai/gepa@0632cdb5dcc052e690eab439e1b4a7e3e9cfe407 ; python_version >= '3.11'",
+]
 tests = ["pytest>=8", "pytest-xdist"]
 dev = ["types-PyYAML", "mypy", "black", "isort", "flake8"]
 
@@ -37,6 +43,7 @@ addopts = "--import-mode=importlib"
 markers = [
     "unit: fast, no external dependency",
     "manual: calls a real model; skipped unless its environment names one",
+    "slow: runs several campaigns end to end; tens of seconds",
 ]
 
 [tool.mypy]
