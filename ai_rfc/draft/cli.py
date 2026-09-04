@@ -4,12 +4,23 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
 from ai_rfc import __version__
 
 from ..schema import SchemaError
+from .build import (
+    BUILD_DIR,
+    DEFAULT_TARGETS,
+    REPORT_FILE,
+    TOOLCHAIN_ENV,
+    BuildError,
+    build,
+    load_toolchain,
+    probe_toolchain,
+)
 from .checkpoint import CheckpointError, write_checkpoint
 from .completeness import CompletenessError
 from .completeness import build as build_completeness
@@ -98,6 +109,41 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Exit 3 when any finding is reported.",
     )
+
+    build_verb = verbs.add_parser(
+        "build",
+        help="Compile a draft revision with the template toolchain, offline.",
+    )
+    build_verb.add_argument("draftrepo", type=Path, help="The nested draft repository.")
+    build_verb.add_argument(
+        "--out", type=Path, required=True, help="Directory receiving build/."
+    )
+    build_verb.add_argument(
+        "--ref", default="HEAD", help="Tag, branch or commit to build (default: HEAD)."
+    )
+    build_verb.add_argument(
+        "--toolchain",
+        type=Path,
+        default=None,
+        help=f"toolchain.json (default: ${TOOLCHAIN_ENV}).",
+    )
+    build_verb.add_argument(
+        "--refcache",
+        type=Path,
+        default=None,
+        help="Reference cache overriding the toolchain's (a sealed workspace cache).",
+    )
+    build_verb.add_argument(
+        "--targets",
+        default=",".join(DEFAULT_TARGETS),
+        help="Comma-separated make targets (default: %(default)s).",
+    )
+    build_verb.add_argument(
+        "--date", default=None, help="xml2rfc -D date; default: the ref's commit date."
+    )
+    build_verb.add_argument(
+        "--strict", action="store_true", help="Exit 3 when the build has findings."
+    )
     return parser
 
 
@@ -109,7 +155,8 @@ def main(argv: list[str] | None = None) -> int:
 
     Returns:
         0 on success, 1 if an input could not be read or interpreted, and 3
-        when ``gate --strict`` or ``completeness --strict`` reported findings.
+        when ``gate --strict``, ``completeness --strict`` or ``build --strict``
+        reported findings.
     """
     args = _parser().parse_args(argv)
 
@@ -147,6 +194,43 @@ def main(argv: list[str] | None = None) -> int:
         if not found:
             _report("note: reconstruction complete")
         if found and args.strict:
+            return 3
+        return 0
+
+    if args.verb == "build":
+        toolchain_path = args.toolchain or (
+            Path(os.environ[TOOLCHAIN_ENV]) if os.environ.get(TOOLCHAIN_ENV) else None
+        )
+        if toolchain_path is None:
+            _report(
+                f"error: no toolchain; pass --toolchain or set {TOOLCHAIN_ENV} "
+                "(experiment toolchain provision writes it)"
+            )
+            return 1
+        try:
+            toolchain = load_toolchain(toolchain_path)
+            missing = probe_toolchain(toolchain)
+            if missing:
+                raise BuildError("toolchain incomplete: " + "; ".join(missing))
+            report = build(
+                args.draftrepo,
+                toolchain=toolchain,
+                out=args.out,
+                ref=args.ref,
+                targets=tuple(t for t in args.targets.split(",") if t),
+                date=args.date,
+                refcache=args.refcache,
+            )
+        except (BuildError, OSError) as error:
+            _report(f"error: {error}")
+            return 1
+        for finding in report.findings:
+            _report(f"finding: {finding}")
+        _report(
+            f"note: build of {report.commit[:12]} exited {report.exit_code}; "
+            f"report at {args.out / BUILD_DIR / REPORT_FILE}"
+        )
+        if report.findings and args.strict:
             return 3
         return 0
 

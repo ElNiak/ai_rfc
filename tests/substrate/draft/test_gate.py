@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from ai_rfc.draft.gate import GateError, run_gate
+from ai_rfc.draft.gate import GateError, draft_text, run_gate
 
 from .conftest import git
 
@@ -91,9 +91,7 @@ def test_no_change_marker_with_changed_citations_is_found(draft_workspace):
 
 
 def test_unregistered_question_id_is_found(draft_workspace, timeline_dir: Path):
-    from ai_rfc.draft.checkpoint import (
-        write_checkpoint,
-    )
+    from ai_rfc.draft.checkpoint import write_checkpoint
 
     from .conftest import _checkpoint_sha, _manifest_text
 
@@ -130,3 +128,15 @@ def test_malformed_register_entry_is_a_gate_error(draft_workspace):
     with pytest.raises(GateError) as excinfo:
         _gate(draft_workspace)
     assert "normative_change" in str(excinfo.value)
+
+
+def test_draft_text_reads_the_single_draft_at_a_ref(draft_workspace):
+    name, text = draft_text(draft_workspace["repo"], "draft-test-spec-00")
+    assert name == "draft-test-spec.md"
+    assert "`ai_rfc:spec:1.1`" in text and "`ai_rfc:spec:2.1`" not in text
+
+
+def test_draft_text_refuses_a_ref_without_one_draft(draft_workspace, tmp_path):
+    with pytest.raises(GateError) as excinfo:
+        draft_text(draft_workspace["repo"], "no-such-ref")
+    assert "no-such-ref" in str(excinfo.value)

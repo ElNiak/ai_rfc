@@ -103,6 +103,7 @@ sub-package's `cli.main` and nothing else, so data still hands over on disk.
 | `ai-rfc views TIMELINE --corpus DIR --repo CLONE --out DIR [--only ID] [--forge SNAPDIR] [--patches span\|members] [--verify]` | Emit evidence folders; `--verify` exits 3 on byte drift, and `--only` scopes both emission and verification |
 | `ai-rfc draft checkpoint MANIFEST --timeline DIR --cluster ID --out DIR` | Freeze the manifest against one cluster |
 | `ai-rfc draft gate DRAFTREPO --timeline DIR --checkpoints DIR --questions FILE --revisions FILE --out DIR [--strict]` | Citation gate; findings exit 3 under `--strict` |
+| `ai-rfc draft build DRAFTREPO --out DIR [--ref REF] [--toolchain PATH] [--strict]` | Compile a revision with the template toolchain, offline; findings exit 3 under `--strict` |
 | `ai-rfc pipeline status WORKSPACE [--json]` | Report every stage's state and what to do next |
 | `ai-rfc pipeline run WORKSPACE [--from STAGE] [--until STAGE] [--forge-url URL] [--cluster ID] [--strict] [--json]` | Chain the deterministic stages; stop at the next agent stage |
 | `ai-rfc coverage MANIFEST --coverage FILE --repo CLONE --commit SHA --out DIR` | Propose `runtime` anchors for cited lines a test run reached |
@@ -473,7 +474,7 @@ coupling the file-on-disk boundary exists to prevent:
 
 | Helper | Copies |
 |---|---|
-| `_git` subprocess call | `anchors.py` · `draft/gate.py` · `coverage/commit.py` · `history/git_log.py` · `pipeline/substrate.py` |
+| `_git` subprocess call | `anchors.py` · `draft/gate.py` · `coverage/commit.py` · `history/git_log.py` · `pipeline/substrate.py` · `draft/build.py` |
 | stderr `_report` | `check/cli.py` · `coverage/cli.py` · `draft/cli.py` · `forge/cli.py` · `history/cli.py` · `pipeline/cli.py` · `timeline/cli.py` · `views/cli.py` |
 | SHA-256 `_digest` (path → hex) | `history/index.py` · `timeline/store.py` · `views/emit.py` |
 | SHA-256 `_digest_bytes` (bytes → hex) | `draft/checkpoint.py` · `views/emit.py` |
@@ -490,13 +491,13 @@ next section.
 the same path-to-hex work. It is not in the table because one definition is not
 a duplication — but it is the natural home if these are ever consolidated.
 
-**The five `_git` copies are not one helper wearing five hats.** Only three —
-`anchors.py`, `draft/gate.py` and `coverage/commit.py` — share a contract,
-returning the `CompletedProcess` untouched. `history/git_log.py` raises
-`GitError` on a non-zero exit, and `pipeline/substrate.py` projects to
+**The six `_git` copies are not one helper wearing six hats.** Only four —
+`anchors.py`, `draft/gate.py`, `coverage/commit.py` and `draft/build.py` —
+share a contract, returning the `CompletedProcess` untouched. `history/git_log.py`
+raises `GitError` on a non-zero exit, and `pipeline/substrate.py` projects to
 `(returncode, stdout.strip())` because every one of its checks is a yes/no about
-the clone. What repeats across all five is the four-line `subprocess.run` call,
-not the behaviour a caller depends on, so consolidating them would trade five
+the clone. What repeats across all six is the four-line `subprocess.run` call,
+not the behaviour a caller depends on, so consolidating them would trade six
 small duplications for one primitive plus two wrappers.
 
 They are duplicated rather than hoisted to a shared module because `history/`

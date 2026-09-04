@@ -125,6 +125,38 @@ def _repo_tags(draft_repo: Path) -> set[str]:
     return {tag for tag in result.stdout.splitlines() if tag}
 
 
+def draft_text(draft_repo: Path, ref: str) -> tuple[str, str]:
+    """Return the name and text of the single draft file at ``ref``.
+
+    Args:
+        draft_repo: The nested prose-draft git repository.
+        ref: A tag, branch or commit to read.
+
+    Returns:
+        ``(file name, text)``.
+
+    Raises:
+        GateError: If the tree cannot be listed, holds zero or several
+            ``draft-*.md`` files, or the file cannot be shown.
+    """
+    listed = _git(draft_repo, "ls-tree", "--name-only", ref)
+    if listed.returncode != 0:
+        raise GateError(f"{ref}: could not list its tree: {listed.stderr.strip()}")
+    drafts = [
+        name
+        for name in listed.stdout.splitlines()
+        if name.startswith("draft-") and name.endswith(".md")
+    ]
+    if len(drafts) != 1:
+        raise GateError(
+            f"{ref}: expected exactly one draft-*.md at the ref, found {len(drafts)}"
+        )
+    shown = _git(draft_repo, "show", f"{ref}:{drafts[0]}")
+    if shown.returncode != 0:
+        raise GateError(f"{ref}: could not read {drafts[0]}: {shown.stderr.strip()}")
+    return drafts[0], shown.stdout
+
+
 def cited_ids(draft_repo: Path, tag: str) -> tuple[set[str], str | None]:
     """Return the claim ids cited at ``tag``, or a finding when unreadable.
 
@@ -136,23 +168,11 @@ def cited_ids(draft_repo: Path, tag: str) -> tuple[set[str], str | None]:
         The cited claim ids and ``None``; or an empty set and the reason the tag
         could not be read.
     """
-    listed = _git(draft_repo, "ls-tree", "--name-only", tag)
-    if listed.returncode != 0:
-        return set(), f"{tag}: could not list its tree: {listed.stderr.strip()}"
-    drafts = [
-        name
-        for name in listed.stdout.splitlines()
-        if name.startswith("draft-") and name.endswith(".md")
-    ]
-    if len(drafts) != 1:
-        return set(), (
-            f"{tag}: expected exactly one draft-*.md at the tag, "
-            f"found {len(drafts)}"
-        )
-    shown = _git(draft_repo, "show", f"{tag}:{drafts[0]}")
-    if shown.returncode != 0:
-        return set(), f"{tag}: could not read {drafts[0]}: {shown.stderr.strip()}"
-    return set(CITATION.findall(shown.stdout)), None
+    try:
+        _, text = draft_text(draft_repo, tag)
+    except GateError as error:
+        return set(), str(error)
+    return set(CITATION.findall(text)), None
 
 
 def run_gate(
