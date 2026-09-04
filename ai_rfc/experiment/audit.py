@@ -116,6 +116,10 @@ def edit_target(file_path: str, workspace: Path) -> str:
     published measurements, so a workspace laid out differently — or a stray
     edit outside it — silently changes the numbers.
 
+    Anything under the workspace's ``checkpoints/`` counts as a register edit
+    at any depth: a checkpoint is the frozen record every gate and count reads
+    back, so hand-writing one forges the evidence the measurement is made of.
+
     Args:
         file_path: The edit's target as the transcript recorded it.
         workspace: The run's workspace root.
@@ -130,6 +134,8 @@ def edit_target(file_path: str, workspace: Path) -> str:
         return "other"
     parts = candidate.relative_to(workspace).parts
     if len(parts) == 1 and parts[0] in STATE_FILES:
+        return "register"
+    if parts and parts[0] == "checkpoints":
         return "register"
     if len(parts) == 2 and parts[0] == "draft" and parts[1].endswith(".md"):
         return "prose"

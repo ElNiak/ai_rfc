@@ -78,6 +78,25 @@ def test_edit_target_is_read_from_the_layout_not_the_path_shape():
     assert edit_target("/w/notes/draft/x.md", WS) == "other"
     assert edit_target("/w/draft/Makefile", WS) == "other"
     assert edit_target("", WS) == "other"
+    assert edit_target("/w/checkpoints/c1/manifest.yaml", WS) == "register"
+    assert edit_target("/elsewhere/checkpoints/c1/manifest.yaml", WS) == "other"
+    assert edit_target("/w", WS) == "other"
+
+
+def test_an_edit_under_checkpoints_is_counted_as_a_register_hand_edit():
+    """A checkpoint is a frozen record, so editing one is a register hand-edit.
+
+    The checkpoint manifest is what every downstream gate and count reads. An
+    edit there that went uncounted would let a run reach a clean score by
+    hand-writing the very artifact the score is computed from.
+    """
+    events = parse_stream(
+        '{"type":"assistant","message":{"id":"m1","content":[{"type":"tool_use","id":"t1","name":"Edit","input":{"file_path":"/w/checkpoints/c0002-a/manifest.yaml"}}],"usage":{"input_tokens":1,"output_tokens":1}}}\n'
+        '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","is_error":false,"content":"{}"}]}}\n'
+        '{"type":"result","subtype":"success","total_cost_usd":0.1,"usage":{},"permission_denials":[]}\n'
+    )
+    audit = audit_events(events, "B", WS)
+    assert audit["hand_edits"]["manifest.yaml"] == 1
 
 
 def test_audit_events_flags_an_executed_out_of_arm_call():
