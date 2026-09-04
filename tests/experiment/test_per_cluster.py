@@ -375,6 +375,39 @@ def test_every_session_records_the_argv_it_actually_ran(
     assert all(r["argv"] for r in rows)
 
 
+def test_per_cluster_sessions_render_from_the_frozen_template(
+    per_cluster_campaign, monkeypatch
+):
+    """Editing the source template after init must not change a running campaign."""
+    import ai_rfc.experiment.per_cluster as per_cluster
+
+    frozen = per_cluster_campaign.task_template
+    frozen.write_text(frozen.read_text() + "\nFROZEN-MARKER $low\n")
+    seen: list[str] = []
+
+    def capture(campaign, ref, task=None, budget_usd=None, prompt_file=None):
+        seen.append(task)
+        return ["true"]
+
+    _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
+    monkeypatch.setattr(progress, "window_clusters", lambda _ws: _clusters(2))
+    monkeypatch.setattr(per_cluster, "prepare_run_argv", capture)
+    monkeypatch.setattr(
+        per_cluster, "_session_cost", lambda _events, count: (0.1, count + 1)
+    )
+
+    ref = _ref(per_cluster_campaign)
+    per_cluster.run_per_cluster(per_cluster_campaign, ref, report=lambda _: None)
+    assert seen and all(
+        f"FROZEN-MARKER {ordinal}" in task for ordinal, task in enumerate(seen, start=1)
+    )
+    rows = [
+        json.loads(line)
+        for line in (ref.run_dir / per_cluster.SESSIONS_FILE).read_text().splitlines()
+    ]
+    assert rows[0]["task_template"] == str(frozen)
+
+
 def test_a_single_session_run_records_exactly_what_it_always_did(
     per_cluster_campaign, write_scenario
 ):

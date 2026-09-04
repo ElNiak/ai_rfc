@@ -26,24 +26,9 @@ from typing import Any, Callable
 
 from . import ExperimentError
 from .arms import arm_profile
-from .config import Campaign, render_task
+from .config import TASK_TEMPLATE, Campaign, render_task
 from .metrics import cluster_artifacts
-from .progress import (
-    _bar,
-    _duration,
-    cluster_span,
-    describe,
-    digest,
-    window_progress,
-)
-from .summary import (
-    build_summary,
-    held_claim_ids,
-    new_questions,
-    question_ids,
-    seed_seen,
-    write_summary,
-)
+from .progress import _bar, _duration, cluster_span, describe, digest, window_progress
 from .runner import EVENTS_FILE, STDERR_FILE, RunRef, build_env, prepare_run_argv
 from .spawn import spawn
 from .stream import (
@@ -53,6 +38,14 @@ from .stream import (
     result_events,
     salvage_stream,
     session_ids,
+)
+from .summary import (
+    build_summary,
+    held_claim_ids,
+    new_questions,
+    question_ids,
+    seed_seen,
+    write_summary,
 )
 
 #: How many times one cluster is attempted before the run halts. A second
@@ -346,8 +339,13 @@ def run_per_cluster(
             report(f"{ref.run_id}: {error}")
             span = None
         # A one-cluster window through the prompt the whole-window runs use, so
-        # there is no second task prompt to drift from the first.
-        task = render_task((ordinal, ordinal))
+        # there is no second task prompt to drift from the first. The fallback
+        # to the source template keeps a campaign frozen before this field
+        # existed readable.
+        template = (
+            campaign.task_template if campaign.task_template.exists() else TASK_TEMPLATE
+        )
+        task = render_task((ordinal, ordinal), template=template)
         for attempt in range(1, ATTEMPTS_PER_CLUSTER + 1):
             report(
                 f"{ref.run_id}: {_bar(done, total)} starting cluster "
@@ -414,6 +412,7 @@ def run_per_cluster(
                             "session": sessions,
                             "cluster_id": row["id"],
                             "ordinal": ordinal,
+                            "task_template": str(template),
                             "attempt": attempt,
                             "exit_code": exit_code,
                             "timed_out": timed_out,

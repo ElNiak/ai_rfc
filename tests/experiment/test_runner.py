@@ -21,6 +21,11 @@ from ai_rfc.experiment.workspace import copy_workspace
 
 from .conftest import COMPLETE_STEPS, FAKE_CLAUDE
 
+# Re-exported so pytest can resolve them as fixtures here: per_cluster_campaign
+# depends on wide_pristine by name, and pytest looks up a fixture's own
+# dependencies in the requesting module's namespace, not the defining one.
+from .test_per_cluster import per_cluster_campaign, wide_pristine  # noqa: F401
+
 
 def _ready(campaign, run_id):
     ref = run_ref(campaign, run_id)
@@ -65,6 +70,22 @@ def test_launch_streams_events_and_records_status(campaign, write_scenario):
         p.name.startswith("c0002-") and not (p / "harness.json").exists()
         for p in (ref.workspace / "checkpoints").iterdir()
     )
+
+
+def test_per_cluster_prompt_record_names_the_template_not_a_whole_window_task(
+    per_cluster_campaign, write_scenario  # noqa: F811
+):
+    write_scenario(
+        per_cluster_campaign.profile_dir,
+        "A1",
+        {"arm": "A", "cost": 1.0, "steps": COMPLETE_STEPS},
+    )
+    ref = run_ref(per_cluster_campaign, "A1")
+    copy_workspace(per_cluster_campaign.pristine_dir, ref.workspace)
+    launch(per_cluster_campaign, ref, report=lambda _: None)
+    prompt = (ref.run_dir / "prompt.md").read_text()
+    assert "rendered per session from prompts/task.tmpl.md" in prompt
+    assert "ordinals 2 through 2" not in prompt and "$low" in prompt
 
 
 def test_arm_a_mounts_mcp_and_has_no_bash(campaign):

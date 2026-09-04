@@ -234,3 +234,25 @@ def test_campaign_init_cli_needs_a_toolchain_when_none_is_provisioned(
     )
     assert code == 1
     assert "needs a verified toolchain" in capsys.readouterr().err
+
+
+def test_render_task_reads_the_template_it_is_given(tmp_path):
+    template = tmp_path / "task.tmpl.md"
+    template.write_text("Ordinals $low..$high, FROZEN COPY.\n")
+    assert render_task((3, 3), template=template) == "Ordinals 3..3, FROZEN COPY.\n"
+
+
+def test_init_freezes_the_task_template_beside_the_rendering(
+    pristine, tmp_path, panther_repo, plugin_root
+):
+    from ai_rfc.experiment.config import TASK_TEMPLATE
+
+    campaign = _init(tmp_path, pristine, panther_repo, plugin_root)
+    frozen = campaign.prompts_dir / "task.tmpl.md"
+    assert frozen.read_bytes() == TASK_TEMPLATE.read_bytes()
+    assert campaign.task_template == frozen
+    assert (
+        campaign.prompt_sha256["task.tmpl.md"]
+        == hashlib.sha256(frozen.read_bytes()).hexdigest()
+    )
+    assert "task.md" in campaign.prompt_sha256

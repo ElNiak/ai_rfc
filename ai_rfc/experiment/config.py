@@ -28,6 +28,7 @@ from .workspace import DIGEST_FILE, RECORD_FILE
 
 PROMPTS = Path(__file__).parent / "prompts"
 TASK_TEMPLATE = PROMPTS / "task.md"
+TASK_TEMPLATE_FILE = "task.tmpl.md"
 CAMPAIGN_FILE = "campaign.json"
 _SHIM = """#!/bin/sh
 exec "{python}" -c "import sys; from ai_rfc.server.cli import main; sys.exit(main())" "$@"
@@ -125,6 +126,11 @@ class Campaign:
         return self.dir / "prompts"
 
     @property
+    def task_template(self) -> Path:
+        """The frozen task template every per-cluster session renders from."""
+        return self.prompts_dir / TASK_TEMPLATE_FILE
+
+    @property
     def bin_dir(self) -> Path:
         """The shim directory placed first on every run's PATH."""
         return self.dir / "bin"
@@ -175,17 +181,19 @@ def run_order(arms: tuple[str, ...], repeats: int, seed: int) -> tuple[str, ...]
     return tuple(order)
 
 
-def render_task(window: tuple[int, int]) -> str:
+def render_task(window: tuple[int, int], template: Path = TASK_TEMPLATE) -> str:
     """The task prompt, identical across arms, with the window spelled out.
 
     Args:
         window: Inclusive first and last cluster ordinals.
+        template: The template to render; a campaign passes its frozen copy so
+            a session's prompt cannot drift from the campaign record.
 
     Returns:
         The rendered prompt.
     """
     low, high = window
-    return string.Template(TASK_TEMPLATE.read_text()).substitute(low=low, high=high)
+    return string.Template(template.read_text()).substitute(low=low, high=high)
 
 
 def git_describe(path: Path) -> str:
@@ -285,6 +293,9 @@ def init_campaign(config: CampaignConfig) -> Campaign:
     task = render_task(tuple(record["window"]))
     (prompts_dir / "task.md").write_text(task)
     prompt_sha256["task.md"] = _sha256(task)
+    frozen_template = prompts_dir / TASK_TEMPLATE_FILE
+    frozen_template.write_bytes(TASK_TEMPLATE.read_bytes())
+    prompt_sha256[TASK_TEMPLATE_FILE] = _sha256(frozen_template.read_text())
     for index, first in enumerate(arms):
         for second in arms[index + 1 :]:
             (prompts_dir / f"diff-{first}-{second}.patch").write_text(

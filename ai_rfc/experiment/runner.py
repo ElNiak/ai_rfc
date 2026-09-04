@@ -114,6 +114,7 @@ def prepare_run_argv(
     ref: RunRef,
     task: str | None = None,
     budget_usd: float | None = None,
+    prompt_file: Path | None = None,
 ) -> list[str]:
     """The argument vector of a run; writes its MCP config and its guard.
 
@@ -133,6 +134,9 @@ def prepare_run_argv(
             ``campaign.budget_usd`` is the cap on a *run*; a run made of
             several sessions gives each what the run has left, so the total
             holds however many sessions there turn out to be.
+        prompt_file: The file appended as the session's system prompt, when it
+            is not this run's own arm file. SP7c's consolidation sessions pass
+            their own.
 
     Returns:
         The complete ``claude -p`` argument vector.
@@ -174,7 +178,7 @@ def prepare_run_argv(
         model=campaign.model,
         effort=campaign.effort,
         budget_usd=campaign.budget_usd if budget_usd is None else budget_usd,
-        prompt_file=campaign.prompts_dir / f"arm-{ref.arm}.md",
+        prompt_file=prompt_file or campaign.prompts_dir / f"arm-{ref.arm}.md",
         guard_settings=guard_path,
     )
 
@@ -240,10 +244,18 @@ def launch(
     (ref.run_dir / ENV_FILE).write_text(
         json.dumps(env, indent=2, sort_keys=True) + "\n"
     )
+    if campaign.session_mode == "per-cluster":
+        task_record = (
+            "(per-cluster mode: the task is rendered per session from "
+            "prompts/task.tmpl.md for one ordinal; each session's rendered text is "
+            "in sessions.jsonl under argv)\n\n" + campaign.task_template.read_text()
+        )
+    else:
+        task_record = (campaign.prompts_dir / "task.md").read_text()
     (ref.run_dir / PROMPT_FILE).write_text(
         (campaign.prompts_dir / f"arm-{ref.arm}.md").read_text()
         + "\n\n---\n\n"
-        + (campaign.prompts_dir / "task.md").read_text()
+        + task_record
     )
     started = _now()
     if campaign.session_mode == "per-cluster":
