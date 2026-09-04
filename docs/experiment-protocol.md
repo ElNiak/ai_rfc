@@ -141,6 +141,38 @@ From the aioquic pilot, `pilot-aioquic-w02-11-20260831`; full report at
   counts as secondary.
 - [ ] Reporting commitments: assignment-integrity rate per cell, failure-cost share per arm, bypass-attempt taxonomy, raw gate-exit counts with uncertainty, API-condition log.
 
+### 2026-09-03 — draft quality v2, SP7a
+
+- **Tool surface**: 18 tools (`ai_rfc_draft_build` and `ai_rfc_draft_lint`
+  added to the 16 above); `docs/parity.md` is the table.
+- **Arm C stays frozen** at the pre-v2, 16-tool surface (spec D42); the
+  parity table's third column reads "not available in arm C" for the two
+  new rows, so a v2 campaign compares arms A and B only.
+- **Every revision tag compiles**: the server's `revision_tag` (the MCP tool
+  and its `ai_rfc revision-tag` CLI form share one core) runs `draft build`
+  before creating the tag whenever `AI_RFC_TOOLCHAIN` is set, refusing the
+  tag on any build finding, and `campaign init` refuses to start without a
+  verified toolchain — so in a v2 campaign (arms A and B only, per above)
+  every tag that exists compiles.
+- **The campaign record freezes `task.tmpl.md`**, and per-cluster sessions
+  render their task prompt from it. The `task.md` digest frozen above
+  (2026-08-31) described a prompt no per-cluster session actually ran.
+- **`pristine.json` seals `references.yaml` and `refcache/`**, alongside the
+  clone, corpus and timeline it already sealed.
+- **`draft build` runs idnits in `submission` mode**, not the template's own
+  `normal` default (deviation D32): `normal` flags `INVALID_REFERENCES_NAME`
+  on the combined Normative/Informative references wrapper that kramdown-rfc
+  and xml2rfc auto-generate whenever a draft has both kinds — which every
+  draft citing the BCP 14 boilerplate plus any informative reference has;
+  the datatracker's own `submission` mode does not.
+- **The lint's narration and stub counts are line-based, not match-based**:
+  the `introduction: narrates …` finding counts distinct Introduction lines
+  carrying at least one narration tell, not the number of pattern matches
+  (a line naming both an ordinal cluster and an added/withdrawn count is one
+  line, not two); the abstract stub-marker check ignores `{::comment}`
+  blocks, so a comment that quotes the marker to explain it does not itself
+  trip the finding.
+
 ---
 
 *Distilled from `12-report.md` Section 6 (Revision 2). The report carries the full evidence base, tier gradings, and the coverage limits under which every cited finding holds.*

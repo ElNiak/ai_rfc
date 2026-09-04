@@ -47,6 +47,9 @@ CLI. Missing either fails loudly; nothing guesses.
 Three more are read where named and are optional there: `AI_RFC_TOOLCHAIN`, a
 `toolchain.json` that `draft build` and the pipeline's build stage use when no
 `--toolchain` is passed (without either, `draft build` refuses and says so);
+the server's `revision_tag` also runs `draft build` before creating the tag
+whenever a toolchain is configured, refusing the tag on any build finding,
+and `campaign init` refuses to start without a verified toolchain;
 `GITHUB_TOKEN` / `GITLAB_TOKEN`, a credential `forge fetch` sends when present
 and never stores (without it the discussion endpoints are refused and the
 snapshot records the fidelity it reached); and `AI_RFC_EXPERIMENTS_ROOT`, the
@@ -91,15 +94,18 @@ harness.
 ## Experiment harness
 
 `python -m ai_rfc.experiment` runs from any directory: `profile init`,
-`preflight`, `render`, `workspace prepare|reseal`, `campaign init`, `run`,
-`audit`, `questions`, `analyze`. State lives under `AI_RFC_EXPERIMENTS_ROOT` (default
+`preflight`, `render`, `workspace prepare|reseal|migrate-draft`, `toolchain
+provision|verify`, `campaign init`, `run`, `audit`, `questions`, `analyze`.
+State lives under `AI_RFC_EXPERIMENTS_ROOT` (default
 `~/ai-rfc-experiments`), never inside a repository. The first full campaign is
 reported in `docs/experiments/2026-08-31-pilot-aioquic.md`; the protocol is
 `docs/experiment-protocol.md`; the tool-to-CLI parity table is
 `docs/parity.md`; the harness's own usage page is `ai_rfc/experiment/README.md`.
 A whole-repository sweep is a target whose window spans every cluster, in a
 campaign initialised with `--session-mode per-cluster`; see
-`ai_rfc/experiment/per_cluster.py`.
+`ai_rfc/experiment/per_cluster.py`. The draft repository is scaffolded as a
+template adopter (`Makefile`, `.gitignore`, `.editorconfig`); the shared
+library lives under `<root>/tools/i-d-template`.
 
 ## Tests
 
