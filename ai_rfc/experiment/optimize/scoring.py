@@ -23,6 +23,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
+import yaml
+
 from ai_rfc.anchors import AnchorError, verify_detailed
 from ai_rfc.draft.build import BuildReport
 from ai_rfc.draft.checkpoint import MANIFEST_FILE
@@ -303,18 +305,26 @@ def hunk_for(clone: Path, anchor: Anchor, context: int = 20) -> str:
     shown = subprocess.run(
         ["git", "-C", str(clone), "show", f"{anchor.commit}:{anchor.locator}"],
         capture_output=True,
-        text=True,
     )
     if shown.returncode != 0:
         raise ExperimentError(
             f"cannot read {anchor.locator} at {anchor.commit} in {clone}: "
-            f"{shown.stderr.strip()}"
+            f"{shown.stderr.decode(errors='replace').strip()}"
         )
-    lines = shown.stdout.splitlines()
+    # Split the bytes on newlines, exactly as ``anchors.verify_detailed``
+    # does. ``str.splitlines`` also breaks on a form feed, a lone carriage
+    # return and four other separators, so a file holding one would centre
+    # this excerpt on a different line than the one that verified — and
+    # nothing about the result would look wrong.
+    lines = shown.stdout.split(b"\n")
+    if lines and lines[-1] == b"":
+        lines.pop()
     if anchor.line is None:
-        return "\n".join(lines[: 2 * context + 1])
-    start = max(0, anchor.line - 1 - context)
-    return "\n".join(lines[start : anchor.line + context])
+        kept = lines[: 2 * context + 1]
+    else:
+        start = max(0, anchor.line - 1 - context)
+        kept = lines[start : anchor.line + context]
+    return b"\n".join(kept).decode(errors="replace")
 
 
 def _is_normative(level: str) -> bool:
@@ -553,10 +563,11 @@ def score_loop(
 
     try:
         anchored, rejected = _assess(workspace, clone, cluster_id)
-    except SchemaError as error:
+    except (SchemaError, yaml.YAMLError) as error:
         # Nothing could be established, which is what the reason says; the
         # error names why. Raising instead would abort the whole evaluation
-        # over one unloadable checkpoint.
+        # over one unloadable checkpoint. Malformed YAML fails one step
+        # earlier than a schema violation and must degrade the same way.
         return zero(
             ZERO_UNANCHORED, new_claims_rejected=[], manifest_error=str(error), **base
         )
@@ -681,6 +692,11 @@ def score_interview(
     """
     base = _diagnostics(analysis)
     base["kind"] = "interview"
+    # The closing message is where a session quotes the author back at itself,
+    # and this task's whole subject is what the transcript does and does not
+    # say. Carrying it would put the answer into the feedback the backend
+    # reads. The loop score keeps it; only here is it evidence.
+    base.pop("final_summary", None)
 
     if _audit_missing(analysis):
         return zero(ZERO_HARNESS, detail="audit missing", **base)
@@ -718,7 +734,7 @@ def score_interview(
     try:
         claims = {claim.id: claim for claim in load(workspace / "manifest.yaml").claims}
         manifest_error = None
-    except (SchemaError, OSError) as error:
+    except (SchemaError, yaml.YAMLError, OSError) as error:
         claims, manifest_error = {}, str(error)
 
     if manifest_error is None:
@@ -733,7 +749,7 @@ def score_interview(
     try:
         questions = load_questions(workspace / "questions.yaml")
         register_error = None
-    except (QuestionError, OSError) as error:
+    except (QuestionError, yaml.YAMLError, OSError) as error:
         questions, register_error = (), str(error)
 
     locator = INTERVIEW_TRANSCRIPT.rsplit(".", 1)[0]

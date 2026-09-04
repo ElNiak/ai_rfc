@@ -221,11 +221,37 @@ def test_new_claims_excludes_what_the_previous_checkpoint_already_held(
     assert new_claims(loop_workspace, "nope") == []
 
 
-def test_hunk_for_slices_around_the_anchored_line(loop_workspace):
+def test_hunk_for_returns_the_whole_file_when_the_anchor_names_no_line(
+    loop_workspace,
+):
     claim, anchor = anchored_claims(loop_workspace, loop_workspace / "clone", SECOND)[0]
 
     assert claim.id == "t:2.1"
     assert hunk_for(loop_workspace / "clone", anchor) == "two"
+
+
+def test_hunk_for_counts_lines_the_way_the_anchor_verifier_does(loop_workspace):
+    """A form feed splits a line for ``str.splitlines`` and not for git.
+
+    ``anchors.verify_detailed`` range-checks and digests a line by splitting
+    the file's *bytes* on newlines. Slicing the hunk with ``splitlines``
+    instead would centre the excerpt on a different line than the one that
+    verified, and nothing about the result would look wrong.
+    """
+    from ai_rfc.anchors import verify_detailed
+    from ai_rfc.models import Anchor, EvidenceClass
+
+    clone = loop_workspace / "clone"
+    (clone / "ff.txt").write_bytes(b"a1\na2\na3\x0ca4\na5\na6\na7\n")
+    git(clone, "add", "ff.txt")
+    git(clone, "commit", "-m", "form feed", date="2026-01-01T00:00:07+00:00")
+    head = git(clone, "rev-parse", "HEAD")
+    anchor = Anchor(
+        evidence_class=EvidenceClass.CODE, locator="ff.txt", commit=head, line=5
+    )
+
+    assert verify_detailed(anchor, clone) is None
+    assert hunk_for(clone, anchor, context=1) == "a5\na6\na7"
 
 
 # --- rejection reasons -----------------------------------------------------
@@ -716,6 +742,31 @@ def test_an_untouched_workspace_earns_none_of_the_terms(interview, interview_wor
     assert result.info["one_per_claim"] == 0.0
     assert result.info["anchored"] == 0.0
     assert result.info["exact_signoff"] == 0.0
+
+
+def test_the_interview_score_never_carries_the_sessions_closing_text(
+    interview, interview_workspace, tmp_path
+):
+    """The closing message is where a session quotes the author back at itself.
+
+    The loop score carries it as feedback, but this task's whole subject is
+    what the transcript does and does not say, so a summary reproducing a line
+    of it would put the answer into the feedback the backend reads.
+    """
+    _conduct(interview_workspace, interview, confirmed={interview.exact_claim})
+    run_dir = tmp_path / "interview-run"
+    run_dir.mkdir()
+    (run_dir / "result.json").write_text(
+        json.dumps({"result": 'The author confirmed: "A peer MUST close..."'})
+    )
+
+    info = score_interview(
+        interview_analysis(run_dir=str(run_dir)),
+        workspace=interview_workspace,
+        fixture=interview,
+    ).info
+
+    assert "final_summary" not in info
 
 
 def test_a_question_that_summarises_the_claim_earns_the_verbatim_term_nothing(
