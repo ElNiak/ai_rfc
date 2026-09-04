@@ -295,7 +295,12 @@ def init_campaign(config: CampaignConfig) -> Campaign:
     prompt_sha256["task.md"] = _sha256(task)
     frozen_template = prompts_dir / TASK_TEMPLATE_FILE
     frozen_template.write_bytes(TASK_TEMPLATE.read_bytes())
-    prompt_sha256[TASK_TEMPLATE_FILE] = _sha256(frozen_template.read_text())
+    # Hashed as bytes, not re-read as text: a text round trip normalises line
+    # endings, so a CRLF or BOM template would record a digest that does not
+    # match what write_bytes actually put on disk.
+    prompt_sha256[TASK_TEMPLATE_FILE] = hashlib.sha256(
+        TASK_TEMPLATE.read_bytes()
+    ).hexdigest()
     for index, first in enumerate(arms):
         for second in arms[index + 1 :]:
             (prompts_dir / f"diff-{first}-{second}.patch").write_text(

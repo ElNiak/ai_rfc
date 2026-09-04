@@ -85,7 +85,18 @@ def test_per_cluster_prompt_record_names_the_template_not_a_whole_window_task(
     launch(per_cluster_campaign, ref, report=lambda _: None)
     prompt = (ref.run_dir / "prompt.md").read_text()
     assert "rendered per session from prompts/task.tmpl.md" in prompt
-    assert "ordinals 2 through 2" not in prompt and "$low" in prompt
+    assert "ordinals 1 through 2" not in prompt and "$low" in prompt
+
+
+def test_launch_refuses_a_campaign_whose_task_template_was_never_frozen(
+    per_cluster_campaign,  # noqa: F811
+):
+    per_cluster_campaign.task_template.unlink()
+    ref = run_ref(per_cluster_campaign, "A1")
+    copy_workspace(per_cluster_campaign.pristine_dir, ref.workspace)
+    with pytest.raises(ExperimentError) as excinfo:
+        launch(per_cluster_campaign, ref, report=lambda _: None)
+    assert str(per_cluster_campaign.task_template) in str(excinfo.value)
 
 
 def test_arm_a_mounts_mcp_and_has_no_bash(campaign):

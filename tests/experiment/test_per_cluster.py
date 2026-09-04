@@ -3,7 +3,7 @@ import sys
 
 import pytest
 
-from ai_rfc.experiment import progress
+from ai_rfc.experiment import ExperimentError, progress
 from ai_rfc.experiment.config import CampaignConfig, init_campaign
 from ai_rfc.experiment.driver import launch_pending
 from ai_rfc.experiment.metrics import analyze_run
@@ -406,6 +406,22 @@ def test_per_cluster_sessions_render_from_the_frozen_template(
         for line in (ref.run_dir / per_cluster.SESSIONS_FILE).read_text().splitlines()
     ]
     assert rows[0]["task_template"] == str(frozen)
+
+
+def test_run_per_cluster_refuses_a_campaign_whose_task_template_was_never_frozen(
+    per_cluster_campaign, monkeypatch
+):
+    import ai_rfc.experiment.per_cluster as per_cluster
+
+    per_cluster_campaign.task_template.unlink()
+    calls = _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
+    monkeypatch.setattr(progress, "window_clusters", lambda _ws: _clusters(1))
+
+    with pytest.raises(ExperimentError) as excinfo:
+        per_cluster.run_per_cluster(per_cluster_campaign, _ref(per_cluster_campaign))
+
+    assert str(per_cluster_campaign.task_template) in str(excinfo.value)
+    assert calls["n"] == 0, "the guard must fire before any session is spawned"
 
 
 def test_a_single_session_run_records_exactly_what_it_always_did(

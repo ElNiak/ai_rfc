@@ -26,7 +26,7 @@ from typing import Any, Callable
 
 from . import ExperimentError
 from .arms import arm_profile
-from .config import TASK_TEMPLATE, Campaign, render_task
+from .config import Campaign, render_task
 from .metrics import cluster_artifacts
 from .progress import _bar, _duration, cluster_span, describe, digest, window_progress
 from .runner import EVENTS_FILE, STDERR_FILE, RunRef, build_env, prepare_run_argv
@@ -339,12 +339,15 @@ def run_per_cluster(
             report(f"{ref.run_id}: {error}")
             span = None
         # A one-cluster window through the prompt the whole-window runs use, so
-        # there is no second task prompt to drift from the first. The fallback
-        # to the source template keeps a campaign frozen before this field
-        # existed readable.
-        template = (
-            campaign.task_template if campaign.task_template.exists() else TASK_TEMPLATE
-        )
+        # there is no second task prompt to drift from the first. Rendered only
+        # from the campaign's own frozen copy: falling back to the live source
+        # template would be exactly the drift this mode exists to remove.
+        if not campaign.task_template.exists():
+            raise ExperimentError(
+                f"{campaign.task_template} is missing; this campaign was frozen "
+                "before task templates were frozen — initialise a new campaign"
+            )
+        template = campaign.task_template
         task = render_task((ordinal, ordinal), template=template)
         for attempt in range(1, ATTEMPTS_PER_CLUSTER + 1):
             report(

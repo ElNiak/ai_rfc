@@ -18,7 +18,7 @@ from typing import Callable
 
 from . import ExperimentError
 from .arms import MCP_FILE, arm_profile, claude_argv, mcp_config
-from .config import Campaign
+from .config import TASK_TEMPLATE_FILE, Campaign
 from .enforcement import bash_prefixes, render_settings
 from .spawn import spawn
 from .stream import merge_results, result_events, salvage_stream
@@ -245,10 +245,16 @@ def launch(
         json.dumps(env, indent=2, sort_keys=True) + "\n"
     )
     if campaign.session_mode == "per-cluster":
+        if not campaign.task_template.exists():
+            raise ExperimentError(
+                f"{campaign.task_template} is missing; this campaign was frozen "
+                "before task templates were frozen — initialise a new campaign"
+            )
         task_record = (
             "(per-cluster mode: the task is rendered per session from "
-            "prompts/task.tmpl.md for one ordinal; each session's rendered text is "
-            "in sessions.jsonl under argv)\n\n" + campaign.task_template.read_text()
+            f"prompts/{TASK_TEMPLATE_FILE} for one ordinal; each session's "
+            "rendered text is in sessions.jsonl under argv)\n\n"
+            + campaign.task_template.read_text()
         )
     else:
         task_record = (campaign.prompts_dir / "task.md").read_text()
