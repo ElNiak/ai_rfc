@@ -24,7 +24,7 @@ from typing import Any, Iterable
 
 import yaml
 
-from ai_rfc.draft.build import load_toolchain
+from ai_rfc.draft.build import BuildError, Toolchain, load_toolchain
 from ai_rfc.draft.checkpoint import write_checkpoint
 from ai_rfc.timeline.store import read_clusters
 from ai_rfc.views import cli as views_cli
@@ -181,9 +181,7 @@ def scaffold_draft(
                 )
             shutil.copyfile(source, dest / name)
     ignored = [
-        line
-        for line in (dest / ".gitignore").read_text().splitlines()
-        if line.strip() and line.strip() != "draft-*"
+        line for line in (dest / ".gitignore").read_text().splitlines() if line.strip()
     ]
     (dest / ".gitignore").write_text("\n".join([*ignored, *EXTRA_IGNORES]) + "\n")
     skeleton = string.Template(DRAFT_SKELETON.read_text()).substitute(
@@ -453,6 +451,12 @@ def _write_empty_state(pristine: Path, target: Target) -> None:
     (pristine / "interviews").mkdir()
 
 
+def _reference_filename(reference: str) -> str:
+    if reference.startswith("RFC"):
+        return f"reference.RFC.{reference[3:]}.xml"
+    return f"reference.{reference}.xml"
+
+
 def prepare(
     target: Target,
     *,
@@ -486,13 +490,39 @@ def prepare(
     Raises:
         ExperimentError: If the pristine directory exists, a source part is
             missing, a substrate stage fails, references are declared with no
-            toolchain, or the toolchain never cached a declared reference.
+            toolchain, the toolchain record is unusable, or the toolchain
+            never cached a declared reference.
     """
     pristine = root / "pristine" / target.pristine_name
     if pristine.exists():
         raise ExperimentError(
             f"{pristine} exists; a pristine workspace is prepared once"
         )
+
+    record_toolchain: Toolchain | None = None
+    if target.references:
+        if toolchain is None:
+            raise ExperimentError(
+                f"{target.name} declares references; pass --toolchain so they "
+                "can be sealed into the workspace"
+            )
+        try:
+            record_toolchain = load_toolchain(toolchain)
+        except BuildError as error:
+            raise ExperimentError(
+                f"toolchain record {toolchain} is unusable: {error}"
+            ) from None
+        missing = [
+            reference
+            for reference in target.references
+            if not (record_toolchain.refcache / _reference_filename(reference)).exists()
+        ]
+        if missing:
+            raise ExperimentError(
+                f"the toolchain never cached {', '.join(missing)}; add them to "
+                "the seed list and re-run `experiment toolchain provision`"
+            )
+
     source = (
         target.source if target.source.is_absolute() else panther_repo / target.source
     )
@@ -508,39 +538,26 @@ def prepare(
     refcache_sha256: str | None = None
     toolchain_sha256: str | None = None
     template_home: str | None = None
-    if target.references:
-        if toolchain is None:
-            raise ExperimentError(
-                f"{target.name} declares references; pass --toolchain so they "
-                "can be sealed into the workspace"
-            )
-        record_toolchain = load_toolchain(toolchain)
+    if record_toolchain is not None:
         cache = pristine / REFCACHE_DIR
         cache.mkdir()
-        missing: list[str] = []
         for reference in target.references:
-            if reference.startswith("RFC"):
-                name = f"reference.RFC.{reference[3:]}.xml"
-            else:
-                name = f"reference.{reference}.xml"
-            ref_source = record_toolchain.refcache / name
-            if not ref_source.exists():
-                missing.append(reference)
-                continue
-            shutil.copyfile(ref_source, cache / name)
-        if missing:
-            raise ExperimentError(
-                f"the toolchain never cached {', '.join(missing)}; add them to "
-                "the seed list and re-run `experiment toolchain provision`"
-            )
+            name = _reference_filename(reference)
+            shutil.copyfile(record_toolchain.refcache / name, cache / name)
         refcache_sha256 = hashlib.sha256(
             b"".join((cache / p.name).read_bytes() for p in sorted(cache.iterdir()))
         ).hexdigest()
-        toolchain_sha256 = hashlib.sha256(toolchain.read_bytes()).hexdigest()
+        toolchain_sha256 = hashlib.sha256(
+            record_toolchain.path.read_bytes()
+        ).hexdigest()
         template_home = str(record_toolchain.template_home)
-    (pristine / REFERENCES_FILE).write_text(
-        "references:\n" + "".join(f"- {reference}\n" for reference in target.references)
-    )
+    if target.references:
+        (pristine / REFERENCES_FILE).write_text(
+            "references:\n"
+            + "".join(f"- {reference}\n" for reference in target.references)
+        )
+    else:
+        (pristine / REFERENCES_FILE).write_text("references: []\n")
 
     ordinals = [row["ordinal"] for row in read_clusters(pristine / "timeline")]
     seeded = preseed(pristine, out_of_window(ordinals, target.window))

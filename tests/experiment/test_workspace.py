@@ -47,7 +47,7 @@ def test_scaffold_writes_the_adopter_layout_and_seeds_the_draft(
     ).read_text() == "LIBDIR := lib\ninclude $(LIBDIR)/main.mk\n"
     assert (dest / ".editorconfig").exists()
     ignored = (dest / ".gitignore").read_text().splitlines()
-    assert "lib" in ignored and ".venv" in ignored and "draft-*" not in ignored
+    assert "lib" in ignored and ".venv" in ignored
     assert not (dest / "main.mk").exists() and not (dest / "CLAUDE.md").exists()
     assert not (dest / "template").exists() and not (dest / "example").exists()
     assert "docname: draft-test-fixture-latest" in body
@@ -62,6 +62,7 @@ def test_scaffold_writes_the_adopter_layout_and_seeds_the_draft(
     assert git(dest, "log", "--oneline").count("\n") == 0
     assert git(dest, "config", "user.name") == "ai-rfc-harness"
     assert head == git(dest, "rev-parse", "HEAD")
+    assert "draft-test-fixture.md" in git(dest, "ls-tree", "--name-only", "HEAD")
 
 
 def test_scaffold_is_byte_deterministic(template_repo, tmp_path):
@@ -314,6 +315,7 @@ def test_prepare_builds_the_pristine_tree(
     assert (pristine / "revisions.yaml").read_text() == "revisions: {}\n"
     assert (pristine / "interviews").is_dir()
     assert (pristine / "draft" / "draft-test-fixture.md").exists()
+    assert (pristine / "references.yaml").read_text() == "references: []\n"
     record = json.loads((pristine / RECORD_FILE).read_text())
     assert record["template_commit"] == template_repo[1]
     assert record["pre_seeded"] == [ids[0]]
@@ -417,7 +419,10 @@ def test_prepare_seals_the_targets_references_into_the_workspace(
         == hashlib.sha256(toolchain_record.read_bytes()).hexdigest()
     )
     assert "template_stripped" not in record
-    verify_digest(pristine)
+    manifest = (pristine / DIGEST_FILE).read_text()
+    assert "refcache/reference.RFC.9000.xml" in manifest
+    assert "references.yaml" in manifest
+    assert verify_digest(pristine) == []
 
 
 def test_prepare_refuses_a_reference_the_toolchain_never_cached(
@@ -439,6 +444,7 @@ def test_prepare_refuses_a_reference_the_toolchain_never_cached(
     assert "RFC9999" in str(excinfo.value) and "toolchain provision" in str(
         excinfo.value
     )
+    assert not (tmp_path / "root" / "pristine" / "fixture-w02-02").exists()
 
 
 def test_prepare_with_references_needs_a_toolchain(
@@ -457,6 +463,29 @@ def test_prepare_with_references_needs_a_toolchain(
             template_commit=commit,
         )
     assert "--toolchain" in str(excinfo.value)
+    assert not (tmp_path / "root" / "pristine" / "fixture-w02-02").exists()
+
+
+def test_prepare_refuses_an_unusable_toolchain_record(
+    fixture_workspace, panther_repo, template_repo, tmp_path
+):
+    from dataclasses import replace
+
+    template, commit = template_repo
+    target = replace(fixture_target(fixture_workspace), references=("RFC9000",))
+    bad_toolchain = tmp_path / "toolchain.json"
+    bad_toolchain.write_text(json.dumps({"template_home": "/t"}))
+    with pytest.raises(ExperimentError) as excinfo:
+        prepare(
+            target,
+            root=tmp_path / "root",
+            panther_repo=panther_repo,
+            toolchain=bad_toolchain,
+            template=template,
+            template_commit=commit,
+        )
+    assert str(bad_toolchain) in str(excinfo.value)
+    assert not (tmp_path / "root" / "pristine" / "fixture-w02-02").exists()
 
 
 def test_cli_workspace_prepare_reports_the_tree(
