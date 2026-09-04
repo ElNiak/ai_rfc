@@ -1,6 +1,6 @@
 # `pipeline/` — chaining the deterministic stages
 
-The substrate programs each do one stage and take every path explicitly.
+The other substrate programs each do one stage and take every path explicitly.
 That is right for them: a stage should not assume a layout it did not create.
 But it left nobody holding the sequence, so running a reconstruction meant
 typing five commands with matching paths in an order documented only in prose.

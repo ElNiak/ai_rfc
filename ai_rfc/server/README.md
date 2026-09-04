@@ -21,8 +21,11 @@ network socket; the MCP transport is stdio.
 | `ai_rfc <verb>` | `cli.py`: argparse over the same core functions, sixteen verbs | The AI+CLI arm through Bash, and a person at a terminal |
 | `ai-rfc <verb>` (hyphen) | not this package — `ai_rfc/cli.py`, the substrate dispatcher | Everything deterministic; the raw arm C |
 
-The underscore name is interim: the one-door design folds these verbs into
-`ai-rfc`, at which point this package keeps its core and loses its parser.
+The underscore name is interim. The one-door design (PANTHER's
+`docs/superpowers/specs/2026-09-03-arfc-one-door-design.md`, decisions D56 and
+D60) retires the `ai_rfc` console script and the campaign shim in its CLI-3
+step, regroups these verbs under `ai-rfc` (`claim`, `cluster`, `question`,
+`gate`, …), and keeps `core/` and the `ai_rfc_*` MCP tool names as they are.
 
 ## Layout
 
