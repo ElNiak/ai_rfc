@@ -269,14 +269,16 @@ def draft_head(ws: Workspace) -> str | None:
 def _build(ws: Workspace, prose: State) -> tuple[State, str]:
     if prose is not State.DONE:
         return State.BLOCKED, "there is no prose to build"
+    head = draft_head(ws)
+    if head is None:
+        return State.BLOCKED, "the draft has no commit to build"
     report_path = ws.out / BUILD_DIR / REPORT_FILE
     if not report_path.exists():
         return State.PENDING, "no build report yet; run with --toolchain"
     report = _read_json(report_path)
     if report is None:
         return State.STALE, f"{REPORT_FILE} is unreadable"
-    head = draft_head(ws)
-    if head is None or report.get("commit") != head:
+    if report.get("commit") != head:
         return State.STALE, "the build report is for another draft commit"
     if report.get("exit_code", 1) != 0 or report.get("findings"):
         return State.STALE, "the last build had findings"
@@ -341,7 +343,10 @@ def next_stage(ws: Workspace, *, enabled: Iterable[str] = ()) -> NextStage | Non
     ``enabled`` — because its flag (``--forge-url``, ``--toolchain``) was
     given — makes it count as outstanding once more whenever its own state
     still calls for running it, so a caller that opted in can reach a stale
-    or pending optional stage rather than have it silently stepped over.
+    or pending optional stage rather than have it silently stepped over. A
+    flag only supplies what its own stage needs to run; it cannot unblock
+    one, so an enabled stage reading ``BLOCKED`` (``build`` with no commit
+    yet to build from) still gets stepped over here.
 
     Args:
         ws: The workspace to read.
@@ -355,7 +360,9 @@ def next_stage(ws: Workspace, *, enabled: Iterable[str] = ()) -> NextStage | Non
         OSError: If an artifact exists but cannot be read.
     """
     for entry in state(ws):
-        if is_optional(entry.stage) and entry.stage.name not in enabled:
+        if is_optional(entry.stage) and (
+            entry.stage.name not in enabled or entry.state is State.BLOCKED
+        ):
             continue
         if entry.state in (State.DONE, State.RECOMPUTED):
             continue

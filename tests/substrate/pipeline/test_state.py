@@ -256,6 +256,20 @@ def test_build_is_blocked_until_prose_is_done(mined_workspace):
     assert by_name["build"].state is State.BLOCKED
 
 
+def test_build_is_blocked_when_the_draft_has_no_commit(finished_workspace):
+    """`finished_workspace` only `git init`s the draft repository, so `prose`
+    reads DONE while there is still no commit to build from — the same gap
+    :func:`draft_head`'s docstring names for the CLI's `lint` guard, but read
+    directly out of `_build`'s own state so `next_stage` steps over `build`
+    even when `--toolchain` enables it.
+    """
+    by_name = {
+        entry.stage.name: entry for entry in state(Workspace(root=finished_workspace))
+    }
+    assert by_name["build"].state is State.BLOCKED
+    assert by_name["build"].reason == "the draft has no commit to build"
+
+
 def test_build_is_pending_then_stale_until_rebuilt(drafted_workspace):
     from ai_rfc.draft.build import BUILD_DIR, REPORT_FILE
     from ai_rfc.pipeline.state import State, state

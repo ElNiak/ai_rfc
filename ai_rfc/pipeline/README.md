@@ -48,7 +48,10 @@ second hardcoded check is what let them disagree before. Passing a stage's
 flag to `run` (`--forge-url`, `--toolchain`) makes it count as outstanding
 again once its own state calls for re-running it, so `run --toolchain X` can
 still reach a stale or pending `build` on an otherwise-finished workspace —
-`status`, which never sees the flags, keeps stepping over it regardless.
+`status`, which never sees the flags, keeps stepping over it regardless. A
+flag cannot unblock a stage, though: `build` on a draft repository with no
+commit yet reads `blocked` regardless of `--toolchain`, since nothing the
+flag supplies creates the commit it needs.
 
 ## State is derived, never recorded
 

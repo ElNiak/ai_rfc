@@ -299,3 +299,36 @@ def test_run_with_a_toolchain_reaches_a_pending_build(
 
     assert code == 1
     assert "build" in performed
+
+
+def test_run_skips_build_when_the_draft_has_no_commit_even_with_a_toolchain(
+    finished_workspace, tmp_path, capsys
+):
+    """R9's own bug: a flag must not enable a stage the flag cannot unblock.
+
+    `finished_workspace`'s draft repository is only `git init`ed, never
+    committed — the same gap `test_lint_is_skipped_when_the_draft_has_no_commit`
+    guards. `--toolchain` used to make `build` count as outstanding purely
+    because `_build` read PENDING; performing it would call the `build` verb
+    against a draft with no commit to resolve, the same spurious-error shape
+    the gate and lint guards above already exist to prevent.
+    """
+    record = tmp_path / "toolchain.json"
+    record.write_text("{}")
+
+    code = cli.main(
+        [
+            "run",
+            str(finished_workspace),
+            "--toolchain",
+            str(record),
+            "--strict",
+            "--json",
+        ]
+    )
+    captured = capsys.readouterr()
+    performed = [entry["stage"] for entry in json.loads(captured.out)["performed"]]
+
+    assert code == 3
+    assert "build" not in performed
+    assert "error:" not in captured.err
