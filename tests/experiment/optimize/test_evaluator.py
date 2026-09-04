@@ -1,10 +1,16 @@
 """The evaluator end to end, every campaign driven by the fake claude.
 
-Nothing here stubs the harness: each case freezes a real campaign, launches
-the fake through the real runner, audits and analyzes the transcript it wrote,
-and scores the workspace it left behind. Only the two things that would cost
-money or half an hour are stubbed — the claim judge and, where the build is
-not what is under test, the draft build.
+Almost nothing here stubs the harness: each case freezes a real campaign,
+launches the fake through the real runner, audits and analyzes the transcript
+it wrote, and scores the workspace it left behind. Only the two things that
+would cost money or half an hour are stubbed — the claim judge and, where the
+build is not what is under test, the draft build.
+
+The exception is the harness-fault predicate. Two of the three conditions it
+decides on cannot be provoked through the fake, which always mounts its arm's
+server and always leaves an auditable transcript, so those are put to the
+predicate directly with synthetic run records, and one of them is also driven
+end to end by taking the audit away from the first attempt only.
 """
 
 import dataclasses
@@ -23,6 +29,7 @@ from ai_rfc.experiment.optimize.evaluator import (
     EvaluatorSettings,
     InterviewExample,
     LoopExample,
+    _harness_fault,
     campaign_id_for,
     draft_build_report,
 )
@@ -34,6 +41,7 @@ from ai_rfc.experiment.optimize.scoring import (
     Judgement,
 )
 from ai_rfc.schema import load
+from ai_rfc.timeline.store import read_clusters
 
 from ..conftest import (
     COMPLETE_STEPS,
@@ -88,6 +96,15 @@ def _clean_build(campaign, workspace):
 
 def _with(settings, **overrides):
     return dataclasses.replace(settings, **overrides)
+
+
+def _analysis(**overrides):
+    """A run record that clears every harness-fault condition."""
+    return {
+        "audit": {"integrity": True},
+        "surface": {"intact": True, "mcp_servers": ["ai_rfc"]},
+        **overrides,
+    }
 
 
 def _scenario(write_scenario, steps, **payload):
@@ -167,6 +184,75 @@ def interview_fixture(tmp_path, panther_repo, template_repo):
         template=template,
         template_commit=commit,
     )
+
+
+def test_a_run_without_an_audit_record_is_a_harness_fault(pristine, loop_example):
+    """Unmeasured, not unsuccessful.
+
+    Left to score_loop this is a plain zero under its own harness reason,
+    scored once and fed to the backend as a verdict on the candidate. Caught
+    here it is retried instead, and eventually stops the optimization.
+    """
+    fault = _harness_fault(_analysis(audit=None), loop_example, pristine)
+
+    assert fault is not None and "audit" in fault
+
+
+def test_a_run_that_never_mounted_its_tool_surface_is_a_harness_fault(
+    pristine, loop_example
+):
+    analysis = _analysis(surface={"intact": False, "mcp_servers": []})
+
+    fault = _harness_fault(analysis, loop_example, pristine)
+
+    assert fault is not None and "tool surface" in fault
+
+
+def test_a_window_that_is_not_the_scored_cluster_is_a_harness_fault(
+    pristine, loop_example
+):
+    """The out-of-window cluster is real, so this is not an unknown-id check."""
+    outside = next(
+        row["id"]
+        for row in read_clusters(pristine / "timeline")
+        if row["id"] != loop_example.cluster_id
+    )
+    elsewhere = dataclasses.replace(loop_example, cluster_id=outside)
+
+    fault = _harness_fault(_analysis(), elsewhere, pristine)
+
+    assert fault is not None and outside in fault
+    assert _harness_fault(_analysis(), loop_example, pristine) is None
+
+
+def test_an_audit_that_went_missing_is_retried_rather_than_scored(
+    settings, candidate, loop_example, write_scenario, monkeypatch
+):
+    """The end-to-end half of the audit-missing condition.
+
+    The fake always leaves an auditable transcript, so the record is taken
+    away from the first attempt's analysis only. What is asserted is the
+    difference the predicate makes: a second campaign, and a graded score
+    rather than the zero score_loop would have returned.
+    """
+    from ai_rfc.experiment.optimize import evaluator as module
+
+    analyze = module.analyze_run
+    seen = []
+
+    def losing_the_first_audit(campaign, run_id):
+        seen.append(campaign.id)
+        analysis = analyze(campaign, run_id)
+        return {**analysis, "audit": None} if len(seen) == 1 else analysis
+
+    monkeypatch.setattr(module, "analyze_run", losing_the_first_audit)
+    settings = _with(settings, pre_launch=_scenario(write_scenario, GRADED_STEPS))
+
+    value, info = Evaluator(settings)(candidate, loop_example)
+
+    assert value > 0.0 and info["reason"] is None
+    assert len(seen) == 2 and seen[0] != seen[1]
+    assert info["campaign_id"] == seen[1]
 
 
 def test_a_complete_loop_run_is_graded_against_the_candidate_it_froze(
