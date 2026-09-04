@@ -95,3 +95,30 @@ def test_tag_revision_rolls_back_on_citation_findings(workspace):
     assert result["rolled_back"] is True
     assert any("t:9.9" in finding for finding in result["findings"])
     assert git(_draft(workspace), "tag", "-l") == ""
+
+
+def test_tag_revision_refuses_when_the_build_has_findings(
+    workspace, monkeypatch, tmp_path
+):
+    from ai_rfc.server.core import draft as draft_core
+    from ai_rfc.server.paths import resolve_context
+
+    _recorded(workspace)
+    record = tmp_path / "toolchain.json"
+    record.write_text("{}")
+    monkeypatch.setenv("AI_RFC_TOOLCHAIN", str(record))
+    monkeypatch.setattr(
+        draft_core,
+        "draft_build",
+        lambda ctx, ref="HEAD": {
+            "exit_code": 0,
+            "stderr": [],
+            "findings": ["broken reference RFC9999 (not in the refcache)"],
+            "commit": None,
+            "outputs": {},
+        },
+    )
+    result = tag_revision(resolve_context(), "draft-test-spec-00", "msg")
+    assert result["stage"] == "draft_build" and result["exit_code"] == 3
+    assert result["findings"] == ["broken reference RFC9999 (not in the refcache)"]
+    assert git(_draft(workspace), "tag", "-l") == ""

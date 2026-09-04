@@ -4,6 +4,9 @@
 nothing guesses, because a tool quietly operating on the wrong workspace is
 the kind of failure that looks like success. The substrate is an installed
 package, so no checkout has to be located or placed on ``sys.path``.
+
+``AI_RFC_TOOLCHAIN`` is optional; when set it names the ``toolchain.json``
+the build gate uses.
 """
 
 from __future__ import annotations
@@ -22,6 +25,7 @@ class Context:
     """The resolved handle every core operation receives."""
 
     workspace: Path
+    toolchain: Path | None = None
 
     @property
     def manifest(self) -> Path:
@@ -58,4 +62,10 @@ def resolve_context() -> Context:
     workspace_path = Path(workspace).resolve()
     if not workspace_path.is_dir():
         raise EnvError(f"AI_RFC_WORKSPACE={workspace_path} is not a directory")
-    return Context(workspace=workspace_path)
+    toolchain_env = os.environ.get("AI_RFC_TOOLCHAIN")
+    toolchain: Path | None = None
+    if toolchain_env:
+        toolchain = Path(toolchain_env).resolve()
+        if not toolchain.is_file():
+            raise EnvError(f"AI_RFC_TOOLCHAIN={toolchain} is not a file")
+    return Context(workspace=workspace_path, toolchain=toolchain)

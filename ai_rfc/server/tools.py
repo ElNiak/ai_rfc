@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .core import claims, draft, gates, queries, questions, revisions
+from .core import build, claims, draft, gates, queries, questions, revisions
 from .paths import resolve_context
 
 
@@ -131,6 +131,16 @@ def ai_rfc_revision_tag(tag: str, message: str) -> dict[str, Any]:
     return draft.tag_revision(resolve_context(), tag, message)
 
 
+def ai_rfc_draft_build(ref: str = "HEAD") -> dict[str, Any]:
+    """Compile the draft at a ref with the template toolchain, offline (exit raw)."""
+    return build.draft_build(resolve_context(), ref)
+
+
+def ai_rfc_draft_lint(worktree: bool = True) -> dict[str, Any]:
+    """Measure the draft's quality; findings are what to fix before tagging."""
+    return build.draft_lint(resolve_context(), worktree)
+
+
 #: Every tool, in the order they appear in docs/parity.md.
 ALL_TOOLS = (
     ai_rfc_status,
@@ -149,4 +159,6 @@ ALL_TOOLS = (
     ai_rfc_citation_gate,
     ai_rfc_draft_commit,
     ai_rfc_revision_tag,
+    ai_rfc_draft_build,
+    ai_rfc_draft_lint,
 )

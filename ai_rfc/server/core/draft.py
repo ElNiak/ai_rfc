@@ -14,6 +14,7 @@ from typing import Any
 
 from ..paths import Context
 from . import CoreError
+from .build import draft_build
 from .gates import citation_gate, manifest_gate
 
 
@@ -71,10 +72,11 @@ def tag_revision(ctx: Context, tag: str, message: str) -> dict[str, Any]:
     """Create the annotated tag for a recorded revision, gated twice.
 
     Order: the tag must be well-formed and recorded in ``revisions.yaml``,
-    the draft tree clean, the strict manifest gate at 0; then the tag is
-    created and the strict citation gate runs — on findings the tag is
-    deleted again. The citation gate cannot run first: it reports a
-    recorded-but-untagged revision as a finding.
+    the draft tree clean, the strict manifest gate at 0, the draft built
+    cleanly when a toolchain is configured; then the tag is created and the
+    strict citation gate runs — on findings the tag is deleted again. The
+    citation gate cannot run first: it reports a recorded-but-untagged
+    revision as a finding.
 
     Args:
         ctx: The resolved context.
@@ -89,11 +91,7 @@ def tag_revision(ctx: Context, tag: str, message: str) -> dict[str, Any]:
         CoreError: On a malformed or unrecorded tag, a dirty tree, an
             existing tag, or a git failure.
     """
-    from ai_rfc.draft.gate import (
-        REVISION_TAG,
-        GateError,
-        load_revisions,
-    )
+    from ai_rfc.draft.gate import REVISION_TAG, GateError, load_revisions
 
     _require_repo(ctx)
     if not REVISION_TAG.match(tag):
@@ -120,6 +118,16 @@ def tag_revision(ctx: Context, tag: str, message: str) -> dict[str, Any]:
             "findings": manifest["stderr"],
             "rolled_back": False,
         }
+    if ctx.toolchain is not None:
+        built = draft_build(ctx, "HEAD")
+        if built["exit_code"] != 0 or built["findings"]:
+            return {
+                "exit_code": built["exit_code"] or 3,
+                "tag": tag,
+                "stage": "draft_build",
+                "findings": built["findings"],
+                "rolled_back": False,
+            }
     tagged = _git(ctx, "tag", "-a", tag, "-m", message)
     if tagged.returncode != 0:
         raise CoreError(f"git tag failed: {tagged.stderr.strip()}")

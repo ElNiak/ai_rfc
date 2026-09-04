@@ -127,3 +127,16 @@ def test_revision_tag_parity(make_workspace, capsys, monkeypatch):
     assert git(tool_arm / "draft", "cat-file", "-p", "draft-test-spec-00") == git(
         cli_arm / "draft", "cat-file", "-p", "draft-test-spec-00"
     )
+
+
+def test_draft_lint_parity(make_workspace, capsys):
+    tool_arm, cli_arm, use = _twins(make_workspace)
+    use(tool_arm)
+    via_tool = tools.ai_rfc_draft_lint()
+    use(cli_arm)
+    assert cli.main(["draft-lint"]) == 0
+    via_cli = json.loads(capsys.readouterr().out)
+    assert (
+        via_tool["metrics"] == via_cli["metrics"]
+        and via_tool["findings"] == via_cli["findings"]
+    )

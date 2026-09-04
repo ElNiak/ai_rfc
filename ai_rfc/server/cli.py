@@ -183,9 +183,7 @@ def _parser() -> argparse.ArgumentParser:
     draft_commit = verbs.add_parser(
         "draft-commit", help="Commit every change in draft/ (clean tree is an error)."
     )
-    draft_commit.add_argument(
-        "-m", "--message", required=True, help="Commit message."
-    )
+    draft_commit.add_argument("-m", "--message", required=True, help="Commit message.")
 
     revision_tag = verbs.add_parser(
         "revision-tag",
@@ -194,6 +192,13 @@ def _parser() -> argparse.ArgumentParser:
     revision_tag.add_argument("tag", help="Tag to create, e.g. draft-<name>-01.")
     revision_tag.add_argument(
         "-m", "--message", required=True, help="Annotation for the tag."
+    )
+
+    draft_build = verbs.add_parser("draft-build", help="Compile the draft, offline.")
+    draft_build.add_argument("--ref", default="HEAD", help="Tag, branch or commit.")
+    draft_lint = verbs.add_parser("draft-lint", help="Measure the draft's quality.")
+    draft_lint.add_argument(
+        "--committed", action="store_true", help="Lint HEAD instead of the worktree."
     )
 
     return parser
@@ -218,7 +223,7 @@ def main(argv: list[str] | None = None) -> int:
         _report(f"error: {error}")
         return 1
 
-    from .core import claims, draft, gates, queries, questions, revisions
+    from .core import build, claims, draft, gates, queries, questions, revisions
 
     try:
         if args.verb == "status":
@@ -292,6 +297,14 @@ def main(argv: list[str] | None = None) -> int:
             _emit(draft.commit_draft(ctx, args.message))
         elif args.verb == "revision-tag":
             result = draft.tag_revision(ctx, args.tag, args.message)
+            _emit(result)
+            return result["exit_code"]
+        elif args.verb == "draft-build":
+            result = build.draft_build(ctx, args.ref)
+            _emit(result)
+            return result["exit_code"]
+        elif args.verb == "draft-lint":
+            result = build.draft_lint(ctx, worktree=not args.committed)
             _emit(result)
             return result["exit_code"]
     except CoreError as error:
