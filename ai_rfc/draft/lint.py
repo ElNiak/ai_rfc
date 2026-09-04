@@ -266,7 +266,9 @@ def _blocks(body: str, offset: int) -> dict[str, Any]:
                 opened = index
                 continue
             figures += 1
-            following = lines[index + 1 : index + 1 + FIGURE_CITATION_WINDOW]
+            start = index + 1
+            stop = start + FIGURE_CITATION_WINDOW
+            following = lines[start:stop]
             window = "\n".join(following)
             if not CITATION.search(window):
                 uncited.append({"line": offset + opened + 1})
