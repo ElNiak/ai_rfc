@@ -34,7 +34,10 @@ include = ["ai_rfc*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "--import-mode=importlib"
-markers = ["unit: fast, no external dependency"]
+markers = [
+    "unit: fast, no external dependency",
+    "manual: calls a real model; skipped unless its environment names one",
+]
 
 [tool.mypy]
 explicit_package_bases = true
