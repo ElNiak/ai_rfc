@@ -13,7 +13,7 @@ from ai_rfc.experiment.config import (
     render_task,
     run_order,
 )
-from ai_rfc.experiment.render import arm_prompt, task_template_path
+from ai_rfc.experiment.render import SLOT_TABLES, arm_prompt, task_template_path
 
 
 def test_run_order_is_seeded_and_covers_every_block():
@@ -404,3 +404,21 @@ def test_verify_toolchain_false_leaves_the_toolchain_unverified(
         tmp_path, pristine, panther_repo, plugin_root, campaign_id="verified-campaign"
     )
     assert verified == [tmp_path / "toolchain.json"]
+
+
+def test_init_renders_every_arm_from_a_proposed_loop_template(
+    tmp_path, pristine, panther_repo, plugin_root
+):
+    """The optimizer's path: the frozen arm prompts say what the proposal says."""
+    template = "{{preamble}}\n\n{{guidance}}\n"
+    campaign = _init(
+        tmp_path, pristine, panther_repo, plugin_root, loop_template=template
+    )
+    for arm in "ABC":
+        assert (campaign.prompts_dir / f"arm-{arm}.md").read_text() == arm_prompt(
+            arm, plugin_root, template=template
+        )
+    frozen = (campaign.prompts_dir / "arm-A.md").read_text()
+    assert frozen.startswith(SLOT_TABLES["A"]["preamble"])
+    assert "## Preconditions" not in frozen
+    assert (campaign.prompts_dir / "loop.tmpl.md").read_text() == template
