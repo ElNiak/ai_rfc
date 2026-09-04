@@ -107,7 +107,8 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument(
         "--strict",
         action="store_true",
-        help="Gate rather than lint in the stages that accept it.",
+        help="Exit 3 on findings rather than only reporting them, in the "
+        "stages that accept it.",
     )
     run.add_argument(
         "--json",
@@ -176,7 +177,16 @@ def _run(args: argparse.Namespace) -> int:
     until = BY_NAME[args.until].ordinal if args.until else None
 
     if start is None:
-        action = next_stage(ws)
+        # A flag makes its optional stage outstanding again (Ruling R9): a
+        # bare `run --toolchain X` on an otherwise-finished workspace must
+        # still reach a pending or stale `build`, which `next_stage` would
+        # otherwise always step over regardless of its state.
+        enabled = {
+            name
+            for name, flag in OPTIONAL.items()
+            if getattr(args, flag.lstrip("-").replace("-", "_")) is not None
+        }
+        action = next_stage(ws, enabled=enabled)
         if action is None:
             # Nothing left for the walk to do, but the re-derivable checks
             # below are a separate question from the walk, so this is an

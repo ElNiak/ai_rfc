@@ -1,3 +1,4 @@
+import os
 import subprocess
 from pathlib import Path
 
@@ -8,10 +9,22 @@ from ai_rfc.pipeline import cli
 from ai_rfc.pipeline.state import _cluster_ids, next_stage
 from ai_rfc.pipeline.workspace import Workspace
 
+#: `drafted_workspace`'s commit date, fixed like every other fixture's.
+_DRAFT_COMMIT_DATE = "2026-01-01T00:00:09+00:00"
 
-def _run(repo: Path, *args: str) -> None:
+
+def _run(repo: Path, *args: str, when: str | None = None) -> None:
+    env = None
+    if when is not None:
+        env = dict(os.environ)
+        env["GIT_AUTHOR_DATE"] = when
+        env["GIT_COMMITTER_DATE"] = when
     subprocess.run(
-        ["git", "-C", str(repo), *args], check=True, capture_output=True, text=True
+        ["git", "-C", str(repo), *args],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=env,
     )
 
 
@@ -108,5 +121,5 @@ def drafted_workspace(finished_workspace: Path) -> Workspace:
         "# Spec\n\nThe system does the thing. `ai_rfc:spec:1.1`\n"
     )
     _run(ws.draft, "add", "draft-test-spec.md")
-    _run(ws.draft, "commit", "-m", "revision 00")
+    _run(ws.draft, "commit", "-m", "revision 00", when=_DRAFT_COMMIT_DATE)
     return ws

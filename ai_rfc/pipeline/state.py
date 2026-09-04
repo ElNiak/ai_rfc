@@ -16,6 +16,7 @@ authority.
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -24,7 +25,7 @@ from ..draft.build import BUILD_DIR, REPORT_FILE
 from ..forge.store import FIDELITY_CEILINGS, FULL_FIDELITY
 from ..schema import SchemaError, load
 from .stages import STAGES, Performer, Stage, is_optional
-from .substrate import _git as _git_status
+from .substrate import _git
 from .workspace import Workspace, digest
 
 
@@ -261,7 +262,7 @@ def draft_head(ws: Workspace) -> str | None:
         The commit hash at ``HEAD``, or ``None`` when the draft repository
         has no commit yet (or is not a git repository at all).
     """
-    code, out = _git_status(ws.draft, "rev-parse", "HEAD")
+    code, out = _git(ws.draft, "rev-parse", "HEAD")
     return out if code == 0 and out else None
 
 
@@ -270,8 +271,10 @@ def _build(ws: Workspace, prose: State) -> tuple[State, str]:
         return State.BLOCKED, "there is no prose to build"
     report_path = ws.out / BUILD_DIR / REPORT_FILE
     if not report_path.exists():
-        return State.BLOCKED, "no build report yet; run with --toolchain"
-    report = json.loads(report_path.read_text())
+        return State.PENDING, "no build report yet; run with --toolchain"
+    report = _read_json(report_path)
+    if report is None:
+        return State.STALE, f"{REPORT_FILE} is unreadable"
     head = draft_head(ws)
     if head is None or report.get("commit") != head:
         return State.STALE, "the build report is for another draft commit"
@@ -324,20 +327,26 @@ def state(ws: Workspace) -> tuple[StageState, ...]:
     return tuple(StageState(stage, *by_name[stage.name]) for stage in STAGES)
 
 
-def next_stage(ws: Workspace) -> NextStage | None:
+def next_stage(ws: Workspace, *, enabled: Iterable[str] = ()) -> NextStage | None:
     """The first stage that still needs doing.
 
     This is the function a driver outside the package calls: it says what to do
     next and whether the runner or a model does it, without the caller needing
     to know the stage table.
 
-    ``forge`` and ``build`` never block. Both are optional — a git-only
-    timeline is a narrower reconstruction and an unrendered draft is still a
-    reconstruction, not a broken one — so a workspace missing either is
-    reported by :func:`state` and stepped over here.
+    ``forge`` and ``build`` never block by default. Both are optional — a
+    git-only timeline is a narrower reconstruction and an unrendered draft is
+    still a reconstruction, not a broken one — so a workspace missing either
+    is reported by :func:`state` and stepped over here. Naming a stage in
+    ``enabled`` — because its flag (``--forge-url``, ``--toolchain``) was
+    given — makes it count as outstanding once more whenever its own state
+    still calls for running it, so a caller that opted in can reach a stale
+    or pending optional stage rather than have it silently stepped over.
 
     Args:
         ws: The workspace to read.
+        enabled: Optional-stage names whose flag was given, so they are not
+            stepped over even though :func:`is_optional` is true for them.
 
     Returns:
         The next action, or ``None`` when nothing is outstanding.
@@ -346,7 +355,7 @@ def next_stage(ws: Workspace) -> NextStage | None:
         OSError: If an artifact exists but cannot be read.
     """
     for entry in state(ws):
-        if is_optional(entry.stage):
+        if is_optional(entry.stage) and entry.stage.name not in enabled:
             continue
         if entry.state in (State.DONE, State.RECOMPUTED):
             continue

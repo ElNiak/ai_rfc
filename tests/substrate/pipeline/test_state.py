@@ -238,13 +238,31 @@ def test_a_snapshot_without_a_declaration_grades_as_before(workspace: Path):
     assert "GITLAB_TOKEN" in entry.reason
 
 
-def test_build_is_blocked_until_prose_then_stale_until_rebuilt(drafted_workspace):
+def test_build_is_blocked_until_prose_is_done(mined_workspace):
+    """The original test's BLOCKED assertion, isolated from the drafted chain.
+
+    `drafted_workspace` builds on `finished_workspace`, which builds on
+    `mined_workspace`: requesting both `mined_workspace` and `drafted_workspace`
+    in one test would resolve every fixture in the dependency chain before the
+    test body runs, so `mined_workspace` would already be drafted by the time
+    the BLOCKED assertion executed. Split into its own test so it genuinely
+    exercises a workspace whose prose is not done yet.
+    """
+    from ai_rfc.pipeline.state import State, state
+
+    by_name = {
+        entry.stage.name: entry for entry in state(Workspace(root=mined_workspace))
+    }
+    assert by_name["build"].state is State.BLOCKED
+
+
+def test_build_is_pending_then_stale_until_rebuilt(drafted_workspace):
     from ai_rfc.draft.build import BUILD_DIR, REPORT_FILE
     from ai_rfc.pipeline.state import State, state
 
     by_name = {entry.stage.name: entry for entry in state(drafted_workspace)}
     assert by_name["lint"].state is State.RECOMPUTED
-    assert by_name["build"].state is State.BLOCKED
+    assert by_name["build"].state is State.PENDING
     report_dir = drafted_workspace.out / BUILD_DIR
     report_dir.mkdir(parents=True)
     (report_dir / REPORT_FILE).write_text(
@@ -252,6 +270,45 @@ def test_build_is_blocked_until_prose_then_stale_until_rebuilt(drafted_workspace
     )
     by_name = {entry.stage.name: entry for entry in state(drafted_workspace)}
     assert by_name["build"].state is State.STALE
+
+
+def test_a_corrupt_build_report_reads_as_stale_rather_than_crashing(drafted_workspace):
+    """Mirrors `test_a_corrupt_artifact_reads_as_stale_rather_than_crashing`.
+
+    `_build` used to call `json.loads` directly on the build report; a
+    truncated file raised `JSONDecodeError` straight out of `state()`, whose
+    docstring promises only `OSError`. `_read_json` is the module's own
+    tolerant reader for exactly this situation.
+    """
+    from ai_rfc.draft.build import BUILD_DIR, REPORT_FILE
+    from ai_rfc.pipeline.state import State, state
+
+    report_dir = drafted_workspace.out / BUILD_DIR
+    report_dir.mkdir(parents=True)
+    (report_dir / REPORT_FILE).write_text("not json")
+
+    by_name = {entry.stage.name: entry for entry in state(drafted_workspace)}
+    assert by_name["build"].state is State.STALE
+    assert REPORT_FILE in by_name["build"].reason
+
+
+def test_build_is_done_when_the_report_matches_the_current_commit(drafted_workspace):
+    from ai_rfc.draft.build import BUILD_DIR, REPORT_FILE
+    from ai_rfc.pipeline.state import State, draft_head, state
+
+    report_dir = drafted_workspace.out / BUILD_DIR
+    report_dir.mkdir(parents=True)
+    (report_dir / REPORT_FILE).write_text(
+        json.dumps(
+            {
+                "commit": draft_head(drafted_workspace),
+                "exit_code": 0,
+                "findings": [],
+            }
+        )
+    )
+    by_name = {entry.stage.name: entry for entry in state(drafted_workspace)}
+    assert by_name["build"].state is State.DONE
 
 
 def test_optional_stages_are_stepped_over_by_next_stage(drafted_workspace):

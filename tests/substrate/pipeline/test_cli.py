@@ -272,3 +272,30 @@ def test_run_asked_for_build_without_a_toolchain_is_an_error(
     monkeypatch.delenv("AI_RFC_TOOLCHAIN", raising=False)
     assert main(["run", str(drafted_workspace.root), "--from", "build"]) == 1
     assert "build was asked for but no --toolchain was given" in capsys.readouterr().err
+
+
+def test_run_with_a_toolchain_reaches_a_pending_build(
+    drafted_workspace, tmp_path, capsys
+):
+    """Ruling R9: a flag makes its optional stage outstanding for `run`.
+
+    Every other stage is already DONE or RECOMPUTED, and `next_stage` (with no
+    stage named as `enabled`) steps over `build` unconditionally, so before
+    this fix a bare `run --toolchain X` reported "nothing outstanding" and
+    never reached `build` at all. Passing `--toolchain` here makes `build`
+    count as outstanding once more, so the walk starts there and the sub-CLI
+    actually runs (and fails on this deliberately incomplete record — the
+    point is that it runs, not that it succeeds).
+    """
+    record = tmp_path / "toolchain.json"
+    record.write_text("{}")
+
+    code = cli.main(
+        ["run", str(drafted_workspace.root), "--toolchain", str(record), "--json"]
+    )
+    performed = [
+        entry["stage"] for entry in json.loads(capsys.readouterr().out)["performed"]
+    ]
+
+    assert code == 1
+    assert "build" in performed

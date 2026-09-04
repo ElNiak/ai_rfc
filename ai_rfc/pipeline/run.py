@@ -175,6 +175,8 @@ def _lint(req: _Request) -> tuple[list[str], CommandModule]:
 
 
 def _build(req: _Request) -> tuple[list[str], CommandModule]:
+    if req.toolchain is None:
+        raise PipelineError("build needs --toolchain")
     argv = [
         "build",
         str(req.ws.draft),
@@ -222,7 +224,8 @@ def perform(
         stage: The stage to run. Must be deterministic; ``pin``, ``mining`` and
             ``prose`` are performed by a human or a model, not here.
         ws: The workspace to act on.
-        strict: Gate rather than lint, for the two stages that accept it.
+        strict: Exit 3 on findings rather than only reporting them, for the
+            four stages that accept it.
         cluster: The cluster id ``checkpoint`` freezes against.
         forge_url: The repository URL ``forge`` fetches.
         host: The forge kind, when it cannot be inferred from the URL.

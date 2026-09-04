@@ -36,14 +36,19 @@ package reserves to `forge`, so obtaining the repository stays a human step.
 | 10 | `lint` | deterministic | `draft/` → `out/lint-report.json` |
 | 11 | `build` | deterministic | `draft/` → `out/build/` |
 
-`forge` and `build` are optional: each is skipped without its flag and
-stepped over by `status`. `forge`'s enrichment matters — on a squash-heavy
-repository a git-only timeline sees far fewer pull requests — but a
-reconstruction without it is narrower, not broken; `build` without a
+`forge` and `build` are optional: each is skipped without its flag, and
+`status` always steps over both. `forge`'s enrichment matters — on a
+squash-heavy repository a git-only timeline sees far fewer pull requests —
+but a reconstruction without it is narrower, not broken; `build` without a
 toolchain leaves a workspace unrendered but still a complete reconstruction.
-`state` and the runner agree on both because `is_optional` is the one
-predicate both read — a second hardcoded check is what let them disagree
-before.
+
+`state` and the runner agree on both skipping an optional stage *and*
+reaching one, because both read the same `OPTIONAL`/`is_optional` pair — a
+second hardcoded check is what let them disagree before. Passing a stage's
+flag to `run` (`--forge-url`, `--toolchain`) makes it count as outstanding
+again once its own state calls for re-running it, so `run --toolchain X` can
+still reach a stale or pending `build` on an otherwise-finished workspace —
+`status`, which never sees the flags, keeps stepping over it regardless.
 
 ## State is derived, never recorded
 

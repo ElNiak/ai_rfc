@@ -1,6 +1,6 @@
 """``perform`` refuses rather than improvises.
 
-The CLI's own tests cover the chaining; these cover the three ways ``perform``
+The CLI's own tests cover the chaining; these cover the four ways ``perform``
 declines a stage. They are asserted directly because the CLI translates every
 one of them into the same exit 1, so a refusal that stopped firing — or started
 firing for the wrong stage — would look identical from outside.
@@ -48,6 +48,16 @@ def test_checkpoint_without_a_cluster_is_refused(workspace: Path):
     assert "--cluster" in str(excinfo.value)
 
 
+def test_build_without_a_toolchain_is_refused(workspace: Path):
+    """The CLI's `is_optional` skip rule keeps this from firing normally, but
+    a caller reaching `perform` directly must still be refused loudly rather
+    than building `--toolchain None` and letting the sub-CLI fail on it.
+    """
+    with pytest.raises(PipelineError) as excinfo:
+        perform(stage("build"), workspace_from(workspace))
+    assert "--toolchain" in str(excinfo.value)
+
+
 def test_a_deterministic_stage_runs_and_reports_the_argv_it_built(workspace: Path):
     """The argv is recorded because it is the command a person would have typed."""
     result = perform(stage("history"), workspace_from(workspace))
@@ -85,7 +95,9 @@ def test_lint_and_build_requests_name_the_workspace_paths(tmp_path):
         "--strict",
     ]
     assert module.__name__ == "ai_rfc.draft.cli"
-    argv, module = DISPATCH["build"](_Request(ws, toolchain=tmp_path / "tc.json"))
+    argv, module = DISPATCH["build"](
+        _Request(ws, toolchain=tmp_path / "tc.json", strict=True)
+    )
     assert argv == [
         "build",
         str(ws.draft),
@@ -93,4 +105,5 @@ def test_lint_and_build_requests_name_the_workspace_paths(tmp_path):
         str(ws.out),
         "--toolchain",
         str(tmp_path / "tc.json"),
+        "--strict",
     ]
