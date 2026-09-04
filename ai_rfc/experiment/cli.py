@@ -15,6 +15,7 @@ from .arms import ARMS
 from .paths import default_root
 from .profile import init_profile, login_command
 from .workspace import TARGETS, TEMPLATE_COMMIT, TEMPLATE_URL
+from .workspace import migrate_draft as migrate_draft_workspace
 from .workspace import prepare as prepare_workspace
 from .workspace import reseal as reseal_workspace
 
@@ -244,6 +245,26 @@ def _parser() -> argparse.ArgumentParser:
         help="Name for the resealed baseline under <root>/pristine.",
     )
 
+    migrate_draft = workspace_verbs.add_parser(
+        "migrate-draft",
+        help="Move a library-root draft to the adopter layout in one commit.",
+    )
+    migrate_draft.add_argument(
+        "workspace",
+        type=Path,
+        help="A workspace whose draft/ to migrate.",
+    )
+    migrate_draft.add_argument(
+        "--template",
+        default=TEMPLATE_URL,
+        help="Internet-Draft template repository (default: %(default)s).",
+    )
+    migrate_draft.add_argument(
+        "--template-commit",
+        default=TEMPLATE_COMMIT,
+        help="Template commit to pin (default: %(default)s).",
+    )
+
     campaign = commands.add_parser("campaign", help="Frozen run matrices.")
     campaign_verbs = campaign.add_subparsers(dest="verb", required=True)
     init = campaign_verbs.add_parser("init", help="Freeze a campaign.")
@@ -445,6 +466,13 @@ def main(argv: list[str] | None = None) -> int:
             print(f"pristine: {baseline}")
             print(f"draft HEAD: {record['draft_head']}  window: {record['window']}")
             print(f"resealed from: {record['resealed_from']} (left unmodified)")
+        elif args.command == "workspace" and args.verb == "migrate-draft":
+            head = migrate_draft_workspace(
+                args.workspace.resolve(),
+                template=args.template,
+                template_commit=args.template_commit,
+            )
+            print(f"draft HEAD: {head}")
         elif args.command == "campaign" and args.verb == "init":
             from .config import CampaignConfig, init_campaign
 

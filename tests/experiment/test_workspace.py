@@ -514,3 +514,84 @@ def test_cli_workspace_prepare_reports_the_tree(
     assert code == 0
     assert f"pristine: {tmp_path / 'root' / 'pristine' / 'fixture-w02-02'}" in out
     assert "clusters: 2  pre-seeded: 1  window: [2, 2]" in out
+
+
+def _library_root_draft(root: Path) -> Path:
+    """A draft scaffolded the old way: the template's library files at the root."""
+    from ai_rfc.server.testing import git as g
+
+    draft = root / "draft"
+    (draft / "doc").mkdir(parents=True)
+    (draft / "template").mkdir()
+    g(draft, "init", "-q", "-b", "main")
+    g(draft, "config", "user.email", "t@t")
+    g(draft, "config", "user.name", "t")
+    (draft / "main.mk").write_text("txt::\n")
+    (draft / "deps.mk").write_text("deps::\n")
+    (draft / "doc" / "TIPS.md").write_text("tips\n")
+    (draft / "template" / "Makefile").write_text(
+        "LIBDIR := lib\ninclude $(LIBDIR)/main.mk\n"
+    )
+    (draft / ".gitignore").write_text("*.txt\n")
+    (draft / "draft-test-fixture.md").write_text(
+        "---\ntitle: T\n---\n\n--- middle\n\n# Introduction\n\nOld.\n"
+    )
+    g(draft, "add", "-A")
+    g(
+        draft,
+        "commit",
+        "-q",
+        "-m",
+        "scaffold from auto-i-d-template",
+        date="2026-01-01T00:00:09+00:00",
+    )
+    g(draft, "tag", "-a", "draft-test-fixture-00", "-m", "00")
+    return draft
+
+
+def test_migrate_draft_adopts_the_layout_in_one_commit_and_keeps_tags(
+    template_repo, tmp_path
+):
+    from ai_rfc.experiment.workspace import migrate_draft
+
+    template, commit = template_repo
+    draft = _library_root_draft(tmp_path / "ws")
+    before = git(draft, "rev-parse", "HEAD")
+    head = migrate_draft(tmp_path / "ws", template=template, template_commit=commit)
+    assert head != before and git(draft, "rev-parse", "HEAD") == head
+    assert (
+        git(draft, "log", "--format=%s", "-1").strip()
+        == "adopt the Internet-Draft template layout"
+    )
+    assert git(draft, "log", "--oneline").count("\n") == 1
+    assert sorted(git(draft, "ls-files").split()) == [
+        ".editorconfig",
+        ".gitignore",
+        "Makefile",
+        "draft-test-fixture.md",
+    ]
+    assert (
+        draft / "Makefile"
+    ).read_text() == "LIBDIR := lib\ninclude $(LIBDIR)/main.mk\n"
+    assert "lib" in (draft / ".gitignore").read_text().splitlines()
+    assert not (draft / "main.mk").exists() and not (draft / "doc").exists()
+    assert "main.mk" in git(draft, "ls-tree", "--name-only", "draft-test-fixture-00")
+    assert git(draft, "status", "--porcelain") == ""
+
+
+def test_migrate_draft_refuses_a_dirty_or_already_migrated_draft(
+    template_repo, tmp_path
+):
+    from ai_rfc.experiment.workspace import migrate_draft
+
+    template, commit = template_repo
+    draft = _library_root_draft(tmp_path / "ws")
+    (draft / "draft-test-fixture.md").write_text("edited\n")
+    with pytest.raises(ExperimentError) as excinfo:
+        migrate_draft(tmp_path / "ws", template=template, template_commit=commit)
+    assert "uncommitted" in str(excinfo.value)
+    git(draft, "checkout", "--", "draft-test-fixture.md")
+    migrate_draft(tmp_path / "ws", template=template, template_commit=commit)
+    with pytest.raises(ExperimentError) as excinfo:
+        migrate_draft(tmp_path / "ws", template=template, template_commit=commit)
+    assert "already" in str(excinfo.value)

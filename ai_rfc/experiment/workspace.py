@@ -147,6 +147,27 @@ def out_of_window(ordinals: Iterable[int], window: tuple[int, int]) -> list[int]
     return [ordinal for ordinal in ordinals if ordinal < low or ordinal > high]
 
 
+def _write_adopter_files(dest: Path, *, template: str, template_commit: str) -> None:
+    """Copy the template's adopter files into ``dest`` and extend its ignores."""
+    with tempfile.TemporaryDirectory(prefix="i-d-template-") as staging:
+        library = Path(staging) / "template"
+        cloned = _run_git("clone", "-q", template, str(library))
+        if cloned.returncode != 0:
+            raise ExperimentError(f"cloning {template} failed: {cloned.stderr.strip()}")
+        _git(library, "checkout", "-q", template_commit)
+        for name in ADOPTER_FILES:
+            source = library / "template" / name
+            if not source.exists():
+                raise ExperimentError(
+                    f"{template}@{template_commit[:12]} has no template/{name}"
+                )
+            shutil.copyfile(source, dest / name)
+    ignored = [
+        line for line in (dest / ".gitignore").read_text().splitlines() if line.strip()
+    ]
+    (dest / ".gitignore").write_text("\n".join([*ignored, *EXTRA_IGNORES]) + "\n")
+
+
 def scaffold_draft(
     dest: Path, target: Target, *, template: str, template_commit: str
 ) -> str:
@@ -166,24 +187,8 @@ def scaffold_draft(
     """
     if dest.exists():
         raise ExperimentError(f"{dest} exists; a draft is scaffolded once")
-    with tempfile.TemporaryDirectory(prefix="i-d-template-") as staging:
-        library = Path(staging) / "template"
-        cloned = _run_git("clone", "-q", template, str(library))
-        if cloned.returncode != 0:
-            raise ExperimentError(f"cloning {template} failed: {cloned.stderr.strip()}")
-        _git(library, "checkout", "-q", template_commit)
-        dest.mkdir(parents=True)
-        for name in ADOPTER_FILES:
-            source = library / "template" / name
-            if not source.exists():
-                raise ExperimentError(
-                    f"{template}@{template_commit[:12]} has no template/{name}"
-                )
-            shutil.copyfile(source, dest / name)
-    ignored = [
-        line for line in (dest / ".gitignore").read_text().splitlines() if line.strip()
-    ]
-    (dest / ".gitignore").write_text("\n".join([*ignored, *EXTRA_IGNORES]) + "\n")
+    dest.mkdir(parents=True)
+    _write_adopter_files(dest, template=template, template_commit=template_commit)
     skeleton = string.Template(DRAFT_SKELETON.read_text()).substitute(
         title=target.title,
         abbrev=target.abbrev,
@@ -204,6 +209,63 @@ def scaffold_draft(
         date=PINNED_DATE,
     )
     return _git(dest, "rev-parse", "HEAD")
+
+
+def migrate_draft(
+    workspace: Path,
+    *,
+    template: str = TEMPLATE_URL,
+    template_commit: str = TEMPLATE_COMMIT,
+) -> str:
+    """Move a library-root draft repository to the adopter layout in one commit.
+
+    Every tracked file except the draft file is removed and the three adopter
+    files are added; tags are untouched, so every earlier revision still lists
+    the tree it was gated against.
+
+    Args:
+        workspace: The workspace whose ``draft/`` to migrate.
+        template: Template clone source.
+        template_commit: The commit the adopter files are taken from.
+
+    Returns:
+        The draft repository's new HEAD.
+
+    Raises:
+        ExperimentError: If the draft is dirty, already an adopter, or has no
+            single draft file.
+    """
+    draft = workspace / "draft"
+    if _git(draft, "status", "--porcelain"):
+        raise ExperimentError(
+            f"{draft} has uncommitted changes; commit or discard them first"
+        )
+    tracked = _git(draft, "ls-files").splitlines()
+    drafts = [
+        name for name in tracked if name.startswith("draft-") and name.endswith(".md")
+    ]
+    if len(drafts) != 1:
+        raise ExperimentError(
+            f"{draft} tracks {len(drafts)} draft-*.md files; expected one"
+        )
+    if "main.mk" not in tracked and "Makefile" in tracked:
+        raise ExperimentError(f"{draft} is already an adopter; nothing to migrate")
+    for name in tracked:
+        if name != drafts[0]:
+            _git(draft, "rm", "-q", "--", name)
+    _write_adopter_files(draft, template=template, template_commit=template_commit)
+    _git(draft, "add", "--", *ADOPTER_FILES)
+    _git(draft, "config", "user.name", HARNESS_NAME)
+    _git(draft, "config", "user.email", HARNESS_EMAIL)
+    _git(
+        draft,
+        "commit",
+        "-q",
+        "-m",
+        "adopt the Internet-Draft template layout",
+        date=PINNED_DATE,
+    )
+    return _git(draft, "rev-parse", "HEAD")
 
 
 def preseed(workspace: Path, ordinals: Iterable[int]) -> list[str]:
