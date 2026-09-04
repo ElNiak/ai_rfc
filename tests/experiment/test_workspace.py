@@ -3,7 +3,6 @@ import json
 from pathlib import Path
 
 import pytest
-from ai_rfc.server.testing import git
 
 from ai_rfc.experiment import ExperimentError
 from ai_rfc.experiment.workspace import (
@@ -20,6 +19,7 @@ from ai_rfc.experiment.workspace import (
     verify_digest,
     write_digest,
 )
+from ai_rfc.server.testing import git
 
 from .conftest import fixture_target
 
@@ -33,19 +33,32 @@ def test_pristine_name_encodes_target_and_window():
     assert fixture_target(Path("/x")).pristine_name == "fixture-w02-02"
 
 
-def test_scaffold_strips_agent_files_and_seeds_the_draft(template_repo, tmp_path):
+def test_scaffold_writes_the_adopter_layout_and_seeds_the_draft(
+    template_repo, tmp_path
+):
     template, commit = template_repo
     dest = tmp_path / "draft"
     head = scaffold_draft(
         dest, fixture_target(tmp_path), template=template, template_commit=commit
     )
     body = (dest / "draft-test-fixture.md").read_text()
-    assert (dest / "Makefile").exists()
-    assert not (dest / "CLAUDE.md").exists() and not (dest / ".claude").exists()
-    assert "draft-*" not in (dest / ".gitignore").read_text()
+    assert (
+        dest / "Makefile"
+    ).read_text() == "LIBDIR := lib\ninclude $(LIBDIR)/main.mk\n"
+    assert (dest / ".editorconfig").exists()
+    ignored = (dest / ".gitignore").read_text().splitlines()
+    assert "lib" in ignored and ".venv" in ignored and "draft-*" not in ignored
+    assert not (dest / "main.mk").exists() and not (dest / "CLAUDE.md").exists()
+    assert not (dest / "template").exists() and not (dest / "example").exists()
     assert "docname: draft-test-fixture-latest" in body
     assert 'title: "Fixture"' in body and "specification of fixture" in body
     assert "`ai_rfc:" not in body
+    assert sorted(p.name for p in dest.iterdir() if p.name != ".git") == [
+        ".editorconfig",
+        ".gitignore",
+        "Makefile",
+        "draft-test-fixture.md",
+    ]
     assert git(dest, "log", "--oneline").count("\n") == 0
     assert git(dest, "config", "user.name") == "ai-rfc-harness"
     assert head == git(dest, "rev-parse", "HEAD")
@@ -350,6 +363,100 @@ def test_prepare_refuses_to_overwrite_or_to_run_without_the_substrate(
             template_commit=commit,
         )
     assert str(empty / "clone") in str(missing.value)
+
+
+@pytest.fixture
+def toolchain_record(tmp_path: Path) -> Path:
+    tools = tmp_path / "tools"
+    cache = tools / ".refcache"
+    cache.mkdir(parents=True)
+    for number in ("2119", "8174", "9000"):
+        (cache / f"reference.RFC.{number}.xml").write_text(
+            f"<reference anchor='RFC{number}'/>\n"
+        )
+    record = tools / "toolchain.json"
+    record.write_text(
+        json.dumps(
+            {
+                "template_home": str(tools / "i-d-template"),
+                "refcache": {"dir": str(cache)},
+                "make": {"path": "/usr/bin/make"},
+                "python": {"venv": "/v"},
+                "ruby": {"bin_dir": "/r", "gem_path": "/g", "kramdown_rfc": "/k"},
+                "node": {"bin_dir": "/n", "idnits": "/i"},
+            }
+        )
+    )
+    return record
+
+
+def test_prepare_seals_the_targets_references_into_the_workspace(
+    fixture_workspace, panther_repo, template_repo, tmp_path, toolchain_record
+):
+    from dataclasses import replace
+
+    template, commit = template_repo
+    target = replace(fixture_target(fixture_workspace), references=("RFC9000",))
+    pristine = prepare(
+        target,
+        root=tmp_path / "root",
+        panther_repo=panther_repo,
+        toolchain=toolchain_record,
+        template=template,
+        template_commit=commit,
+    )
+    assert (pristine / "references.yaml").read_text() == "references:\n- RFC9000\n"
+    assert (pristine / "refcache" / "reference.RFC.9000.xml").exists()
+    assert not (pristine / "refcache" / "reference.RFC.2119.xml").exists()
+    record = json.loads((pristine / "pristine.json").read_text())
+    assert record["scaffold_layout"] == "adopter" and record["references"] == [
+        "RFC9000"
+    ]
+    assert (
+        record["toolchain_sha256"]
+        == hashlib.sha256(toolchain_record.read_bytes()).hexdigest()
+    )
+    assert "template_stripped" not in record
+    verify_digest(pristine)
+
+
+def test_prepare_refuses_a_reference_the_toolchain_never_cached(
+    fixture_workspace, panther_repo, template_repo, tmp_path, toolchain_record
+):
+    from dataclasses import replace
+
+    template, commit = template_repo
+    target = replace(fixture_target(fixture_workspace), references=("RFC9999",))
+    with pytest.raises(ExperimentError) as excinfo:
+        prepare(
+            target,
+            root=tmp_path / "root",
+            panther_repo=panther_repo,
+            toolchain=toolchain_record,
+            template=template,
+            template_commit=commit,
+        )
+    assert "RFC9999" in str(excinfo.value) and "toolchain provision" in str(
+        excinfo.value
+    )
+
+
+def test_prepare_with_references_needs_a_toolchain(
+    fixture_workspace, panther_repo, template_repo, tmp_path
+):
+    from dataclasses import replace
+
+    template, commit = template_repo
+    target = replace(fixture_target(fixture_workspace), references=("RFC9000",))
+    with pytest.raises(ExperimentError) as excinfo:
+        prepare(
+            target,
+            root=tmp_path / "root",
+            panther_repo=panther_repo,
+            template=template,
+            template_commit=commit,
+        )
+    assert "--toolchain" in str(excinfo.value)
 
 
 def test_cli_workspace_prepare_reports_the_tree(

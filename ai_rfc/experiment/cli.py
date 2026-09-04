@@ -214,6 +214,15 @@ def _parser() -> argparse.ArgumentParser:
         default=TEMPLATE_COMMIT,
         help="Template commit to pin (default: %(default)s).",
     )
+    prepare.add_argument(
+        "--toolchain",
+        type=Path,
+        default=None,
+        help=(
+            "Toolchain record for sealing declared references (default: "
+            "<root>/tools/toolchain.json when it exists)."
+        ),
+    )
 
     reseal = workspace_verbs.add_parser(
         "reseal",
@@ -408,10 +417,16 @@ def main(argv: list[str] | None = None) -> int:
             target = TARGETS[args.target]
             if args.window is not None:
                 target = dataclasses.replace(target, window=args.window)
+            toolchain = args.toolchain
+            if toolchain is None:
+                default_toolchain = root / "tools" / "toolchain.json"
+                if default_toolchain.exists():
+                    toolchain = default_toolchain
             pristine = prepare_workspace(
                 target,
                 root=root,
                 panther_repo=args.panther_repo.resolve(),
+                toolchain=toolchain,
                 template=args.template,
                 template_commit=args.template_commit,
             )

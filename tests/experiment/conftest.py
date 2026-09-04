@@ -43,19 +43,26 @@ def fixture_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 @pytest.fixture
 def template_repo(tmp_path: Path) -> tuple[str, str]:
-    """A local stand-in for auto-i-d-template, carrying agent files to strip."""
+    """A local stand-in for auto-i-d-template: library root, template/, example/."""
     from ai_rfc.server.testing import git
 
     repo = tmp_path / "template"
-    repo.mkdir()
+    (repo / "template").mkdir(parents=True)
+    (repo / "example").mkdir()
     git(repo, "init", "-q", "-b", "main")
     git(repo, "config", "user.email", "t@t")
     git(repo, "config", "user.name", "t")
-    (repo / ".gitignore").write_text("draft-*\n*.swp\n")
-    (repo / "Makefile").write_text("all:\n\t@echo build\n")
+    (repo / "main.mk").write_text("txt::\n\t@echo build\n")
     (repo / "CLAUDE.md").write_text("template agent notes\n")
-    (repo / ".claude").mkdir()
-    (repo / ".claude" / "settings.json").write_text("{}\n")
+    (repo / "template" / "Makefile").write_text(
+        "LIBDIR := lib\ninclude $(LIBDIR)/main.mk\n"
+    )
+    (repo / "template" / ".gitignore").write_text("*.txt\n*.html\n*.xml\n/versioned\n")
+    (repo / "template" / ".editorconfig").write_text("root = true\n")
+    (repo / "example" / "draft-todo-yourname-protocol.md").write_text(
+        "---\ntitle: TODO\ndocname: draft-todo-yourname-protocol-latest\n---\n\n"
+        "--- abstract\n\nTODO\n\n--- middle\n\n# Introduction\n\nTODO\n\n--- back\n"
+    )
     git(repo, "add", "-A")
     git(repo, "commit", "-q", "-m", "template", date="2026-01-01T00:00:09+00:00")
     return str(repo), git(repo, "rev-parse", "HEAD")

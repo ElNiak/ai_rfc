@@ -16,6 +16,7 @@ import shutil
 import string
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
@@ -23,25 +24,21 @@ from typing import Any, Iterable
 
 import yaml
 
-from . import ExperimentError
+from ai_rfc.draft.build import load_toolchain
 from ai_rfc.draft.checkpoint import write_checkpoint
 from ai_rfc.timeline.store import read_clusters
 from ai_rfc.views import cli as views_cli
+
+from . import ExperimentError
 
 PROMPTS = Path(__file__).parent / "prompts"
 DRAFT_SKELETON = PROMPTS / "draft-skeleton.md"
 TEMPLATE_URL = "https://github.com/ElNiak/auto-i-d-template"
 TEMPLATE_COMMIT = "dcdd985a86afad97a50f7b5e1b613f57c194b774"
-TEMPLATE_STRIP = (
-    ".claude",
-    ".claude-plugin",
-    ".codacy",
-    ".serena",
-    ".specify",
-    "CLAUDE.md",
-    ".mcp.example.json",
-    ".mcp.json",
-)
+ADOPTER_FILES = ("Makefile", ".gitignore", ".editorconfig")
+EXTRA_IGNORES = ("lib", ".venv", ".gems", "node_modules", "Gemfile.lock", ".refcache")
+REFERENCES_FILE = "references.yaml"
+REFCACHE_DIR = "refcache"
 SUBSTRATE_PARTS = ("clone", "corpus", "timeline")
 HARNESS_NAME = "ai-rfc-harness"
 HARNESS_EMAIL = "ai-rfc-harness@localhost"
@@ -64,6 +61,7 @@ class Target:
     rfc_id: str
     title: str
     abbrev: str
+    references: tuple[str, ...] = ()
 
     @property
     def pristine_name(self) -> str:
@@ -83,6 +81,16 @@ AIOQUIC = Target(
     rfc_id="AIOQUIC-RECON",
     title="aioquic: A Reconstructed Specification",
     abbrev="aioquic Reconstructed",
+    references=(
+        "RFC9000",
+        "RFC9001",
+        "RFC9002",
+        "RFC9114",
+        "RFC9204",
+        "RFC8446",
+        "RFC5280",
+        "RFC6125",
+    ),
 )
 #: MARK across its whole timeline. A production sweep is this: a target whose
 #: window spans every cluster, run with ``session_mode="per-cluster"``. Nothing
@@ -103,6 +111,7 @@ MARK = Target(
     rfc_id="MARK-RECON-1",
     title="MARK: A Reconstructed Specification",
     abbrev="MARK Reconstructed",
+    references=("RFC9110", "RFC8259"),
 )
 TARGETS: dict[str, Target] = {"aioquic": AIOQUIC, "mark": MARK}
 
@@ -138,27 +147,10 @@ def out_of_window(ordinals: Iterable[int], window: tuple[int, int]) -> list[int]
     return [ordinal for ordinal in ordinals if ordinal < low or ordinal > high]
 
 
-def _strip_template(dest: Path) -> None:
-    for name in TEMPLATE_STRIP:
-        path = dest / name
-        if path.is_dir():
-            shutil.rmtree(path)
-        elif path.exists():
-            path.unlink()
-    ignore = dest / ".gitignore"
-    if ignore.exists():
-        kept = [
-            line
-            for line in ignore.read_text().splitlines()
-            if line.strip() != "draft-*"
-        ]
-        ignore.write_text("\n".join(kept) + "\n")
-
-
 def scaffold_draft(
     dest: Path, target: Target, *, template: str, template_commit: str
 ) -> str:
-    """Clone the template at its pin, strip its agent files, seed the draft.
+    """Clone the template at its pin, copy its adopter files, seed the draft.
 
     Args:
         dest: Where the draft repository is created (must not exist).
@@ -174,12 +166,26 @@ def scaffold_draft(
     """
     if dest.exists():
         raise ExperimentError(f"{dest} exists; a draft is scaffolded once")
-    cloned = _run_git("clone", "-q", template, str(dest))
-    if cloned.returncode != 0:
-        raise ExperimentError(f"cloning {template} failed: {cloned.stderr.strip()}")
-    _git(dest, "checkout", "-q", template_commit)
-    shutil.rmtree(dest / ".git")
-    _strip_template(dest)
+    with tempfile.TemporaryDirectory(prefix="i-d-template-") as staging:
+        library = Path(staging) / "template"
+        cloned = _run_git("clone", "-q", template, str(library))
+        if cloned.returncode != 0:
+            raise ExperimentError(f"cloning {template} failed: {cloned.stderr.strip()}")
+        _git(library, "checkout", "-q", template_commit)
+        dest.mkdir(parents=True)
+        for name in ADOPTER_FILES:
+            source = library / "template" / name
+            if not source.exists():
+                raise ExperimentError(
+                    f"{template}@{template_commit[:12]} has no template/{name}"
+                )
+            shutil.copyfile(source, dest / name)
+    ignored = [
+        line
+        for line in (dest / ".gitignore").read_text().splitlines()
+        if line.strip() and line.strip() != "draft-*"
+    ]
+    (dest / ".gitignore").write_text("\n".join([*ignored, *EXTRA_IGNORES]) + "\n")
     skeleton = string.Template(DRAFT_SKELETON.read_text()).substitute(
         title=target.title,
         abbrev=target.abbrev,
@@ -192,7 +198,12 @@ def scaffold_draft(
     _git(dest, "config", "user.email", HARNESS_EMAIL)
     _git(dest, "add", "-A")
     _git(
-        dest, "commit", "-q", "-m", "scaffold from auto-i-d-template", date=PINNED_DATE
+        dest,
+        "commit",
+        "-q",
+        "-m",
+        "adopt the Internet-Draft template",
+        date=PINNED_DATE,
     )
     return _git(dest, "rev-parse", "HEAD")
 
@@ -447,20 +458,25 @@ def prepare(
     *,
     root: Path,
     panther_repo: Path,
+    toolchain: Path | None = None,
     template: str = TEMPLATE_URL,
     template_commit: str = TEMPLATE_COMMIT,
 ) -> Path:
     """Build the pristine workspace of ``target`` under ``root/pristine/``.
 
     Copies the substrate outputs, emits and re-verifies every view, writes the
-    empty manifest and registers, scaffolds the draft, pre-seeds every
-    out-of-window ordinal, records provenance and writes the digest manifest.
+    empty manifest and registers, scaffolds the draft, seals any references
+    the target declares, pre-seeds every out-of-window ordinal, records
+    provenance and writes the digest manifest.
 
     Args:
         target: What to prepare, and the window to leave unprocessed.
         root: The runs root; the workspace lands in ``root/pristine/``.
         panther_repo: PANTHER repository root; ``target.source`` resolves
             relative to it.
+        toolchain: Toolchain record used to seal ``target.references`` into
+            the workspace's ``refcache/``; required when the target declares
+            any references.
         template: Draft template clone source.
         template_commit: The commit the draft scaffold is pinned to.
 
@@ -469,7 +485,8 @@ def prepare(
 
     Raises:
         ExperimentError: If the pristine directory exists, a source part is
-            missing, or a substrate stage fails.
+            missing, a substrate stage fails, references are declared with no
+            toolchain, or the toolchain never cached a declared reference.
     """
     pristine = root / "pristine" / target.pristine_name
     if pristine.exists():
@@ -488,6 +505,43 @@ def prepare(
         pristine / "draft", target, template=template, template_commit=template_commit
     )
 
+    refcache_sha256: str | None = None
+    toolchain_sha256: str | None = None
+    template_home: str | None = None
+    if target.references:
+        if toolchain is None:
+            raise ExperimentError(
+                f"{target.name} declares references; pass --toolchain so they "
+                "can be sealed into the workspace"
+            )
+        record_toolchain = load_toolchain(toolchain)
+        cache = pristine / REFCACHE_DIR
+        cache.mkdir()
+        missing: list[str] = []
+        for reference in target.references:
+            if reference.startswith("RFC"):
+                name = f"reference.RFC.{reference[3:]}.xml"
+            else:
+                name = f"reference.{reference}.xml"
+            ref_source = record_toolchain.refcache / name
+            if not ref_source.exists():
+                missing.append(reference)
+                continue
+            shutil.copyfile(ref_source, cache / name)
+        if missing:
+            raise ExperimentError(
+                f"the toolchain never cached {', '.join(missing)}; add them to "
+                "the seed list and re-run `experiment toolchain provision`"
+            )
+        refcache_sha256 = hashlib.sha256(
+            b"".join((cache / p.name).read_bytes() for p in sorted(cache.iterdir()))
+        ).hexdigest()
+        toolchain_sha256 = hashlib.sha256(toolchain.read_bytes()).hexdigest()
+        template_home = str(record_toolchain.template_home)
+    (pristine / REFERENCES_FILE).write_text(
+        "references:\n" + "".join(f"- {reference}\n" for reference in target.references)
+    )
+
     ordinals = [row["ordinal"] for row in read_clusters(pristine / "timeline")]
     seeded = preseed(pristine, out_of_window(ordinals, target.window))
 
@@ -499,7 +553,11 @@ def prepare(
         "draft_head": draft_head,
         "template": template,
         "template_commit": template_commit,
-        "template_stripped": list(TEMPLATE_STRIP),
+        "scaffold_layout": "adopter",
+        "references": list(target.references),
+        "refcache_sha256": refcache_sha256,
+        "toolchain_sha256": toolchain_sha256,
+        "template_home": template_home,
         "forge_snapshot": str(target.forge_snapshot) if target.forge_snapshot else None,
         "cluster_count": len(ordinals),
         "pre_seeded": seeded,
