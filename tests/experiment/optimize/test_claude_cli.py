@@ -171,6 +171,27 @@ def test_a_nonzero_exit_raises_with_the_code_and_the_stderr_tail(profile, tmp_pa
     assert "claude-cli:some-model" in str(error)
 
 
+def test_a_nonzero_exit_keeps_the_quota_the_stream_already_carried(profile, tmp_path):
+    """A hard usage-limit trip is the failure this design is metered against,
+    and it may exit non-zero after the quota event is already on stdout: the
+    window has to survive into the error the operator reads."""
+    control(
+        profile,
+        reply="nonzero",
+        stderr="limit\n",
+        exit_code=1,
+        rate_limit={"unifiedWindows": {"five_hour": {"utilization": 1.0}}},
+    )
+
+    with pytest.raises(ClaudeCliError) as caught:
+        call(profile, tmp_path)("x")
+
+    error = caught.value
+    assert error.exit_code == 1
+    assert "exited 1" in str(error)
+    assert "limit" in str(error) and "five_hour" in str(error)
+
+
 def test_a_timeout_raises_and_names_the_cap(profile, tmp_path):
     control(profile, reply="hang", seconds=5)
 
@@ -210,6 +231,36 @@ def test_a_missing_binary_raises_naming_it(profile, tmp_path):
 
     with pytest.raises(ClaudeCliError, match="no-such-claude"):
         wrapper("x")
+
+
+def test_a_binary_that_is_not_executable_raises_naming_it(profile, tmp_path):
+    """A --claude-bin that exists but carries no execute bit fails inside the
+    child's exec, not at lookup, so it is a PermissionError rather than the
+    FileNotFoundError a missing path gives."""
+    binary = tmp_path / "not-executable-claude"
+    binary.write_text("#!/bin/sh\nexit 0\n")
+    binary.chmod(0o644)
+    wrapper = ClaudeCliCall(str(binary), profile, "m", cwd=tmp_path / "cwd")
+
+    with pytest.raises(ClaudeCliError) as caught:
+        wrapper("x")
+
+    assert "not-executable-claude" in str(caught.value)
+    assert "claude-cli:m" in str(caught.value)
+
+
+def test_a_cwd_that_cannot_be_created_raises_naming_it(profile, tmp_path):
+    """The cwd is made on the first call, so a path already held by a file is
+    a failure of the call rather than of construction."""
+    blocked = tmp_path / "cwd"
+    blocked.write_text("")
+    wrapper = ClaudeCliCall(str(STUB), profile, "m", cwd=blocked)
+
+    with pytest.raises(ClaudeCliError) as caught:
+        wrapper("x")
+
+    assert str(blocked) in str(caught.value)
+    assert "claude-cli:m" in str(caught.value)
 
 
 def test_quota_reads_the_last_rate_limit_event():

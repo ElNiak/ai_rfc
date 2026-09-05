@@ -4,7 +4,8 @@
 The wrapper under test launches it exactly like the real CLI, with the prompt
 on stdin. It reads what to answer from ``$CLAUDE_CONFIG_DIR/fake-lm.json``
 (absent means a fenced proposal), records how it was called under
-``$CLAUDE_CONFIG_DIR/fake-lm-calls/``, and prints its reply as stream-json.
+``$CLAUDE_CONFIG_DIR/fake-lm-calls/``, and prints its reply as stream-json,
+a ``nonzero`` reply printing the quota event first when it was given one.
 Stdlib only, so it runs under whichever ``python3`` is on the child's PATH.
 Never used outside the tests.
 """
@@ -21,6 +22,12 @@ from pathlib import Path
 def _emit(event: dict) -> None:
     sys.stdout.write(json.dumps(event, sort_keys=True) + "\n")
     sys.stdout.flush()
+
+
+def _emit_preamble(control: dict) -> None:
+    _emit({"type": "system", "subtype": "init", "model": "fake-lm", "tools": []})
+    if "rate_limit" in control:
+        _emit({"type": "rate_limit_event", "rate_limit_info": control["rate_limit"]})
 
 
 def main() -> int:
@@ -47,6 +54,8 @@ def main() -> int:
 
     reply = control.get("reply", "fenced")
     if reply == "nonzero":
+        if "rate_limit" in control:
+            _emit_preamble(control)
         sys.stderr.write(control.get("stderr", "the stub was told to fail\n"))
         return int(control.get("exit_code", 3))
     if reply == "hang":
@@ -56,9 +65,7 @@ def main() -> int:
         sys.stdout.write("this is not stream-json\n")
         return 0
 
-    _emit({"type": "system", "subtype": "init", "model": "fake-lm", "tools": []})
-    if "rate_limit" in control:
-        _emit({"type": "rate_limit_event", "rate_limit_info": control["rate_limit"]})
+    _emit_preamble(control)
     if reply == "error":
         _emit(
             {

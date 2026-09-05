@@ -79,6 +79,12 @@ def quota(events: list[dict[str, Any]]) -> dict[str, Any] | None:
     return None
 
 
+def _quota_suffix(events: list[dict[str, Any]]) -> str:
+    """The clause naming the quota a stream carried, empty when it carried none."""
+    limit = quota(events)
+    return "" if limit is None else f" (rate limit: {json.dumps(limit)})"
+
+
 def _flatten(messages: list[dict[str, Any]]) -> str:
     """One prompt from a chat-messages list, each turn under its role."""
     parts = []
@@ -182,13 +188,14 @@ class ClaudeCliCall:
             The result event's text.
 
         Raises:
-            ClaudeCliError: On a missing binary, a non-zero exit, a timeout,
+            ClaudeCliError: On a binary that is missing or not executable, a
+                cwd that cannot be created, a non-zero exit, a timeout,
                 output that is not stream-json, a result marked as an error,
                 or an empty reply.
         """
         text = prompt if isinstance(prompt, str) else _flatten(prompt)
-        self.cwd.mkdir(parents=True, exist_ok=True)
         try:
+            self.cwd.mkdir(parents=True, exist_ok=True)
             completed = subprocess.run(
                 self.argv(),
                 input=text,
@@ -198,8 +205,10 @@ class ClaudeCliCall:
                 text=True,
                 timeout=self.timeout_s,
             )
-        except FileNotFoundError as missing:
-            raise ClaudeCliError(f"cannot run {self.claude_bin}: {missing}") from None
+        except OSError as failure:
+            raise ClaudeCliError(
+                f"{self!r} cannot run {self.claude_bin} in {self.cwd}: {failure}"
+            ) from None
         except subprocess.TimeoutExpired as expired:
             tail = _decoded(expired.stderr)[-_STDERR_TAIL:]
             raise ClaudeCliError(
@@ -208,8 +217,16 @@ class ClaudeCliCall:
             ) from None
         tail = completed.stderr[-_STDERR_TAIL:]
         if completed.returncode != 0:
+            # A hard usage-limit trip may exit non-zero with the quota event
+            # already on stdout, and that window is the only meter this design
+            # has; whatever else a failed call left there is not parseable.
+            try:
+                events = parse_stream(completed.stdout)
+            except ExperimentError:
+                events = []
             raise ClaudeCliError(
-                f"{self!r} exited {completed.returncode}: {tail}",
+                f"{self!r} exited {completed.returncode}: {tail}"
+                f"{_quota_suffix(events)}",
                 exit_code=completed.returncode,
                 stderr_tail=tail,
             )
@@ -229,11 +246,9 @@ class ClaudeCliCall:
                 stderr_tail=tail,
             )
         if final.get("is_error"):
-            limit = quota(events)
-            suffix = "" if limit is None else f" (rate limit: {json.dumps(limit)})"
             raise ClaudeCliError(
                 f"{self!r} reported an error: {str(final.get('result', ''))[:500]}"
-                f"{suffix}",
+                f"{_quota_suffix(events)}",
                 exit_code=completed.returncode,
                 stderr_tail=tail,
             )

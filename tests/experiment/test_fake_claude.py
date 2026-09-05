@@ -351,6 +351,27 @@ def test_claude_lm_exits_nonzero_with_the_stderr_it_was_given(lm_profile):
     assert completed.stdout == ""
 
 
+def test_claude_lm_prints_the_quota_before_exiting_nonzero(lm_profile):
+    completed = _run_lm(
+        lm_profile,
+        "x",
+        {
+            "reply": "nonzero",
+            "stderr": "limit\n",
+            "exit_code": 1,
+            "rate_limit": {"unifiedWindows": {"five_hour": {"utilization": 1.0}}},
+        },
+    )
+
+    assert completed.returncode == 1
+    assert completed.stderr == "limit\n"
+    events = parse_stream(completed.stdout)
+    assert [e["type"] for e in events] == ["system", "rate_limit_event"]
+    assert events[1]["rate_limit_info"]["unifiedWindows"]["five_hour"] == {
+        "utilization": 1.0
+    }
+
+
 def test_claude_lm_hangs_when_told_to(lm_profile):
     with pytest.raises(subprocess.TimeoutExpired):
         _run_lm(lm_profile, "x", {"reply": "hang", "seconds": 5}, timeout=1)
