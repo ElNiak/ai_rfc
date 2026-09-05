@@ -167,6 +167,10 @@ The long timeouts are not decoration: the default retry dies on
 sandbox off, because the backend always stands up an eval server and that
 binds a TCP socket.
 
+A pilot also needs the `claude` CLI on `PATH` and an authenticated profile:
+`python -m ai_rfc.experiment profile init` creates one and prints the one-time
+`claude auth login` command for it. No API key is needed or read.
+
 **The examples file** is JSON, one entry per thing a candidate is measured on.
 A loop entry names the single in-window cluster it scores; an interview entry
 names a baseline built by `optimize prepare-interview`, which writes a sidecar
@@ -195,25 +199,39 @@ any well-formed record will do: the executables it names are never invoked.
 `--max-evals` defaults to three per example, which is one whole round; below
 that the proposal is never scored and the search only looks converged.
 
-**Stage `pilot`** spends money and says so first. It refuses to start unless
-`ANTHROPIC_API_KEY` is set and `--max-evals`, `--max-token-cost`, `--model`,
-`--reflection-lm` and `--judge-model` are all given — nothing that costs is
-defaulted. It then prints the worst case (twice `--max-evals` × the largest
-example budget, plus the proposer ceiling) and stops until `--yes`. The factor
-of two is the evaluator's one retry per faulted run. Judge calls sit on top of
-that figure: one short request per anchored claim per evaluation.
+**Stage `pilot`** spends and says so first. It refuses to start unless
+`--max-evals`, `--model`, `--reflection-lm` and `--judge-model` are all given —
+nothing that costs is defaulted — then prints the worst case and stops until
+`--yes`. The proposer and the judge each take one of two forms:
 
-`--max-token-cost` binds only for a `--reflection-lm` litellm can price. The
-backend totals the proposer's spend from `litellm.completion_cost` and counts
-an unpriced call as 0.00, so against a model missing from litellm's cost map
-the ceiling could never be reached and only `--max-evals` would bound the
-proposer. The pilot therefore refuses to start on an unpriced id; check one
-ahead of time with the gepa skill's `scripts/preflight.py`. Stage `fake` sets
-`LITELLM_LOCAL_MODEL_COST_MAP=True`, so a rehearsal never fetches that map.
+- `claude-cli:<model>` runs the role through `claude -p` on the profile under
+  `--profile-dir`, with the prompt on stdin, every customization source
+  disabled, and no tools. Nothing bills a key: every call draws on the
+  subscription behind that profile, whose usage limit is the only meter. The
+  proposer runs at `--effort` with `--timeout-s`; the judge at low effort with
+  a 120 s cap. `--max-token-cost` is refused beside a `claude-cli:` proposer,
+  because gepa meters a callable at 0.00 and the cap would be a promise nothing
+  enforces; `--max-evals` and `--timeout-s` are the caps, and the worst case is
+  printed in sessions and calls: twice `--max-evals` harness sessions, up to
+  `--max-evals` proposer calls, and one judge call per anchored claim per
+  evaluation. The CLI exposes no temperature, so a rerun may grade a hunk
+  differently; the judge cache dedups only identical level, text and hunk
+  triples. This is the form this project's pilot uses.
+- A LiteLLM id for `--reflection-lm` and an Anthropic API id for
+  `--judge-model` bill `ANTHROPIC_API_KEY`, which must then be set. The worst
+  case is printed in USD: twice `--max-evals` × the largest example budget,
+  plus `--max-token-cost`, which is required here and binds only for an id
+  litellm can price — the pilot refuses an unpriced one. The factor of two is
+  the evaluator's one retry per faulted run; judge calls sit on top of that
+  figure. This project does not use this form.
 
-It builds each
-draft for real, so its `--toolchain` record must name executables that exist:
-use one from `experiment toolchain provision`. Everything lands under
+Stage `fake` sets `LITELLM_LOCAL_MODEL_COST_MAP=True`, so a rehearsal never
+fetches litellm's cost map, and refuses any `--reflection-lm` or
+`--judge-model`: it proposes the seed back and rates every claim itself.
+
+A pilot builds each draft for real, so its `--toolchain` record must name
+executables that exist: use one from `experiment toolchain provision`.
+Everything lands under
 `<root>/optimize/<name>/`. A second run over an existing one **resumes** rather
 than starting over; `touch <root>/optimize/<name>/gepa/gepa.stop` is the
 graceful stop.

@@ -171,6 +171,176 @@ def _priced(*extra):
     ]
 
 
+def _no_key(*extra):
+    """A pilot whose proposer and judge both run through claude -p."""
+    return [
+        "--max-evals",
+        "30",
+        "--model",
+        "some-agent-model",
+        "--reflection-lm",
+        "claude-cli:some-proposer",
+        "--judge-model",
+        "claude-cli:some-judge",
+        *extra,
+    ]
+
+
+def test_a_cli_proposer_refuses_a_token_cost_before_asking_for_yes(
+    tmp_path, examples_file, toolchain_record, monkeypatch, capsys
+):
+    """gepa meters a callable at 0.00, so the cap would be a promise nothing
+    enforces; naming it beside a claude-cli: proposer is refused, and refused
+    before consent so a wrong launch line never reaches --yes."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    code = cli.main(
+        _pilot(
+            tmp_path,
+            examples_file,
+            toolchain_record,
+            *_no_key("--max-token-cost", "5", "--yes"),
+        )
+    )
+
+    captured = capsys.readouterr()
+    assert code == 1
+    assert "--max-token-cost" in captured.err and "claude-cli:" in captured.err
+    assert "worst case" not in captured.out
+    assert not (tmp_path / "root").exists()
+
+
+def test_a_cli_proposer_does_not_want_a_token_cost(
+    tmp_path, examples_file, toolchain_record, monkeypatch, capsys
+):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    code = cli.main(
+        _pilot(
+            tmp_path,
+            examples_file,
+            toolchain_record,
+            "--reflection-lm",
+            "claude-cli:some-proposer",
+            "--yes",
+        )
+    )
+
+    err = capsys.readouterr().err
+    assert code == 1
+    for flag in ("--max-evals", "--model", "--judge-model"):
+        assert flag in err
+    assert "--max-token-cost" not in err
+
+
+def test_a_no_key_pilot_reaches_the_consent_print_and_waits_for_yes(
+    tmp_path, examples_file, toolchain_record, monkeypatch, capsys
+):
+    """Nothing bills a key, so the worst case is counted in sessions and calls
+    against the subscription, with --max-evals and --timeout-s as the caps."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    code = cli.main(
+        _pilot(
+            tmp_path, examples_file, toolchain_record, *_no_key("--timeout-s", "2400")
+        )
+    )
+
+    captured = capsys.readouterr()
+    assert code == 1
+    assert "2 x 30 harness sessions" in captured.out
+    assert "2400 s" in captured.out
+    assert "claude-cli:some-proposer" in captured.out
+    assert "claude-cli:some-judge" in captured.out
+    assert "one judge call per anchored claim" in captured.out
+    assert "subscription" in captured.out
+    assert captured.out.startswith("worst case: 2 x 30 harness sessions")
+    assert "--yes" in captured.err
+    assert "ANTHROPIC_API_KEY" not in captured.err
+    assert not (tmp_path / "root").exists()
+
+
+def test_a_cli_proposer_beside_an_api_judge_still_wants_the_key(
+    tmp_path, examples_file, toolchain_record, monkeypatch, capsys
+):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    code = cli.main(
+        _pilot(
+            tmp_path,
+            examples_file,
+            toolchain_record,
+            *_no_key("--judge-model", "some-api-judge", "--yes"),
+        )
+    )
+
+    assert code == 1
+    assert "ANTHROPIC_API_KEY" in capsys.readouterr().err
+    assert not (tmp_path / "root").exists()
+
+
+def test_a_mixed_pilot_says_which_role_bills_the_key(
+    tmp_path, examples_file, toolchain_record, monkeypatch, capsys
+):
+    """A CLI proposer beside an API judge is allowed; the consent text must
+    then say the judge bills the key while the rest draws on the profile."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "not-used-by-this-test")
+
+    code = cli.main(
+        _pilot(
+            tmp_path,
+            examples_file,
+            toolchain_record,
+            *_no_key("--judge-model", "some-api-judge"),
+        )
+    )
+
+    captured = capsys.readouterr()
+    assert code == 1
+    assert "the judge on some-api-judge bills ANTHROPIC_API_KEY" in captured.out
+    assert "nothing here bills a key" not in captured.out
+    assert "--yes" in captured.err
+
+
+@with_gepa
+def test_a_no_key_pilot_starts_with_the_wrapper_in_both_roles(
+    tmp_path, examples_file, toolchain_record, monkeypatch, capsys
+):
+    """The pricing refusal is skipped for a claude-cli: proposer, and the
+    settings the search receives carry the form, no cost cap, and a judge."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setenv("LITELLM_LOCAL_MODEL_COST_MAP", "True")
+
+    from ai_rfc.experiment.optimize import run as run_module
+
+    searched = []
+
+    def _search_nothing(settings, evaluator):
+        searched.append((settings, evaluator))
+        return SimpleNamespace(best_score=0.0, candidates=[], total_evals=0)
+
+    monkeypatch.setattr(run_module, "run", _search_nothing)
+
+    code = cli.main(
+        _pilot(
+            tmp_path,
+            examples_file,
+            toolchain_record,
+            *_no_key("--yes", "--effort", "xhigh", "--timeout-s", "2400"),
+        )
+    )
+
+    assert code == 0, capsys.readouterr().err
+    ((settings, evaluator),) = searched
+    assert repr(settings.reflection_lm) == "claude-cli:some-proposer"
+    assert settings.max_token_cost is None
+    assert settings.reflection_lm.effort == "xhigh"
+    assert settings.reflection_lm.timeout_s == 2400
+    assert settings.reflection_lm.cwd == tmp_path / "root" / "optimize" / "pilot-1"
+    assert settings.reflection_lm.profile_dir == tmp_path / "root" / "profile"
+    assert callable(evaluator.settings.judge)
+
+
 def test_seed_prints_the_bundle_the_plugin_carries(plugin_root, capsys, tmp_path):
     out_file = tmp_path / "seed.txt"
 
@@ -572,6 +742,27 @@ def _rehearsal(tmp_path, examples_file, toolchain_record, *extra):
         str(toolchain_record),
         *extra,
     ]
+
+
+@pytest.mark.parametrize(
+    "flag,value",
+    [
+        ("--reflection-lm", "claude-cli:some-proposer"),
+        ("--judge-model", "claude-cli:some-judge"),
+        ("--reflection-lm", "anthropic/claude-sonnet-4-6"),
+    ],
+)
+def test_the_fake_stage_refuses_a_named_proposer_or_judge(
+    tmp_path, examples_file, toolchain_record, capsys, flag, value
+):
+    """A rehearsal proposes the seed back and rates every claim itself; a
+    model named here is one that would be paid for in a pilot."""
+    code = cli.main(_rehearsal(tmp_path, examples_file, toolchain_record, flag, value))
+
+    err = capsys.readouterr().err
+    assert code == 1
+    assert flag in err and "--stage pilot" in err
+    assert not (tmp_path / "root").exists()
 
 
 def test_the_fake_stage_refuses_an_agent_that_is_not_the_fake(

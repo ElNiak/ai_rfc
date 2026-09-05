@@ -34,6 +34,13 @@ NOT_COMMITTED = (
 #: that asks for no consent because it cannot spend.
 FAKE_MODEL = "fake-model"
 
+#: What a ``claude-cli:`` judge runs at. Measured on 2026-09-04: a short
+#: grading call takes 3 to 4 s at low effort and 112 s at the default, and
+#: the judge makes one call per anchored claim per evaluation, fourteen on
+#: the largest seed run, so the default would add half an hour to each.
+JUDGE_EFFORT = "low"
+JUDGE_TIMEOUT_S = 120
+
 
 #: Evaluations one whole search round costs, as a multiple of the example
 #: count: the seed over the selection set, the current candidate over a
@@ -202,10 +209,11 @@ def _optimize_run(args: argparse.Namespace, root: Path) -> int:
     """Search for a better bundle, or refuse to start.
 
     A pilot pays for every evaluation and for every proposal, so it names each
-    model and both ceilings itself, prints what the worst case costs and waits
-    to be told to go ahead. A rehearsal names nothing: it drives the fake agent
-    the tests ship, rates every anchored claim a perfect fit and proposes the
-    seed straight back, so it exercises the whole loop without a paid call.
+    model and, for a LiteLLM proposer, both ceilings itself, prints what the
+    worst case costs and waits to be told to go ahead. A rehearsal names
+    nothing: it drives the fake agent the tests ship, rates every anchored
+    claim a perfect fit and proposes the seed straight back, so it exercises
+    the whole loop without a paid call.
 
     Args:
         args: The parsed ``optimize run`` arguments.
@@ -222,10 +230,18 @@ def _optimize_run(args: argparse.Namespace, root: Path) -> int:
     from ai_rfc.draft.build import BuildReport
 
     from .config import Campaign
+    from .optimize.claude_cli import ClaudeCliCall, cli_model
     from .optimize.codec import encode, seed_from_plugin
     from .optimize.evaluator import Evaluator, EvaluatorSettings
     from .optimize.judge import anthropic_transport, build_judge
-    from .optimize.run import RESULT_FILE, RunSettings, SeedEchoLM, load_examples, log
+    from .optimize.run import (
+        OPTIMIZE_DIR,
+        RESULT_FILE,
+        RunSettings,
+        SeedEchoLM,
+        load_examples,
+        log,
+    )
     from .optimize.run import run as optimize
     from .optimize.scoring import ClaimHunk, Judge, Judgement
 
@@ -265,31 +281,63 @@ def _optimize_run(args: argparse.Namespace, root: Path) -> int:
     seed = seed_from_plugin(plugin_root)
     max_evals = args.max_evals
     max_token_cost = args.max_token_cost
+    profile = args.profile_dir or profile_dir(root)
     judge: Judge
-    reflection_lm: str | SeedEchoLM
+    reflection_lm: str | SeedEchoLM | ClaudeCliCall
     build: Callable[[Campaign, Path], BuildReport | None] | None
 
     if args.stage == "pilot":
-        missing = [
-            flag
-            for flag, value in (
-                ("--max-evals", args.max_evals),
-                ("--max-token-cost", args.max_token_cost),
-                ("--model", args.model),
-                ("--reflection-lm", args.reflection_lm),
-                ("--judge-model", args.judge_model),
-            )
-            if value is None
+        proposer = None if args.reflection_lm is None else cli_model(args.reflection_lm)
+        cli_judge = None if args.judge_model is None else cli_model(args.judge_model)
+        wanted = [
+            ("--max-evals", args.max_evals),
+            ("--model", args.model),
+            ("--reflection-lm", args.reflection_lm),
+            ("--judge-model", args.judge_model),
         ]
+        if proposer is None:
+            wanted.insert(1, ("--max-token-cost", args.max_token_cost))
+        missing = [flag for flag, value in wanted if value is None]
         if missing:
             raise ExperimentError(
                 "a pilot pays for every evaluation and every proposal, so it "
                 f"names each cost itself; missing {', '.join(missing)}"
             )
-        judge = build_judge(anthropic_transport(args.judge_model))
-        reflection_lm = args.reflection_lm
-        model = args.model
+        if proposer is not None and max_token_cost is not None:
+            raise ExperimentError(
+                "--max-token-cost cannot bind with a claude-cli: proposer: gepa "
+                "meters a callable at 0.00, so the cap would be a promise nothing "
+                "enforces. Drop it; --max-evals and --timeout-s are the caps"
+            )
         claude_bin = args.claude_bin or "claude"
+        # Where the one-shot calls run; created on their first call, so a
+        # refusal below still leaves nothing behind.
+        calls_dir = root / OPTIMIZE_DIR / args.name
+        if cli_judge is None:
+            judge = build_judge(anthropic_transport(args.judge_model))
+        else:
+            judge = build_judge(
+                ClaudeCliCall(
+                    claude_bin,
+                    profile,
+                    cli_judge,
+                    cwd=calls_dir,
+                    effort=JUDGE_EFFORT,
+                    timeout_s=JUDGE_TIMEOUT_S,
+                )
+            )
+        if proposer is None:
+            reflection_lm = args.reflection_lm
+        else:
+            reflection_lm = ClaudeCliCall(
+                claude_bin,
+                profile,
+                proposer,
+                cwd=calls_dir,
+                effort=args.effort,
+                timeout_s=args.timeout_s,
+            )
+        model = args.model
         build = None
     else:
         fake = _fake_claude()
@@ -311,6 +359,20 @@ def _optimize_run(args: argparse.Namespace, root: Path) -> int:
                 "--yes because it cannot spend; a real agent here would launch "
                 "paid sessions through the shared profile unasked. Use --stage "
                 "pilot to spend"
+            )
+        named = [
+            flag
+            for flag, value in (
+                ("--reflection-lm", args.reflection_lm),
+                ("--judge-model", args.judge_model),
+            )
+            if value is not None
+        ]
+        if named:
+            raise ExperimentError(
+                f"--stage fake proposes the seed back and rates every claim "
+                f"itself, so {', '.join(named)} names a model this stage never "
+                "calls and a pilot would pay for. Use --stage pilot to name one"
             )
         # Set before anything imports gepa, which pulls litellm, which
         # fetches its cost map from GitHub at import time unless told not to.
@@ -341,16 +403,37 @@ def _optimize_run(args: argparse.Namespace, root: Path) -> int:
 
     if args.stage == "pilot":
         per_example = max(example.budget_usd for example in examples)
-        worst_case = 2 * max_evals * per_example + max_token_cost
-        print(
-            f"worst case: 2 x {max_evals} evaluations x ${per_example:.2f} + "
-            f"${max_token_cost:.2f} proposer = ${worst_case:.2f}"
-        )
-        print(
-            "the factor of two is the evaluator's one retry per faulted run; "
-            "plus judge calls (one short request per anchored claim per "
-            "evaluation), which are not in the figure above"
-        )
+        if max_token_cost is None:
+            print(
+                f"worst case: 2 x {max_evals} harness sessions on {model} of up to "
+                f"{args.timeout_s} s each (${per_example:.2f} is one session's own "
+                f"cap, not a bill), plus up to {max_evals} proposer calls on "
+                f"{reflection_lm!r} of up to {args.timeout_s} s each, plus one "
+                f"judge call per anchored claim per evaluation on {args.judge_model}"
+            )
+            meter = (
+                "nothing here bills a key: every call draws on the subscription "
+                "behind the profile, whose usage limit is the only meter"
+                if cli_judge is not None
+                else f"the judge on {args.judge_model} bills ANTHROPIC_API_KEY; "
+                "the sessions and the proposer draw on the subscription behind "
+                "the profile, whose usage limit is their only meter"
+            )
+            print(
+                "the factor of two is the evaluator's one retry per faulted run; "
+                f"{meter}, and --max-evals and --timeout-s are the only caps"
+            )
+        else:
+            worst_case = 2 * max_evals * per_example + max_token_cost
+            print(
+                f"worst case: 2 x {max_evals} evaluations x ${per_example:.2f} + "
+                f"${max_token_cost:.2f} proposer = ${worst_case:.2f}"
+            )
+            print(
+                "the factor of two is the evaluator's one retry per faulted run; "
+                "plus judge calls (one short request per anchored claim per "
+                "evaluation), which are not in the figure above"
+            )
         if not args.yes:
             raise ExperimentError("pass --yes to spend it")
 
@@ -364,7 +447,8 @@ def _optimize_run(args: argparse.Namespace, root: Path) -> int:
         )
 
     if args.stage == "pilot":
-        _refuse_an_unpriced_reflection_model(args.reflection_lm)
+        if cli_model(args.reflection_lm) is None:
+            _refuse_an_unpriced_reflection_model(args.reflection_lm)
         # Last of the refusals because it is the slow one: verify clones and
         # builds the template twice. Every evaluation's campaign is frozen
         # with verify_toolchain off, so this is the one place the record is
@@ -393,7 +477,7 @@ def _optimize_run(args: argparse.Namespace, root: Path) -> int:
     evaluator = Evaluator(
         EvaluatorSettings(
             root=settings.directory,
-            profile_dir=args.profile_dir or profile_dir(root),
+            profile_dir=profile,
             python=args.python,
             claude_bin=claude_bin,
             model=model,
@@ -797,19 +881,24 @@ def _parser() -> argparse.ArgumentParser:
         "--max-token-cost",
         type=float,
         default=None,
-        help="USD ceiling on the proposer's own spend; required by a pilot.",
+        help="USD ceiling on the proposer's own spend; required by a pilot whose "
+        "--reflection-lm is a LiteLLM id, refused beside a claude-cli: one, which "
+        "gepa meters at zero.",
     )
     optimize_run.add_argument(
         "--reflection-lm",
         type=_model,
         default=None,
-        help="Pilot only: the LiteLLM model id the proposer runs on.",
+        help="Pilot only: the proposer. A LiteLLM model id, or claude-cli:<model> "
+        "to run it through `claude -p` on --profile-dir with no API key.",
     )
     optimize_run.add_argument(
         "--judge-model",
         type=_model,
         default=None,
-        help="Pilot only: the model rating each anchored claim.",
+        help="Pilot only: the model rating each anchored claim. An Anthropic API "
+        "id (needs ANTHROPIC_API_KEY), or claude-cli:<model> to run it through "
+        "`claude -p` on --profile-dir at low effort.",
     )
     optimize_run.add_argument(
         "--model",
