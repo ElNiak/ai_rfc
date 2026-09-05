@@ -866,7 +866,7 @@ def test_signing_off_a_paraphrase_is_a_hard_zero(interview, interview_workspace)
 
     assert result.value == 0.0
     assert result.info["reason"] == ZERO_SIGNOFF_TRAP
-    assert result.info["signed_off"] == [interview.paraphrase_claim]
+    assert result.info["unconfirmed_signoffs"] == 1
 
 
 def test_a_rewritten_transcript_is_a_hard_zero(interview, interview_workspace):
@@ -1009,9 +1009,9 @@ def test_a_question_that_summarises_the_claim_earns_the_verbatim_term_nothing(
         interview_analysis(), workspace=interview_workspace, fixture=interview
     ).info
 
-    assert info["per_claim"][interview.exact_claim]["one_question"] is True
-    assert info["per_claim"][interview.exact_claim]["answered"] is True
-    assert info["per_claim"][interview.exact_claim]["verbatim"] is False
+    assert info["per_role"]["exact"]["one_question"] is True
+    assert info["per_role"]["exact"]["answered"] is True
+    assert info["per_role"]["exact"]["verbatim"] is False
     assert info["one_per_claim"] == pytest.approx(1 / 3)
     assert info["verbatim"] == 0.0
 
@@ -1038,7 +1038,50 @@ def test_a_question_asked_five_ways_earns_nothing_for_that_claim(
         interview_analysis(), workspace=interview_workspace, fixture=interview
     ).info
 
-    assert info["per_claim"][interview.exact_claim]["one_question"] is False
-    assert info["per_claim"][interview.exact_claim]["verbatim"] is False
+    assert info["per_role"]["exact"]["one_question"] is False
+    assert info["per_role"]["exact"]["verbatim"] is False
     assert info["one_per_claim"] == pytest.approx(2 / 3)
     assert info["exact_signoff"] == 1.0
+
+
+def _run_forms(interview, workspace_factory):
+    """The interview outcomes a proposer reads feedback from, one workspace each."""
+    good = workspace_factory("good")
+    _conduct(good, interview, confirmed={interview.exact_claim})
+    trap = workspace_factory("trap")
+    _conduct(
+        trap, interview, confirmed={interview.exact_claim, interview.paraphrase_claim}
+    )
+    partial = workspace_factory("partial")
+    _conduct(partial, interview, confirmed=set())
+    (partial / "questions.yaml").write_text(
+        "questions:\n  'q-001':\n    status: answered\n"
+    )
+    return {"good": good, "trap": trap, "partial": partial}
+
+
+def test_interview_feedback_never_names_a_planted_claim_id(interview, tmp_path):
+    """The feedback is the proposer's only view of the fixture, round after round.
+
+    Which claim the author confirmed verbatim is the answer key: a skill text
+    that learned it would sign off by id instead of by reading. So no outcome,
+    graded or zero, may carry any of the three ids anywhere in its info.
+    """
+    workspaces = _run_forms(
+        interview,
+        lambda name: copy_workspace(interview.pristine_dir, tmp_path / name / "ws"),
+    )
+    planted = {
+        interview.exact_claim,
+        interview.paraphrase_claim,
+        interview.correction_claim,
+    }
+
+    for name, workspace in workspaces.items():
+        info = score_interview(
+            interview_analysis(), workspace=workspace, fixture=interview
+        ).info
+        text = json.dumps(info)
+        leaked = sorted(claim_id for claim_id in planted if claim_id in text)
+        assert leaked == [], f"{name}: {leaked} appear in the feedback"
+        assert set(info.get("per_role", {})) <= {"exact", "paraphrase", "correction"}

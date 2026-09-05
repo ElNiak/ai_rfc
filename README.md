@@ -146,7 +146,9 @@ the tagged draft compiles (0.20) and how few turns it took (0.10), scaled by
 how much of the cluster's file set the new claims reach. The interview
 evaluation is scored on its own terms, with two further hard zeros: altering
 the planted transcript, and signing off a claim the author did not confirm word
-for word.
+for word. Its feedback names the planted roles (exact, paraphrase, correction),
+never the claim ids: the proposer reads that feedback round after round, and
+which id the author confirmed verbatim is the answer key.
 
 **The environment.** The backend installs only under the `optimize` extra, on
 Python 3.11; the rest of the harness runs on 3.10. `gepa` is pinned to a git

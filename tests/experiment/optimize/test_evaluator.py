@@ -356,7 +356,30 @@ def test_signing_off_a_paraphrase_scores_zero(
 
     assert value == 0.0
     assert info["reason"] == ZERO_SIGNOFF_TRAP
-    assert info["signed_off"] == [interview_fixture.paraphrase_claim]
+    assert info["unconfirmed_signoffs"] == 1
+
+
+def test_a_real_interview_run_leaks_no_planted_claim_id_into_its_feedback(
+    settings, candidate, interview_fixture, write_scenario
+):
+    """The evaluator adds run-level diagnostics the scorer never sees in unit
+    tests: audit errors, bypass summaries, the campaign path. None of them may
+    carry a planted id either, on the graded run or on the trap zero.
+    """
+    example = InterviewExample(id="int-1", fixture=interview_fixture)
+    planted = {
+        interview_fixture.exact_claim,
+        interview_fixture.paraphrase_claim,
+        interview_fixture.correction_claim,
+    }
+
+    for builder in (interview_good_steps, interview_trap_steps):
+        steps = _interview_steps(builder, interview_fixture)
+        run = _with(settings, pre_launch=_scenario(write_scenario, steps))
+        _, info = Evaluator(run)(candidate, example)
+        text = json.dumps(info)
+        leaked = sorted(claim_id for claim_id in planted if claim_id in text)
+        assert leaked == [], f"{builder.__name__}: {leaked} appear in the feedback"
 
 
 def test_every_evaluation_gets_its_own_campaign_across_evaluators(
