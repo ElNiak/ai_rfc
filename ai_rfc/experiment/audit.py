@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from collections import Counter
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -120,6 +121,15 @@ def edit_target(file_path: str, workspace: Path) -> str:
     at any depth: a checkpoint is the frozen record every gate and count reads
     back, so hand-writing one forges the evidence the measurement is made of.
 
+    The path is normalized lexically first. A model writes the path it likes
+    and the transcript records that spelling verbatim, so without this
+    ``<ws>/draft/../manifest.yaml`` reaches the register while classifying
+    ``other`` — the one edit the register counters exist to catch. Lexically,
+    not through ``resolve()``: the classifier reads the layout, not the disk,
+    and the file it is asked about has usually been written and moved on from
+    by the time the audit runs. The workspace itself is resolved, because a
+    run given ``/tmp/...`` records ``/private/tmp/...`` on macOS.
+
     Args:
         file_path: The edit's target as the transcript recorded it.
         workspace: The run's workspace root.
@@ -129,10 +139,12 @@ def edit_target(file_path: str, workspace: Path) -> str:
     """
     if not file_path:
         return "other"
-    candidate = Path(file_path)
-    if not candidate.is_relative_to(workspace):
+    candidate = Path(os.path.normpath(file_path))
+    roots = (workspace, workspace.resolve())
+    inside = [root for root in roots if candidate.is_relative_to(root)]
+    if not inside:
         return "other"
-    parts = candidate.relative_to(workspace).parts
+    parts = candidate.relative_to(inside[0]).parts
     if len(parts) == 1 and parts[0] in STATE_FILES:
         return "register"
     if parts and parts[0] == "checkpoints":

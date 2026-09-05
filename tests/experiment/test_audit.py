@@ -83,6 +83,46 @@ def test_edit_target_is_read_from_the_layout_not_the_path_shape():
     assert edit_target("/w", WS) == "other"
 
 
+def test_a_dot_dot_spelling_of_a_register_path_is_still_a_register_edit():
+    """The transcript records the path the model wrote, not a canonical one.
+
+    Arm A carries ``Write`` and ``Edit`` in-arm and no shell, so a spelling
+    that walks out of ``draft/`` and back into the register is the whole
+    forgery route the register counters close. Classifying on the literal
+    path let every one of them through as ``other``.
+    """
+    assert edit_target("/w/draft/../manifest.yaml", WS) == "register"
+    assert edit_target("/w/draft/../checkpoints/c1/manifest.yaml", WS) == "register"
+    assert edit_target("/w/checkpoints/c1/../../questions.yaml", WS) == "register"
+    assert edit_target("/w/checkpoints/../draft/draft-x.md", WS) == "prose"
+    assert edit_target("/w/../manifest.yaml", WS) == "other"
+    assert edit_target("/w/draft/../../w-other/manifest.yaml", WS) == "other"
+
+
+def test_dot_dot_register_edits_reach_the_counter_the_score_reads():
+    """``register_edits`` is a precondition of the optimizer's score.
+
+    Both depths matter: the three state files sit at the workspace root and
+    the frozen records one level down, and a single unclassified edit to
+    either is a zero that never fires.
+    """
+    events = parse_stream(
+        '{"type":"assistant","message":{"id":"m1","content":[{"type":"tool_use",'
+        '"id":"t1","name":"Edit","input":'
+        '{"file_path":"/w/draft/../manifest.yaml"}},'
+        '{"type":"tool_use","id":"t2","name":"Write","input":'
+        '{"file_path":"/w/draft/../checkpoints/c1/manifest.yaml"}}],'
+        '"usage":{"input_tokens":1,"output_tokens":1}}}\n'
+        '{"type":"result","subtype":"success","total_cost_usd":0.1,"usage":{},'
+        '"permission_denials":[]}\n'
+    )
+
+    audit = audit_events(events, "A", WS)
+
+    assert audit["register_edits"] == 2
+    assert audit["hand_edits"]["manifest.yaml"] == 2
+
+
 def test_an_edit_under_checkpoints_is_counted_as_a_register_hand_edit():
     """A checkpoint is a frozen record, so editing one is a register hand-edit.
 
