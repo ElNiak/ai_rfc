@@ -249,12 +249,17 @@ def test_markdown_says_none_failed_when_a_repo_verified_every_anchor(fixture_rep
     assert "Not checked" not in section
 
 
-def test_the_markdown_report_names_every_structure_and_its_status(tmp_path):
-    from ai_rfc.report import build, to_markdown
-    from ai_rfc.schema import load
+def _structure_manifest_text() -> str:
+    """Manifest text whose one structure binds ``spec:1.1`` and not ``spec:2.1``.
 
-    path = tmp_path / "m.yaml"
-    path.write_text(
+    Two asymmetries make the assertions below discriminating. The bound
+    ``spec:1.1`` is a stored ``gap`` that its code anchor promotes to
+    ``inferred``, so the two axes differ and a renderer that swapped them is
+    caught. The unbound ``spec:2.1`` has no anchor and is a ``gap`` on both, so
+    a renderer scoring the whole manifest rather than the structure's own
+    claims prints ``supported gap`` and is caught too.
+    """
+    return (
         _manifest_text(with_second_claim=True) + "structures:\n"
         "  header:\n"
         "    kind: record\n"
@@ -264,9 +269,47 @@ def test_the_markdown_report_names_every_structure_and_its_status(tmp_path):
         "      - name: a\n"
         "        claim: spec:1.1\n"
     )
+
+
+def test_the_markdown_report_names_every_structure_and_its_status(tmp_path):
+    from ai_rfc.report import build, to_markdown
+    from ai_rfc.schema import load
+
+    path = tmp_path / "m.yaml"
+    path.write_text(_structure_manifest_text())
     text = to_markdown(build(load(path)))
+
     assert "## Structures" in text
-    assert "header" in text and "Message header" in text
+    section = text.split("## Structures")[1].split("##")[0]
+    assert section.strip() == (
+        "- `header` (record) Message header §4: "
+        "stored gap, supported inferred, 1 claims"
+    )
+
+
+def test_the_payload_carries_each_structures_status(tmp_path):
+    """JSON and YAML must carry the same pairs the Markdown section prints."""
+    import yaml
+
+    from ai_rfc.report import build, to_json, to_yaml
+    from ai_rfc.schema import load
+
+    path = tmp_path / "m.yaml"
+    path.write_text(_structure_manifest_text())
+    report = build(load(path))
+    expected = {"header": {"stored": "gap", "supported": "inferred"}}
+
+    assert json.loads(to_json(report))["structures"] == expected
+    assert yaml.safe_load(to_yaml(report))["structures"] == expected
+
+
+def test_a_structure_free_payload_carries_an_empty_structures_mapping(tmp_path):
+    from ai_rfc.report import build, to_json
+    from ai_rfc.schema import load
+
+    path = tmp_path / "m.yaml"
+    path.write_text(_manifest_text(with_second_claim=False))
+    assert json.loads(to_json(build(load(path))))["structures"] == {}
 
 
 def test_a_structure_free_report_has_no_structures_section(tmp_path):

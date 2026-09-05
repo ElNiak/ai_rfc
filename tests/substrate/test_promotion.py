@@ -201,32 +201,84 @@ def test_a_clean_manifest_reports_no_violations():
     assert violations(manifest) == ()
 
 
-def test_a_structure_is_only_as_strong_as_its_weakest_claim(tmp_path):
-    from ai_rfc.models import STATUS_RANK
-    from ai_rfc.promotion import adjudicate, structure_statuses
+def _structure_manifest_text(*claim_ids: str) -> str:
+    """Manifest text whose one structure binds exactly ``claim_ids``.
+
+    The two claims differ on both axes, so which of them a structure binds
+    changes its score: ``spec:1.1`` is stored ``inferred`` behind a code anchor
+    and adjudicates to ``inferred``, while ``spec:2.1`` carries no anchor and is
+    a ``gap`` on both. Without that difference every candidate scoring rule
+    agrees and the assertions below prove nothing.
+    """
+    fields = "".join(
+        f"      - name: f{index}\n        claim: {claim_id}\n"
+        for index, claim_id in enumerate(claim_ids)
+    )
+    return (
+        _manifest_text(with_second_claim=True).replace(
+            "    level: MUST\n", "    level: MUST\n    status: inferred\n"
+        )
+        + "structures:\n"
+        "  header:\n"
+        "    kind: record\n"
+        "    title: Message header\n"
+        "    section: '4'\n"
+        "    fields:\n" + fields
+    )
+
+
+def _assert_fixture_discriminates(manifest) -> None:
+    """Fail loudly if the two fixture claims stop differing.
+
+    Every assertion in this section reads as passing when both claims share a
+    status, so the fixture's own premise is checked rather than assumed.
+    """
+    by_id = {claim.id: claim for claim in manifest.claims}
+    assert by_id["spec:1.1"].status is Status.INFERRED
+    assert adjudicate(by_id["spec:1.1"]) is Status.INFERRED
+    assert by_id["spec:2.1"].status is Status.GAP
+    assert adjudicate(by_id["spec:2.1"]) is Status.GAP
+
+
+def test_a_structure_scores_only_the_claims_it_binds(tmp_path):
+    """``spec:2.1`` is a gap the structure does not bind, so it must not count.
+
+    A rule that ranged over ``manifest.claims`` instead of ``structure.claims``
+    would answer ``gap`` on both axes here.
+    """
+    from ai_rfc.promotion import structure_statuses
     from ai_rfc.schema import load
 
     path = tmp_path / "m.yaml"
-    path.write_text(
-        _manifest_text(with_second_claim=True) + "structures:\n"
-        "  header:\n"
-        "    kind: record\n"
-        "    title: H\n"
-        "    section: '4'\n"
-        "    fields:\n"
-        "      - name: a\n"
-        "        claim: spec:1.1\n"
-        "      - name: b\n"
-        "        claim: spec:2.1\n"
-    )
+    path.write_text(_structure_manifest_text("spec:1.1"))
     manifest = load(path)
+    _assert_fixture_discriminates(manifest)
+
     stored, supported = structure_statuses(manifest)["header"]
-    assert stored is min(
-        (claim.status for claim in manifest.claims), key=lambda s: STATUS_RANK[s]
-    )
-    assert supported is min(
-        (adjudicate(claim) for claim in manifest.claims), key=lambda s: STATUS_RANK[s]
-    )
+
+    assert stored is Status.INFERRED
+    assert supported is Status.INFERRED
+    assert (stored, supported) != (Status.GAP, Status.GAP)
+
+
+def test_a_structure_is_only_as_strong_as_its_weakest_claim(tmp_path):
+    """Binding the gap alongside the inferred claim drags the structure down.
+
+    The counterpart of the test above: a rule taking the *strongest* bound
+    claim would answer ``inferred`` on both axes here.
+    """
+    from ai_rfc.promotion import structure_statuses
+    from ai_rfc.schema import load
+
+    path = tmp_path / "m.yaml"
+    path.write_text(_structure_manifest_text("spec:1.1", "spec:2.1"))
+    manifest = load(path)
+    _assert_fixture_discriminates(manifest)
+
+    stored, supported = structure_statuses(manifest)["header"]
+
+    assert stored is Status.GAP
+    assert supported is Status.GAP
 
 
 def test_a_manifest_without_structures_has_no_structure_statuses(tmp_path):
