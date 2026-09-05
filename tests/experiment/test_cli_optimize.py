@@ -279,6 +279,31 @@ def test_a_cli_proposer_beside_an_api_judge_still_wants_the_key(
     assert not (tmp_path / "root").exists()
 
 
+def test_a_litellm_proposer_beside_a_cli_judge_still_wants_the_key(
+    tmp_path, examples_file, toolchain_record, monkeypatch, capsys
+):
+    """A claude-cli: judge skips the transport that used to check the key, so
+    the proposer's own credential has to be checked here or a run that cannot
+    finish would start and spend the seed evaluation first."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    code = cli.main(
+        _pilot(
+            tmp_path,
+            examples_file,
+            toolchain_record,
+            *_priced("--judge-model", "claude-cli:some-judge", "--yes"),
+        )
+    )
+
+    captured = capsys.readouterr()
+    assert code == 1
+    assert "ANTHROPIC_API_KEY" in captured.err
+    assert "some/proposer-model" in captured.err
+    assert "worst case" not in captured.out
+    assert not (tmp_path / "root").exists()
+
+
 def test_a_mixed_pilot_says_which_role_bills_the_key(
     tmp_path, examples_file, toolchain_record, monkeypatch, capsys
 ):

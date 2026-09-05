@@ -309,6 +309,21 @@ def _optimize_run(args: argparse.Namespace, root: Path) -> int:
                 "meters a callable at 0.00, so the cap would be a promise nothing "
                 "enforces. Drop it; --max-evals and --timeout-s are the caps"
             )
+        if (
+            proposer is None
+            and cli_judge is not None
+            and not os.environ.get("ANTHROPIC_API_KEY")
+        ):
+            # A claude-cli: judge skips anthropic_transport, which is where a
+            # pilot's credential was checked. The proposer still bills the key,
+            # and its first call comes after the seed evaluation has already
+            # spent sessions, so the run has to be refused here instead.
+            raise ExperimentError(
+                f"--reflection-lm {args.reflection_lm} bills ANTHROPIC_API_KEY, "
+                "which is not set; the claude-cli: judge draws on the profile "
+                "instead and no longer checks it. Set it, or name a "
+                "claude-cli:<model> proposer to run on the profile too"
+            )
         claude_bin = args.claude_bin or "claude"
         # Where the one-shot calls run; created on their first call, so a
         # refusal below still leaves nothing behind.
@@ -370,7 +385,7 @@ def _optimize_run(args: argparse.Namespace, root: Path) -> int:
         ]
         if named:
             raise ExperimentError(
-                f"--stage fake proposes the seed back and rates every claim "
+                "--stage fake proposes the seed back and rates every claim "
                 f"itself, so {', '.join(named)} names a model this stage never "
                 "calls and a pilot would pay for. Use --stage pilot to name one"
             )
