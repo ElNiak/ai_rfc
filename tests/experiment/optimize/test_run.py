@@ -394,6 +394,10 @@ def test_an_evaluator_abort_propagates_out_of_run(tmp_path, plugin_root, loop_ex
         name="abort",
         root=tmp_path / "experiments",
         examples=(loop_example,),
+        # The abort lands on the first evaluation, before any proposal, but
+        # that is gepa's ordering rather than this test's business: a string
+        # id here would reach litellm the moment it changed.
+        reflection_lm=SeedEchoLM(encode(seed_from_plugin(plugin_root))),
     )
 
     with pytest.raises(EvaluatorAbort):
