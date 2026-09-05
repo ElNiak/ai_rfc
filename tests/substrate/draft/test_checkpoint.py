@@ -8,8 +8,11 @@ from ai_rfc.draft.checkpoint import (
     CheckpointError,
     verify_checkpoint,
     write_checkpoint,
+    write_consolidation_checkpoint,
 )
 from ai_rfc.timeline.store import read_clusters
+
+from .conftest import _manifest_text
 
 pytestmark = pytest.mark.unit
 
@@ -142,3 +145,148 @@ def test_empty_manifest_checkpoints_with_zero_counts(
     stored = yaml.safe_load((checkpoint_dir / "manifest.yaml").read_text())
     assert stored == {"rfc": "SPEC-0", "title": "Nothing yet", "requirements": {}}
     assert verify_checkpoint(checkpoint_dir) is None
+
+
+STRUCTURED = (
+    "structures:\n"
+    "  header:\n"
+    "    kind: record\n"
+    "    title: Message header\n"
+    "    section: '4'\n"
+    "    fields:\n"
+    "      - name: version\n"
+    "        type: uint8\n"
+    "        claim: spec:1.1\n"
+)
+
+
+def _structured_manifest(tmp_path):
+    path = tmp_path / "structured.yaml"
+    path.write_text(_manifest_text(with_second_claim=True) + STRUCTURED)
+    return path
+
+
+def test_a_structured_checkpoint_freezes_the_rendering_and_its_digest(
+    tmp_path, timeline_dir
+):
+    from ai_rfc.draft.structures import STRUCTURES_FILE
+
+    out = tmp_path / "checkpoints"
+    directory = write_checkpoint(
+        _structured_manifest(tmp_path), timeline_dir, _pr_cluster_id(timeline_dir), out
+    )
+    frozen = (directory / STRUCTURES_FILE).read_bytes()
+    assert b"ai_rfc:struct:header begin" in frozen
+    record = json.loads((directory / "checkpoint.json").read_text())
+    assert record["structures_sha256"] == hashlib.sha256(frozen).hexdigest()
+
+
+def test_a_structure_free_checkpoint_writes_no_structures_file(
+    tmp_path, timeline_dir, manifest_path
+):
+    from ai_rfc.draft.structures import STRUCTURES_FILE
+
+    directory = write_checkpoint(
+        manifest_path, timeline_dir, _pr_cluster_id(timeline_dir), tmp_path / "cp"
+    )
+    assert not (directory / STRUCTURES_FILE).exists()
+    assert "structures_sha256" not in json.loads(
+        (directory / "checkpoint.json").read_text()
+    )
+
+
+def test_a_tampered_structures_file_is_caught(tmp_path, timeline_dir):
+    from ai_rfc.draft.structures import STRUCTURES_FILE
+
+    directory = write_checkpoint(
+        _structured_manifest(tmp_path),
+        timeline_dir,
+        _pr_cluster_id(timeline_dir),
+        tmp_path / "cp",
+    )
+    assert verify_checkpoint(directory) is None
+    target = directory / STRUCTURES_FILE
+    target.write_bytes(target.read_bytes().replace(b"uint8", b"uint9"))
+    problem = verify_checkpoint(directory)
+    assert problem is not None and STRUCTURES_FILE in problem
+
+
+def test_a_consolidation_checkpoint_lands_under_its_own_root(tmp_path, timeline_dir):
+    cluster_id = _pr_cluster_id(timeline_dir)
+    out = tmp_path / "checkpoints"
+    base = write_checkpoint(
+        _structured_manifest(tmp_path), timeline_dir, cluster_id, out
+    )
+    consolidations = tmp_path / "consolidations"
+    directory = write_consolidation_checkpoint(
+        _structured_manifest(tmp_path), 1, base, cluster_id, consolidations
+    )
+    assert directory == consolidations / "01"
+    record = json.loads((directory / "checkpoint.json").read_text())
+    assert record["kind"] == "consolidation"
+    assert record["cluster_id"] == cluster_id
+    assert record["base_checkpoint"] == cluster_id
+    # The cluster root keeps enumerating cluster checkpoints only.
+    assert sorted(p.name for p in out.iterdir()) == [cluster_id]
+
+
+def test_a_consolidation_may_change_only_the_structures(tmp_path, timeline_dir):
+    cluster_id = _pr_cluster_id(timeline_dir)
+    out = tmp_path / "checkpoints"
+    base = write_checkpoint(
+        _structured_manifest(tmp_path), timeline_dir, cluster_id, out
+    )
+    changed = tmp_path / "changed.yaml"
+    changed.write_text(
+        _manifest_text(with_second_claim=True).replace("level: MUST", "level: MAY")
+        + STRUCTURED
+    )
+    with pytest.raises(CheckpointError) as error:
+        write_consolidation_checkpoint(
+            changed, 1, base, cluster_id, tmp_path / "consolidations"
+        )
+    assert "requirements" in str(error.value)
+
+
+def test_a_consolidation_checkpoint_verifies_like_any_other(tmp_path, timeline_dir):
+    cluster_id = _pr_cluster_id(timeline_dir)
+    out = tmp_path / "checkpoints"
+    base = write_checkpoint(
+        _structured_manifest(tmp_path), timeline_dir, cluster_id, out
+    )
+    directory = write_consolidation_checkpoint(
+        _structured_manifest(tmp_path), 7, base, cluster_id, tmp_path / "consolidations"
+    )
+    assert directory.name == "07"
+    assert verify_checkpoint(directory) is None
+
+
+def test_a_consolidation_checkpoint_is_write_once(tmp_path, timeline_dir):
+    cluster_id = _pr_cluster_id(timeline_dir)
+    out = tmp_path / "checkpoints"
+    base = write_checkpoint(
+        _structured_manifest(tmp_path), timeline_dir, cluster_id, out
+    )
+    consolidations = tmp_path / "consolidations"
+    write_consolidation_checkpoint(
+        _structured_manifest(tmp_path), 1, base, cluster_id, consolidations
+    )
+    with pytest.raises(CheckpointError) as error:
+        write_consolidation_checkpoint(
+            _structured_manifest(tmp_path), 1, base, cluster_id, consolidations
+        )
+    assert "immutable" in str(error.value)
+
+
+def test_a_failed_consolidation_leaves_no_directory(tmp_path, timeline_dir):
+    consolidations = tmp_path / "consolidations"
+    missing = tmp_path / "nope.yaml"
+    with pytest.raises((CheckpointError, OSError)):
+        write_consolidation_checkpoint(
+            missing,
+            1,
+            tmp_path / "absent",
+            _pr_cluster_id(timeline_dir),
+            consolidations,
+        )
+    assert not (consolidations / "01").exists()

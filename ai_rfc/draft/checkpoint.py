@@ -11,9 +11,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import replace
 from pathlib import Path
 
-from ..models import STATUS_RANK, Status
+from ai_rfc.draft.structures import STRUCTURES_FILE, render_all
+
+from ..models import STATUS_RANK, Manifest, Status
 from ..promotion import adjudicate, violations
 from ..schema import dump, load
 
@@ -27,6 +30,22 @@ class CheckpointError(RuntimeError):
 
 def _digest_bytes(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()
+
+
+def requirements_digest(manifest: Manifest) -> str:
+    """Digest a manifest's requirements alone, ignoring its structures.
+
+    D48 lets a consolidation change only ``structures:``. Existing checkpoints
+    record no such digest, so it is computed from stored bytes here and reused
+    by the gate — one function, so the writer and the checker cannot drift.
+
+    Args:
+        manifest: The manifest to digest.
+
+    Returns:
+        The hex sha256 of the manifest dumped without its structures.
+    """
+    return _digest_bytes(dump(replace(manifest, structures=())).encode())
 
 
 def _cluster_row(timeline_dir: Path, cluster_id: str) -> tuple[dict, str | None]:
@@ -71,6 +90,10 @@ def write_checkpoint(
     # back into the stage that will refuse them.
     timeline_sha256 = _digest_bytes((timeline_dir / "timeline.json").read_bytes())
     normalized = dump(manifest).encode()
+    structures_text = render_all(manifest) if manifest.structures else ""
+    structures_sha256 = (
+        _digest_bytes(structures_text.encode()) if structures_text else None
+    )
 
     checkpoint_dir = out / cluster_id
     if checkpoint_dir.exists():
@@ -81,6 +104,8 @@ def write_checkpoint(
     checkpoint_dir.mkdir(parents=True)
 
     (checkpoint_dir / MANIFEST_FILE).write_bytes(normalized)
+    if structures_text:
+        (checkpoint_dir / STRUCTURES_FILE).write_bytes(structures_text.encode())
 
     supported_counts = {status.value: 0 for status in Status}
     promotable = 0
@@ -103,6 +128,8 @@ def write_checkpoint(
         "prev_cluster_id": prev_cluster_id,
         "timeline_sha256": timeline_sha256,
     }
+    if structures_sha256 is not None:
+        record["structures_sha256"] = structures_sha256
     (checkpoint_dir / CHECKPOINT_FILE).write_text(
         json.dumps(record, sort_keys=True, indent=2) + "\n"
     )
@@ -110,13 +137,15 @@ def write_checkpoint(
 
 
 def verify_checkpoint(checkpoint_dir: Path) -> str | None:
-    """Check that a checkpoint's stored manifest still matches its digest.
+    """Check that a checkpoint's stored files still match their digests.
 
     Args:
-        checkpoint_dir: A directory written by :func:`write_checkpoint`.
+        checkpoint_dir: A directory written by :func:`write_checkpoint` or
+            :func:`write_consolidation_checkpoint`.
 
     Returns:
-        None when the copy still matches; otherwise the reason it does not.
+        None when every stored copy still matches; otherwise the reason one
+        of them does not.
 
     Raises:
         OSError: If the checkpoint record cannot be read.
@@ -131,4 +160,85 @@ def verify_checkpoint(checkpoint_dir: Path) -> str | None:
             f"{checkpoint_dir.name}/manifest.yaml has been edited since the "
             f"checkpoint was written; a checkpoint is immutable"
         )
+
+    expected = record.get("structures_sha256")
+    frozen = checkpoint_dir / STRUCTURES_FILE
+    if expected is None:
+        if frozen.exists():
+            return f"{checkpoint_dir.name}: {STRUCTURES_FILE} is present but unrecorded"
+    else:
+        if not frozen.is_file():
+            return f"{checkpoint_dir.name}: {STRUCTURES_FILE} is recorded but missing"
+        if _digest_bytes(frozen.read_bytes()) != expected:
+            return (
+                f"{checkpoint_dir.name}: {STRUCTURES_FILE} does not match the "
+                f"digest recorded in {CHECKPOINT_FILE}"
+            )
     return None
+
+
+def write_consolidation_checkpoint(
+    manifest_path: Path,
+    ordinal: int,
+    base_checkpoint: Path,
+    cluster_id: str,
+    out: Path,
+) -> Path:
+    """Freeze a consolidation's manifest under its own root.
+
+    A consolidation belongs to no new cluster, so it cannot reuse
+    :func:`write_checkpoint`, which resolves ``out / cluster_id`` and requires
+    the id to appear in the timeline. It lands at ``out/<NN>`` instead, leaving
+    the cluster checkpoint root to cluster rounds alone (D48).
+
+    Args:
+        manifest_path: The consolidation's manifest.
+        ordinal: The consolidation's number; the directory is two digits.
+        base_checkpoint: The cluster checkpoint this consolidation follows.
+        cluster_id: The cluster the base checkpoint belongs to.
+        out: The consolidations root.
+
+    Returns:
+        The directory written.
+
+    Raises:
+        CheckpointError: If the base is unreadable, or the manifest changes any
+            requirement rather than only its structures.
+    """
+    manifest = load(manifest_path)
+    base_manifest_path = base_checkpoint / MANIFEST_FILE
+    if not base_manifest_path.is_file():
+        raise CheckpointError(
+            f"{base_checkpoint}: no {MANIFEST_FILE} to consolidate from"
+        )
+    base = load(base_manifest_path)
+    if requirements_digest(manifest) != requirements_digest(base):
+        raise CheckpointError(
+            f"consolidation {ordinal:02d}: requirements differ from "
+            f"{base_checkpoint.name}; a consolidation may change only structures"
+        )
+    manifest_text = dump(manifest)
+    structures_text = render_all(manifest) if manifest.structures else ""
+    record = {
+        "base_checkpoint": base_checkpoint.name,
+        "cluster_id": cluster_id,
+        "kind": "consolidation",
+        "manifest_sha256": _digest_bytes(manifest_text.encode()),
+        "ordinal": ordinal,
+    }
+    if structures_text:
+        record["structures_sha256"] = _digest_bytes(structures_text.encode())
+
+    checkpoint_dir = out / f"{ordinal:02d}"
+    if checkpoint_dir.exists():
+        raise CheckpointError(
+            f"{checkpoint_dir}: already written; a checkpoint is immutable"
+        )
+    checkpoint_dir.mkdir(parents=True)
+    (checkpoint_dir / MANIFEST_FILE).write_bytes(manifest_text.encode())
+    if structures_text:
+        (checkpoint_dir / STRUCTURES_FILE).write_bytes(structures_text.encode())
+    (checkpoint_dir / CHECKPOINT_FILE).write_text(
+        json.dumps(record, indent=2, sort_keys=True) + "\n"
+    )
+    return checkpoint_dir
