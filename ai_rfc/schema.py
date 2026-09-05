@@ -239,7 +239,13 @@ def _transitions(
     return tuple(transitions)
 
 
-def _structure(structure_id: str, raw: Any) -> Structure:
+def _structure(structure_id: Any, raw: Any) -> Structure:
+    if not isinstance(structure_id, str):
+        raise SchemaError(
+            f"{structure_id}: structure id is {structure_id!r} "
+            f"({type(structure_id).__name__}); quote it in the document so "
+            f"YAML does not coerce its type"
+        )
     if not _STRUCTURE_ID.match(structure_id) or "--" in structure_id:
         raise SchemaError(
             f"{structure_id}: a structure id must match "
@@ -311,7 +317,9 @@ def load(path: Path) -> Manifest:
         path: Path to a YAML manifest.
 
     Returns:
-        The parsed manifest, with claims ordered by identifier.
+        The parsed manifest, with claims and structures each ordered by
+        identifier, so a round trip through ``dump`` is a fixed point whatever
+        order the document declared them in.
 
     Raises:
         SchemaError: If the document is not valid YAML, is malformed, carries
@@ -335,8 +343,13 @@ def load(path: Path) -> Manifest:
         _claim(claim_id, body) for claim_id, body in sorted(requirements.items())
     )
     structures = tuple(
-        _structure(structure_id, raw)
-        for structure_id, raw in (document.get("structures") or {}).items()
+        sorted(
+            (
+                _structure(structure_id, raw)
+                for structure_id, raw in (document.get("structures") or {}).items()
+            ),
+            key=lambda structure: structure.id,
+        )
     )
     known = {claim.id for claim in claims}
     for structure in structures:

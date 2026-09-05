@@ -282,6 +282,18 @@ structures:
         claim: spec:2.1
 """
 
+#: Appended after ``STRUCTURES`` to declare two structures out of id order.
+SECOND_STRUCTURE = """\
+  codes:
+    kind: enum
+    title: Error codes
+    section: "6"
+    values:
+      - name: NO_ERROR
+        value: "0"
+        claim: spec:2.1
+"""
+
 
 def _with_structures(tmp_path, block=STRUCTURES, **kwargs):
     path = tmp_path / "m.yaml"
@@ -367,6 +379,37 @@ def test_structure_ids_are_constrained(tmp_path):
         with pytest.raises(SchemaError) as error:
             load(_with_structures(tmp_path, block=block))
         assert bad in str(error.value)
+
+
+def test_an_unquoted_structure_id_yaml_reads_as_a_number_is_refused(tmp_path):
+    """An id YAML coerced to a float must not reach the id pattern.
+
+    ``re.match`` raises ``TypeError`` on a non-string, which would escape
+    ``load`` uncaught and defeat the rule that every malformed manifest
+    surfaces as a ``SchemaError``.
+    """
+    block = STRUCTURES.replace("  header:", "  4.1:")
+    with pytest.raises(SchemaError) as error:
+        load(_with_structures(tmp_path, block=block))
+    assert "4.1" in str(error.value)
+    assert "float" in str(error.value)
+    assert "quote" in str(error.value).lower()
+
+
+def test_structures_round_trip_whatever_order_they_are_declared_in(tmp_path):
+    """``structures:`` is a registry keyed by id; declaration order means nothing.
+
+    ``dump`` sorts its keys, so a ``load`` preserving document order would make
+    ``load(dump(m)) != m`` for any manifest declaring two structures out of id
+    order — a fixed-point failure whose cause is invisible at the assertion.
+    """
+    path = _with_structures(tmp_path, block=STRUCTURES + SECOND_STRUCTURE)
+    manifest = load(path)
+    assert [structure.id for structure in manifest.structures] == ["codes", "header"]
+
+    once = dump(manifest)
+    assert manifest == load_text(once, tmp_path / "round.yaml")
+    assert once == dump(load_text(once, tmp_path / "round.yaml"))
 
 
 def test_a_structure_free_manifest_dumps_exactly_as_before(tmp_path):
