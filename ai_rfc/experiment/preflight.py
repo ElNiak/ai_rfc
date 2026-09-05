@@ -10,7 +10,6 @@ made once by hand.
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -18,10 +17,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from ai_rfc.server.testing import build_workspace
+
 from . import DEFAULT_MODEL, ExperimentError
 from .arms import ARMS, MCP_FILE, arm_flags, arm_profile, mcp_config
 from .enforcement import bash_prefixes, render_settings
 from .paths import profile_dir
+from .profile import profile_env
 from .stream import (
     assistant_text,
     denials,
@@ -32,7 +34,6 @@ from .stream import (
     tool_results,
     usage_series,
 )
-from ai_rfc.server.testing import build_workspace
 
 CHECKS = (
     "auth",
@@ -76,18 +77,6 @@ def _scratch(root: Path) -> Path:
     return root / "spike"
 
 
-def _base_env(profile_path: Path) -> dict[str, str]:
-    # Measured on Claude Code 2.1.247 / macOS: drop USER and the CLI cannot reach
-    # its stored credentials, answering "Not logged in" however valid the profile.
-    return {
-        "HOME": os.environ.get("HOME", ""),
-        "USER": os.environ.get("USER", ""),
-        "PATH": os.environ.get("PATH", ""),
-        "LANG": os.environ.get("LANG", "C.UTF-8"),
-        "CLAUDE_CONFIG_DIR": str(profile_path),
-    }
-
-
 def _spike_flags(model: str, *extra: str) -> tuple[str, ...]:
     return (
         "--output-format",
@@ -116,7 +105,7 @@ def build_invocations(
     """Every call the spike makes, in order. Pure: nothing runs here."""
     scratch = _scratch(root)
     cwd = scratch / "cwd"
-    isolated = _base_env(profile_dir(root))
+    isolated = profile_env(profile_dir(root))
     plugin_env = {**isolated, "AI_RFC_WORKSPACE": str(workspace)}
 
     def call(
