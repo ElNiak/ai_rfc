@@ -185,7 +185,7 @@ def _width(raw: Any, where: str) -> int | str | None:
     return raw
 
 
-def _fields(structure_id: str, raw: Any) -> tuple[Field, ...]:
+def _fields(structure_id: str, raw: Any, kind: StructureKind) -> tuple[Field, ...]:
     entries = _sequence(structure_id, raw, "fields")
     fields = []
     for index, entry in enumerate(entries):
@@ -206,6 +206,15 @@ def _fields(structure_id: str, raw: Any) -> tuple[Field, ...]:
                 f"{structure_id}: {field.name} is {VARIABLE_WIDTH}, but only "
                 f"the last field of a structure may be"
             )
+    if kind is StructureKind.WIRE_FORMAT:
+        for field in fields:
+            if field.width is None:
+                raise SchemaError(
+                    f"{structure_id}: wire-format field {field.name} has no "
+                    f"width; every field of a bit diagram needs one. A message "
+                    f"or record may omit it, because its legend has a Size "
+                    f"column instead of a diagram"
+                )
     return tuple(fields)
 
 
@@ -278,7 +287,11 @@ def _structure(structure_id: Any, raw: Any) -> Structure:
         kind=kind,
         title=_required(structure_id, raw, "title"),
         section=str(_required(structure_id, raw, "section")),
-        fields=_fields(structure_id, raw.get("fields")) if kind in FIELD_KINDS else (),
+        fields=(
+            _fields(structure_id, raw.get("fields"), kind)
+            if kind in FIELD_KINDS
+            else ()
+        ),
         values=(
             _values(structure_id, raw.get("values"))
             if kind is StructureKind.ENUM

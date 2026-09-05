@@ -56,7 +56,11 @@ def _rows(structure: Structure) -> list[list[tuple[str, int]]]:
                 row, used = [], 0
             rows.append([(f"{field.name} (variable)", BITS_PER_ROW)])
             continue
-        remaining = int(field.width or 0)
+        if field.width is None:
+            raise ValueError(
+                f"{structure.id}: wire-format field {field.name} has no width"
+            )
+        remaining = int(field.width)
         first = True
         while remaining > 0:
             take = min(remaining, BITS_PER_ROW - used)
@@ -76,16 +80,19 @@ def _diagram(structure: Structure) -> list[str]:
     rows = _rows(structure)
     if not rows:
         return []
+    widths = [sum(width for _, width in row) for row in rows]
     lines = _ruler(BITS_PER_ROW)
-    for row in rows:
-        bits = sum(width for _, width in row)
-        lines.append(_rule(bits))
+    for index, row in enumerate(rows):
+        # A border belongs to the wider of the two rows it separates, or the
+        # full row above is left open on the right where the partial row ends.
+        above = widths[index] if index == 0 else max(widths[index - 1], widths[index])
+        lines.append(_rule(above))
         cells = []
         for label, width in row:
             inner = width * 2 - 1
             cells.append(label[:inner].center(inner))
         lines.append(("|" + "|".join(cells) + "|").rstrip())
-    lines.append(_rule(sum(width for _, width in rows[-1])))
+    lines.append(_rule(widths[-1]))
     return lines
 
 
@@ -181,6 +188,11 @@ def render(structure: Structure) -> str:
         The block, delimiters included, ending in a newline. Every line is
         stripped of trailing whitespace so the template's ``lint-whitespace``
         target accepts it.
+
+    Raises:
+        ValueError: If a wire-format field carries no width. The schema already
+            refuses that in a loaded manifest, so this catches a programmatic
+            structure that would otherwise render a silently wrong figure.
     """
     lines = [
         _OPEN,

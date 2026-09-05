@@ -7,14 +7,7 @@ from pathlib import Path
 import pytest
 
 from ai_rfc.draft.structures import parse_blocks, render, render_all
-from ai_rfc.models import (
-    Field,
-    Manifest,
-    Structure,
-    StructureKind,
-    Transition,
-    Value,
-)
+from ai_rfc.models import Field, Manifest, Structure, StructureKind, Transition, Value
 
 pytestmark = pytest.mark.unit
 
@@ -120,6 +113,37 @@ def test_a_field_wider_than_a_row_is_split_and_marked_continued():
     artwork = render(wide).split("~~~")[1]
     assert "Nonce" in artwork
     assert "(cont.)" in artwork
+
+
+def test_a_full_row_above_a_partial_one_is_closed_on_its_right():
+    # The border between two rows belongs to the wider of them, or the full row
+    # above is drawn open on the right where the partial row below stops.
+    wide = Structure(
+        id="big",
+        kind=StructureKind.WIRE_FORMAT,
+        title="Wide",
+        section="4.2",
+        fields=(Field(name="Nonce", claim="spec:1.1", width=48),),
+    )
+    lines = [line for line in render(wide).split("~~~")[1].splitlines() if line]
+    continued = next(index for index, line in enumerate(lines) if "(cont.)" in line)
+    assert lines[continued - 1] == "+" + "-+" * 32
+    assert lines[-1] == "+" + "-+" * 16
+
+
+def test_a_wire_format_field_without_a_width_is_refused():
+    broken = Structure(
+        id="big",
+        kind=StructureKind.WIRE_FORMAT,
+        title="Wide",
+        section="4.2",
+        fields=(
+            Field(name="Nonce", claim="spec:1.1", width=8),
+            Field(name="Rest", claim="spec:1.2"),
+        ),
+    )
+    with pytest.raises(ValueError, match="Rest has no width"):
+        render(broken)
 
 
 def test_a_pipe_in_a_cell_is_escaped():

@@ -382,6 +382,31 @@ def test_variable_width_is_refused_anywhere_but_the_last_field(tmp_path):
     assert "only the last field" in str(error.value)
 
 
+def test_a_wire_format_field_must_declare_a_width(tmp_path):
+    block = STRUCTURES.replace("        width: variable\n", "")
+    with pytest.raises(SchemaError) as error:
+        load(_with_structures(tmp_path, block=block))
+    assert "header" in str(error.value)
+    assert "payload" in str(error.value)
+    assert "has no width" in str(error.value)
+
+
+def test_a_record_field_may_omit_its_width(tmp_path):
+    block = """\
+structures:
+  entry:
+    kind: record
+    title: Log entry
+    section: "7.2"
+    fields:
+      - name: stamp
+        type: uint64
+        claim: spec:2.1
+"""
+    structure = load(_with_structures(tmp_path, block=block)).structures[0]
+    assert structure.fields[0].width is None
+
+
 def test_a_transition_must_name_declared_states(tmp_path):
     block = """\
 structures:
