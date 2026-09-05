@@ -5,8 +5,9 @@ completed — is saturated by the seed and reachable without doing the work, so
 optimizing against it would optimize nothing. Completion and integrity are
 therefore demoted to preconditions here, and the graded part measures what a
 reconstruction is actually for: new claims anchored to code the cluster
-actually changed and a judge agrees implements them, those claims cited in
-the prose, a draft that compiles clean, and the turns it took.
+actually changed and a judge agrees implements them, those claims cited from
+a normative statement in the prose, a draft that compiles clean, and the
+turns it took.
 
 Every precondition failure returns zero under a *named* reason, and carries
 the run's diagnostics with it. A reflection LM handed a bare zero cannot tell
@@ -18,6 +19,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import subprocess
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -28,7 +30,7 @@ import yaml
 from ai_rfc.anchors import AnchorError, verify_detailed
 from ai_rfc.draft.build import BuildReport
 from ai_rfc.draft.checkpoint import MANIFEST_FILE
-from ai_rfc.draft.gate import GateError, cited_ids, load_revisions
+from ai_rfc.draft.gate import CITATION, GateError, draft_text, load_revisions
 from ai_rfc.draft.lint import BCP14_TERMS
 from ai_rfc.draft.questions import (
     Question,
@@ -447,10 +449,60 @@ def coverage_term(anchored: int, file_count: int) -> float:
     return min(1.0, anchored / min(3, max(1, file_count)))
 
 
+_FRONT_MATTER = re.compile(r"\A---\n.*?\n---\n", re.DOTALL)
+
+
+def keyword_citations(text: str) -> dict[str, set[str]]:
+    """The BCP 14 keywords standing beside each citation in a draft's prose.
+
+    The citation convention places a citation at the end of the normative
+    sentence it supports, never in a heading or the front matter. This reads
+    the draft that way: front matter stripped, heading lines dropped, and the
+    body split into blank-line paragraphs — the unit in which the convention
+    says several statements cite several claims. A citation is paired with
+    every keyword its paragraph carries, so a bare list of ids in an appendix
+    pairs with nothing.
+
+    Args:
+        text: The draft as committed at the revision tag.
+
+    Returns:
+        Each cited claim id mapped to the keywords found in the paragraphs
+        citing it; an id cited only where no keyword stands maps to an empty
+        set.
+    """
+    body = _FRONT_MATTER.sub("", text)
+    prose = "\n".join(
+        line for line in body.split("\n") if not line.lstrip().startswith("#")
+    )
+    found: dict[str, set[str]] = {}
+    for paragraph in re.split(r"\n\s*\n", prose):
+        cited = CITATION.findall(paragraph)
+        if not cited:
+            continue
+        keywords = {
+            term
+            for term in BCP14_TERMS
+            if re.search(rf"\b{re.escape(term)}\b", paragraph)
+        }
+        for claim_id in cited:
+            found.setdefault(claim_id, set()).update(keywords)
+    return found
+
+
 def cited_term(
-    anchored: list[RequirementClaim], cited: set[str], problem: str | None
+    anchored: list[RequirementClaim],
+    citations: dict[str, set[str]],
+    problem: str | None,
 ) -> float:
-    """The share of this cluster's new claims the tagged draft actually cites.
+    """The share of this cluster's new claims the tagged draft cites in prose.
+
+    A claim counts when a paragraph cites it and carries the claim's own
+    level keyword, which is what "one citation at the end of the normative
+    sentence" looks like to a reader that cannot split sentences. Counting
+    any backticked id anywhere paid in full for an appendix listing every
+    claim under no statement at all. The whole-word match is lenient in one
+    direction: ``MUST`` is found inside ``MUST NOT``.
 
     Every anchored claim counts, permissive levels included. Scoring only the
     MUST and SHOULD families left one word between a candidate and the whole
@@ -463,7 +515,7 @@ def cited_term(
 
     Args:
         anchored: The new claims that earned a verified in-span anchor.
-        cited: Claim ids cited at the revision's tag.
+        citations: What ``keyword_citations`` read at the revision's tag.
         problem: Why the tag could not be read, or None.
 
     Returns:
@@ -473,7 +525,7 @@ def cited_term(
         return 0.0
     if not anchored:
         return 1.0
-    hit = sum(1 for claim in anchored if claim.id in cited)
+    hit = sum(1 for claim in anchored if claim.level in citations.get(claim.id, ()))
     return hit / len(anchored)
 
 
@@ -710,12 +762,16 @@ def score_loop(
 
     claims = [claim for claim, _ in anchored]
     tag, problem = _tag_for(workspace, cluster_id)
-    cited: set[str] = set()
+    citations: dict[str, set[str]] = {}
     if tag is not None:
-        cited, problem = cited_ids(workspace / "draft", tag)
+        try:
+            _, text = draft_text(workspace / "draft", tag)
+            citations = keyword_citations(text)
+        except GateError as error:
+            problem = str(error)
 
     coverage = coverage_term(len(anchored), len(file_paths(workspace, cluster_id)))
-    cited_score = cited_term(claims, cited, problem)
+    cited_score = cited_term(claims, citations, problem)
     prose = prose_term(build_report)
     efficiency = efficiency_term(base["num_turns"])
     value = coverage * (
@@ -739,7 +795,14 @@ def score_loop(
             "weights": asdict(weights),
             "anchored": [claim.id for claim, _ in anchored],
             "judgements": [asdict(j) for j in judgements],
-            "uncited": sorted(claim.id for claim in claims if claim.id not in cited),
+            "uncited": sorted(
+                claim.id for claim in claims if claim.id not in citations
+            ),
+            "cited_without_keyword": sorted(
+                claim.id
+                for claim in claims
+                if claim.id in citations and claim.level not in citations[claim.id]
+            ),
             "new_claims_rejected": rejected,
             "idnits": dict(build_report.idnits) if build_report else {},
             "build_diagnostics": _build_lines(build_report),

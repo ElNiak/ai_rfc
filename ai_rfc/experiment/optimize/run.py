@@ -69,8 +69,10 @@ outside the tools it was offered. Past those, the value is a weighted sum of
 four terms, scaled by how much of the cluster's file set the new claims reach.
 The heaviest term is how well an independent reviewer judges each newly
 anchored claim to be implemented by the code that cluster changed; then whether
-those claims are cited in the prose the session wrote; then how cleanly the
-tagged draft compiles; and last, and lightest, how few turns the session took.
+those claims are cited from the normative statement that states them, in a
+paragraph carrying the claim's own BCP 14 keyword, rather than listed
+somewhere; then how cleanly the tagged draft compiles; and last, and lightest,
+how few turns the session took.
 An anchor onto a file the cluster did not change earns nothing, so one
 well-evidenced claim is worth more than several asserted ones.
 

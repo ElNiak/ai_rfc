@@ -38,6 +38,7 @@ from ai_rfc.experiment.optimize.scoring import (
     coverage_term,
     efficiency_term,
     evidence_for,
+    keyword_citations,
     member_shas,
     new_claims,
     previous_checkpoint_manifest,
@@ -688,6 +689,78 @@ def test_a_permissive_claim_counts_towards_the_citation_term_too(loop_workspace)
 
     assert result.info["cited"] == 0.0
     assert result.info["uncited"] == ["t:2.1"]
+
+
+def test_a_bare_id_list_in_an_appendix_earns_the_citation_term_nothing(
+    loop_workspace,
+):
+    """Counting any backticked id anywhere paid in full for a list of ids.
+
+    The convention places a citation at the end of the normative statement it
+    supports; a paragraph that carries the id but no keyword is not that.
+    """
+    _tag_the_draft(
+        loop_workspace,
+        "Thing two SHOULD hold.\n\n## Appendix A. Claims\n\n`ai_rfc:t:2.1`",
+        tag="draft-test-spec-01",
+    )
+    _register_revision(loop_workspace, SECOND, tag="draft-test-spec-01")
+
+    result = score(loop_workspace)
+
+    assert result.info["cited"] == 0.0
+    assert result.info["uncited"] == []
+    assert result.info["cited_without_keyword"] == ["t:2.1"]
+
+
+def test_a_citation_beside_the_wrong_keyword_does_not_count(loop_workspace):
+    """The paragraph must carry the claim's own level, not any level."""
+    _tag_the_draft(
+        loop_workspace, "Thing two MAY hold. `ai_rfc:t:2.1`", tag="draft-test-spec-01"
+    )
+    _register_revision(loop_workspace, SECOND, tag="draft-test-spec-01")
+
+    result = score(loop_workspace)
+
+    assert result.info["cited"] == 0.0
+    assert result.info["cited_without_keyword"] == ["t:2.1"]
+
+
+def test_a_citation_in_a_heading_or_the_front_matter_does_not_count(
+    loop_workspace,
+):
+    draft = loop_workspace / "draft"
+    (draft / "draft-test-spec.md").write_text(
+        "---\ntitle: Thing two SHOULD hold `ai_rfc:t:2.1`\n---\n\n"
+        "# Thing two SHOULD hold `ai_rfc:t:2.1`\n\nProse without a citation.\n"
+    )
+    git(draft, "add", "draft-test-spec.md")
+    git(draft, "commit", "-m", "01", date="2026-01-01T00:00:07+00:00")
+    git(draft, "tag", "draft-test-spec-01")
+    _register_revision(loop_workspace, SECOND, tag="draft-test-spec-01")
+
+    result = score(loop_workspace)
+
+    assert result.info["cited"] == 0.0
+    assert result.info["uncited"] == ["t:2.1"]
+
+
+def test_keyword_citations_pairs_each_citation_with_its_paragraphs_keywords():
+    text = (
+        "---\nname: draft\n---\n"
+        "# Heading `ai_rfc:h`\n\n"
+        "A peer MUST send `ai_rfc:a`. It SHOULD NOT wait `ai_rfc:b`.\n"
+        "Continued on the next line `ai_rfc:c`.\n\n"
+        "`ai_rfc:d`\n\n"
+        "Later, `ai_rfc:a` is OPTIONAL.\n"
+    )
+
+    found = keyword_citations(text)
+
+    assert "h" not in found
+    assert found["a"] == {"MUST", "SHOULD", "SHOULD NOT", "OPTIONAL"}
+    assert found["b"] == found["c"] == {"MUST", "SHOULD", "SHOULD NOT"}
+    assert found["d"] == set()
 
 
 def test_a_judge_that_skips_a_claim_scores_it_zero_rather_than_shifting_the_mean(

@@ -141,7 +141,9 @@ claiming, checkpointing, writing prose, tagging a revision — and must not have
 hand-edited the claim register or the interview transcripts, nor worked
 outside the tools it was offered. Past those, the value is a weighted sum of
 how well a judge rates each newly anchored claim against the code that cluster
-changed (0.45), whether those claims are cited in the prose (0.25), how cleanly
+changed (0.45), whether those claims are cited from a normative statement in
+the prose, meaning a paragraph that carries the claim's own BCP 14 keyword
+rather than a bare list of ids (0.25), how cleanly
 the tagged draft compiles (0.20) and how few turns it took (0.10), scaled by
 how much of the cluster's file set the new claims reach. The interview
 evaluation is scored on its own terms, with two further hard zeros: altering
