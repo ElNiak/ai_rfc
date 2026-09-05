@@ -147,6 +147,16 @@ _MEMBER_KEYS = {
     StructureKind.STATE_MACHINE: "transitions",
 }
 
+_ALL_MEMBER_KEYS = ("fields", "values", "states", "transitions")
+
+_PERMITTED_MEMBER_KEYS = {
+    StructureKind.WIRE_FORMAT: frozenset({"fields"}),
+    StructureKind.MESSAGE: frozenset({"fields"}),
+    StructureKind.RECORD: frozenset({"fields"}),
+    StructureKind.ENUM: frozenset({"values"}),
+    StructureKind.STATE_MACHINE: frozenset({"states", "transitions"}),
+}
+
 
 def _sequence(structure_id: str, raw: Any, field: str) -> list[dict[str, Any]]:
     if raw is None:
@@ -256,6 +266,12 @@ def _structure(structure_id: Any, raw: Any) -> Structure:
     kind = _enum(
         StructureKind, _required(structure_id, raw, "kind"), "kind", structure_id
     )
+    for key in _ALL_MEMBER_KEYS:
+        if key in raw and key not in _PERMITTED_MEMBER_KEYS[kind]:
+            raise SchemaError(
+                f"{structure_id}: a structure of kind {kind.value} does not "
+                f"take {key}"
+            )
     states = tuple(raw.get("states") or ())
     structure = Structure(
         id=structure_id,
@@ -277,8 +293,8 @@ def _structure(structure_id: Any, raw: Any) -> Structure:
     )
     if not structure.claims:
         raise SchemaError(
-            f"{structure_id}: a {kind.value} structure needs at least one "
-            f"{_MEMBER_KEYS[kind]} entry"
+            f"{structure_id}: a structure of kind {kind.value} needs at least "
+            f"one {_MEMBER_KEYS[kind]} entry"
         )
     return structure
 
@@ -342,11 +358,15 @@ def load(path: Path) -> Manifest:
     claims = tuple(
         _claim(claim_id, body) for claim_id, body in sorted(requirements.items())
     )
+    structures_raw = document.get("structures") or {}
+    if not isinstance(structures_raw, dict):
+        raise SchemaError(f"{path}: structures must be a mapping of id to body")
+
     structures = tuple(
         sorted(
             (
                 _structure(structure_id, raw)
-                for structure_id, raw in (document.get("structures") or {}).items()
+                for structure_id, raw in structures_raw.items()
             ),
             key=lambda structure: structure.id,
         )

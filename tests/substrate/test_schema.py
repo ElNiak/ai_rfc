@@ -294,6 +294,35 @@ SECOND_STRUCTURE = """\
         claim: spec:2.1
 """
 
+ENUM_WITH_FIELDS = """\
+structures:
+  codes:
+    kind: enum
+    title: Error codes
+    section: "6"
+    values:
+      - name: NO_ERROR
+        value: "0"
+        claim: spec:1.1
+    fields:
+      - name: version
+        width: 8
+        claim: spec:2.1
+"""
+
+WIRE_FORMAT_WITH_STATES = """\
+structures:
+  header:
+    kind: wire-format
+    title: Message header
+    section: "4.1"
+    states: [idle, open]
+    fields:
+      - name: version
+        width: 8
+        claim: spec:1.1
+"""
+
 
 def _with_structures(tmp_path, block=STRUCTURES, **kwargs):
     path = tmp_path / "m.yaml"
@@ -394,6 +423,36 @@ def test_an_unquoted_structure_id_yaml_reads_as_a_number_is_refused(tmp_path):
     assert "4.1" in str(error.value)
     assert "float" in str(error.value)
     assert "quote" in str(error.value).lower()
+
+
+def test_a_structures_block_that_is_not_a_mapping_is_refused(tmp_path):
+    """``structures`` is gated exactly as ``requirements`` is.
+
+    Ungated, a list or a scalar reaches ``.items()`` and leaves ``load`` as an
+    ``AttributeError``, which no caller of ``load`` catches.
+    """
+    for block in ("structures: [header]\n", "structures: header\n"):
+        with pytest.raises(SchemaError) as error:
+            load(_with_structures(tmp_path, block=block))
+        assert "structures must be a mapping" in str(error.value)
+
+
+def test_a_member_key_the_kind_does_not_take_is_refused(tmp_path):
+    """A member block the kind ignores is destroyed by the next write.
+
+    ``_structure`` reads only the keys its kind sanctions, so a stray block
+    loads as absent and the server's load/dump round trip silently drops what
+    the author wrote. Refusing it keeps the manifest and the file in step.
+    """
+    with pytest.raises(SchemaError) as error:
+        load(_with_structures(tmp_path, block=ENUM_WITH_FIELDS))
+    assert "enum" in str(error.value)
+    assert "does not take fields" in str(error.value)
+
+    with pytest.raises(SchemaError) as error:
+        load(_with_structures(tmp_path, block=WIRE_FORMAT_WITH_STATES))
+    assert "wire-format" in str(error.value)
+    assert "does not take states" in str(error.value)
 
 
 def test_structures_round_trip_whatever_order_they_are_declared_in(tmp_path):
