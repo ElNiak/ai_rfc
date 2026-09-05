@@ -132,6 +132,43 @@ def _fake_claude() -> Path:
     return _repo_root() / "tests" / "experiment" / "fake_claude" / "claude"
 
 
+def _refuse_an_unpriced_reflection_model(model: str) -> None:
+    """Stop a pilot whose proposer spend nothing can measure.
+
+    ``--max-token-cost`` becomes gepa's ``max_reflection_cost``, and the
+    stopper reading it totals what ``litellm.completion_cost`` reports. gepa
+    swallows a pricing failure as a cost of 0.00, so against a model litellm
+    does not price the total never rises, the stopper never fires, and the
+    only thing bounding the proposer is ``--max-evals`` — while the flag was
+    required precisely so something else would.
+
+    Args:
+        model: The ``--reflection-lm`` id, as litellm will see it.
+
+    Raises:
+        ExperimentError: If litellm prices neither the id nor the id with its
+            provider prefix stripped.
+    """
+    import litellm
+
+    bare = model.split("/", 1)[1] if "/" in model else model
+    if model in litellm.model_cost or bare in litellm.model_cost:
+        return
+    try:
+        litellm.get_model_info(model)
+        return
+    except Exception:  # noqa: BLE001 - any lookup failure reads as unpriced
+        pass
+    raise ExperimentError(
+        f"litellm does not price {model}, so --max-token-cost cannot bind: "
+        "gepa reads the proposer's spend from litellm.completion_cost and "
+        "counts an unpriced call as 0.00, which leaves --max-evals the only "
+        "bound on it. Name a model litellm prices, or check the one you want "
+        "first with the gepa skill's preflight script (~/.claude/plugins/"
+        "cache/gepa/gepa-optimize-anything/0.1.0/scripts/preflight.py)"
+    )
+
+
 def _run_parity(python: str) -> dict:
     """Run the server parity suite; the protocol's stop-ship construct check.
 
@@ -256,6 +293,11 @@ def _optimize_run(args: argparse.Namespace, root: Path) -> int:
                 f"{claude_bin} is not there; a rehearsal drives the fake agent "
                 "that ships with the tests, so point --claude-bin at one"
             )
+        # Set before anything imports gepa, which pulls litellm, which
+        # fetches its cost map from GitHub at import time unless told not to.
+        # A rehearsal is defined by reaching nothing; the local map is also
+        # the only one it could get behind a command sandbox.
+        os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "True"
         judge = rehearsal_judge
         build = rehearsal_build
         reflection_lm = SeedEchoLM(encode(seed))
@@ -294,6 +336,9 @@ def _optimize_run(args: argparse.Namespace, root: Path) -> int:
             "optimize extra, which needs Python 3.11 - run this verb with that "
             "environment's python"
         )
+
+    if args.stage == "pilot":
+        _refuse_an_unpriced_reflection_model(args.reflection_lm)
 
     settings = RunSettings(
         name=args.name,

@@ -10,6 +10,7 @@ import dataclasses
 import importlib.util
 import json
 import shutil
+from types import SimpleNamespace
 
 import pytest
 
@@ -20,6 +21,11 @@ from ai_rfc.experiment.render import TEMPLATE
 without_gepa = pytest.mark.skipif(
     importlib.util.find_spec("gepa") is not None,
     reason="the refusal only fires where the backend is not installed",
+)
+
+with_gepa = pytest.mark.skipif(
+    importlib.util.find_spec("gepa") is None,
+    reason="the pricing check runs after the backend check, so it needs one",
 )
 
 
@@ -418,6 +424,71 @@ def test_a_pilot_prints_its_worst_case_spend_and_waits_for_yes(
     assert "judge calls" in captured.out
     assert "--yes" in captured.err
     assert not (tmp_path / "root").exists()
+
+
+@with_gepa
+def test_a_pilot_refuses_a_reflection_model_litellm_cannot_price(
+    tmp_path, examples_file, toolchain_record, monkeypatch, capsys
+):
+    """An unpriced proposer makes the ceiling a number nothing counts against.
+
+    gepa totals reflection spend from ``litellm.completion_cost`` and reads
+    an unpriced call as 0.00, so ``--max-token-cost`` would be satisfied by
+    every run however much it spent. A required flag that cannot bind is
+    worse than no flag: it reads as a ceiling.
+    """
+    monkeypatch.setenv("LITELLM_LOCAL_MODEL_COST_MAP", "True")
+    pytest.importorskip("litellm")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "not-used-by-this-test")
+
+    code = cli.main(
+        _pilot(tmp_path, examples_file, toolchain_record, *_priced("--yes"))
+    )
+
+    err = capsys.readouterr().err
+    assert code == 1
+    assert "some/proposer-model" in err
+    assert "preflight.py" in err
+    assert not (tmp_path / "root").exists()
+
+
+@with_gepa
+def test_a_pilot_accepts_a_reflection_model_litellm_prices(
+    tmp_path, examples_file, toolchain_record, monkeypatch, capsys
+):
+    """The other side of the check: a priced id gets past it.
+
+    The search itself is replaced, so nothing here can reach a model. What is
+    under test is that the pricing refusal does not stand between a
+    well-formed pilot and its run.
+    """
+    monkeypatch.setenv("LITELLM_LOCAL_MODEL_COST_MAP", "True")
+    litellm = pytest.importorskip("litellm")
+    priced = "claude-sonnet-4-6"
+    assert priced in litellm.model_cost
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "not-used-by-this-test")
+
+    from ai_rfc.experiment.optimize import run as run_module
+
+    searched = []
+
+    def _search_nothing(settings, evaluator):
+        searched.append(settings.name)
+        return SimpleNamespace(best_score=0.0, candidates=[], total_evals=0)
+
+    monkeypatch.setattr(run_module, "run", _search_nothing)
+
+    code = cli.main(
+        _pilot(
+            tmp_path,
+            examples_file,
+            toolchain_record,
+            *_priced("--yes", "--reflection-lm", priced),
+        )
+    )
+
+    assert code == 0, capsys.readouterr().err
+    assert searched == ["pilot-1"]
 
 
 def test_the_fake_stage_refuses_an_agent_binary_that_is_not_there(

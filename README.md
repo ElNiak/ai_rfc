@@ -184,7 +184,17 @@ that the proposal is never scored and the search only looks converged.
 defaulted. It then prints the worst case (twice `--max-evals` × the largest
 example budget, plus the proposer ceiling) and stops until `--yes`. The factor
 of two is the evaluator's one retry per faulted run. Judge calls sit on top of
-that figure: one short request per anchored claim per evaluation. It builds each
+that figure: one short request per anchored claim per evaluation.
+
+`--max-token-cost` binds only for a `--reflection-lm` litellm can price. The
+backend totals the proposer's spend from `litellm.completion_cost` and counts
+an unpriced call as 0.00, so against a model missing from litellm's cost map
+the ceiling could never be reached and only `--max-evals` would bound the
+proposer. The pilot therefore refuses to start on an unpriced id; check one
+ahead of time with the gepa skill's `scripts/preflight.py`. Stage `fake` sets
+`LITELLM_LOCAL_MODEL_COST_MAP=True`, so a rehearsal never fetches that map.
+
+It builds each
 draft for real, so its `--toolchain` record must name executables that exist:
 use one from `experiment toolchain provision`. Everything lands under
 `<root>/optimize/<name>/`. A second run over an existing one **resumes** rather
