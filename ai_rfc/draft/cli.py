@@ -8,8 +8,6 @@ import os
 import sys
 from pathlib import Path
 
-import yaml
-
 from ai_rfc import __version__
 
 from ..schema import SchemaError, load
@@ -285,7 +283,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.manifest is not None:
             try:
                 manifest = load(args.manifest)
-            except (SchemaError, OSError, yaml.YAMLError) as error:
+            except (SchemaError, OSError) as error:
                 manifest_error = str(error)
         report = lint(
             text,

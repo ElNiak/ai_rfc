@@ -166,10 +166,14 @@ def load(path: Path) -> Manifest:
         The parsed manifest, with claims ordered by identifier.
 
     Raises:
-        SchemaError: If the document is malformed, carries an unknown value in
-            a closed vocabulary, or leaves an identifier unquoted.
+        SchemaError: If the document is not valid YAML, is malformed, carries
+            an unknown value in a closed vocabulary, or leaves an identifier
+            unquoted.
     """
-    document = yaml.load(Path(path).read_text(), _StrictLoader)
+    try:
+        document = yaml.load(Path(path).read_text(), _StrictLoader)
+    except yaml.YAMLError as error:
+        raise SchemaError(f"{path}: not valid YAML: {error}") from None
     if not isinstance(document, dict):
         raise SchemaError(f"{path}: top level must be a mapping")
     for required in ("rfc", "title", "requirements"):

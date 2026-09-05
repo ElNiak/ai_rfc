@@ -18,7 +18,7 @@ network socket; the MCP transport is stdio.
 | Name | Module | Who uses it |
 |---|---|---|
 | `python -m ai_rfc.server` | `server.py`: a `FastMCP("ai_rfc")` instance registering every function in `tools.py` | Claude Code, from the plugin's `.mcp.json` or the experiment's per-run `ai_rfc.json` (arm A) |
-| `ai_rfc <verb>` | `cli.py`: argparse over the same core functions, sixteen verbs | The AI+CLI arm through Bash, and a person at a terminal |
+| `ai_rfc <verb>` | `cli.py`: argparse over the same core functions, eighteen verbs | The AI+CLI arm through Bash, and a person at a terminal |
 | `ai-rfc <verb>` (hyphen) | not this package — `ai_rfc/cli.py`, the substrate dispatcher | Everything deterministic; the raw arm C |
 
 The underscore name is interim. The one-door design (PANTHER's
@@ -38,7 +38,7 @@ step, regroups these verbs under `ai-rfc` (`claim`, `cluster`, `question`,
 | `core/revisions.py` | Revision-map entries, validated through the gate's own loader |
 | `core/gates.py` | Checkpoints and the two strict gates, run through the substrate CLIs with their exit codes surfaced untouched |
 | `core/draft.py` | Commit prose and tag a revision in the workspace's `draft/` clone; a tag whose citation gate fails is deleted again |
-| `tools.py` | The sixteen `ai_rfc_*` callables, importable without the `mcp` package so the parity tests can run where it is not installed |
+| `tools.py` | The eighteen `ai_rfc_*` callables, importable without the `mcp` package so the parity tests can run where it is not installed |
 | `server.py` | FastMCP registration and `run()` |
 | `cli.py` | The `ai_rfc` parser and dispatcher |
 | `testing.py` | Fixture workspaces built through the substrate's own code, shared by `tests/server/` |

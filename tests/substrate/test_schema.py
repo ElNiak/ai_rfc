@@ -249,3 +249,16 @@ def test_a_duplicated_requirement_id_is_refused(tmp_path: Path):
     with pytest.raises(SchemaError) as excinfo:
         load(path)
     assert "spec:1.1" in str(excinfo.value)
+
+
+def test_a_yaml_syntax_error_is_a_schema_error(tmp_path: Path):
+    """Every caller of ``load`` catches ``SchemaError``, not raw YAML errors.
+
+    A bare ``yaml.YAMLError`` escaping ``load`` crashes every one of them
+    instead of reporting a finding.
+    """
+    path = tmp_path / "broken.yaml"
+    path.write_text("claims: [\n")
+    with pytest.raises(SchemaError) as excinfo:
+        load(path)
+    assert str(path) in str(excinfo.value)
