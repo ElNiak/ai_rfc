@@ -285,8 +285,8 @@ def run_gate(
             )
             continue
         if entry.kind == "consolidation":
-            # Check 8 pins a consolidation to its predecessor's cluster; the
-            # ordinal cannot increase and must not be asked to.
+            # A consolidation carries its predecessor's cluster id; the ordinal
+            # cannot increase and is not asked to.
             continue
         if previous_ordinal is not None and ordinal <= previous_ordinal:
             findings.append(
@@ -303,10 +303,13 @@ def run_gate(
     for entry in entries:
         checkpoint_dir = _checkpoint_dir(entry, checkpoints_dir, consolidations_dir)
         if not (checkpoint_dir / CHECKPOINT_FILE).exists():
-            findings.append(
-                f"{entry.tag}: no checkpoint for {entry.cluster_id} under "
-                f"{checkpoints_dir}"
-            )
+            if entry.kind == "consolidation":
+                findings.append(f"{entry.tag}: no checkpoint at {checkpoint_dir}")
+            else:
+                findings.append(
+                    f"{entry.tag}: no checkpoint for {entry.cluster_id} under "
+                    f"{checkpoints_dir}"
+                )
             continue
         record = json.loads((checkpoint_dir / CHECKPOINT_FILE).read_text())
         record_by_tag[entry.tag] = record
@@ -348,6 +351,11 @@ def run_gate(
             )
             continue
         previous = entries[index - 1]
+        if entry.cluster_id != previous.cluster_id:
+            findings.append(
+                f"{entry.tag}: a consolidation entry names cluster "
+                f"{entry.cluster_id!r} but follows {previous.cluster_id!r}"
+            )
         consolidation_record = record_by_tag.get(entry.tag)
         if consolidation_record is None:
             continue

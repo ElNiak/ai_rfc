@@ -423,3 +423,87 @@ def test_the_first_revision_may_not_be_a_consolidation(consolidated_workspace):
         consolidations_dir=ws["consolidations"],
     )
     assert any("cannot be a consolidation" in f for f in findings)
+
+
+def test_a_consolidation_that_adds_a_citation_gates_clean(
+    structured_workspace, tmp_path
+):
+    # D52 read the other way round, and the only test that pins the exemption
+    # as a superset: the previous revision does not cite spec:2.1 and the
+    # consolidation does, so an equality comparison would report it.
+    from ai_rfc.draft.checkpoint import write_consolidation_checkpoint
+
+    ws = structured_workspace
+    _retag_draft_with(
+        ws,
+        lambda text: text.replace(
+            "It also does this. `ai_rfc:spec:2.1`", "It also does this."
+        ),
+    )
+    consolidations = tmp_path / "consolidations"
+    base = ws["last_checkpoint"]
+    write_consolidation_checkpoint(
+        base / "manifest.yaml", 1, base, ws["last_cluster"], consolidations
+    )
+    ws["consolidations"] = consolidations
+    draft_file = ws["repo"] / "draft-test-spec.md"
+    draft_file.write_text(
+        draft_file.read_text().replace(
+            "It also does this.", "It also does this. `ai_rfc:spec:2.1`"
+        )
+    )
+    git(ws["repo"], "add", "draft-test-spec.md")
+    git(ws["repo"], "commit", "-m", "the consolidation cites the second claim")
+    _record_consolidation(ws, ordinal=2, checkpoint="consolidations/01")
+    assert (
+        run_gate(
+            ws["repo"],
+            ws["timeline"],
+            ws["checkpoints"],
+            ws["questions"],
+            ws["revisions"],
+            consolidations_dir=consolidations,
+        )
+        == ()
+    )
+
+
+def test_a_consolidation_naming_another_cluster_is_a_finding(consolidated_workspace):
+    # Nothing else in the gate reads a consolidation entry's own cluster_id —
+    # the checkpoint resolves by `checkpoint:` and the ordinal pass skips it —
+    # so without this check the entry may name any cluster in the timeline.
+    ws = consolidated_workspace
+    _patch_revisions(ws, "draft-test-spec-02", cluster_id=ws["first_cluster"])
+    findings = run_gate(
+        ws["repo"],
+        ws["timeline"],
+        ws["checkpoints"],
+        ws["questions"],
+        ws["revisions"],
+        consolidations_dir=ws["consolidations"],
+    )
+    assert any(
+        "a consolidation entry names cluster" in f and ws["first_cluster"] in f
+        for f in findings
+    )
+
+
+def test_a_missing_consolidation_checkpoint_names_the_consolidations_root(
+    consolidated_workspace,
+):
+    # The cluster-round wording names `checkpoints_dir` and the entry's cluster,
+    # neither of which is where a consolidation's checkpoint belongs.
+    ws = consolidated_workspace
+    directory = ws["consolidations"] / "01"
+    for path in sorted(directory.iterdir()):
+        path.unlink()
+    directory.rmdir()
+    findings = run_gate(
+        ws["repo"],
+        ws["timeline"],
+        ws["checkpoints"],
+        ws["questions"],
+        ws["revisions"],
+        consolidations_dir=ws["consolidations"],
+    )
+    assert f"draft-test-spec-02: no checkpoint at {directory}" in findings
