@@ -3,9 +3,9 @@ from pathlib import Path
 import pytest
 import yaml
 
-from ai_rfc.draft.gate import GateError, draft_text, run_gate
+from ai_rfc.draft.gate import GateError, draft_text, load_revisions, run_gate
 
-from .conftest import git
+from .conftest import _append_to_draft, _record_consolidation, _retag_draft_with, git
 
 pytestmark = pytest.mark.unit
 
@@ -215,3 +215,211 @@ def test_draft_text_refuses_a_ref_without_one_draft(draft_workspace, tmp_path):
     with pytest.raises(GateError) as excinfo:
         draft_text(draft_workspace["repo"], "no-such-ref")
     assert "no-such-ref" in str(excinfo.value)
+
+
+def test_an_old_revisions_file_still_loads_as_cluster_rounds(tmp_path):
+    path = tmp_path / "revisions.yaml"
+    path.write_text(
+        "revisions:\n"
+        "  draft-test-01:\n"
+        "    cluster_id: c1\n"
+        "    checkpoint_manifest_sha256: " + "a" * 64 + "\n"
+        "    normative_change: true\n"
+        "    note: first\n"
+    )
+    entry = load_revisions(path)[0]
+    assert entry.kind == "cluster"
+    assert entry.checkpoint is None
+
+
+def test_a_consolidation_entry_must_name_its_checkpoint(tmp_path):
+    path = tmp_path / "revisions.yaml"
+    path.write_text(
+        "revisions:\n"
+        "  draft-test-01:\n"
+        "    cluster_id: c1\n"
+        "    checkpoint_manifest_sha256: " + "a" * 64 + "\n"
+        "    normative_change: false\n"
+        "    note: consolidated\n"
+        "    kind: consolidation\n"
+    )
+    with pytest.raises(GateError) as error:
+        load_revisions(path)
+    assert "checkpoint" in str(error.value)
+
+
+def test_a_cluster_entry_may_not_name_a_consolidation_checkpoint(tmp_path):
+    path = tmp_path / "revisions.yaml"
+    path.write_text(
+        "revisions:\n"
+        "  draft-test-01:\n"
+        "    cluster_id: c1\n"
+        "    checkpoint_manifest_sha256: " + "a" * 64 + "\n"
+        "    normative_change: true\n"
+        "    note: first\n"
+        "    checkpoint: consolidations/01\n"
+    )
+    with pytest.raises(GateError) as error:
+        load_revisions(path)
+    assert "only a consolidation" in str(error.value)
+
+
+def test_an_unknown_kind_is_refused(tmp_path):
+    path = tmp_path / "revisions.yaml"
+    path.write_text(
+        "revisions:\n"
+        "  draft-test-01:\n"
+        "    cluster_id: c1\n"
+        "    checkpoint_manifest_sha256: " + "a" * 64 + "\n"
+        "    normative_change: true\n"
+        "    note: first\n"
+        "    kind: editorial\n"
+    )
+    with pytest.raises(GateError) as error:
+        load_revisions(path)
+    assert "editorial" in str(error.value)
+
+
+def test_a_block_naming_no_frozen_structure_is_a_finding(structured_workspace):
+    # Check 9.
+    ws = structured_workspace
+    _append_to_draft(
+        ws,
+        "{::comment}\nai_rfc:struct:ghost begin\n{:/comment}\nx\n"
+        "{::comment}\nai_rfc:struct:ghost end\n{:/comment}\n",
+    )
+    findings = run_gate(
+        ws["repo"], ws["timeline"], ws["checkpoints"], ws["questions"], ws["revisions"]
+    )
+    assert any("ghost" in f and "not a structure" in f for f in findings)
+
+
+def test_a_one_byte_edit_to_a_rendered_block_is_a_finding(structured_workspace):
+    # Check 10 — the property the whole design rests on.
+    ws = structured_workspace
+    _retag_draft_with(ws, lambda text: text.replace("uint8", "uint9"))
+    findings = run_gate(
+        ws["repo"], ws["timeline"], ws["checkpoints"], ws["questions"], ws["revisions"]
+    )
+    assert any("does not match the frozen" in f for f in findings)
+
+
+def test_an_untouched_structured_draft_gates_clean(structured_workspace):
+    ws = structured_workspace
+    assert (
+        run_gate(
+            ws["repo"],
+            ws["timeline"],
+            ws["checkpoints"],
+            ws["questions"],
+            ws["revisions"],
+        )
+        == ()
+    )
+
+
+def test_a_malformed_delimiter_is_a_finding(structured_workspace):
+    # Check 11.
+    ws = structured_workspace
+    _retag_draft_with(
+        ws, lambda text: text + "{::comment}\nai_rfc:struct:orphan end\n{:/comment}\n"
+    )
+    findings = run_gate(
+        ws["repo"], ws["timeline"], ws["checkpoints"], ws["questions"], ws["revisions"]
+    )
+    assert any("closed but never opened" in f for f in findings)
+
+
+def test_a_faithful_consolidation_gates_clean(consolidated_workspace):
+    # The consolidation reuses its predecessor's cluster id (so the ordinal
+    # cannot increase) and its pasted legend cites claims the previous revision
+    # already cited; neither existing pass may report it (D52).
+    ws = consolidated_workspace
+    assert (
+        run_gate(
+            ws["repo"],
+            ws["timeline"],
+            ws["checkpoints"],
+            ws["questions"],
+            ws["revisions"],
+            consolidations_dir=ws["consolidations"],
+        )
+        == ()
+    )
+
+
+def test_a_consolidation_that_drops_a_citation_is_a_finding(consolidated_workspace):
+    # D52: a consolidation recorded normative_change: false keeps every citation.
+    # Only the consolidation's own tag moves; `_retag_draft_with` would move
+    # revision 01 too and hide the drop.
+    ws = consolidated_workspace
+    draft_file = ws["repo"] / "draft-test-spec.md"
+    draft_file.write_text(
+        draft_file.read_text().replace("`ai_rfc:spec:2.1`", "nothing")
+    )
+    git(ws["repo"], "add", "draft-test-spec.md")
+    git(ws["repo"], "commit", "-m", "drop a citation")
+    git(ws["repo"], "tag", "-f", "draft-test-spec-02")
+    findings = run_gate(
+        ws["repo"],
+        ws["timeline"],
+        ws["checkpoints"],
+        ws["questions"],
+        ws["revisions"],
+        consolidations_dir=ws["consolidations"],
+    )
+    assert any("drops" in f and "spec:2.1" in f for f in findings)
+
+
+def test_a_consolidation_whose_requirements_moved_is_a_finding(
+    structured_workspace, tmp_path
+):
+    # Check 8. The consolidation is written legitimately from the FIRST
+    # cluster's checkpoint (its requirements equal that base, so the writer
+    # accepts it), but the revision it follows is the second cluster's, whose
+    # requirements differ. Nothing is tampered, so verify_checkpoint stays quiet
+    # and the gate reaches check 8.
+    from ai_rfc.draft.checkpoint import write_consolidation_checkpoint
+
+    ws = structured_workspace
+    consolidations = tmp_path / "consolidations"
+    first = ws["first_checkpoint"]
+    write_consolidation_checkpoint(
+        first / "manifest.yaml", 1, first, ws["first_cluster"], consolidations
+    )
+    ws["consolidations"] = consolidations
+    _record_consolidation(ws, ordinal=2, checkpoint="consolidations/01")
+    findings = run_gate(
+        ws["repo"],
+        ws["timeline"],
+        ws["checkpoints"],
+        ws["questions"],
+        ws["revisions"],
+        consolidations_dir=consolidations,
+    )
+    assert any("requirements differ" in f for f in findings)
+
+
+def test_the_first_revision_may_not_be_a_consolidation(consolidated_workspace):
+    # The fixture writes no `kind:` on the first entry (it defaults to cluster),
+    # so make it one by appending the two keys to that entry's block.
+    ws = consolidated_workspace
+    ws["revisions"].write_text(
+        ws["revisions"]
+        .read_text()
+        .replace(
+            "    note: 'initial reconstruction'\n",
+            "    note: 'initial reconstruction'\n"
+            "    kind: consolidation\n"
+            "    checkpoint: consolidations/01\n",
+        )
+    )
+    findings = run_gate(
+        ws["repo"],
+        ws["timeline"],
+        ws["checkpoints"],
+        ws["questions"],
+        ws["revisions"],
+        consolidations_dir=ws["consolidations"],
+    )
+    assert any("cannot be a consolidation" in f for f in findings)

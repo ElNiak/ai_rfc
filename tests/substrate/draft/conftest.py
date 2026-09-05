@@ -1,19 +1,14 @@
 import json
 import subprocess
 from pathlib import Path
+from typing import Any, Callable
 
 import pytest
 
 from ai_rfc.draft.checkpoint import write_checkpoint
 from ai_rfc.timeline.build import build_timeline
-from ai_rfc.timeline.corpus import (
-    find_tip,
-    read_commits,
-)
-from ai_rfc.timeline.store import (
-    read_clusters,
-    write_timeline,
-)
+from ai_rfc.timeline.corpus import find_tip, read_commits
+from ai_rfc.timeline.store import read_clusters, write_timeline
 
 
 def _record(sha: str, parents: list[str]) -> str:
@@ -96,16 +91,28 @@ def _checkpoint_sha(checkpoint_dir: Path) -> str:
     return record["manifest_sha256"]
 
 
-@pytest.fixture
-def draft_workspace(tmp_path: Path, timeline_dir: Path) -> dict[str, Path]:
-    """A gate-clean workspace: draft repo, checkpoints, questions, revisions."""
+def _build_draft_workspace(
+    tmp_path: Path, timeline_dir: Path, extra: str = ""
+) -> dict[str, Any]:
+    """Build a gate-clean workspace: draft repo, checkpoints, questions, revisions.
+
+    Args:
+        tmp_path: The root everything is laid out under.
+        timeline_dir: A built two-cluster timeline.
+        extra: YAML appended to the second cluster's manifest, so a caller can
+            add a ``structures:`` block without restating the whole body.
+
+    Returns:
+        The workspace paths, plus the first and last checkpoint directories and
+        their cluster ids, so a consolidation can be built on either.
+    """
     clusters = read_clusters(timeline_dir)
     epoch_id, pr_id = clusters[0]["id"], clusters[1]["id"]
 
     first_manifest = tmp_path / "m1.yaml"
     first_manifest.write_text(_manifest_text(with_second_claim=False))
     second_manifest = tmp_path / "m2.yaml"
-    second_manifest.write_text(_manifest_text(with_second_claim=True))
+    second_manifest.write_text(_manifest_text(with_second_claim=True) + extra)
     checkpoints = tmp_path / "checkpoints"
     first_checkpoint = write_checkpoint(
         first_manifest, timeline_dir, epoch_id, checkpoints
@@ -162,7 +169,17 @@ def draft_workspace(tmp_path: Path, timeline_dir: Path) -> dict[str, Path]:
         "checkpoints": checkpoints,
         "questions": questions,
         "revisions": revisions,
+        "first_checkpoint": first_checkpoint,
+        "first_cluster": epoch_id,
+        "last_checkpoint": second_checkpoint,
+        "last_cluster": pr_id,
     }
+
+
+@pytest.fixture
+def draft_workspace(tmp_path: Path, timeline_dir: Path) -> dict[str, Any]:
+    """A gate-clean workspace: draft repo, checkpoints, questions, revisions."""
+    return _build_draft_workspace(tmp_path, timeline_dir)
 
 
 @pytest.fixture
@@ -234,3 +251,85 @@ def sparse_workspace(tmp_path: Path, timeline_dir: Path) -> dict[str, Path]:
         "manifest": manifest,
         "revisions": revisions,
     }
+
+
+#: One record structure, appended to the second cluster's manifest so the last
+#: checkpoint freezes a rendering the draft can paste.
+STRUCTURED_BLOCK = (
+    "structures:\n"
+    "  header:\n"
+    "    kind: record\n"
+    "    title: Message header\n"
+    "    section: '4'\n"
+    "    fields:\n"
+    "      - name: version\n"
+    "        type: uint8\n"
+    "        claim: spec:1.1\n"
+)
+
+
+def _retag_draft_with(
+    workspace: dict[str, Any], transform: Callable[[str], str]
+) -> Path:
+    """Rewrite the draft, commit, and move the last tag onto the new commit."""
+    repo = workspace["repo"]
+    draft_file = repo / "draft-test-spec.md"
+    draft_file.write_text(transform(draft_file.read_text()))
+    git(repo, "add", "draft-test-spec.md")
+    git(repo, "commit", "-m", "edit")
+    git(repo, "tag", "-f", "draft-test-spec-01")
+    return repo
+
+
+def _append_to_draft(workspace: dict[str, Any], text: str) -> Path:
+    return _retag_draft_with(workspace, lambda body: body + "\n" + text)
+
+
+def _record_consolidation(
+    workspace: dict[str, Any], ordinal: int, checkpoint: str
+) -> str:
+    """Append one consolidation revision and tag the current HEAD."""
+    directory = workspace["consolidations"] / Path(checkpoint).name
+    sha = json.loads((directory / "checkpoint.json").read_text())["manifest_sha256"]
+    tag = f"draft-test-spec-{ordinal:02d}"
+    workspace["revisions"].write_text(
+        workspace["revisions"].read_text() + f"  {tag}:\n"
+        f"    cluster_id: {workspace['last_cluster']}\n"
+        f"    checkpoint_manifest_sha256: {sha}\n"
+        "    normative_change: false\n"
+        "    note: 'consolidated'\n"
+        "    kind: consolidation\n"
+        f"    checkpoint: {checkpoint}\n"
+    )
+    git(workspace["repo"], "tag", tag)
+    return tag
+
+
+@pytest.fixture
+def structured_workspace(tmp_path: Path, timeline_dir: Path) -> dict[str, Any]:
+    """A workspace whose last checkpoint freezes one structure block, pasted."""
+    from ai_rfc.draft.structures import render_all
+    from ai_rfc.schema import load as load_manifest
+
+    workspace = _build_draft_workspace(tmp_path, timeline_dir, extra=STRUCTURED_BLOCK)
+    manifest = load_manifest(workspace["last_checkpoint"] / "manifest.yaml")
+    _retag_draft_with(workspace, lambda body: body + "\n" + render_all(manifest))
+    return workspace
+
+
+@pytest.fixture
+def consolidated_workspace(
+    structured_workspace: dict[str, Any], tmp_path: Path
+) -> dict[str, Any]:
+    """``structured_workspace`` plus one consolidation revision after it."""
+    from ai_rfc.draft.checkpoint import write_consolidation_checkpoint
+
+    workspace = structured_workspace
+    consolidations = tmp_path / "consolidations"
+    base = workspace["last_checkpoint"]
+    write_consolidation_checkpoint(
+        base / "manifest.yaml", 1, base, workspace["last_cluster"], consolidations
+    )
+    workspace["consolidations"] = consolidations
+    _record_consolidation(workspace, ordinal=2, checkpoint="consolidations/01")
+    return workspace

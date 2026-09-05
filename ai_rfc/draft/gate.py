@@ -4,8 +4,9 @@ The prose Internet-Draft is the agent's artifact; this gate checks only what
 can be decided mechanically — that every revision tag exists, maps to a real
 cluster in increasing order, pins an unedited checkpoint, cites only claims
 that checkpoint holds, that a "no normative change" revision really changed
-nothing it cites, and that a normative one really changed something. Prose
-style is deliberately not gated.
+nothing it cites, that a normative one really changed something, and that
+every structure block pasted into the prose still matches the bytes its
+checkpoint froze. Prose style is deliberately not gated.
 """
 
 from __future__ import annotations
@@ -15,15 +16,26 @@ import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import yaml
 
+from ..models import Manifest
 from ..schema import SchemaError, load
-from .checkpoint import CHECKPOINT_FILE, MANIFEST_FILE, verify_checkpoint
+from .checkpoint import (
+    CHECKPOINT_FILE,
+    MANIFEST_FILE,
+    requirements_digest,
+    verify_checkpoint,
+)
 from .questions import QuestionError, load_questions
+from .structures import STRUCTURES_FILE, parse_blocks
 
 #: A revision tag: the draft name, a dash, and a two-digit revision number.
 REVISION_TAG = re.compile(r"^draft-.+-(?P<nn>\d\d)$")
+
+#: What a revision may be: a cluster round, or a consolidation of one.
+REVISION_KINDS = ("cluster", "consolidation")
 
 #: A claim citation in prose: a backticked ``ai_rfc:<claim-id>`` token. The
 #: backticks keep kramdown-rfc's own ``{{ }}`` machinery away from it.
@@ -44,6 +56,8 @@ class RevisionEntry:
     checkpoint_manifest_sha256: str
     normative_change: bool
     note: str
+    kind: str = "cluster"
+    checkpoint: str | None = None
 
 
 def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -96,6 +110,16 @@ def load_revisions(path: Path) -> tuple[RevisionEntry, ...]:
                 f"an explicit boolean — omitting it would let a revision "
                 f"dodge the no-change check silently"
             )
+        kind = body.get("kind", "cluster")
+        if kind not in REVISION_KINDS:
+            raise GateError(
+                f"{tag}: kind is {kind!r}; permitted values are {list(REVISION_KINDS)}"
+            )
+        checkpoint = body.get("checkpoint")
+        if kind == "consolidation" and not checkpoint:
+            raise GateError(f"{tag}: a consolidation must name its checkpoint")
+        if kind != "consolidation" and checkpoint:
+            raise GateError(f"{tag}: only a consolidation may name a checkpoint")
         entries.append(
             RevisionEntry(
                 tag=str(tag),
@@ -104,6 +128,8 @@ def load_revisions(path: Path) -> tuple[RevisionEntry, ...]:
                 checkpoint_manifest_sha256=str(body["checkpoint_manifest_sha256"]),
                 normative_change=normative_change,
                 note=str(body.get("note", "")),
+                kind=str(kind),
+                checkpoint=str(checkpoint) if checkpoint else None,
             )
         )
     entries.sort(key=lambda entry: entry.number)
@@ -176,12 +202,35 @@ def cited_ids(draft_repo: Path, tag: str) -> tuple[set[str], str | None]:
     return set(CITATION.findall(text)), None
 
 
+def _checkpoint_dir(
+    entry: RevisionEntry, checkpoints_dir: Path, consolidations_dir: Path
+) -> Path:
+    """Where this revision's checkpoint lives.
+
+    Cluster rounds resolve under the cluster root; consolidations name their own
+    directory under a separate root, so the cluster root keeps enumerating
+    cluster checkpoints only (D48).
+
+    Args:
+        entry: The revision whose checkpoint is wanted.
+        checkpoints_dir: Root directory of the cluster checkpoints.
+        consolidations_dir: Root directory of the consolidation checkpoints.
+
+    Returns:
+        The directory the revision's checkpoint should occupy.
+    """
+    if entry.kind == "consolidation" and entry.checkpoint:
+        return consolidations_dir / Path(entry.checkpoint).name
+    return checkpoints_dir / entry.cluster_id
+
+
 def run_gate(
     draft_repo: Path,
     timeline_dir: Path,
     checkpoints_dir: Path,
     questions_path: Path,
     revisions_path: Path,
+    consolidations_dir: Path | None = None,
 ) -> tuple[str, ...]:
     """Run every deterministic check over a draft and its revision map.
 
@@ -191,6 +240,8 @@ def run_gate(
         checkpoints_dir: Root directory of the manifest checkpoints.
         questions_path: The question register.
         revisions_path: The revision map.
+        consolidations_dir: Root directory of the consolidation checkpoints;
+            defaults to ``consolidations`` beside ``checkpoints_dir``.
 
     Returns:
         One human-readable finding per broken check; empty when clean.
@@ -200,6 +251,7 @@ def run_gate(
             register, malformed revision map, or a path that is not a repo.
         OSError: If an input cannot be read.
     """
+    consolidations_dir = consolidations_dir or checkpoints_dir.parent / "consolidations"
     entries = load_revisions(revisions_path)
     try:
         question_ids = {question.id for question in load_questions(questions_path)}
@@ -232,6 +284,10 @@ def run_gate(
                 f"{entry.tag}: no cluster {entry.cluster_id} in the timeline"
             )
             continue
+        if entry.kind == "consolidation":
+            # Check 8 pins a consolidation to its predecessor's cluster; the
+            # ordinal cannot increase and must not be asked to.
+            continue
         if previous_ordinal is not None and ordinal <= previous_ordinal:
             findings.append(
                 f"{entry.tag}: cluster ordinal {ordinal} does not increase "
@@ -241,8 +297,11 @@ def run_gate(
 
     claim_ids_by_tag: dict[str, set[str]] = {}
     manifest_sha_by_tag: dict[str, str] = {}
+    record_by_tag: dict[str, dict[str, Any]] = {}
+    manifest_by_tag: dict[str, Manifest] = {}
+    frozen_by_tag: dict[str, dict[str, str]] = {}
     for entry in entries:
-        checkpoint_dir = checkpoints_dir / entry.cluster_id
+        checkpoint_dir = _checkpoint_dir(entry, checkpoints_dir, consolidations_dir)
         if not (checkpoint_dir / CHECKPOINT_FILE).exists():
             findings.append(
                 f"{entry.tag}: no checkpoint for {entry.cluster_id} under "
@@ -250,6 +309,7 @@ def run_gate(
             )
             continue
         record = json.loads((checkpoint_dir / CHECKPOINT_FILE).read_text())
+        record_by_tag[entry.tag] = record
         manifest_sha_by_tag[entry.tag] = record["manifest_sha256"]
         if record["manifest_sha256"] != entry.checkpoint_manifest_sha256:
             findings.append(
@@ -266,6 +326,11 @@ def run_gate(
         except SchemaError as error:
             findings.append(f"{entry.tag}: checkpoint manifest is unloadable: {error}")
             continue
+        manifest_by_tag[entry.tag] = manifest
+        frozen = checkpoint_dir / STRUCTURES_FILE
+        frozen_by_tag[entry.tag] = (
+            parse_blocks(frozen.read_text())[0] if frozen.is_file() else {}
+        )
         claim_ids_by_tag[entry.tag] = {claim.id for claim in manifest.claims}
         for claim in manifest.claims:
             if claim.question_id and claim.question_id not in question_ids:
@@ -274,23 +339,75 @@ def run_gate(
                     f"which is not in the question register"
                 )
 
+    for index, entry in enumerate(entries):
+        if entry.kind != "consolidation":
+            continue
+        if index == 0:
+            findings.append(
+                f"{entry.tag}: the first revision cannot be a consolidation"
+            )
+            continue
+        previous = entries[index - 1]
+        consolidation_record = record_by_tag.get(entry.tag)
+        if consolidation_record is None:
+            continue
+        if consolidation_record.get("kind") != "consolidation":
+            findings.append(
+                f"{entry.tag}: {entry.checkpoint} is not a consolidation checkpoint"
+            )
+        if consolidation_record.get("cluster_id") != previous.cluster_id:
+            findings.append(
+                f"{entry.tag}: consolidates "
+                f"{consolidation_record.get('cluster_id')!r} but "
+                f"follows {previous.cluster_id!r}"
+            )
+        consolidated = manifest_by_tag.get(entry.tag)
+        base = manifest_by_tag.get(previous.tag)
+        if (
+            consolidated is not None
+            and base is not None
+            and requirements_digest(consolidated) != requirements_digest(base)
+        ):
+            findings.append(
+                f"{entry.tag}: requirements differ from {previous.tag}; a "
+                f"consolidation may change only structures"
+            )
+
     cited_by_tag: dict[str, set[str]] = {}
     for entry in entries:
         if entry.tag not in tags:
             continue
-        cited, problem = cited_ids(draft_repo, entry.tag)
-        if problem is not None:
-            findings.append(problem)
+        try:
+            _, text = draft_text(draft_repo, entry.tag)
+        except GateError as error:
+            findings.append(str(error))
             continue
+        cited = set(CITATION.findall(text))
         cited_by_tag[entry.tag] = cited
         known = claim_ids_by_tag.get(entry.tag)
-        if known is None:
+        if known is not None:
+            for claim_id in sorted(cited - known):
+                findings.append(
+                    f"{entry.tag}: cites {claim_id}, which is not in its "
+                    f"checkpoint manifest"
+                )
+        bodies, malformed = parse_blocks(text)
+        for malformation in malformed:
+            findings.append(f"{entry.tag}: {malformation}")
+        frozen_blocks = frozen_by_tag.get(entry.tag)
+        if frozen_blocks is None:
             continue
-        for claim_id in sorted(cited - known):
-            findings.append(
-                f"{entry.tag}: cites {claim_id}, which is not in its "
-                f"checkpoint manifest"
-            )
+        for structure_id, body in sorted(bodies.items()):
+            if structure_id not in frozen_blocks:
+                findings.append(
+                    f"{entry.tag}: {structure_id} is not a structure frozen in this "
+                    f"revision's checkpoint"
+                )
+            elif body != frozen_blocks[structure_id]:
+                findings.append(
+                    f"{entry.tag}: the {structure_id} block does not match the frozen "
+                    f"rendering in {STRUCTURES_FILE}"
+                )
 
     previous_entry: RevisionEntry | None = None
     for entry in entries:
@@ -320,7 +437,16 @@ def run_gate(
                 if previous_entry is not None
                 else set()
             )
-            if cited_by_tag[entry.tag] != previous_cited:
+            cited = cited_by_tag[entry.tag]
+            if entry.kind == "consolidation":
+                dropped = previous_cited - cited
+                if dropped:
+                    findings.append(
+                        f"{entry.tag}: recorded as no normative change, but drops "
+                        f"{', '.join(sorted(dropped))} cited by the previous revision "
+                        f"(a consolidation keeps every citation)"
+                    )
+            elif cited != previous_cited:
                 findings.append(
                     f"{entry.tag}: recorded as no normative change, but its "
                     f"cited claim set differs from the previous revision's"
