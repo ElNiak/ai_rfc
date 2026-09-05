@@ -183,7 +183,8 @@ def to_markdown(report: ManifestReport) -> str:
         lines.append("_None._")
     for claim in normative:
         lines.append(
-            f"- **{claim.id}** ({claim.level}, {claim.status.value}) " f"— {claim.text}"
+            f"- **{claim.id}** ({claim.level.value}, {claim.status.value}) "
+            f"— {claim.text}"
         )
 
     lines += [

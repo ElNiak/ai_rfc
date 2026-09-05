@@ -44,6 +44,35 @@ class Intent(Enum):
     UNKNOWN = "unknown"
 
 
+class Level(Enum):
+    """The BCP 14 keyword a requirement is stated with."""
+
+    MUST = "MUST"
+    MUST_NOT = "MUST NOT"
+    SHOULD = "SHOULD"
+    SHOULD_NOT = "SHOULD NOT"
+    MAY = "MAY"
+
+
+class StructureKind(Enum):
+    """What a structure describes."""
+
+    WIRE_FORMAT = "wire-format"
+    MESSAGE = "message"
+    RECORD = "record"
+    ENUM = "enum"
+    STATE_MACHINE = "state-machine"
+
+
+#: A last field may be declared ``variable`` instead of a bit count.
+VARIABLE_WIDTH = "variable"
+
+#: Kinds whose members are ``fields``; the remaining two use ``values``/``states``.
+FIELD_KINDS = frozenset(
+    {StructureKind.WIRE_FORMAT, StructureKind.MESSAGE, StructureKind.RECORD}
+)
+
+
 STATUS_RANK: dict[Status, int] = {
     Status.GAP: 0,
     Status.INFERRED: 1,
@@ -86,7 +115,7 @@ class RequirementClaim:
     id: str
     text: str
     section: str
-    level: str
+    level: Level
     layer: str
     req_class: RequirementClass
     intent: Intent
@@ -110,6 +139,64 @@ class RequirementClaim:
 
 
 @dataclass(frozen=True)
+class Field:
+    """One field of a wire format, message or record."""
+
+    name: str
+    claim: str
+    width: int | str | None = None
+    type: str | None = None
+    description: str = ""
+
+
+@dataclass(frozen=True)
+class Value:
+    """One member of an enumeration."""
+
+    name: str
+    value: str
+    claim: str
+    description: str = ""
+
+
+@dataclass(frozen=True)
+class Transition:
+    """One edge of a state machine.
+
+    ``source`` and ``target`` are the manifest's ``from`` and ``to``, renamed
+    because both are Python keywords.
+    """
+
+    source: str
+    event: str
+    target: str
+    claim: str
+    guard: str = ""
+
+
+@dataclass(frozen=True)
+class Structure:
+    """A format, record, enumeration or state machine, bound to claims."""
+
+    id: str
+    kind: StructureKind
+    title: str
+    section: str
+    fields: tuple[Field, ...] = ()
+    values: tuple[Value, ...] = ()
+    states: tuple[str, ...] = ()
+    transitions: tuple[Transition, ...] = ()
+
+    @property
+    def claims(self) -> tuple[str, ...]:
+        """Every claim id this structure binds, in declaration order."""
+        members: tuple[Field | Value | Transition, ...] = (
+            self.fields + self.values + self.transitions
+        )
+        return tuple(member.claim for member in members)
+
+
+@dataclass(frozen=True)
 class Manifest:
     """A whole reconstructed specification.
 
@@ -120,6 +207,7 @@ class Manifest:
     rfc: str
     title: str
     claims: tuple[RequirementClaim, ...]
+    structures: tuple[Structure, ...] = ()
 
     @property
     def count_by_status(self) -> dict[str, int]:

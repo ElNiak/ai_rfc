@@ -262,7 +262,7 @@ def _assess(
         verified = next(
             (anchor for anchor in in_span if _verifies(anchor, clone)), None
         )
-        if verified is not None and claim.level not in LEVELS:
+        if verified is not None and claim.level.value not in LEVELS:
             rejected.append({"claim_id": claim.id, "why": WHY_BAD_LEVEL})
         elif verified is not None:
             accepted.append((claim, verified))
@@ -525,7 +525,9 @@ def cited_term(
         return 0.0
     if not anchored:
         return 1.0
-    hit = sum(1 for claim in anchored if claim.level in citations.get(claim.id, ()))
+    hit = sum(
+        1 for claim in anchored if claim.level.value in citations.get(claim.id, ())
+    )
     return hit / len(anchored)
 
 
@@ -741,7 +743,7 @@ def score_loop(
             ClaimHunk(
                 claim_id=claim.id,
                 text=claim.text,
-                level=claim.level,
+                level=claim.level.value,
                 path=anchor.locator,
                 commit=str(anchor.commit),
                 line=anchor.line,
@@ -801,7 +803,8 @@ def score_loop(
             "cited_without_keyword": sorted(
                 claim.id
                 for claim in claims
-                if claim.id in citations and claim.level not in citations[claim.id]
+                if claim.id in citations
+                and claim.level.value not in citations[claim.id]
             ),
             "new_claims_rejected": rejected,
             "idnits": dict(build_report.idnits) if build_report else {},

@@ -7,17 +7,13 @@ from ai_rfc.models import (
     Anchor,
     EvidenceClass,
     Intent,
+    Level,
     Manifest,
     RequirementClaim,
     RequirementClass,
     Status,
 )
-from ai_rfc.report import (
-    build,
-    to_json,
-    to_markdown,
-    to_yaml,
-)
+from ai_rfc.report import build, to_json, to_markdown, to_yaml
 
 pytestmark = pytest.mark.unit
 
@@ -27,7 +23,7 @@ def _claim(**overrides):
         id="spec:1.1",
         text="The system responds within the configured interval.",
         section="1.1",
-        level="MUST",
+        level=Level.MUST,
         layer="timing",
         req_class=RequirementClass.PROTOCOL_BEHAVIORAL,
         intent=Intent.INTENDED,
@@ -98,6 +94,8 @@ def test_markdown_excludes_accidental_claims_from_the_normative_section(
     assert "spec:1.1" in normative
     assert "spec:2.1" not in normative
     assert "spec:2.1" in descriptive
+    assert "(MUST," in normative
+    assert "Level." not in normative
 
 
 def test_markdown_names_every_violation(mixed_manifest):

@@ -2,13 +2,10 @@ from pathlib import Path
 
 import pytest
 
-from ai_rfc.models import (
-    EvidenceClass,
-    Intent,
-    RequirementClass,
-    Status,
-)
+from ai_rfc.models import EvidenceClass, Intent, RequirementClass, Status
 from ai_rfc.schema import SchemaError, dump, load
+
+from .draft.conftest import _manifest_text
 
 pytestmark = pytest.mark.unit
 
@@ -18,6 +15,11 @@ def reload_from_text(text: str, tmp_path: Path):
     scratch = tmp_path / "round_trip.yaml"
     scratch.write_text(text)
     return load(scratch)
+
+
+def load_text(text, path):
+    path.write_text(text)
+    return load(path)
 
 
 def test_base_only_manifest_loads_with_restrictive_defaults(base_only_manifest: Path):
@@ -262,3 +264,122 @@ def test_a_yaml_syntax_error_is_a_schema_error(tmp_path: Path):
     with pytest.raises(SchemaError) as excinfo:
         load(path)
     assert str(path) in str(excinfo.value)
+
+
+STRUCTURES = """\
+structures:
+  header:
+    kind: wire-format
+    title: Message header
+    section: "4.1"
+    fields:
+      - name: version
+        width: 8
+        claim: spec:1.1
+        description: Protocol version.
+      - name: payload
+        width: variable
+        claim: spec:2.1
+"""
+
+
+def _with_structures(tmp_path, block=STRUCTURES, **kwargs):
+    path = tmp_path / "m.yaml"
+    path.write_text(_manifest_text(with_second_claim=True, **kwargs) + block)
+    return path
+
+
+def test_every_bcp14_level_loads_and_anything_else_is_refused(tmp_path):
+    from ai_rfc.models import Level
+
+    for keyword in ("MUST", "MUST NOT", "SHOULD", "SHOULD NOT", "MAY"):
+        path = tmp_path / "level.yaml"
+        path.write_text(
+            _manifest_text(with_second_claim=False).replace(
+                "level: MUST", f"level: {keyword}"
+            )
+        )
+        assert load(path).claims[0].level is Level(keyword)
+
+    path = tmp_path / "bad.yaml"
+    path.write_text(
+        _manifest_text(with_second_claim=False).replace(
+            "level: MUST", "level: descriptive"
+        )
+    )
+    with pytest.raises(SchemaError) as error:
+        load(path)
+    assert "permitted values are" in str(error.value)
+    assert "descriptive" in str(error.value)
+
+
+def test_structures_load_with_their_members(tmp_path):
+    from ai_rfc.models import StructureKind
+
+    manifest = load(_with_structures(tmp_path))
+    assert len(manifest.structures) == 1
+    header = manifest.structures[0]
+    assert header.id == "header"
+    assert header.kind is StructureKind.WIRE_FORMAT
+    assert header.claims == ("spec:1.1", "spec:2.1")
+    assert header.fields[0].width == 8
+    assert header.fields[1].width == "variable"
+
+
+def test_a_bound_claim_must_exist_in_requirements(tmp_path):
+    block = STRUCTURES.replace("claim: spec:2.1", "claim: spec:9.9")
+    with pytest.raises(SchemaError) as error:
+        load(_with_structures(tmp_path, block=block))
+    assert "spec:9.9" in str(error.value)
+    assert "not a requirement" in str(error.value)
+
+
+def test_variable_width_is_refused_anywhere_but_the_last_field(tmp_path):
+    block = STRUCTURES.replace("width: 8", "width: variable")
+    with pytest.raises(SchemaError) as error:
+        load(_with_structures(tmp_path, block=block))
+    assert "only the last field" in str(error.value)
+
+
+def test_a_transition_must_name_declared_states(tmp_path):
+    block = """\
+structures:
+  conn:
+    kind: state-machine
+    title: Connection
+    section: "5"
+    states: [idle, open]
+    transitions:
+      - from: idle
+        event: connect
+        to: half-open
+        claim: spec:1.1
+"""
+    with pytest.raises(SchemaError) as error:
+        load(_with_structures(tmp_path, block=block))
+    assert "half-open" in str(error.value)
+    assert "not a declared state" in str(error.value)
+
+
+def test_structure_ids_are_constrained(tmp_path):
+    for bad in ("-header", "hea--der", "head er"):
+        block = STRUCTURES.replace("  header:", f"  {bad}:")
+        with pytest.raises(SchemaError) as error:
+            load(_with_structures(tmp_path, block=block))
+        assert bad in str(error.value)
+
+
+def test_a_structure_free_manifest_dumps_exactly_as_before(tmp_path):
+    path = tmp_path / "plain.yaml"
+    path.write_text(_manifest_text(with_second_claim=False))
+    text = dump(load(path))
+    assert "structures" not in text
+    assert text == dump(load(path))
+
+
+def test_structures_serialise_between_requirements_and_title(tmp_path):
+    text = dump(load(_with_structures(tmp_path)))
+    assert (
+        text.index("requirements:") < text.index("structures:") < text.index("title:")
+    )
+    assert load(_with_structures(tmp_path)) == load_text(text, tmp_path / "round.yaml")

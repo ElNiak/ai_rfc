@@ -7,6 +7,7 @@ from ai_rfc.models import (
     Anchor,
     EvidenceClass,
     Intent,
+    Level,
     Manifest,
     RequirementClaim,
     RequirementClass,
@@ -21,7 +22,7 @@ def _claim(**overrides):
         id="spec:1.1",
         text="The system responds within the configured interval.",
         section="1.1",
-        level="MUST",
+        level=Level.MUST,
         layer="timing",
         req_class=RequirementClass.PROTOCOL_BEHAVIORAL,
         intent=Intent.INTENDED,
@@ -92,3 +93,40 @@ def test_every_req_class_appears_even_when_unused():
         "data-model",
         "algorithmic",
     }
+
+
+def test_a_structure_lists_the_claims_it_binds_in_declaration_order():
+    from ai_rfc.models import Field, Structure, StructureKind, Transition, Value
+
+    wire = Structure(
+        id="hdr",
+        kind=StructureKind.WIRE_FORMAT,
+        title="Header",
+        section="4.1",
+        fields=(
+            Field(name="version", claim="spec:4.1", width=8),
+            Field(name="length", claim="spec:4.2", width="variable"),
+        ),
+    )
+    assert wire.claims == ("spec:4.1", "spec:4.2")
+
+    machine = Structure(
+        id="conn",
+        kind=StructureKind.STATE_MACHINE,
+        title="Connection",
+        section="5",
+        states=("idle", "open"),
+        transitions=(
+            Transition(source="idle", event="connect", target="open", claim="spec:5.1"),
+        ),
+    )
+    assert machine.claims == ("spec:5.1",)
+
+    codes = Structure(
+        id="codes",
+        kind=StructureKind.ENUM,
+        title="Error codes",
+        section="6",
+        values=(Value(name="NO_ERROR", value="0", claim="spec:6.1"),),
+    )
+    assert codes.claims == ("spec:6.1",)

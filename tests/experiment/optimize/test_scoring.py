@@ -18,7 +18,6 @@ from ai_rfc.experiment.optimize.fixtures import (
     build_interview_pristine,
 )
 from ai_rfc.experiment.optimize.scoring import (
-    WHY_BAD_LEVEL,
     WHY_NO_ANCHOR,
     WHY_NOT_IN_FILE_SET,
     WHY_OUT_OF_SPAN,
@@ -48,7 +47,7 @@ from ai_rfc.experiment.optimize.scoring import (
 )
 from ai_rfc.experiment.workspace import copy_workspace
 from ai_rfc.models import Anchor, EvidenceClass
-from ai_rfc.schema import dump, load
+from ai_rfc.schema import SchemaError, dump, load
 from ai_rfc.server.testing import build_workspace, git
 
 FIRST = "c0001-epoch-4a6fef184191"
@@ -354,19 +353,24 @@ def test_an_anchor_on_a_file_the_cluster_never_touched_does_not_count(
     assert whys["t:9.4"] == WHY_NOT_IN_FILE_SET
 
 
-def test_a_level_outside_the_bcp14_vocabulary_does_not_count(loop_workspace):
-    """Otherwise one invented word buys the whole citation term."""
+def test_a_level_outside_the_bcp14_vocabulary_is_refused_at_load(loop_workspace):
+    """Otherwise one invented word buys the whole citation term.
+
+    ``level`` is a closed vocabulary, so the manifest carrying an invented
+    keyword cannot be written at all — the guarantee holds a layer below the
+    scoring gate that used to be the only thing enforcing it.
+    """
     inside = json.loads(
         (loop_workspace / "clusters" / SECOND / "view.json").read_text()
     )["anchor_sha"]
+    requirements = _requirements(loop_workspace)
+    requirements["t:9.5"] = _code_claim("Invented level.", "OUGHT TO", "b.txt", inside)
 
-    whys = _reject(
-        loop_workspace,
-        "t:9.5",
-        _code_claim("Invented level.", "OUGHT TO", "b.txt", inside),
-    )
+    with pytest.raises(SchemaError) as error:
+        _write_requirements(loop_workspace, requirements)
 
-    assert whys["t:9.5"] == WHY_BAD_LEVEL
+    assert "OUGHT TO" in str(error.value)
+    assert "permitted values are" in str(error.value)
 
 
 def test_an_anchor_that_does_not_verify_does_not_count(loop_workspace):
