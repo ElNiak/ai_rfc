@@ -401,13 +401,21 @@ def test_a_pilot_that_names_no_ceiling_names_the_flags_it_wants(
 def test_a_pilot_prints_its_worst_case_spend_and_waits_for_yes(
     tmp_path, examples_file, toolchain_record, monkeypatch, capsys
 ):
+    """The ceiling is two runs per evaluation, and says the judge is extra.
+
+    A faulted evaluation is run a second time, so 30 evaluations at a 4.00
+    budget can pay for 60 sessions. Consent is given to this number, so it
+    has to be the number that can actually be spent.
+    """
     monkeypatch.setenv("ANTHROPIC_API_KEY", "not-used-by-this-test")
 
     code = cli.main(_pilot(tmp_path, examples_file, toolchain_record, *_priced()))
 
     captured = capsys.readouterr()
     assert code == 1
-    assert "125.00" in captured.out
+    assert "245.00" in captured.out
+    assert "retry" in captured.out
+    assert "judge calls" in captured.out
     assert "--yes" in captured.err
     assert not (tmp_path / "root").exists()
 

@@ -273,10 +273,15 @@ def _optimize_run(args: argparse.Namespace, root: Path) -> int:
 
     if args.stage == "pilot":
         per_example = max(example.budget_usd for example in examples)
-        worst_case = max_evals * per_example + max_token_cost
+        worst_case = 2 * max_evals * per_example + max_token_cost
         print(
-            f"worst case: {max_evals} evaluations x ${per_example:.2f} + "
+            f"worst case: 2 x {max_evals} evaluations x ${per_example:.2f} + "
             f"${max_token_cost:.2f} proposer = ${worst_case:.2f}"
+        )
+        print(
+            "the factor of two is the evaluator's one retry per faulted run; "
+            "plus judge calls (one short request per anchored claim per "
+            "evaluation), which are not in the figure above"
         )
         if not args.yes:
             raise ExperimentError("pass --yes to spend it")

@@ -181,8 +181,10 @@ that the proposal is never scored and the search only looks converged.
 **Stage `pilot`** spends money and says so first. It refuses to start unless
 `ANTHROPIC_API_KEY` is set and `--max-evals`, `--max-token-cost`, `--model`,
 `--reflection-lm` and `--judge-model` are all given — nothing that costs is
-defaulted. It then prints the worst case (`--max-evals` × the largest example
-budget, plus the proposer ceiling) and stops until `--yes`. It builds each
+defaulted. It then prints the worst case (twice `--max-evals` × the largest
+example budget, plus the proposer ceiling) and stops until `--yes`. The factor
+of two is the evaluator's one retry per faulted run. Judge calls sit on top of
+that figure: one short request per anchored claim per evaluation. It builds each
 draft for real, so its `--toolchain` record must name executables that exist:
 use one from `experiment toolchain provision`. Everything lands under
 `<root>/optimize/<name>/`. A second run over an existing one **resumes** rather
