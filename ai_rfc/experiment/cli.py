@@ -314,14 +314,14 @@ def _optimize_run(args: argparse.Namespace, root: Path) -> int:
             and cli_judge is not None
             and not os.environ.get("ANTHROPIC_API_KEY")
         ):
-            # A claude-cli: judge skips anthropic_transport, which is where a
-            # pilot's credential was checked. The proposer still bills the key,
-            # and its first call comes after the seed evaluation has already
-            # spent sessions, so the run has to be refused here instead.
+            # A claude-cli: judge does not build anthropic_transport, the
+            # package's only credential check, so the proposer's own key is
+            # checked here; its first call comes after the seed evaluation has
+            # already spent sessions.
             raise ExperimentError(
                 f"--reflection-lm {args.reflection_lm} bills ANTHROPIC_API_KEY, "
                 "which is not set; the claude-cli: judge draws on the profile "
-                "instead and no longer checks it. Set it, or name a "
+                "instead, so nothing else checks it. Set the key, or name a "
                 "claude-cli:<model> proposer to run on the profile too"
             )
         claude_bin = args.claude_bin or "claude"

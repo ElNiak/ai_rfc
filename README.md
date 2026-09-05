@@ -169,7 +169,8 @@ binds a TCP socket.
 
 A pilot also needs the `claude` CLI on `PATH` and an authenticated profile:
 `python -m ai_rfc.experiment profile init` creates one and prints the one-time
-`claude auth login` command for it. No API key is needed or read.
+`claude auth login` command for it. No API key is needed or read by the
+`claude-cli:` forms this project uses.
 
 **The examples file** is JSON, one entry per thing a candidate is measured on.
 A loop entry names the single in-window cluster it scores; an interview entry
@@ -215,8 +216,8 @@ nothing that costs is defaulted — then prints the worst case and stops until
   printed in sessions and calls: twice `--max-evals` harness sessions, up to
   `--max-evals` proposer calls, and one judge call per anchored claim per
   evaluation. The CLI exposes no temperature, so a rerun may grade a hunk
-  differently; the judge cache dedups only identical level, text and hunk
-  triples. This is the form this project's pilot uses.
+  differently; no judge cache is wired in the CLI today. This is the form this
+  project's pilot uses.
 - A LiteLLM id for `--reflection-lm` and an Anthropic API id for
   `--judge-model` bill `ANTHROPIC_API_KEY`, which must then be set. The worst
   case is printed in USD: twice `--max-evals` × the largest example budget,
@@ -224,6 +225,11 @@ nothing that costs is defaulted — then prints the worst case and stops until
   litellm can price — the pilot refuses an unpriced one. The factor of two is
   the evaluator's one retry per faulted run; judge calls sit on top of that
   figure. This project does not use this form.
+
+The two forms may also be mixed — a `claude-cli:` proposer beside an Anthropic
+API judge, or a LiteLLM proposer beside a `claude-cli:` judge — and each mixture
+still needs `ANTHROPIC_API_KEY` for the role that names the API, without which
+the pilot refuses to start.
 
 Stage `fake` sets `LITELLM_LOCAL_MODEL_COST_MAP=True`, so a rehearsal never
 fetches litellm's cost map, and refuses any `--reflection-lm` or

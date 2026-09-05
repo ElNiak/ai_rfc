@@ -282,9 +282,9 @@ def test_a_cli_proposer_beside_an_api_judge_still_wants_the_key(
 def test_a_litellm_proposer_beside_a_cli_judge_still_wants_the_key(
     tmp_path, examples_file, toolchain_record, monkeypatch, capsys
 ):
-    """A claude-cli: judge skips the transport that used to check the key, so
-    the proposer's own credential has to be checked here or a run that cannot
-    finish would start and spend the seed evaluation first."""
+    """A claude-cli: judge does not build the transport that checks the key, so
+    the proposer's own credential is checked in the CLI: without that, a run
+    that cannot finish would start and spend the seed evaluation first."""
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
 
     code = cli.main(
