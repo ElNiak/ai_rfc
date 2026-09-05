@@ -230,7 +230,7 @@ def test_a_consolidation_checkpoint_lands_under_its_own_root(tmp_path, timeline_
     assert sorted(p.name for p in out.iterdir()) == [cluster_id]
 
 
-def test_a_consolidation_may_change_only_the_structures(tmp_path, timeline_dir):
+def test_a_consolidation_that_changes_a_requirement_is_refused(tmp_path, timeline_dir):
     cluster_id = _pr_cluster_id(timeline_dir)
     out = tmp_path / "checkpoints"
     base = write_checkpoint(
@@ -290,3 +290,99 @@ def test_a_failed_consolidation_leaves_no_directory(tmp_path, timeline_dir):
             consolidations,
         )
     assert not (consolidations / "01").exists()
+
+
+def test_a_consolidation_may_change_the_structures(tmp_path, timeline_dir):
+    """The digest a consolidation is gated on covers requirements alone.
+
+    Without that, a consolidation whose only change is a structure — the one
+    edit D48 permits — is refused, and the gate rejects every legitimate use.
+    """
+    cluster_id = _pr_cluster_id(timeline_dir)
+    out = tmp_path / "checkpoints"
+    base = write_checkpoint(
+        _structured_manifest(tmp_path), timeline_dir, cluster_id, out
+    )
+    widened = tmp_path / "widened.yaml"
+    widened.write_text(
+        _manifest_text(with_second_claim=True) + STRUCTURED.replace("uint8", "uint16")
+    )
+
+    directory = write_consolidation_checkpoint(
+        widened, 1, base, cluster_id, tmp_path / "consolidations"
+    )
+
+    consolidated = json.loads((directory / "checkpoint.json").read_text())
+    frozen = json.loads((base / "checkpoint.json").read_text())
+    assert consolidated["structures_sha256"] != frozen["structures_sha256"]
+    assert consolidated["manifest_sha256"] != frozen["manifest_sha256"]
+    assert verify_checkpoint(directory) is None
+
+
+def test_an_unrecorded_structures_file_is_caught(tmp_path, timeline_dir, manifest_path):
+    from ai_rfc.draft.structures import STRUCTURES_FILE
+
+    directory = write_checkpoint(
+        manifest_path, timeline_dir, _pr_cluster_id(timeline_dir), tmp_path / "cp"
+    )
+    (directory / STRUCTURES_FILE).write_text("smuggled in after the freeze\n")
+    problem = verify_checkpoint(directory)
+    assert problem is not None and "present but unrecorded" in problem
+
+
+def test_a_deleted_structures_file_is_caught(tmp_path, timeline_dir):
+    from ai_rfc.draft.structures import STRUCTURES_FILE
+
+    directory = write_checkpoint(
+        _structured_manifest(tmp_path),
+        timeline_dir,
+        _pr_cluster_id(timeline_dir),
+        tmp_path / "cp",
+    )
+    (directory / STRUCTURES_FILE).unlink()
+    problem = verify_checkpoint(directory)
+    assert problem is not None and "recorded but missing" in problem
+
+
+def test_a_failed_rendering_leaves_no_checkpoint_behind(
+    tmp_path, timeline_dir, monkeypatch
+):
+    """The rendering happens before the `mkdir`, like every other input.
+
+    A directory created and then abandoned is refused forever by the write-once
+    guard, and `pipeline status` reads it as unfrozen.
+    """
+
+    def refuse(manifest):
+        raise RuntimeError("rendering refused")
+
+    monkeypatch.setattr("ai_rfc.draft.checkpoint.render_all", refuse)
+    out = tmp_path / "checkpoints"
+    cluster_id = _pr_cluster_id(timeline_dir)
+
+    with pytest.raises(RuntimeError):
+        write_checkpoint(_structured_manifest(tmp_path), timeline_dir, cluster_id, out)
+
+    assert not (out / cluster_id).exists()
+
+
+@pytest.mark.parametrize("ordinal", [0, 100])
+def test_an_ordinal_outside_two_digits_is_refused(tmp_path, timeline_dir, ordinal):
+    """``consolidations/<NN>`` is a two-digit scheme.
+
+    ``f"{100:02d}"`` widens to three digits silently, and the directory then
+    sorts before ``99``.
+    """
+    cluster_id = _pr_cluster_id(timeline_dir)
+    base = write_checkpoint(
+        _structured_manifest(tmp_path), timeline_dir, cluster_id, tmp_path / "cp"
+    )
+    consolidations = tmp_path / "consolidations"
+
+    with pytest.raises(CheckpointError) as error:
+        write_consolidation_checkpoint(
+            _structured_manifest(tmp_path), ordinal, base, cluster_id, consolidations
+        )
+
+    assert str(ordinal) in str(error.value)
+    assert not consolidations.exists()

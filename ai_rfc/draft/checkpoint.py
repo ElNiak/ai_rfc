@@ -202,9 +202,15 @@ def write_consolidation_checkpoint(
         The directory written.
 
     Raises:
-        CheckpointError: If the base is unreadable, or the manifest changes any
-            requirement rather than only its structures.
+        CheckpointError: If the ordinal does not fit two digits, the base is
+            unreadable, or the manifest changes any requirement rather than
+            only its structures.
     """
+    if not 1 <= ordinal <= 99:
+        raise CheckpointError(
+            f"consolidation ordinal {ordinal} is outside 1..99; a consolidation "
+            f"directory is two digits, and a wider one sorts before 99"
+        )
     manifest = load(manifest_path)
     base_manifest_path = base_checkpoint / MANIFEST_FILE
     if not base_manifest_path.is_file():
