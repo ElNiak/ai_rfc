@@ -10,6 +10,7 @@ import dataclasses
 import importlib.util
 import json
 import shutil
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -552,6 +553,71 @@ def test_the_fake_stage_refuses_an_agent_binary_that_is_not_there(
 
     assert code == 1
     assert "no-such-claude" in capsys.readouterr().err
+    assert not (tmp_path / "root").exists()
+
+
+def _rehearsal(tmp_path, examples_file, toolchain_record, *extra):
+    return [
+        "optimize",
+        "run",
+        "--root",
+        str(tmp_path / "root"),
+        "--name",
+        "rehearsal",
+        "--stage",
+        "fake",
+        "--examples",
+        str(examples_file),
+        "--toolchain",
+        str(toolchain_record),
+        *extra,
+    ]
+
+
+def test_the_fake_stage_refuses_an_agent_that_is_not_the_fake(
+    tmp_path, examples_file, toolchain_record, capsys
+):
+    """A rehearsal is never asked for --yes, because it cannot spend.
+
+    Everything that could cost is replaced: the seed is echoed back instead
+    of proposed, the judge and the build are constants, and the agent is a
+    script. Point --claude-bin at the real CLI and the stage still asks for
+    no consent while launching paid sessions through the shared profile.
+    """
+    code = cli.main(
+        _rehearsal(
+            tmp_path,
+            examples_file,
+            toolchain_record,
+            "--claude-bin",
+            sys.executable,
+        )
+    )
+
+    err = capsys.readouterr().err
+    assert code == 1
+    assert sys.executable in err
+    assert "--stage pilot" in err
+    assert not (tmp_path / "root").exists()
+
+
+def test_the_fake_stage_refuses_a_model_id_that_is_not_the_placeholder(
+    tmp_path, examples_file, toolchain_record, capsys
+):
+    """The other half of the same door: the id a campaign records."""
+    code = cli.main(
+        _rehearsal(
+            tmp_path,
+            examples_file,
+            toolchain_record,
+            "--model",
+            "claude-opus-5",
+        )
+    )
+
+    err = capsys.readouterr().err
+    assert code == 1
+    assert "claude-opus-5" in err and cli.FAKE_MODEL in err
     assert not (tmp_path / "root").exists()
 
 

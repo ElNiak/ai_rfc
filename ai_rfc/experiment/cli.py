@@ -29,6 +29,11 @@ NOT_COMMITTED = (
     "tests/experiment/test_render.py."
 )
 
+#: The only model id a rehearsal records. The fake agent answers to anything,
+#: so this is what keeps a real id — and the spend it implies — out of a stage
+#: that asks for no consent because it cannot spend.
+FAKE_MODEL = "fake-model"
+
 
 #: Evaluations one whole search round costs, as a multiple of the example
 #: count: the seed over the selection set, the current candidate over a
@@ -287,11 +292,25 @@ def _optimize_run(args: argparse.Namespace, root: Path) -> int:
         claude_bin = args.claude_bin or "claude"
         build = None
     else:
-        claude_bin = args.claude_bin or str(_fake_claude())
+        fake = _fake_claude()
+        claude_bin = args.claude_bin or str(fake)
         if not Path(claude_bin).exists():
             raise ExperimentError(
                 f"{claude_bin} is not there; a rehearsal drives the fake agent "
                 "that ships with the tests, so point --claude-bin at one"
+            )
+        # A rehearsal has no --yes and no printed ceiling, because by
+        # construction it cannot spend: the seed is echoed back, the judge and
+        # the build are constants, and the agent is a script. Point it at the
+        # real CLI and every one of those bounds is gone while the flags that
+        # exist to ask about money are still not being asked for.
+        if Path(claude_bin).resolve() != fake.resolve():
+            raise ExperimentError(
+                f"--stage fake drives the agent that ships with the tests, and "
+                f"{claude_bin} is not it ({fake}). A rehearsal never asks for "
+                "--yes because it cannot spend; a real agent here would launch "
+                "paid sessions through the shared profile unasked. Use --stage "
+                "pilot to spend"
             )
         # Set before anything imports gepa, which pulls litellm, which
         # fetches its cost map from GitHub at import time unless told not to.
@@ -301,7 +320,14 @@ def _optimize_run(args: argparse.Namespace, root: Path) -> int:
         judge = rehearsal_judge
         build = rehearsal_build
         reflection_lm = SeedEchoLM(encode(seed))
-        model = args.model or "fake-model"
+        model = args.model or FAKE_MODEL
+        if model != FAKE_MODEL:
+            raise ExperimentError(
+                f"--stage fake records {FAKE_MODEL} on every campaign it "
+                f"freezes; {model} names a model that would be paid for if the "
+                "agent were ever pointed at a real CLI. Use --stage pilot to "
+                "name a real one"
+            )
         # max_token_cost is left unset rather than zeroed. It becomes gepa's
         # max_reflection_cost, and MaxReflectionCostStopper stops as soon as
         # cost >= the cap; a callable reflection LM is wrapped in TrackingLM,
