@@ -15,6 +15,8 @@ from ai_rfc.models import (
 )
 from ai_rfc.report import build, to_json, to_markdown, to_yaml
 
+from .draft.conftest import _manifest_text
+
 pytestmark = pytest.mark.unit
 
 
@@ -245,3 +247,32 @@ def test_markdown_says_none_failed_when_a_repo_verified_every_anchor(fixture_rep
     )[1]
     assert "None failed" in section
     assert "Not checked" not in section
+
+
+def test_the_markdown_report_names_every_structure_and_its_status(tmp_path):
+    from ai_rfc.report import build, to_markdown
+    from ai_rfc.schema import load
+
+    path = tmp_path / "m.yaml"
+    path.write_text(
+        _manifest_text(with_second_claim=True) + "structures:\n"
+        "  header:\n"
+        "    kind: record\n"
+        "    title: Message header\n"
+        "    section: '4'\n"
+        "    fields:\n"
+        "      - name: a\n"
+        "        claim: spec:1.1\n"
+    )
+    text = to_markdown(build(load(path)))
+    assert "## Structures" in text
+    assert "header" in text and "Message header" in text
+
+
+def test_a_structure_free_report_has_no_structures_section(tmp_path):
+    from ai_rfc.report import build, to_markdown
+    from ai_rfc.schema import load
+
+    path = tmp_path / "m.yaml"
+    path.write_text(_manifest_text(with_second_claim=False))
+    assert "## Structures" not in to_markdown(build(load(path)))

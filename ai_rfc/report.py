@@ -15,7 +15,7 @@ import yaml
 
 from .anchors import AnchorError, verify_detailed
 from .models import COMMIT_REQUIRED_FOR, STATUS_RANK, Intent, Manifest
-from .promotion import Violation, adjudicate, violations
+from .promotion import Violation, adjudicate, structure_statuses, violations
 
 
 @dataclass(frozen=True)
@@ -115,6 +115,12 @@ def _payload(report: ManifestReport) -> dict:
             for violation in report.violations
         ],
         "unverified_anchors": list(report.unverified),
+        "structures": {
+            structure_id: {"stored": stored.value, "supported": supported.value}
+            for structure_id, (stored, supported) in structure_statuses(
+                report.manifest
+            ).items()
+        },
     }
 
 
@@ -176,6 +182,17 @@ def to_markdown(report: ManifestReport) -> str:
             f"- **{entry['id']}** — stored {entry['stored']}, "
             f"evidence supports {entry['supported']}"
         )
+
+    statuses = structure_statuses(report.manifest)
+    if statuses:
+        lines += ["", "## Structures", ""]
+        for structure in sorted(report.manifest.structures, key=lambda s: s.id):
+            stored, supported = statuses[structure.id]
+            lines.append(
+                f"- `{structure.id}` ({structure.kind.value}) {structure.title} "
+                f"§{structure.section}: stored {stored.value}, supported "
+                f"{supported.value}, {len(structure.claims)} claims"
+            )
 
     lines += ["", "## Normative", ""]
     normative = [c for c in manifest.claims if c.intent is not Intent.ACCIDENTAL]

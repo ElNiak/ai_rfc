@@ -12,6 +12,8 @@ from ai_rfc.models import (
 )
 from ai_rfc.promotion import adjudicate, violations
 
+from .draft.conftest import _manifest_text
+
 pytestmark = pytest.mark.unit
 
 SHA = "00112233445566778899aabbccddeeff00112233"
@@ -197,3 +199,40 @@ def test_a_clean_manifest_reports_no_violations():
         ),
     )
     assert violations(manifest) == ()
+
+
+def test_a_structure_is_only_as_strong_as_its_weakest_claim(tmp_path):
+    from ai_rfc.models import STATUS_RANK
+    from ai_rfc.promotion import adjudicate, structure_statuses
+    from ai_rfc.schema import load
+
+    path = tmp_path / "m.yaml"
+    path.write_text(
+        _manifest_text(with_second_claim=True) + "structures:\n"
+        "  header:\n"
+        "    kind: record\n"
+        "    title: H\n"
+        "    section: '4'\n"
+        "    fields:\n"
+        "      - name: a\n"
+        "        claim: spec:1.1\n"
+        "      - name: b\n"
+        "        claim: spec:2.1\n"
+    )
+    manifest = load(path)
+    stored, supported = structure_statuses(manifest)["header"]
+    assert stored is min(
+        (claim.status for claim in manifest.claims), key=lambda s: STATUS_RANK[s]
+    )
+    assert supported is min(
+        (adjudicate(claim) for claim in manifest.claims), key=lambda s: STATUS_RANK[s]
+    )
+
+
+def test_a_manifest_without_structures_has_no_structure_statuses(tmp_path):
+    from ai_rfc.promotion import structure_statuses
+    from ai_rfc.schema import load
+
+    path = tmp_path / "m.yaml"
+    path.write_text(_manifest_text(with_second_claim=False))
+    assert structure_statuses(load(path)) == {}

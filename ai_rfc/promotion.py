@@ -110,3 +110,30 @@ def violations(manifest: Manifest) -> tuple[Violation, ...]:
                 )
             )
     return tuple(found)
+
+
+def structure_statuses(manifest: Manifest) -> dict[str, tuple[Status, Status]]:
+    """Each structure's stored and supported status.
+
+    A structure is exactly as strong as the weakest claim it binds, on both
+    axes, so figure correctness reduces to claim correctness.
+
+    Args:
+        manifest: The manifest whose structures to score.
+
+    Returns:
+        Structure id to ``(stored, supported)``. Empty when the manifest
+        declares no structures.
+    """
+    by_id = {claim.id: claim for claim in manifest.claims}
+    statuses: dict[str, tuple[Status, Status]] = {}
+    for structure in manifest.structures:
+        bound = [by_id[claim_id] for claim_id in structure.claims if claim_id in by_id]
+        if not bound:
+            continue
+        stored = min((claim.status for claim in bound), key=lambda s: STATUS_RANK[s])
+        supported = min(
+            (adjudicate(claim) for claim in bound), key=lambda s: STATUS_RANK[s]
+        )
+        statuses[structure.id] = (stored, supported)
+    return statuses
