@@ -105,6 +105,36 @@ def _settings(**overrides):
     return RunSettings(**{**defaults, **overrides})
 
 
+def test_a_claude_cli_proposer_is_recorded_by_its_form(tmp_path, plugin_root):
+    """A result read months later must name the proposer, not an address."""
+    from ai_rfc.experiment.optimize.claude_cli import ClaudeCliCall
+    from ai_rfc.experiment.optimize.run import _write_result
+
+    settings = _settings(
+        root=tmp_path,
+        reflection_lm=ClaudeCliCall(
+            "claude", tmp_path / "profile", "some-model", cwd=tmp_path / "cwd"
+        ),
+    )
+    evaluator = SimpleNamespace(
+        settings=SimpleNamespace(source_plugin_root=plugin_root), evaluations=0
+    )
+    result = SimpleNamespace(
+        best_candidate="seed",
+        best_score=0.0,
+        candidates=[],
+        val_subscores=[],
+        best_idx=0,
+        total_evals=0,
+        metadata={},
+    )
+
+    path = _write_result(settings, evaluator, result, tmp_path / "result.json")
+
+    record = json.loads(path.read_text())
+    assert record["settings"]["reflection_lm"] == "claude-cli:some-model"
+
+
 def test_a_spec_round_trips_both_kinds_of_example(interview_fixture, pristine):
     spec = {
         "examples": [
