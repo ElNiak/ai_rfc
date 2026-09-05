@@ -14,6 +14,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FAKE_CLAUDE = Path(__file__).parent / "fake_claude" / "claude"
+FAKE_CLAUDE_LM = Path(__file__).parent / "fake_claude" / "claude-lm"
 
 
 def _executable(path: Path) -> Path:

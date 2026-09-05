@@ -4,6 +4,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 import yaml
 
 from ai_rfc.draft.questions import load_questions
@@ -18,6 +19,7 @@ from ai_rfc.experiment.workspace import copy_workspace
 
 from .conftest import (
     FAKE_CLAUDE,
+    FAKE_CLAUDE_LM,
     INTERVIEW_AUTHOR,
     INTERVIEW_TRANSCRIPT,
     interview_good_steps,
@@ -256,3 +258,114 @@ def test_fake_answers_version():
         [str(FAKE_CLAUDE), "--version"], capture_output=True, text=True
     )
     assert completed.stdout.strip() == "fake-claude 0.0.0"
+
+
+def _run_lm(profile, prompt, control=None, timeout=10):
+    if control is not None:
+        (profile / "fake-lm.json").write_text(json.dumps(control))
+    return subprocess.run(
+        [str(FAKE_CLAUDE_LM), "-p", "--output-format", "stream-json"],
+        input=prompt,
+        cwd=profile,
+        env={
+            "CLAUDE_CONFIG_DIR": str(profile),
+            "PATH": f"{Path(sys.executable).parent}:/usr/bin:/bin",
+            "MARK": "x",
+        },
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+
+
+@pytest.fixture
+def lm_profile(tmp_path):
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    return profile
+
+
+def test_claude_lm_is_executable():
+    assert FAKE_CLAUDE_LM.stat().st_mode & 0o111
+
+
+def test_claude_lm_echoes_a_fenced_proposal_and_records_the_call(lm_profile):
+    completed = _run_lm(
+        lm_profile, "Rewrite it.", {"reply": "fenced", "proposal": "NEW"}
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    events = parse_stream(completed.stdout)
+    assert events[0]["type"] == "system" and events[0]["subtype"] == "init"
+    final = result_event(events)
+    assert final["result"] == "```\nNEW\n```" and final["is_error"] is False
+    (record,) = [
+        json.loads(p.read_text()) for p in (lm_profile / "fake-lm-calls").iterdir()
+    ]
+    assert record["argv"][1:] == ["-p", "--output-format", "stream-json"]
+    assert record["stdin"] == "Rewrite it."
+    assert record["env"]["MARK"] == "x"
+    assert record["cwd"] == str(lm_profile)
+
+
+def test_claude_lm_defaults_to_a_fenced_proposal_without_a_control_file(lm_profile):
+    completed = _run_lm(lm_profile, "x")
+
+    assert (
+        result_event(parse_stream(completed.stdout))["result"] == "```\nPROPOSAL\n```"
+    )
+
+
+def test_claude_lm_prints_a_verdict(lm_profile):
+    completed = _run_lm(lm_profile, "x", {"reply": "verdict", "score": 0.5})
+
+    reply = result_event(parse_stream(completed.stdout))["result"]
+    assert json.loads(reply) == {"score": 0.5, "rationale": "stub verdict"}
+
+
+def test_claude_lm_reports_an_error_result_with_a_quota_event(lm_profile):
+    completed = _run_lm(
+        lm_profile,
+        "x",
+        {
+            "reply": "error",
+            "message": "usage limit reached",
+            "rate_limit": {"unifiedWindows": {"seven_day": {"utilization": 1.0}}},
+        },
+    )
+
+    events = parse_stream(completed.stdout)
+    assert completed.returncode == 0
+    assert [e["type"] for e in events] == ["system", "rate_limit_event", "result"]
+    assert result_event(events)["is_error"] is True
+    assert result_event(events)["result"] == "usage limit reached"
+
+
+def test_claude_lm_exits_nonzero_with_the_stderr_it_was_given(lm_profile):
+    completed = _run_lm(
+        lm_profile, "x", {"reply": "nonzero", "stderr": "boom\n", "exit_code": 7}
+    )
+
+    assert completed.returncode == 7
+    assert completed.stderr == "boom\n"
+    assert completed.stdout == ""
+
+
+def test_claude_lm_hangs_when_told_to(lm_profile):
+    with pytest.raises(subprocess.TimeoutExpired):
+        _run_lm(lm_profile, "x", {"reply": "hang", "seconds": 5}, timeout=1)
+
+
+def test_claude_lm_can_print_something_that_is_not_stream_json(lm_profile):
+    completed = _run_lm(lm_profile, "x", {"reply": "garbage"})
+
+    assert completed.returncode == 0
+    assert completed.stdout == "this is not stream-json\n"
+
+
+def test_claude_lm_numbers_its_calls(lm_profile):
+    _run_lm(lm_profile, "one")
+    _run_lm(lm_profile, "two")
+
+    names = sorted(p.name for p in (lm_profile / "fake-lm-calls").iterdir())
+    assert names == ["1.json", "2.json"]

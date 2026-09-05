@@ -1,0 +1,101 @@
+#!/usr/bin/env python3
+"""A stand-in for one ``claude -p`` language-model call.
+
+The wrapper under test launches it exactly like the real CLI, with the prompt
+on stdin. It reads what to answer from ``$CLAUDE_CONFIG_DIR/fake-lm.json``
+(absent means a fenced proposal), records how it was called under
+``$CLAUDE_CONFIG_DIR/fake-lm-calls/``, and prints its reply as stream-json.
+Stdlib only, so it runs under whichever ``python3`` is on the child's PATH.
+Never used outside the tests.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import sys
+import time
+from pathlib import Path
+
+
+def _emit(event: dict) -> None:
+    sys.stdout.write(json.dumps(event, sort_keys=True) + "\n")
+    sys.stdout.flush()
+
+
+def main() -> int:
+    profile = Path(os.environ["CLAUDE_CONFIG_DIR"])
+    control_path = profile / "fake-lm.json"
+    control = json.loads(control_path.read_text()) if control_path.exists() else {}
+    prompt = sys.stdin.read()
+
+    calls = profile / "fake-lm-calls"
+    calls.mkdir(exist_ok=True)
+    number = len(list(calls.iterdir())) + 1
+    (calls / f"{number}.json").write_text(
+        json.dumps(
+            {
+                "argv": sys.argv,
+                "env": dict(os.environ),
+                "stdin": prompt,
+                "cwd": os.getcwd(),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+
+    reply = control.get("reply", "fenced")
+    if reply == "nonzero":
+        sys.stderr.write(control.get("stderr", "the stub was told to fail\n"))
+        return int(control.get("exit_code", 3))
+    if reply == "hang":
+        time.sleep(float(control.get("seconds", 30)))
+        return 0
+    if reply == "garbage":
+        sys.stdout.write("this is not stream-json\n")
+        return 0
+
+    _emit({"type": "system", "subtype": "init", "model": "fake-lm", "tools": []})
+    if "rate_limit" in control:
+        _emit({"type": "rate_limit_event", "rate_limit_info": control["rate_limit"]})
+    if reply == "error":
+        _emit(
+            {
+                "type": "result",
+                "subtype": "error_during_execution",
+                "is_error": True,
+                "result": control.get("message", "the stub was told to error"),
+                "num_turns": 0,
+            }
+        )
+        return 0
+    if reply == "verdict":
+        text = json.dumps(
+            {"score": control.get("score", 1), "rationale": "stub verdict"}
+        )
+    else:
+        text = "```\n" + str(control.get("proposal", "PROPOSAL")) + "\n```"
+    _emit(
+        {
+            "type": "assistant",
+            "message": {
+                "role": "assistant",
+                "content": [{"type": "text", "text": text}],
+            },
+        }
+    )
+    _emit(
+        {
+            "type": "result",
+            "subtype": "success",
+            "is_error": False,
+            "result": text,
+            "num_turns": 1,
+        }
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
