@@ -344,3 +344,9 @@ before this run and already present in the tree: its added rule (a
 the previous revision's, or whose first entry holds no claims, is a strict
 finding) produced zero findings against MARK's real 37-revision history — no
 attribution note is needed because the gate found nothing to attribute.
+
+The workspace measured here is `/tmp/claude/sp7a/mark-a1`, the disposable
+copy of the finished `mark-full-1` run A1 workspace named at the top of this
+document, and this "clean" says nothing about `PANTHER/reconstructions/mark`.
+That is a separate artifact with its own revision history, and the same rule
+does report a finding against it; see the README's experiment-harness section.

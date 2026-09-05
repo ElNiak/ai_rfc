@@ -109,6 +109,19 @@ read `AI_RFC_TOOLCHAIN`; it takes `--toolchain` (defaulting to
 `<root>/tools/toolchain.json` when that file exists) and verifies the
 record by default.
 
+**`reconstructions/mark` exits 3 under the strict gate, and should.** Running
+`draft gate --strict` directly on PANTHER's `reconstructions/mark` reports one
+finding: `draft-elniak-mark-reconstructed-01: recorded as a normative change,
+but its checkpoint manifest is identical to the previous revision's`. Two of
+that artifact's checkpoints, `c0049-pr-ba8ca432c304` and
+`c0069-epoch-b901f36095d7`, hold byte-identical manifests while both revisions
+record `normative_change: true`. This is a data defect in that reconstruction,
+not a gate regression: the rule says a revision claiming to change the
+specification must change the manifest the specification is made of, and there
+two consecutive revisions did not. `workspace prepare mark` is unaffected — it
+resets `revisions.yaml`, so a campaign starting from a prepared workspace never
+carries those two entries.
+
 ## Optimising the plugin skills with GEPA
 
 `python -m ai_rfc.experiment optimize` searches for better skill texts by
