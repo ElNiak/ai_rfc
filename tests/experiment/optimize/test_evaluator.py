@@ -35,6 +35,7 @@ from ai_rfc.experiment.optimize.evaluator import (
     draft_build_report,
 )
 from ai_rfc.experiment.optimize.fixtures import build_interview_pristine
+from ai_rfc.experiment.optimize.judge import JudgeError
 from ai_rfc.experiment.optimize.scoring import (
     ZERO_INCOMPLETE,
     ZERO_REGISTER_EDIT,
@@ -395,6 +396,59 @@ def test_one_harness_fault_is_retried_and_the_retry_is_graded(
     assert value > 0.0 and info["reason"] is None
     assert len(seen) == 2 and seen[0] != seen[1]
     assert info["campaign_id"] == seen[1]
+
+
+def test_a_judge_that_answered_nothing_is_retried_like_any_other_fault(
+    settings, candidate, loop_example, write_scenario
+):
+    """A judge that could not be reached measured nothing, so nothing is scored.
+
+    The run itself was fine; only the grader was unreachable. Treated as a
+    verdict it would be a relevance term of zero, indistinguishable from a
+    candidate whose claims describe the wrong code.
+    """
+    plant = _scenario(write_scenario, GRADED_STEPS)
+    calls = []
+
+    def unreachable_once(hunks):
+        calls.append(len(hunks))
+        if len(calls) == 1:
+            raise JudgeError("the judge could not be reached for any of 1 claims")
+        return _judge(hunks)
+
+    evaluator = Evaluator(_with(settings, pre_launch=plant, judge=unreachable_once))
+
+    value, info = evaluator(candidate, loop_example)
+
+    assert value > 0.0 and info["reason"] is None
+    assert len(calls) == 2
+    assert len(list((settings.root / "campaigns").iterdir())) == 2
+
+
+def test_a_judge_that_never_answers_is_a_harness_zero_and_then_aborts(
+    settings, candidate, loop_example, write_scenario
+):
+    """The abort counter has to reach a mistyped --judge-model.
+
+    Every call failing the same way is what a wrong model id looks like, and
+    the whole pilot would otherwise run to the end grading a term nothing
+    computed.
+    """
+    plant = _scenario(write_scenario, GRADED_STEPS)
+
+    def never_answers(hunks):
+        raise JudgeError("anthropic returned 404 for that model")
+
+    evaluator = Evaluator(_with(settings, pre_launch=plant, judge=never_answers))
+
+    value, info = evaluator(candidate, loop_example)
+
+    assert value == 0.0
+    assert info["error_type"] == "harness"
+    assert "JudgeError" in info["detail"] and "404" in info["detail"]
+
+    with pytest.raises(EvaluatorAbort):
+        evaluator(candidate, loop_example)
 
 
 def test_two_faults_return_a_harness_zero_and_a_second_pair_aborts(

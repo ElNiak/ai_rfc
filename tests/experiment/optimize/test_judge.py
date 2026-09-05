@@ -131,6 +131,41 @@ def test_a_transport_failure_scores_that_claim_zero_without_aborting_the_batch()
     assert len(calls) == 3
 
 
+def test_a_batch_in_which_every_call_failed_is_raised_not_scored():
+    """Nothing was measured, so there is no verdict to hand back.
+
+    A mistyped ``--judge-model`` fails identically on every request. Scored,
+    that is a relevance term of zero for every candidate, and a whole pilot
+    runs to the end grading a term nothing computed. Raised, the evaluator
+    sees the harness fault it is.
+    """
+
+    def send(prompt):
+        raise RuntimeError("connection reset")
+
+    with pytest.raises(JudgeError, match="could not be reached for any of 2"):
+        build_judge(send)([hunk("t:1.1"), hunk("t:2.1", text="Two.")])
+
+
+def test_a_cache_hit_counts_as_an_answer_when_every_live_call_fails():
+    """A remembered verdict is a measurement; the batch is not all-failed."""
+    cache = {}
+    replies = ['{"score": 1, "rationale": "yes"}']
+
+    def send(prompt):
+        if replies:
+            return replies.pop()
+        raise RuntimeError("connection reset")
+
+    judge = build_judge(send, cache=cache)
+    judge([hunk("t:1.1")])
+
+    remembered, failed = judge([hunk("t:1.1"), hunk("t:2.1", text="Two.")])
+
+    assert remembered.score == 1.0
+    assert failed.rationale.startswith("judge error: ")
+
+
 def test_an_empty_batch_calls_nothing():
     transport = transport_returning('{"score": 1, "rationale": "x"}')
 
@@ -376,16 +411,32 @@ def test_an_unreachable_host_is_a_judge_error(monkeypatch):
 def test_a_transport_error_reaches_the_batch_as_a_zero(monkeypatch):
     """JudgeError is an exception like any other; the batch survives it."""
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    calls = []
 
     def urlopen(request, timeout=None):
-        raise urllib.error.URLError("down")
+        calls.append(request)
+        if len(calls) == 1:
+            raise urllib.error.URLError("down")
+        return _Response(
+            {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": '{"score": 1, "rationale": "implements it"}',
+                    }
+                ]
+            }
+        )
 
     monkeypatch.setattr(urllib.request, "urlopen", urlopen)
 
-    (judgement,) = build_judge(anthropic_transport("m"))([hunk()])
+    failed, graded = build_judge(anthropic_transport("m"))(
+        [hunk("t:1.1"), hunk("t:2.1", text="Two.")]
+    )
 
-    assert judgement.score == 0.0
-    assert judgement.rationale.startswith("judge error: ")
+    assert failed.score == 0.0
+    assert failed.rationale.startswith("judge error: ")
+    assert graded.score == 1.0
 
 
 @pytest.mark.manual

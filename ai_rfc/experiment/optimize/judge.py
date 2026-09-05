@@ -71,7 +71,13 @@ shape:
 
 
 class JudgeError(ExperimentError):
-    """Raised when the judge's transport cannot deliver a reply."""
+    """Raised when the judge's transport cannot deliver a reply.
+
+    Also raised by :func:`build_judge`'s judge when every call in one batch
+    failed, which is not a verdict of zero but a harness fault: the likeliest
+    cause is a model id the endpoint rejects on every request, and scoring it
+    would run a whole pilot on a relevance term that is identically zero.
+    """
 
 
 def anthropic_transport(
@@ -208,10 +214,13 @@ def build_judge(
 ) -> Judge:
     """A judge that grades each hunk with one transport call.
 
-    Neither a transport failure nor an unreadable reply aborts the batch: the
-    claim scores zero with the reason in its rationale and the rest are still
-    graded, because one dropped connection should not void a whole campaign's
-    relevance term.
+    One transport failure does not abort the batch: that claim scores zero
+    with the reason in its rationale and the rest are still graded, because a
+    dropped connection should not void a whole campaign's relevance term.
+    Every call failing is a different thing — nothing was measured, and the
+    likeliest cause is a model id the endpoint rejects on every request — so
+    that raises :class:`JudgeError` for the caller to treat as the harness
+    fault it is.
 
     Only a parsed judgement is remembered. Caching a failure would freeze a
     transient outage into a verdict that never gets retried.
@@ -224,10 +233,15 @@ def build_judge(
 
     Returns:
         The judge.
+
+    Raises:
+        JudgeError: When the judge is called with hunks and every one of them
+            failed in transport. A cache hit counts as an answer.
     """
 
     def judge(hunks: list[ClaimHunk]) -> list[Judgement]:
         judgements: list[Judgement] = []
+        failures: list[str] = []
         for hunk in hunks:
             key = _cache_key(hunk)
             remembered = None if cache is None else cache.get(key)
@@ -241,6 +255,7 @@ def build_judge(
             try:
                 reply = transport(_prompt(hunk))
             except Exception as error:  # noqa: BLE001 - any transport may fail
+                failures.append(str(error))
                 judgements.append(
                     Judgement(hunk.claim_id, 0.0, f"judge error: {error}")
                 )
@@ -251,6 +266,11 @@ def build_judge(
             ):
                 cache[key] = judgement
             judgements.append(judgement)
+        if hunks and len(failures) == len(hunks):
+            raise JudgeError(
+                f"the judge could not be reached for any of {len(hunks)} "
+                f"claims; the first failure was: {failures[0]}"
+            )
         return judgements
 
     return judge

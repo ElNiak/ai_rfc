@@ -12,7 +12,8 @@ backend's own doing and is reported as such, with the list of broken guards it
 can propose against. A harness fault is not: a busy profile or a launch that
 never mounted its tools says nothing about the text, so it is retried once and,
 when it keeps happening, stops the optimization rather than teaching it that
-the current proposal is worthless.
+the current proposal is worthless. A judge that answered none of its calls is
+counted as the same kind of failure, not as a relevance term of zero.
 """
 
 from __future__ import annotations
@@ -36,6 +37,7 @@ from ..metrics import analyze_run, window_clusters
 from ..workspace import REFCACHE_DIR
 from .codec import Bundle, CodecError, decode, frontmatters_from_plugin, materialize
 from .fixtures import InterviewFixture
+from .judge import JudgeError
 from .scoring import (
     ZERO_CODEC,
     ZERO_HARNESS,
@@ -326,15 +328,14 @@ class Evaluator:
             }
 
         plugin_root = self._materialized(bundle, sha)
-        campaign, analysis, fault = self._run_once_more_if_it_faults(
+        campaign, score, fault = self._run_once_more_if_it_faults(
             bundle, plugin_root, example, sha
         )
-        if fault is not None:
-            return self._harness_zero(fault, names)
+        if fault is not None or campaign is None or score is None:
+            return self._harness_zero(fault or "the harness returned nothing", names)
 
         self._consecutive_faults = 0
         self._evaluations += 1
-        score = self._score(campaign, analysis, example)
         return score.value, {
             **score.info,
             "candidate_sha": sha,
@@ -369,16 +370,26 @@ class Evaluator:
 
     def _run_once_more_if_it_faults(
         self, bundle: Bundle, plugin_root: Path, example: Example, sha: str
-    ) -> tuple[Campaign | None, dict[str, Any] | None, str | None]:
-        """Freeze, launch, audit and analyze; on a harness fault, once more.
+    ) -> tuple[Campaign | None, Score | None, str | None]:
+        """Freeze, launch, audit, analyze and score; on a fault, once more.
 
         The retry starts from a fresh campaign id: a campaign is frozen once,
         so the faulted one's directory stands as the evidence it is.
+
+        Scoring is inside the retry for one reason: a judge that answered no
+        call at all is infrastructure, the same as a launch that never
+        mounted its tools, and the score it would otherwise produce is a
+        relevance term of zero indistinguishable from a real verdict. Only
+        that failure is caught here — any other exception out of scoring is a
+        defect in the scorer and must stop the run.
         """
         campaign: Campaign | None = None
-        analysis: dict[str, Any] | None = None
+        score: Score | None = None
         fault: str | None = None
         for attempt in (1, 2):
+            campaign = None
+            score = None
+            analysis: dict[str, Any] | None = None
             try:
                 campaign = self._freeze(bundle, plugin_root, example, sha)
                 analysis = self._launch(campaign, example)
@@ -391,8 +402,13 @@ class Evaluator:
             # proposal, so the class of exception is not what decides that.
             except Exception as error:  # noqa: BLE001
                 fault = f"{type(error).__name__}: {error}"
+            if fault is None and campaign is not None and analysis is not None:
+                try:
+                    score = self._score(campaign, analysis, example)
+                except JudgeError as error:
+                    fault = f"{type(error).__name__}: {error}"
             if fault is None:
-                return campaign, analysis, None
+                return campaign, score, None
             self._settings.log(f"harness fault on attempt {attempt}: {fault}")
         return None, None, fault
 
