@@ -339,6 +339,20 @@ def _optimize_run(args: argparse.Namespace, root: Path) -> int:
 
     if args.stage == "pilot":
         _refuse_an_unpriced_reflection_model(args.reflection_lm)
+        # Last of the refusals because it is the slow one: verify clones and
+        # builds the template twice. Every evaluation's campaign is frozen
+        # with verify_toolchain off, so this is the one place the record is
+        # checked — and a bad record would otherwise zero the prose term for
+        # every candidate, visible only in the log.
+        from .toolchain import verify as verify_toolchain
+
+        ok, reasons = verify_toolchain(args.toolchain)
+        if not ok:
+            raise ExperimentError(
+                f"{args.toolchain} does not verify, and a pilot builds every "
+                "draft with it: unchecked, each candidate would score its "
+                f"prose term zero for a reason nothing reports. {'; '.join(reasons)}"
+            )
 
     settings = RunSettings(
         name=args.name,

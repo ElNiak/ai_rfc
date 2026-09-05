@@ -491,6 +491,43 @@ def test_a_pilot_accepts_a_reflection_model_litellm_prices(
     assert searched == ["pilot-1"]
 
 
+@with_gepa
+def test_a_pilot_refuses_a_toolchain_that_does_not_verify(
+    tmp_path, examples_file, toolchain_record, monkeypatch, capsys
+):
+    """Nothing else checks it: every evaluation's campaign freezes with
+    ``verify_toolchain`` off, on the understanding that the optimize run
+    verifies once. A bad record zeroes the prose term for every candidate
+    through the build's own exception handler, which only logs.
+    """
+    monkeypatch.setenv("LITELLM_LOCAL_MODEL_COST_MAP", "True")
+    pytest.importorskip("litellm")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "not-used-by-this-test")
+
+    from ai_rfc.experiment import toolchain as toolchain_module
+
+    monkeypatch.setattr(
+        toolchain_module,
+        "verify",
+        lambda record, runner=None: (False, ("kramdown-rfc is not executable",)),
+    )
+
+    code = cli.main(
+        _pilot(
+            tmp_path,
+            examples_file,
+            toolchain_record,
+            *_priced("--yes", "--reflection-lm", "claude-sonnet-4-6"),
+        )
+    )
+
+    err = capsys.readouterr().err
+    assert code == 1
+    assert "kramdown-rfc is not executable" in err
+    assert str(toolchain_record) in err
+    assert not (tmp_path / "root").exists()
+
+
 def test_the_fake_stage_refuses_an_agent_binary_that_is_not_there(
     tmp_path, examples_file, toolchain_record, capsys
 ):
