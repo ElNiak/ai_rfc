@@ -1,3 +1,5 @@
+import hashlib
+import json
 from pathlib import Path
 
 import pytest
@@ -330,11 +332,46 @@ def test_a_malformed_delimiter_is_a_finding(structured_workspace):
     assert any("closed but never opened" in f for f in findings)
 
 
+def test_a_forged_delimiter_in_a_description_cannot_shrink_the_gated_block(
+    forged_workspace,
+):
+    # The block a member can forge its way out of is the block the gate reads
+    # back, so an edit anywhere in it must still be check 10's finding.
+    ws = forged_workspace
+    assert _gate(ws) == ()
+    _retag_draft_with(
+        ws, lambda text: text.replace("**Message header**", "**Totally different**")
+    )
+    assert any("does not match the frozen" in f for f in _gate(ws))
+
+
+def test_a_malformed_frozen_rendering_names_the_checkpoint(structured_workspace):
+    # A checkpoint frozen from a manifest the renderer could not keep on one
+    # line carries a valid digest over a malformed rendering, so the finding
+    # must point at the checkpoint rather than at the draft that pasted it.
+    ws = structured_workspace
+    checkpoint = ws["last_checkpoint"]
+    broken = "{::comment}\nai_rfc:struct:header begin\n{:/comment}\nbody\n"
+    (checkpoint / "structures.md").write_text(broken)
+    record = json.loads((checkpoint / "checkpoint.json").read_text())
+    record["structures_sha256"] = hashlib.sha256(broken.encode()).hexdigest()
+    (checkpoint / "checkpoint.json").write_text(json.dumps(record, indent=2) + "\n")
+    prefix = f"draft-test-spec-01: checkpoint {checkpoint.name}: "
+    assert any(f.startswith(prefix) and "never closed" in f for f in _gate(ws))
+
+
 def test_a_faithful_consolidation_gates_clean(consolidated_workspace):
     # The consolidation reuses its predecessor's cluster id (so the ordinal
     # cannot increase) and its pasted legend cites claims the previous revision
     # already cited; neither existing pass may report it (D52).
     ws = consolidated_workspace
+    base_rendering = (ws["last_checkpoint"] / "structures.md").read_text()
+    consolidated_rendering = (ws["consolidations"] / "01" / "structures.md").read_text()
+    assert consolidated_rendering != base_rendering, (
+        "a consolidation exists to change the structures; against a rendering "
+        "identical to its base's, checks 9-11 would pass just as well over code "
+        "that froze the base's"
+    )
     assert (
         run_gate(
             ws["repo"],

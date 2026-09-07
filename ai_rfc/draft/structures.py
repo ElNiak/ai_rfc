@@ -8,6 +8,8 @@ caller sees the same bytes.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
+from typing import NamedTuple
 
 from ai_rfc.models import (
     FIELD_KINDS,
@@ -30,8 +32,16 @@ _CLOSE = "{:/comment}"
 
 
 def _cell(text: object) -> str:
-    """Escape a table cell so a literal pipe cannot add a column."""
-    return str(text).replace("|", r"\|")
+    """Collapse author text onto one line, then escape its pipes.
+
+    A block's bytes are what the checkpoint freezes and the gate compares, and
+    a delimiter marker owns a whole line of its own. So no author text may
+    carry a line break: one lets a member spell an end marker and a following
+    begin marker, closing and reopening its own block, and the gate then reads
+    back only the fragment after the forged reopen. Every interpolation of
+    author text into a block goes through here.
+    """
+    return " ".join(str(text).split()).replace("|", r"\|")
 
 
 def _rule(bits: int) -> str:
@@ -50,11 +60,12 @@ def _rows(structure: Structure) -> list[list[tuple[str, int]]]:
     row: list[tuple[str, int]] = []
     used = 0
     for field in structure.fields:
+        name = _cell(field.name)
         if field.width == VARIABLE_WIDTH:
             if row:
                 rows.append(row)
                 row, used = [], 0
-            rows.append([(f"{field.name} (variable)", BITS_PER_ROW)])
+            rows.append([(f"{name} (variable)", BITS_PER_ROW)])
             continue
         if field.width is None:
             raise ValueError(
@@ -64,7 +75,7 @@ def _rows(structure: Structure) -> list[list[tuple[str, int]]]:
         first = True
         while remaining > 0:
             take = min(remaining, BITS_PER_ROW - used)
-            row.append((field.name if first else f"{field.name} (cont.)", take))
+            row.append((name if first else f"{name} (cont.)", take))
             used += take
             remaining -= take
             first = False
@@ -100,12 +111,15 @@ def _ladder(structure: Structure) -> list[str]:
     """Draw each state as a box, in declaration order, then its edges."""
     lines: list[str] = []
     for state in structure.states:
-        box = f"| {state} |"
+        box = f"| {_cell(state)} |"
         lines.extend(
             ["+" + "-" * (len(box) - 2) + "+", box, "+" + "-" * (len(box) - 2) + "+"]
         )
     for transition in structure.transitions:
-        arrow = f"{transition.source} --{transition.event}--> {transition.target}"
+        arrow = (
+            f"{_cell(transition.source)} --{_cell(transition.event)}--> "
+            f"{_cell(transition.target)}"
+        )
         lines.append(arrow)
     return [line.rstrip() for line in lines]
 
@@ -128,7 +142,7 @@ def _body(structure: Structure) -> list[str]:
                     _cell(field.name),
                     _cell(field.width if field.width is not None else "-"),
                     _cell(field.description or "-"),
-                    f"`ai_rfc:{field.claim}`",
+                    f"`ai_rfc:{_cell(field.claim)}`",
                 ]
                 for field in structure.fields
             ],
@@ -142,7 +156,7 @@ def _body(structure: Structure) -> list[str]:
                     _cell(field.type or "-"),
                     _cell(field.width if field.width is not None else "-"),
                     _cell(field.description or "-"),
-                    f"`ai_rfc:{field.claim}`",
+                    f"`ai_rfc:{_cell(field.claim)}`",
                 ]
                 for field in structure.fields
             ],
@@ -155,7 +169,7 @@ def _body(structure: Structure) -> list[str]:
                     _cell(value.value),
                     _cell(value.name),
                     _cell(value.description or "-"),
-                    f"`ai_rfc:{value.claim}`",
+                    f"`ai_rfc:{_cell(value.claim)}`",
                 ]
                 for value in structure.values
             ],
@@ -170,7 +184,7 @@ def _body(structure: Structure) -> list[str]:
                     _cell(transition.event),
                     _cell(transition.guard or "-"),
                     _cell(transition.target),
-                    f"`ai_rfc:{transition.claim}`",
+                    f"`ai_rfc:{_cell(transition.claim)}`",
                 ]
                 for transition in structure.transitions
             ],
@@ -212,6 +226,89 @@ def render_all(manifest: Manifest) -> str:
     return "\n".join(blocks)
 
 
+class _Open(NamedTuple):
+    """The block a begin marker left open: where it started, and its id."""
+
+    at: int
+    id: str
+
+
+class _Block(NamedTuple):
+    """One closed block: its id, its inclusive bounds, and its interior."""
+
+    id: str
+    first: int
+    last: int
+    lines: list[str]
+
+
+class _Malformed(NamedTuple):
+    """A delimiter sequence that closed no block, and the finding it earns."""
+
+    finding: str
+
+
+def _scan(lines: list[str]) -> Iterator[_Block | _Malformed]:
+    """Walk a draft's delimiter lines once, in document order.
+
+    :func:`parse_blocks` and :func:`block_spans` are both projections of this
+    rather than two walks of the same grammar, for the reason
+    :func:`parse_blocks` gives its own callers: two readers of one input drift,
+    and a drifted reader reports a finding that is not there.
+
+    Args:
+        lines: The draft source, split into lines.
+
+    Yields:
+        A :class:`_Block` for each block closed by its own id, and a
+        :class:`_Malformed` for each delimiter sequence that closes none,
+        interleaved in the order the draft states them.
+    """
+    closed: set[str] = set()
+    opened: _Open | None = None
+    collected: list[str] = []
+    index = 0
+    while index < len(lines):
+        if lines[index].strip() == _OPEN and index + 2 < len(lines):
+            marker = lines[index + 1].strip()
+            begin, end = _BEGIN.match(marker), _END.match(marker)
+            if (begin or end) and lines[index + 2].strip() == _CLOSE:
+                if begin:
+                    opening = begin.group("id")
+                    if opened is not None:
+                        yield _Malformed(
+                            f"structure block {opened.id} was never closed before "
+                            f"{opening} opened"
+                        )
+                    if opening in closed:
+                        yield _Malformed(
+                            f"structure block {opening} appears more than once"
+                        )
+                    opened, collected = _Open(index, opening), []
+                elif end is not None:
+                    closing = end.group("id")
+                    if opened is None:
+                        yield _Malformed(
+                            f"structure block {closing} was closed but never opened"
+                        )
+                    elif closing != opened.id:
+                        yield _Malformed(
+                            f"structure block {opened.id} was closed by {closing}"
+                        )
+                        opened = None
+                    else:
+                        yield _Block(opened.id, opened.at, index + 2, collected)
+                        closed.add(opened.id)
+                        opened, collected = None, []
+                index += 3
+                continue
+        if opened is not None:
+            collected.append(lines[index])
+        index += 1
+    if opened is not None:
+        yield _Malformed(f"structure block {opened.id} was never closed")
+
+
 def parse_blocks(text: str) -> tuple[dict[str, str], tuple[str, ...]]:
     """Read every delimited structure block out of a draft.
 
@@ -225,47 +322,17 @@ def parse_blocks(text: str) -> tuple[dict[str, str], tuple[str, ...]]:
     Returns:
         A pair of the bodies by structure id, and findings describing every
         malformed delimiter. A malformed block contributes a finding and no
-        body; it never raises.
+        body; a block id that opens a second time contributes a finding and
+        keeps the body it had, so a later block can never silently replace the
+        one the gate compares. It never raises.
     """
-    lines = text.splitlines()
     bodies: dict[str, str] = {}
     findings: list[str] = []
-    open_id: str | None = None
-    collected: list[str] = []
-    index = 0
-    while index < len(lines):
-        if lines[index].strip() == _OPEN and index + 2 < len(lines):
-            marker = lines[index + 1].strip()
-            begin, end = _BEGIN.match(marker), _END.match(marker)
-            if (begin or end) and lines[index + 2].strip() == _CLOSE:
-                if begin:
-                    if open_id is not None:
-                        findings.append(
-                            f"structure block {open_id} was never closed before "
-                            f"{begin.group('id')} opened"
-                        )
-                    open_id, collected = begin.group("id"), []
-                elif end:
-                    closing = end.group("id")
-                    if open_id is None:
-                        findings.append(
-                            f"structure block {closing} was closed but never opened"
-                        )
-                    elif closing != open_id:
-                        findings.append(
-                            f"structure block {open_id} was closed by {closing}"
-                        )
-                        open_id = None
-                    else:
-                        bodies[open_id] = "\n".join(collected) + "\n"
-                        open_id = None
-                index += 3
-                continue
-        if open_id is not None:
-            collected.append(lines[index])
-        index += 1
-    if open_id is not None:
-        findings.append(f"structure block {open_id} was never closed")
+    for event in _scan(text.splitlines()):
+        if isinstance(event, _Malformed):
+            findings.append(event.finding)
+        elif event.id not in bodies:
+            bodies[event.id] = "\n".join(event.lines) + "\n"
     return bodies, tuple(findings)
 
 
@@ -283,26 +350,13 @@ def block_spans(text: str) -> tuple[tuple[int, int], ...]:
         0-based line indices into ``text`` and both are inclusive: ``first`` is
         the ``{::comment}`` opening the begin marker, ``last`` the
         ``{:/comment}`` closing the matching end marker. A block left unclosed,
-        closed by another id, or closed without opening contributes no span —
-        exactly the blocks :func:`parse_blocks` yields no body for.
+        closed by another id, or closed without opening contributes no span. A
+        repeated id contributes one span per closed block, where
+        :func:`parse_blocks` keeps only the first body: both are blocks the
+        author wrote, and the lint counts them.
     """
-    lines = text.splitlines()
-    spans: list[tuple[int, int]] = []
-    open_at: int | None = None
-    open_id: str | None = None
-    index = 0
-    while index < len(lines):
-        if lines[index].strip() == _OPEN and index + 2 < len(lines):
-            marker = lines[index + 1].strip()
-            begin, end = _BEGIN.match(marker), _END.match(marker)
-            if (begin or end) and lines[index + 2].strip() == _CLOSE:
-                if begin:
-                    open_at, open_id = index, begin.group("id")
-                elif end is not None:
-                    if open_at is not None and end.group("id") == open_id:
-                        spans.append((open_at, index + 2))
-                    open_at, open_id = None, None
-                index += 3
-                continue
-        index += 1
-    return tuple(spans)
+    return tuple(
+        (event.first, event.last)
+        for event in _scan(text.splitlines())
+        if isinstance(event, _Block)
+    )

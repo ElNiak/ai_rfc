@@ -158,6 +158,101 @@ def test_a_pipe_in_a_cell_is_escaped():
     assert r"a\|b" in body and r"x\|y" in body
 
 
+#: A member value that spells out a whole end/begin delimiter pair. An author
+#: who can put a line break inside a block can close and reopen it from within,
+#: leaving the gate comparing only the fragment after the forged reopen.
+FORGED_DELIMITERS = (
+    "prefix\n{::comment}\nai_rfc:struct:header end\n{:/comment}\n"
+    "{::comment}\nai_rfc:struct:header begin\n{:/comment}\ntail"
+)
+
+
+def test_a_member_that_spells_a_delimiter_cannot_split_its_own_block():
+    poisoned = Structure(
+        id="header",
+        kind=StructureKind.WIRE_FORMAT,
+        title="Message header",
+        section="4.1",
+        fields=(
+            Field(
+                name="Version",
+                claim="spec:1.1",
+                width=8,
+                description=FORGED_DELIMITERS,
+            ),
+        ),
+    )
+    text = render(poisoned)
+    interior = "\n".join(text.splitlines()[3:-3]) + "\n"
+    bodies, findings = parse_blocks(text)
+    assert findings == ()
+    assert bodies == {"header": interior}
+
+
+def test_a_description_ending_in_a_newline_stays_one_table_row():
+    # A folded YAML scalar is the natural way to write a sentence-length
+    # description, and it keeps one trailing newline.
+    folded = Structure(
+        id="rec",
+        kind=StructureKind.RECORD,
+        title="A record",
+        section="7",
+        fields=(
+            Field(
+                name="version",
+                claim="spec:1.1",
+                type="uint8",
+                description="The protocol version.\n",
+            ),
+        ),
+    )
+    rows = [
+        line for line in render(folded).splitlines() if line.startswith("| version")
+    ]
+    assert rows == [
+        "| version | uint8 | - | The protocol version. | `ai_rfc:spec:1.1` |"
+    ]
+
+
+def test_a_newline_in_a_state_name_stays_inside_its_box():
+    machine = Structure(
+        id="conn",
+        kind=StructureKind.STATE_MACHINE,
+        title="Connection lifecycle",
+        section="5",
+        states=("idle\nopen",),
+        transitions=(
+            Transition(
+                source="idle\nopen",
+                event="connect",
+                target="idle\nopen",
+                claim="spec:5.1",
+            ),
+        ),
+    )
+    artwork = render(machine).split("~~~")[1]
+    assert [line for line in artwork.splitlines() if line] == [
+        "+-----------+",
+        "| idle open |",
+        "+-----------+",
+        "idle open --connect--> idle open",
+    ]
+
+
+def test_a_newline_in_a_wire_format_field_name_stays_on_its_diagram_row():
+    split = Structure(
+        id="big",
+        kind=StructureKind.WIRE_FORMAT,
+        title="Wide",
+        section="4.2",
+        fields=(Field(name="No\nnce", claim="spec:1.1", width=48),),
+    )
+    artwork = render(split).split("~~~")[1]
+    lines = [line for line in artwork.splitlines() if line]
+    assert all(line.startswith(("+", "|", " ")) for line in lines), lines
+    assert "No nce" in artwork
+
+
 def test_each_kind_renders_its_own_legend():
     assert "| Field | Bits | Description | Claim |" in render(_wire())
     assert "| Value | Name | Description | Claim |" in render(_enum())
@@ -259,6 +354,20 @@ def test_block_spans_and_parse_blocks_agree_on_every_block():
     assert sorted(bounded) == sorted(bodies.values())
 
 
+def test_a_block_id_that_opens_twice_is_a_finding_and_the_first_body_is_kept():
+    text = (
+        "{::comment}\nai_rfc:struct:a begin\n{:/comment}\nfirst\n"
+        "{::comment}\nai_rfc:struct:a end\n{:/comment}\n"
+        "{::comment}\nai_rfc:struct:a begin\n{:/comment}\nsecond\n"
+        "{::comment}\nai_rfc:struct:a end\n{:/comment}\n"
+    )
+    bodies, findings = parse_blocks(text)
+    assert bodies == {"a": "first\n"}
+    assert any("appears more than once" in finding for finding in findings), findings
+    # Both are closed blocks the author wrote, so the lint still sees two.
+    assert len(block_spans(text)) == 2
+
+
 GOLDENS = Path(__file__).parent / "goldens"
 
 
@@ -314,8 +423,10 @@ def test_each_kind_matches_its_golden(name, build, request):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(produced)
     assert path.read_text() == produced, (
-        f"the {name} rendering changed, so every structures.md frozen in every "
-        f"checkpoint is now stale and every gate over them will fail. If the "
-        f"change is intended, re-run with --update-goldens and say so in the "
-        f"commit message."
+        f"the {name} rendering changed. Every structures.md already frozen "
+        f"still gates clean against the draft that pasted it, because neither "
+        f"moved; what changes is that the lint renders live, so every pasted "
+        f"block now reads as stale, and the next checkpoint freezes different "
+        f"bytes. If the change is intended, re-run with --update-goldens and "
+        f"say so in the commit message."
     )

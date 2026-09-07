@@ -267,6 +267,28 @@ STRUCTURED_BLOCK = (
     "        claim: spec:1.1\n"
 )
 
+#: The same structure, whose one description spells out an end marker and a
+#: following begin marker. Rendered with the author's line breaks intact, it
+#: closes and reopens its own block, and only the fragment after the forged
+#: reopen reaches the gate.
+FORGED_BLOCK = STRUCTURED_BLOCK + (
+    '        description: "prefix\\n{::comment}\\nai_rfc:struct:header end\\n'
+    '{:/comment}\\n{::comment}\\nai_rfc:struct:header begin\\n{:/comment}\\ntail"\n'
+)
+
+#: A second structure the consolidation adds to its base's manifest, so the
+#: consolidation's rendering differs from the one it consolidates (D48).
+CONSOLIDATION_BLOCK = (
+    "  trailer:\n"
+    "    kind: record\n"
+    "    title: Message trailer\n"
+    "    section: '5'\n"
+    "    fields:\n"
+    "      - name: checksum\n"
+    "        type: uint16\n"
+    "        claim: spec:1.1\n"
+)
+
 
 def _retag_draft_with(
     workspace: dict[str, Any], transform: Callable[[str], str]
@@ -305,31 +327,69 @@ def _record_consolidation(
     return tag
 
 
-@pytest.fixture
-def structured_workspace(tmp_path: Path, timeline_dir: Path) -> dict[str, Any]:
-    """A workspace whose last checkpoint freezes one structure block, pasted."""
+def _build_structured_workspace(
+    tmp_path: Path, timeline_dir: Path, extra: str
+) -> dict[str, Any]:
+    """Freeze ``extra``'s structures in the last checkpoint and paste them."""
     from ai_rfc.draft.structures import render_all
     from ai_rfc.schema import load as load_manifest
 
-    workspace = _build_draft_workspace(tmp_path, timeline_dir, extra=STRUCTURED_BLOCK)
+    workspace = _build_draft_workspace(tmp_path, timeline_dir, extra=extra)
     manifest = load_manifest(workspace["last_checkpoint"] / "manifest.yaml")
     _retag_draft_with(workspace, lambda body: body + "\n" + render_all(manifest))
     return workspace
 
 
 @pytest.fixture
+def structured_workspace(tmp_path: Path, timeline_dir: Path) -> dict[str, Any]:
+    """A workspace whose last checkpoint freezes one structure block, pasted."""
+    return _build_structured_workspace(tmp_path, timeline_dir, STRUCTURED_BLOCK)
+
+
+@pytest.fixture
+def forged_workspace(tmp_path: Path, timeline_dir: Path) -> dict[str, Any]:
+    """``structured_workspace`` whose one description spells a delimiter pair."""
+    return _build_structured_workspace(tmp_path, timeline_dir, FORGED_BLOCK)
+
+
+@pytest.fixture
 def consolidated_workspace(
     structured_workspace: dict[str, Any], tmp_path: Path
 ) -> dict[str, Any]:
-    """``structured_workspace`` plus one consolidation revision after it."""
+    """``structured_workspace`` plus one consolidation revision after it.
+
+    The consolidation adds a structure and leaves every requirement alone,
+    which is the one change a consolidation exists to make (D48). A
+    byte-identical consolidation would gate clean against code that froze and
+    compared its base's rendering instead of its own.
+    """
     from ai_rfc.draft.checkpoint import write_consolidation_checkpoint
+    from ai_rfc.draft.structures import render_all
+    from ai_rfc.schema import load as load_manifest
 
     workspace = structured_workspace
     consolidations = tmp_path / "consolidations"
     base = workspace["last_checkpoint"]
+    manifest_path = tmp_path / "consolidated.yaml"
+    manifest_path.write_text(
+        _manifest_text(with_second_claim=True) + STRUCTURED_BLOCK + CONSOLIDATION_BLOCK
+    )
     write_consolidation_checkpoint(
-        base / "manifest.yaml", 1, base, workspace["last_cluster"], consolidations
+        manifest_path, 1, base, workspace["last_cluster"], consolidations
     )
     workspace["consolidations"] = consolidations
+
+    # The consolidation's own tag must carry the consolidation's blocks.
+    # `_retag_draft_with` would move revision 01's tag onto them too, and the
+    # gate would then read the added block against the base's checkpoint.
+    draft_file = workspace["repo"] / "draft-test-spec.md"
+    draft_file.write_text(
+        draft_file.read_text().replace(
+            render_all(load_manifest(base / "manifest.yaml")),
+            render_all(load_manifest(manifest_path)),
+        )
+    )
+    git(workspace["repo"], "add", "draft-test-spec.md")
+    git(workspace["repo"], "commit", "-m", "paste the consolidated structures")
     _record_consolidation(workspace, ordinal=2, checkpoint="consolidations/01")
     return workspace

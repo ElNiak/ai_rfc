@@ -331,9 +331,17 @@ def run_gate(
             continue
         manifest_by_tag[entry.tag] = manifest
         frozen = checkpoint_dir / STRUCTURES_FILE
-        frozen_by_tag[entry.tag] = (
-            parse_blocks(frozen.read_text())[0] if frozen.is_file() else {}
+        frozen_bodies, frozen_malformed = (
+            parse_blocks(frozen.read_text()) if frozen.is_file() else ({}, ())
         )
+        # Name the checkpoint: a malformed rendering there would otherwise
+        # reach the author as "not a structure frozen in this revision's
+        # checkpoint", pointing at the draft that pasted it faithfully.
+        for malformation in frozen_malformed:
+            findings.append(
+                f"{entry.tag}: checkpoint {checkpoint_dir.name}: {malformation}"
+            )
+        frozen_by_tag[entry.tag] = frozen_bodies
         claim_ids_by_tag[entry.tag] = {claim.id for claim in manifest.claims}
         for claim in manifest.claims:
             if claim.question_id and claim.question_id not in question_ids:
