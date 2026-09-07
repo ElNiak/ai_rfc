@@ -43,13 +43,22 @@ def record_revision(
 
     Raises:
         CoreError: If the checkpoint is missing, the tag already exists, a
-            consolidation names no checkpoint, or the cluster already has a
-            cluster revision.
+            consolidation names no checkpoint or one outside the workspace, or
+            the cluster already has a cluster revision.
         GateError: If the resulting revision map does not validate.
     """
     if kind == "consolidation":
         if not checkpoint:
             raise CoreError(f"{tag}: a consolidation must name its checkpoint")
+        named = Path(checkpoint)
+        # Checked before the path is joined or reported: the refusal below
+        # renders it relative to the workspace, which raises on a path that
+        # escapes it, and the guardrail's failure path must not itself fail.
+        if named.is_absolute() or ".." in named.parts:
+            raise CoreError(
+                "checkpoint must be a workspace-relative path such as "
+                "consolidations/NN"
+            )
         pinned = ctx.workspace / checkpoint / "checkpoint.json"
     else:
         pinned = ctx.workspace / "checkpoints" / cluster_id / "checkpoint.json"

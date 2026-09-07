@@ -29,16 +29,26 @@ def upsert_structure(
         The stored structure body.
 
     Raises:
-        CoreError: If a required field is missing, or the schema refuses the
-            result — which is where an unknown bound claim is caught.
+        CoreError: If the body is not a mapping, a required field is missing,
+            or the schema refuses the result — which is where an unknown bound
+            claim is caught.
     """
+    if not isinstance(fields, dict):
+        raise CoreError(
+            f"{structure_id}: a structure body must be a mapping, got "
+            f"{type(fields).__name__}"
+        )
     missing = [key for key in _REQUIRED if key not in fields]
     if missing:
         raise CoreError(
             f"{structure_id}: missing required field(s) {', '.join(missing)}"
         )
     document = _document(ctx)
-    document.setdefault("structures", {})[structure_id] = dict(fields)
+    # `structures:` may be present with no value — schema.load reads it the same
+    # way — and setdefault would then hand back None instead of a mapping.
+    structures = document.get("structures") or {}
+    structures[structure_id] = dict(fields)
+    document["structures"] = structures
     try:
         _normalize_and_write(ctx, document)
     except SchemaError as error:

@@ -173,7 +173,9 @@ def test_draft_render_parity(make_workspace, capsys):
     from_cli = capsys.readouterr().out
     # print() adds no quotes; _emit would have.
     assert not from_cli.lstrip().startswith('"')
-    assert from_cli.strip() == from_tool.strip()
+    # Byte-for-byte, not stripped: end="" is part of C25, and a bare print()
+    # would add a trailing newline the tool arm never produces.
+    assert from_cli == from_tool
 
 
 def test_consolidation_checkpoint_and_revision_parity(make_workspace, capsys):
@@ -183,6 +185,10 @@ def test_consolidation_checkpoint_and_revision_parity(make_workspace, capsys):
     first = tools.ai_rfc_cluster_next()["id"]
     assert tools.ai_rfc_checkpoint(first)["exit_code"] == 0
     tools.ai_rfc_revision_record("draft-test-spec-00", first, True, "first")
+    # A consolidation that changed nothing digests the same manifest as the
+    # cluster checkpoint, which would leave both arms comparing a degenerate
+    # record. Declaring a structure is the change a consolidation is for.
+    tools.ai_rfc_structure_upsert("header", FIELDS)
     assert (
         tools.ai_rfc_checkpoint(first, consolidation=1, base=f"checkpoints/{first}")[
             "exit_code"
@@ -214,6 +220,7 @@ def test_consolidation_checkpoint_and_revision_parity(make_workspace, capsys):
         )
         == 0
     )
+    assert cli.main(["structure-upsert", "header", "--json", json.dumps(FIELDS)]) == 0
     assert (
         cli.main(
             [
@@ -248,6 +255,11 @@ def test_consolidation_checkpoint_and_revision_parity(make_workspace, capsys):
     capsys.readouterr()
     for name in ("revisions.yaml", "consolidations/01/checkpoint.json"):
         assert (tool_arm / name).read_bytes() == (cli_arm / name).read_bytes()
+    record = json.loads((tool_arm / "consolidations/01/checkpoint.json").read_text())
+    # Both arms share one core, so byte equality alone cannot tell a real
+    # consolidation from a degenerate re-freeze of the cluster's manifest.
+    assert record["kind"] == "consolidation"
+    assert record["structures_sha256"]
 
 
 def test_every_tool_still_appears_in_the_table():

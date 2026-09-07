@@ -36,8 +36,7 @@ The middle column is the `ai_rfc` console script (underscore,
 Arm C is frozen at its pre-v2 surface (D42): it never sees `structure-upsert`,
 `draft-render` or the consolidation flags on `revision-record` and
 `checkpoint`. Arms A and B share the full twenty-tool surface above, so a v2
-campaign compares those two and reads arm C only as the unassisted baseline it
-was measured as before.
+campaign compares those two.
 
 ## Exit codes
 
@@ -56,6 +55,13 @@ The 2/3 split matters because argparse owns 2 unconditionally. While strict
 findings also exited 2, a caller branching on it could not distinguish a
 mistyped flag from a real finding about the manifest, and the two demand
 opposite responses: fix the command, or fix the evidence.
+
+Only argparse's own errors exit 2. A usage error the shared core catches —
+`--base` without `--consolidation`, say, which one core function must reject
+for both frontends — is a `CoreError` and exits 1 like every other one. The
+raw substrate command rejects the same combination in its own parser, so it
+exits 2 there; that difference is a consequence of D42's one-core rule, not a
+disagreement about what the invocation means.
 
 Asymmetries accepted and measured, not hidden: the raw-CLI arm can hand-edit
 YAML (the gate catches overstatement after the fact, where the tool arm's

@@ -55,9 +55,13 @@ def write_checkpoint(
         the written checkpoint on success.
 
     Raises:
-        CoreError: If ``consolidation`` is given without ``base``.
+        CoreError: If either of ``consolidation`` and ``base`` is given without
+            the other. Both refusals precede the shell-out, so a mistyped
+            consolidation cannot spend the cluster's write-once checkpoint.
     """
     if consolidation is None:
+        if base is not None:
+            raise CoreError("a base checkpoint needs consolidation=<NN>")
         out = ctx.workspace / "checkpoints"
         extra: list[str] = []
         record_dir = out / cluster_id
