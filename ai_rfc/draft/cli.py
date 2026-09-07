@@ -353,6 +353,7 @@ def main(argv: list[str] | None = None) -> int:
             manifest=manifest,
             manifest_error=manifest_error,
             source={"path": str(args.draftrepo), "ref": ref},
+            structures=render_all(manifest) if manifest is not None else None,
         )
         args.out.mkdir(parents=True, exist_ok=True)
         (args.out / LINT_REPORT_FILE).write_text(report.to_json())

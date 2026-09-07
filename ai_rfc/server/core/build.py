@@ -22,6 +22,7 @@ _METRIC_KEYS = (
     "blocks",
     "citations",
     "narration",
+    "extra",
 )
 
 

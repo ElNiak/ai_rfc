@@ -265,3 +265,14 @@ def test_consolidation_checkpoint_and_revision_parity(make_workspace, capsys):
 def test_every_tool_still_appears_in_the_table():
     # ALL_TOOLS grew to 20; the table must have kept up.
     assert len(tools.ALL_TOOLS) == 20
+
+
+def test_the_lint_metrics_carry_the_structures_block(workspace):
+    # _METRIC_KEYS is a closed tuple; without `extra` in it the whole block is
+    # computed, written to lint-report.json, and dropped before the tool returns.
+    from ai_rfc.server.core import structures as core_structures
+
+    core_structures.upsert_structure(workspace, "header", FIELDS)
+    metrics = tools.ai_rfc_draft_lint(worktree=True)["metrics"]
+    assert "structures" in metrics["extra"]
+    assert "data_model_claims_unbound" in metrics["extra"]

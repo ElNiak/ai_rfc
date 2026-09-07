@@ -18,8 +18,9 @@ from typing import Any
 
 import yaml
 
-from ..models import Manifest
+from ..models import Manifest, RequirementClass
 from .gate import CITATION
+from .structures import parse_blocks
 
 REPORT_FILE = "lint-report.json"
 REQUIRED_SECTIONS: tuple[str, ...] = (
@@ -127,6 +128,23 @@ class LintReport:
                 f"keywords: MUST fraction {fraction:.2f} exceeds "
                 f"{MUST_FRACTION_CEILING} over {total} keywords"
             )
+        structures = self.extra.get("structures", {})
+        for structure_id in structures.get("unrendered", ()):
+            found.append(
+                f"structure {structure_id} is declared but not rendered in the draft"
+            )
+        for structure_id in structures.get("stale", ()):
+            found.append(
+                f"structure {structure_id} is stale: the pasted block differs from "
+                "what the manifest renders now"
+            )
+        for structure_id in structures.get("unknown_blocks", ()):
+            found.append(
+                f"block {structure_id} names no structure this manifest declares"
+            )
+        found.extend(structures.get("malformed", ()))
+        for claim_id in self.extra.get("data_model_claims_unbound", ()):
+            found.append(f"data-model claim {claim_id} is bound to no structure")
         return tuple(found)
 
     def to_json(self) -> str:
@@ -364,12 +382,52 @@ def _narration(body: str, offset: int) -> list[dict[str, Any]]:
     return entries
 
 
+def _structures(
+    text: str, manifest: Manifest | None, rendered: str | None
+) -> dict[str, Any]:
+    """Compare the draft's delimited blocks with the manifest's rendering.
+
+    ``rendered`` is what the manifest renders *now*, not a checkpoint's frozen
+    bytes: the gate owns historical fidelity at a tag, the lint owns "this draft
+    has drifted from its manifest".
+    """
+    declared = {s.id: s for s in manifest.structures} if manifest else {}
+    bodies, malformed = parse_blocks(text)
+    current, _ = parse_blocks(rendered) if rendered else ({}, ())
+    stale = sorted(
+        structure_id
+        for structure_id, body in bodies.items()
+        if structure_id in current and body != current[structure_id]
+    )
+    return {
+        "defined": len(declared),
+        "rendered": sum(1 for structure_id in bodies if structure_id in declared),
+        "unrendered": sorted(set(declared) - set(bodies)),
+        "stale": stale,
+        "unknown_blocks": sorted(set(bodies) - set(declared)),
+        "malformed": list(malformed),
+    }
+
+
+def _unbound_data_model_claims(manifest: Manifest | None) -> list[str]:
+    """Data-model claims no structure binds (D52)."""
+    if manifest is None:
+        return []
+    bound = {claim_id for s in manifest.structures for claim_id in s.claims}
+    return sorted(
+        claim.id
+        for claim in manifest.claims
+        if claim.req_class is RequirementClass.DATA_MODEL and claim.id not in bound
+    )
+
+
 def lint(
     text: str,
     *,
     manifest: Manifest | None = None,
     manifest_error: str | None = None,
     source: dict[str, str] | None = None,
+    structures: str | None = None,
 ) -> LintReport:
     """Measure one draft text.
 
@@ -381,6 +439,9 @@ def lint(
             still worth measuring.
         source: Provenance for the report (``path``, ``ref``); the text digest
             is added here.
+        structures: What ``manifest`` renders now, as ``structures.md`` bytes,
+            for the draft's pasted blocks to be compared against; ``None`` when
+            no manifest was loaded.
 
     Returns:
         The report.
@@ -404,6 +465,8 @@ def lint(
     abstract_text = abstract_text.strip()
     provenance = dict(source or {})
     provenance["sha256"] = hashlib.sha256(text.encode()).hexdigest()
+    structure_metrics = _structures(text, manifest, structures)
+    unbound = _unbound_data_model_claims(manifest)
     return LintReport(
         source=provenance,
         sections=_sections(body),
@@ -422,4 +485,8 @@ def lint(
         citations=_citations(body, manifest),
         narration=_narration(parts["middle"], middle_offset),
         manifest_error=manifest_error,
+        extra={
+            "structures": structure_metrics,
+            "data_model_claims_unbound": unbound,
+        },
     )

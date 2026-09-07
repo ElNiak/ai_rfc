@@ -360,3 +360,99 @@ def test_cli_lint_reports_a_malformed_manifest_as_a_finding_not_a_crash(
         == 0
     )
     assert "manifest: unloadable (" in capsys.readouterr().err
+
+
+def _structured_manifest_obj():
+    from ai_rfc.models import (
+        Field,
+        Intent,
+        Level,
+        Manifest,
+        RequirementClaim,
+        RequirementClass,
+        Status,
+        Structure,
+        StructureKind,
+    )
+
+    claim = RequirementClaim(
+        id="spec:1.1",
+        text="t",
+        section="4",
+        level=Level.MUST,
+        layer="wire",
+        req_class=RequirementClass.DATA_MODEL,
+        intent=Intent.INTENDED,
+        status=Status.GAP,
+    )
+    structure = Structure(
+        id="header",
+        kind=StructureKind.RECORD,
+        title="H",
+        section="4",
+        fields=(Field(name="version", claim="spec:1.1", type="uint8"),),
+    )
+    return Manifest(rfc="spec", title="T", claims=(claim,), structures=(structure,))
+
+
+def test_a_declared_but_unrendered_structure_is_a_finding():
+    from ai_rfc.draft.structures import render_all
+
+    manifest = _structured_manifest_obj()
+    report = lint(_draft(), manifest=manifest, structures=render_all(manifest))
+    assert report.extra["structures"]["unrendered"] == ["header"]
+    assert any("header" in f and "not rendered" in f for f in report.findings)
+
+
+def test_a_rendered_structure_that_matches_the_frozen_bytes_is_clean():
+    from ai_rfc.draft.structures import render_all
+
+    manifest = _structured_manifest_obj()
+    frozen = render_all(manifest)
+    report = lint(_draft(body=frozen), manifest=manifest, structures=frozen)
+    assert report.extra["structures"]["rendered"] == 1
+    assert report.extra["structures"]["stale"] == []
+    assert report.extra["structures"]["unrendered"] == []
+
+
+def test_a_stale_block_is_a_finding():
+    from ai_rfc.draft.structures import render_all
+
+    manifest = _structured_manifest_obj()
+    frozen = render_all(manifest)
+    report = lint(
+        _draft(body=frozen.replace("uint8", "uint9")),
+        manifest=manifest,
+        structures=frozen,
+    )
+    assert report.extra["structures"]["stale"] == ["header"]
+    assert any("stale" in f for f in report.findings)
+
+
+def test_a_block_naming_no_declared_structure_is_a_finding():
+    manifest = _structured_manifest_obj()
+    body = (
+        "{::comment}\nai_rfc:struct:ghost begin\n{:/comment}\nx\n"
+        "{::comment}\nai_rfc:struct:ghost end\n{:/comment}\n"
+    )
+    report = lint(_draft(body=body), manifest=manifest, structures="")
+    assert report.extra["structures"]["unknown_blocks"] == ["ghost"]
+
+
+def test_a_data_model_claim_bound_to_no_structure_is_a_finding():
+    from ai_rfc.models import Manifest
+
+    manifest = _structured_manifest_obj()
+    orphaned = Manifest(rfc="spec", title="T", claims=manifest.claims, structures=())
+    report = lint(_draft(), manifest=orphaned)
+    assert report.extra["data_model_claims_unbound"] == ["spec:1.1"]
+    assert any("spec:1.1" in f and "no structure" in f for f in report.findings)
+
+
+def test_a_manifest_the_schema_refuses_is_a_finding_not_a_crash():
+    # The aioquic pilot's run C1 carries `level: descriptive`, which the closed
+    # enum no longer accepts. Pilot workspaces are frozen evidence and are never
+    # re-gated, so the lint must degrade rather than raise.
+    report = lint(_draft(), manifest=None, manifest_error="C1: level is 'descriptive'")
+    assert any("descriptive" in f for f in report.findings)
+    assert report.extra["structures"]["defined"] == 0

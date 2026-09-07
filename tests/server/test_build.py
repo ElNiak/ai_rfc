@@ -82,6 +82,7 @@ def test_draft_lint_measures_the_worktree_by_default(workspace):
         "blocks",
         "citations",
         "narration",
+        "extra",
     }
     assert isinstance(result["findings"], list)
     assert tools.ai_rfc_draft_lint()["metrics"] == result["metrics"]
