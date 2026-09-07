@@ -21,7 +21,11 @@ from .build import (
     load_toolchain,
     probe_toolchain,
 )
-from .checkpoint import CheckpointError, write_checkpoint
+from .checkpoint import (
+    CheckpointError,
+    write_checkpoint,
+    write_consolidation_checkpoint,
+)
 from .completeness import CompletenessError
 from .completeness import build as build_completeness
 from .completeness import findings as completeness_findings
@@ -29,6 +33,7 @@ from .completeness import to_json as completeness_json
 from .gate import GateError, draft_text, run_gate
 from .lint import REPORT_FILE as LINT_REPORT_FILE
 from .lint import lint
+from .structures import STRUCTURES_FILE, render_all
 
 
 def _report(message: str) -> None:
@@ -68,6 +73,31 @@ def _parser() -> argparse.ArgumentParser:
     checkpoint.add_argument(
         "--out", type=Path, required=True, help="Checkpoints root directory."
     )
+    checkpoint.add_argument(
+        "--consolidation",
+        type=int,
+        default=None,
+        help="Write a consolidation checkpoint with this ordinal instead of a "
+        "cluster one.",
+    )
+    checkpoint.add_argument(
+        "--base",
+        type=Path,
+        default=None,
+        help="The cluster checkpoint a consolidation follows. Required with "
+        "--consolidation.",
+    )
+
+    render = verbs.add_parser(
+        "render", help="Render a manifest's structures as kramdown blocks."
+    )
+    render.add_argument("manifest", type=Path, help="Manifest to render.")
+    render.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help="Also write structures.md into this directory.",
+    )
 
     gate = verbs.add_parser(
         "gate", help="Run the deterministic citation gate over a draft."
@@ -90,6 +120,12 @@ def _parser() -> argparse.ArgumentParser:
         "--strict",
         action="store_true",
         help="Exit 3 when any finding is reported.",
+    )
+    gate.add_argument(
+        "--consolidations",
+        type=Path,
+        default=None,
+        help="Consolidation checkpoint root. Default: the sibling of --checkpoints.",
     )
 
     complete = verbs.add_parser(
@@ -182,17 +218,42 @@ def main(argv: list[str] | None = None) -> int:
         when ``gate --strict``, ``completeness --strict``, ``build --strict``
         or ``lint --strict`` reported findings.
     """
-    args = _parser().parse_args(argv)
+    parser = _parser()
+    args = parser.parse_args(argv)
 
     if args.verb == "checkpoint":
+        if args.consolidation is not None and args.base is None:
+            parser.error("--consolidation requires --base")
         try:
-            checkpoint_dir = write_checkpoint(
-                args.manifest, args.timeline, args.cluster, args.out
-            )
+            if args.consolidation is not None:
+                checkpoint_dir = write_consolidation_checkpoint(
+                    args.manifest,
+                    args.consolidation,
+                    args.base,
+                    args.cluster,
+                    args.out,
+                )
+            else:
+                checkpoint_dir = write_checkpoint(
+                    args.manifest, args.timeline, args.cluster, args.out
+                )
         except (CheckpointError, SchemaError, OSError) as error:
             _report(f"error: {error}")
             return 1
         _report(f"note: checkpoint written to {checkpoint_dir}")
+        return 0
+
+    if args.verb == "render":
+        try:
+            text = render_all(load(args.manifest))
+        except (SchemaError, OSError) as error:
+            _report(f"error: {error}")
+            return 1
+        if text:
+            print(text, end="")
+        if args.out is not None:
+            args.out.mkdir(parents=True, exist_ok=True)
+            (args.out / STRUCTURES_FILE).write_text(text)
         return 0
 
     if args.verb == "completeness":
@@ -307,6 +368,7 @@ def main(argv: list[str] | None = None) -> int:
             args.checkpoints,
             args.questions,
             args.revisions,
+            consolidations_dir=args.consolidations,
         )
     except (GateError, OSError) as error:
         _report(f"error: {error}")
