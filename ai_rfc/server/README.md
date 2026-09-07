@@ -36,7 +36,7 @@ step, regroups these verbs under `ai-rfc` (`claim`, `cluster`, `question`,
 | `core/claims.py` | Schema-validated claim writes that refuse `status`; adjudication preview; recording exactly the supported statuses |
 | `core/questions.py` | The question register and the interview-import guardrails (verbatim quote, exact wording) |
 | `core/revisions.py` | Revision-map entries, validated through the gate's own loader |
-| `core/structures.py` | Structure declarations, written through the schema so an unknown bound claim is refused, and the rendering whose blocks the draft is pasted from |
+| `core/structures.py` | Structure declarations, written through the schema so an unknown bound claim is refused, and the rendering whose blocks are pasted into the draft |
 | `core/gates.py` | Checkpoints and the two strict gates, run through the substrate CLIs with their exit codes surfaced untouched |
 | `core/draft.py` | Commit prose and tag a revision in the workspace's `draft/` clone; a tag whose citation gate fails is deleted again |
 | `tools.py` | The twenty `ai_rfc_*` callables, importable without the `mcp` package so the parity tests can run where it is not installed |

@@ -66,5 +66,13 @@ def render_structures(ctx: Context) -> str:
 
     Returns:
         The blocks, ready to paste into the draft. Empty when none are declared.
+
+    Raises:
+        CoreError: If the schema refuses the manifest, wrapped exactly as
+            ``upsert_structure`` wraps it — both frontends read one class for
+            one refusal.
     """
-    return render_all(load(ctx.manifest))
+    try:
+        return render_all(load(ctx.manifest))
+    except SchemaError as error:
+        raise CoreError(str(error)) from error

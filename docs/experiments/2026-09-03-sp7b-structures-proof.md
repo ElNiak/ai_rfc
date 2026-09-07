@@ -63,8 +63,10 @@ walks — declare a structure, render it, paste the blocks, checkpoint, tag, gat
 — and shows a faithful paste produces no finding. Without it, a gate that
 flagged everything would also "pass" the tamper test.
 `test_a_one_byte_edit_to_a_rendered_block_is_a_finding` changes one character
-inside a pasted block and shows the tag is refused. Without it, a gate that
-never looked at the blocks would pass the clean test.
+inside a pasted block (`uint8` → `uint9`) and shows the gate reports it, naming
+the block that no longer matches the frozen rendering. Turning that finding
+into a refused tag is the server's `revision_tag` behaviour, not this test's.
+Without it, a gate that never looked at the blocks would pass the clean test.
 
 ## What the tool draws
 
@@ -72,9 +74,13 @@ The five renderings below are the byte-exact goldens under
 `tests/substrate/draft/goldens/`, copied verbatim, one per structure kind.
 `test_each_kind_matches_its_golden` (`tests/substrate/draft/test_structures.py`)
 asserts the renderer reproduces each of them exactly, and fails loudly if one
-changes, because a changed rendering makes every `structures.md` already frozen
-in every checkpoint stale and every gate over them fail. They are reproduced
-here so a reader can see the output without running the suite.
+changes. The gate compares each tag against its own checkpoint's frozen
+rendering and never renders anything itself, so a changed renderer leaves every
+already-tagged revision gating clean; what a change moves is the next
+checkpoint, which freezes the new bytes against a draft still carrying the old
+paste, and the lint, which renders live and would call every pasted block
+stale. They are reproduced here so a reader can see the output without running
+the suite.
 
 Each block is delimited by `{::comment}` markers naming the structure id. The
 gate reads a draft's blocks with the same parser the lint uses, and compares

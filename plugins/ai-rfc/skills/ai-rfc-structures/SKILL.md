@@ -28,7 +28,7 @@ as its weakest claim — a structure built on a `gap` claim reports as a gap.
    `transitions:` for `state-machine`. (The tool's second parameter is named
    `fields`, but it carries the whole body, members included.) Each field,
    value and transition names a `claim:` that must already exist in
-   `requirements:`; a state is just a name.
+   `requirements:`; declare the claim first, and a state is just a name.
 2. `ai_rfc_draft_render` returns one block per declared structure, ordered by
    id. Paste each block **verbatim** into the section that structure names,
    delimiters included.

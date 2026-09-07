@@ -9,6 +9,8 @@ from typing import Any
 
 import yaml
 
+from ai_rfc.draft.gate import GateError, load_revisions
+
 from ..paths import Context
 from . import CoreError
 from .claims import _atomic_write
@@ -43,9 +45,11 @@ def record_revision(
 
     Raises:
         CoreError: If the checkpoint is missing, the tag already exists, a
-            consolidation names no checkpoint or one outside the workspace, or
-            the cluster already has a cluster revision.
-        GateError: If the resulting revision map does not validate.
+            consolidation names no checkpoint or one outside the workspace, the
+            cluster already has a cluster revision, or the resulting revision
+            map does not validate.
+        GateError: If the revision map already on disk does not validate, which
+            is a defect in the file rather than in what was asked for.
     """
     if kind == "consolidation":
         if not checkpoint:
@@ -68,8 +72,6 @@ def record_revision(
             f"the checkpoint before recording the revision that pins it"
         )
     sha = json.loads(pinned.read_text())["manifest_sha256"]
-
-    from ai_rfc.draft.gate import load_revisions
 
     document = yaml.safe_load(ctx.revisions.read_text())
     if not isinstance(document, dict) or "revisions" not in document:
@@ -97,6 +99,9 @@ def record_revision(
     with tempfile.TemporaryDirectory() as scratch:
         candidate = Path(scratch) / "revisions.yaml"
         candidate.write_text(yaml.safe_dump(document, sort_keys=True))
-        load_revisions(candidate)
+        try:
+            load_revisions(candidate)
+        except GateError as error:
+            raise CoreError(str(error)) from error
         _atomic_write(ctx.revisions, candidate.read_text())
     return {"tag": tag, **entry}

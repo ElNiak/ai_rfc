@@ -180,3 +180,7 @@ def test_the_structures_skill_names_every_kind_and_the_tool():
         assert kind in text
     assert "ai_rfc_structure_upsert" in text
     assert "ai_rfc_draft_render" in text
+    # Naming the kinds is not enough: an agent that does not know which key
+    # each kind takes writes a body the schema refuses.
+    assert "values:" in text
+    assert "transitions:" in text

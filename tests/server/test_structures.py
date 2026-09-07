@@ -62,3 +62,14 @@ def test_render_returns_the_blocks_as_text(workspace):
 def test_the_tool_wrappers_reach_the_cores(workspace):
     tools.ai_rfc_structure_upsert("header", FIELDS)
     assert "ai_rfc:struct:header begin" in tools.ai_rfc_draft_render()
+
+
+def test_a_manifest_the_schema_refuses_reaches_the_caller_as_a_core_error(workspace):
+    # upsert_structure already wraps the schema's refusal; a caller cannot be
+    # asked to catch a second exception class for the same manifest.
+    workspace.manifest.write_text(
+        workspace.manifest.read_text().replace("level: MUST", "level: MAYBE")
+    )
+    with pytest.raises(CoreError) as error:
+        structures.render_structures(workspace)
+    assert "permitted values are" in str(error.value)

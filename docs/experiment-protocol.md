@@ -183,8 +183,12 @@ From the aioquic pilot, `pilot-aioquic-w02-11-20260831`; full report at
   `ai_rfc_draft_render` added to the 18 above); `ai_rfc_revision_record`
   gained `kind` and `checkpoint`, and `ai_rfc_checkpoint` gained
   `consolidation` and `base`; `docs/parity.md` is the table.
-- **Arm C stays frozen** at its pre-v2 surface (spec D42): it never sees
-  `structure-upsert` or `draft-render`, so a v2 campaign compares arms A and
+- **Arm C stays frozen** at its pre-v2 surface (spec D42): it never sees the
+  `structure-upsert` or `draft-render` verbs, though the raw
+  `python -m ai_rfc draft render` and `draft checkpoint --consolidation` stay
+  reachable behind its unchanged `Bash(python -m ai_rfc*)` prefix, as
+  `docs/parity.md` records. What D42 freezes is the documented tool and verb
+  set, not the substrate the prefix reaches. A v2 campaign compares arms A and
   B only.
 - **The manifest carries a `structures:` registry** over five kinds
   (`wire-format`, `message`, `record`, `enum`, `state-machine`), and every

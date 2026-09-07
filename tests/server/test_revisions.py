@@ -94,6 +94,23 @@ def test_a_checkpoint_leaving_the_workspace_is_refused(workspace, escape):
     assert "workspace-relative" in str(error.value)
 
 
+def test_a_cluster_revision_naming_a_checkpoint_is_refused_as_a_core_error(workspace):
+    # Only a consolidation may name a checkpoint. The substrate loader decides
+    # that; the core owes the caller one exception class for it, the same one
+    # the parallel stray `base` on a cluster checkpoint already raises.
+    first, _ = _checkpointed_cluster(workspace)
+    with pytest.raises(CoreError) as error:
+        revisions.record_revision(
+            workspace,
+            "draft-test-spec-00",
+            first,
+            True,
+            "stray",
+            checkpoint="consolidations/01",
+        )
+    assert "only a consolidation may name a checkpoint" in str(error.value)
+
+
 def test_a_cluster_may_not_be_recorded_twice(workspace):
     first, _ = _checkpointed_cluster(workspace)
     revisions.record_revision(workspace, "draft-test-spec-00", first, True, "first")
@@ -109,6 +126,45 @@ def test_a_base_without_a_consolidation_writes_nothing(workspace):
     assert "consolidation" in str(error.value)
     # The refusal precedes the shell-out, so the write-once guard is not spent.
     assert not (workspace.workspace / "checkpoints" / first).exists()
+
+
+@pytest.mark.parametrize("escape", ["/tmp/nowhere", "../outside"])
+def test_a_base_leaving_the_workspace_is_refused(workspace, escape):
+    first = cluster_next(workspace)["id"]
+    with pytest.raises(CoreError) as error:
+        write_checkpoint(workspace, first, consolidation=1, base=escape)
+    assert "workspace-relative" in str(error.value)
+    # The refusal precedes the shell-out, so the substrate never ran and no
+    # consolidation root exists to hold a checkpoint pinned to a foreign base.
+    assert not (workspace.workspace / "consolidations").exists()
+
+
+def test_a_base_naming_another_workspaces_checkpoint_is_refused(
+    workspace, make_workspace
+):
+    # The two literals above are refused by the substrate anyway, so only a
+    # base that resolves somewhere real shows what the guard buys: without it
+    # this exits 0 and pins a consolidation here to a foreign manifest.
+    from ai_rfc.server.paths import resolve_context
+
+    build, use = make_workspace
+    foreign_root = build("foreign")
+    use(foreign_root)
+    foreign = resolve_context()
+    other = cluster_next(foreign)["id"]
+    assert write_checkpoint(foreign, other)["exit_code"] == 0
+
+    use(workspace.workspace)
+    first = cluster_next(workspace)["id"]
+    with pytest.raises(CoreError) as error:
+        write_checkpoint(
+            workspace,
+            first,
+            consolidation=1,
+            base=str(foreign_root / "checkpoints" / other),
+        )
+    assert "workspace-relative" in str(error.value)
+    assert not (workspace.workspace / "consolidations").exists()
 
 
 def test_the_verb_refuses_a_base_without_a_consolidation(workspace, capsys):

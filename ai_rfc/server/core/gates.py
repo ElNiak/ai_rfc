@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+from pathlib import Path
 from typing import Any
 
 from ..paths import Context
@@ -56,8 +57,10 @@ def write_checkpoint(
 
     Raises:
         CoreError: If either of ``consolidation`` and ``base`` is given without
-            the other. Both refusals precede the shell-out, so a mistyped
-            consolidation cannot spend the cluster's write-once checkpoint.
+            the other, or if ``base`` is absolute or climbs out of the
+            workspace. Every refusal precedes the shell-out, so a mistyped
+            consolidation cannot spend the cluster's write-once checkpoint, and
+            a base naming another workspace cannot be consolidated from.
     """
     if consolidation is None:
         if base is not None:
@@ -69,6 +72,12 @@ def write_checkpoint(
         if base is None:
             raise CoreError(
                 "a consolidation checkpoint needs base=checkpoints/<cluster>"
+            )
+        named = Path(base)
+        if named.is_absolute() or ".." in named.parts:
+            raise CoreError(
+                "base must be a workspace-relative path such as "
+                "checkpoints/<cluster>"
             )
         out = ctx.workspace / "consolidations"
         extra = [
