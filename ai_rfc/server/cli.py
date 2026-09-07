@@ -162,12 +162,36 @@ def _parser() -> argparse.ArgumentParser:
         help="Editorial only; its cited claim set must not change.",
     )
     revision.add_argument("--note", required=True, help="What this revision did.")
+    revision.add_argument(
+        "--kind",
+        choices=("cluster", "consolidation"),
+        default="cluster",
+        help="A cluster round (default) or a consolidation.",
+    )
+    revision.add_argument(
+        "--checkpoint",
+        default=None,
+        help="A consolidation's checkpoint, workspace-relative (consolidations/NN).",
+    )
 
     checkpoint = verbs.add_parser(
         "checkpoint", help="Freeze the manifest against one cluster."
     )
     checkpoint.add_argument(
         "cluster_id", help="Cluster to freeze against; checkpoints are write-once."
+    )
+    checkpoint.add_argument(
+        "--consolidation",
+        type=int,
+        default=None,
+        help="Write consolidation NN under consolidations/ instead of a cluster "
+        "checkpoint.",
+    )
+    checkpoint.add_argument(
+        "--base",
+        default=None,
+        help="The cluster checkpoint the consolidation follows, workspace-relative; "
+        "required with --consolidation.",
     )
 
     gate = verbs.add_parser("gate", help="Manifest gate (linter by default).")
@@ -201,6 +225,17 @@ def _parser() -> argparse.ArgumentParser:
         "--committed", action="store_true", help="Lint HEAD instead of the worktree."
     )
 
+    structure_upsert = verbs.add_parser(
+        "structure-upsert", help="Declare or replace one structure."
+    )
+    structure_upsert.add_argument(
+        "structure_id", help="Structure id, e.g. 'header'; replaced when it exists."
+    )
+    structure_upsert.add_argument(
+        "--json", required=True, help="The structure body as JSON."
+    )
+    verbs.add_parser("draft-render", help="Render the declared structures as blocks.")
+
     return parser
 
 
@@ -223,7 +258,16 @@ def main(argv: list[str] | None = None) -> int:
         _report(f"error: {error}")
         return 1
 
-    from .core import build, claims, draft, gates, queries, questions, revisions
+    from .core import (
+        build,
+        claims,
+        draft,
+        gates,
+        queries,
+        questions,
+        revisions,
+        structures,
+    )
 
     try:
         if args.verb == "status":
@@ -278,11 +322,19 @@ def main(argv: list[str] | None = None) -> int:
         elif args.verb == "revision-record":
             _emit(
                 revisions.record_revision(
-                    ctx, args.tag, args.cluster, args.normative_change, args.note
+                    ctx,
+                    args.tag,
+                    args.cluster,
+                    args.normative_change,
+                    args.note,
+                    args.kind,
+                    args.checkpoint,
                 )
             )
         elif args.verb == "checkpoint":
-            result = gates.write_checkpoint(ctx, args.cluster_id)
+            result = gates.write_checkpoint(
+                ctx, args.cluster_id, args.consolidation, args.base
+            )
             _emit(result)
             return 0 if result["exit_code"] == 0 else 1
         elif args.verb == "gate":
@@ -307,6 +359,14 @@ def main(argv: list[str] | None = None) -> int:
             result = build.draft_lint(ctx, worktree=not args.committed)
             _emit(result)
             return result["exit_code"]
+        elif args.verb == "structure-upsert":
+            _emit(
+                structures.upsert_structure(
+                    ctx, args.structure_id, json.loads(args.json)
+                )
+            )
+        elif args.verb == "draft-render":
+            print(structures.render_structures(ctx), end="")
     except CoreError as error:
         _report(f"error: {error}")
         return 1

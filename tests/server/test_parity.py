@@ -140,3 +140,116 @@ def test_draft_lint_parity(make_workspace, capsys):
         via_tool["metrics"] == via_cli["metrics"]
         and via_tool["findings"] == via_cli["findings"]
     )
+
+
+FIELDS = {
+    "kind": "record",
+    "title": "Message header",
+    "section": "4",
+    "fields": [{"name": "version", "type": "uint8", "claim": "t:1.1"}],
+}
+
+
+def test_structure_upsert_parity(make_workspace, capsys):
+    tool_arm, cli_arm, use = _twins(make_workspace)
+    use(tool_arm)
+    tools.ai_rfc_structure_upsert("header", FIELDS)
+    use(cli_arm)
+    assert cli.main(["structure-upsert", "header", "--json", json.dumps(FIELDS)]) == 0
+    capsys.readouterr()
+    assert (tool_arm / "manifest.yaml").read_bytes() == (
+        cli_arm / "manifest.yaml"
+    ).read_bytes()
+
+
+def test_draft_render_parity(make_workspace, capsys):
+    tool_arm, cli_arm, use = _twins(make_workspace)
+    use(tool_arm)
+    tools.ai_rfc_structure_upsert("header", FIELDS)
+    from_tool = tools.ai_rfc_draft_render()
+    use(cli_arm)
+    tools.ai_rfc_structure_upsert("header", FIELDS)
+    assert cli.main(["draft-render"]) == 0
+    from_cli = capsys.readouterr().out
+    # print() adds no quotes; _emit would have.
+    assert not from_cli.lstrip().startswith('"')
+    assert from_cli.strip() == from_tool.strip()
+
+
+def test_consolidation_checkpoint_and_revision_parity(make_workspace, capsys):
+    tool_arm, cli_arm, use = _twins(make_workspace)
+
+    use(tool_arm)
+    first = tools.ai_rfc_cluster_next()["id"]
+    assert tools.ai_rfc_checkpoint(first)["exit_code"] == 0
+    tools.ai_rfc_revision_record("draft-test-spec-00", first, True, "first")
+    assert (
+        tools.ai_rfc_checkpoint(first, consolidation=1, base=f"checkpoints/{first}")[
+            "exit_code"
+        ]
+        == 0
+    )
+    tools.ai_rfc_revision_record(
+        "draft-test-spec-01",
+        first,
+        False,
+        "consolidated",
+        kind="consolidation",
+        checkpoint="consolidations/01",
+    )
+
+    use(cli_arm)
+    assert cli.main(["checkpoint", first]) == 0
+    assert (
+        cli.main(
+            [
+                "revision-record",
+                "draft-test-spec-00",
+                "--cluster",
+                first,
+                "--normative",
+                "--note",
+                "first",
+            ]
+        )
+        == 0
+    )
+    assert (
+        cli.main(
+            [
+                "checkpoint",
+                first,
+                "--consolidation",
+                "1",
+                "--base",
+                f"checkpoints/{first}",
+            ]
+        )
+        == 0
+    )
+    assert (
+        cli.main(
+            [
+                "revision-record",
+                "draft-test-spec-01",
+                "--cluster",
+                first,
+                "--no-normative",
+                "--note",
+                "consolidated",
+                "--kind",
+                "consolidation",
+                "--checkpoint",
+                "consolidations/01",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+    for name in ("revisions.yaml", "consolidations/01/checkpoint.json"):
+        assert (tool_arm / name).read_bytes() == (cli_arm / name).read_bytes()
+
+
+def test_every_tool_still_appears_in_the_table():
+    # ALL_TOOLS grew to 20; the table must have kept up.
+    assert len(tools.ALL_TOOLS) == 20

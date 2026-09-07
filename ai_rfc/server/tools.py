@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .core import build, claims, draft, gates, queries, questions, revisions
+from .core import build, claims, draft, gates, queries, questions, revisions, structures
 from .paths import resolve_context
 
 
@@ -98,17 +98,24 @@ def ai_rfc_answer_record(
 
 
 def ai_rfc_revision_record(
-    tag: str, cluster_id: str, normative_change: bool, note: str
+    tag: str,
+    cluster_id: str,
+    normative_change: bool,
+    note: str,
+    kind: str = "cluster",
+    checkpoint: str | None = None,
 ) -> dict[str, Any]:
     """Record a revision entry pinned to its on-disk checkpoint."""
     return revisions.record_revision(
-        resolve_context(), tag, cluster_id, normative_change, note
+        resolve_context(), tag, cluster_id, normative_change, note, kind, checkpoint
     )
 
 
-def ai_rfc_checkpoint(cluster_id: str) -> dict[str, Any]:
-    """Freeze the manifest against one cluster (exit code surfaced raw)."""
-    return gates.write_checkpoint(resolve_context(), cluster_id)
+def ai_rfc_checkpoint(
+    cluster_id: str, consolidation: int | None = None, base: str | None = None
+) -> dict[str, Any]:
+    """Freeze the manifest against one cluster, or as a consolidation of one."""
+    return gates.write_checkpoint(resolve_context(), cluster_id, consolidation, base)
 
 
 def ai_rfc_gate(strict: bool = False) -> dict[str, Any]:
@@ -141,6 +148,18 @@ def ai_rfc_draft_lint(worktree: bool = True) -> dict[str, Any]:
     return build.draft_lint(resolve_context(), worktree)
 
 
+def ai_rfc_structure_upsert(
+    structure_id: str, fields: dict[str, Any]
+) -> dict[str, Any]:
+    """Declare or replace one structure in the manifest."""
+    return structures.upsert_structure(resolve_context(), structure_id, fields)
+
+
+def ai_rfc_draft_render() -> str:
+    """Render every declared structure as blocks to paste into the draft."""
+    return structures.render_structures(resolve_context())
+
+
 #: Every tool, in the order they appear in docs/parity.md.
 ALL_TOOLS = (
     ai_rfc_status,
@@ -161,4 +180,6 @@ ALL_TOOLS = (
     ai_rfc_revision_tag,
     ai_rfc_draft_build,
     ai_rfc_draft_lint,
+    ai_rfc_structure_upsert,
+    ai_rfc_draft_render,
 )

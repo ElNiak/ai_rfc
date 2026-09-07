@@ -22,14 +22,22 @@ The middle column is the `ai_rfc` console script (underscore,
 | `ai_rfc_question_draft` | `ai_rfc question-draft TEXT --claim ID…` | — (strict register write) |
 | `ai_rfc_question_export` | `ai_rfc question-export` | — |
 | `ai_rfc_answer_record` | `ai_rfc answer-record QID --answer … --transcript … --quote …` | — (verbatim-quote + exact-wording guardrails) |
-| `ai_rfc_revision_record` | `ai_rfc revision-record TAG --cluster ID --normative/--no-normative --note …` | — (validated via the gate's own loader) |
-| `ai_rfc_checkpoint` | `ai_rfc checkpoint ID` | `python -m ai_rfc draft checkpoint …` |
+| `ai_rfc_revision_record` | `ai_rfc revision-record TAG --cluster ID (--normative\|--no-normative) --note MSG [--kind consolidation --checkpoint consolidations/NN]` | — (validated via the gate's own loader) |
+| `ai_rfc_checkpoint` | `ai_rfc checkpoint CLUSTER [--consolidation NN --base checkpoints/CLUSTER]` | `python -m ai_rfc draft checkpoint … [--consolidation NN --base DIR]` |
 | `ai_rfc_gate` | `ai_rfc gate [--strict]` | `python -m ai_rfc check <manifest> --out … --repo … [--strict]` |
 | `ai_rfc_citation_gate` | `ai_rfc citation-gate [--strict]` | `python -m ai_rfc draft gate … [--strict]` |
 | `ai_rfc_draft_commit` | `ai_rfc draft-commit -m MSG` | `git -C draft add -A && git -C draft commit -m MSG` |
 | `ai_rfc_revision_tag` | `ai_rfc revision-tag TAG -m MSG` | `git -C draft tag -a TAG -m MSG`, then `python -m ai_rfc draft gate … --strict` (the tool deletes the tag on findings; the raw route leaves that to the author), and runs `draft build` before the tag when `AI_RFC_TOOLCHAIN` is set |
 | `ai_rfc_draft_build` | `ai_rfc draft-build [--ref REF]` | — (not available in arm C: frozen at the pre-v2 surface, spec D42) |
 | `ai_rfc_draft_lint` | `ai_rfc draft-lint [--committed]` | — (not available in arm C, D42) |
+| `ai_rfc_structure_upsert` | `ai_rfc structure-upsert ID --json …` | — (not available in arm C, D42) |
+| `ai_rfc_draft_render` | `ai_rfc draft-render` | — (not available in arm C, D42; an operator has `python -m ai_rfc draft render MANIFEST`) |
+
+Arm C is frozen at its pre-v2 surface (D42): it never sees `structure-upsert`,
+`draft-render` or the consolidation flags on `revision-record` and
+`checkpoint`. Arms A and B share the full twenty-tool surface above, so a v2
+campaign compares those two and reads arm C only as the unassisted baseline it
+was measured as before.
 
 ## Exit codes
 

@@ -20,6 +20,8 @@ def record_revision(
     cluster_id: str,
     normative_change: bool,
     note: str,
+    kind: str = "cluster",
+    checkpoint: str | None = None,
 ) -> dict[str, Any]:
     """Record one revision entry, pinned to its on-disk checkpoint.
 
@@ -30,36 +32,58 @@ def record_revision(
         normative_change: Whether the revision changes normative behaviour;
             an explicit ``False`` is the auditable no-change marker.
         note: One-line rationale.
+        kind: ``cluster`` for a cluster round, ``consolidation`` for a
+            consolidation of one.
+        checkpoint: The consolidation's own checkpoint, workspace-relative
+            (``consolidations/<NN>``); required when ``kind`` is
+            ``consolidation`` and refused otherwise by the substrate loader.
 
     Returns:
         The entry as recorded (including the checkpoint sha read from disk).
 
     Raises:
-        CoreError: If the checkpoint is missing or the tag already exists.
+        CoreError: If the checkpoint is missing, the tag already exists, a
+            consolidation names no checkpoint, or the cluster already has a
+            cluster revision.
         GateError: If the resulting revision map does not validate.
     """
-    checkpoint = ctx.workspace / "checkpoints" / cluster_id / "checkpoint.json"
-    if not checkpoint.exists():
+    if kind == "consolidation":
+        if not checkpoint:
+            raise CoreError(f"{tag}: a consolidation must name its checkpoint")
+        pinned = ctx.workspace / checkpoint / "checkpoint.json"
+    else:
+        pinned = ctx.workspace / "checkpoints" / cluster_id / "checkpoint.json"
+    if not pinned.exists():
         raise CoreError(
-            f"no checkpoint for {cluster_id}; write the checkpoint before "
-            f"recording the revision that pins it"
+            f"no checkpoint at {pinned.parent.relative_to(ctx.workspace)}; write "
+            f"the checkpoint before recording the revision that pins it"
         )
-    sha = json.loads(checkpoint.read_text())["manifest_sha256"]
+    sha = json.loads(pinned.read_text())["manifest_sha256"]
+
+    from ai_rfc.draft.gate import load_revisions
 
     document = yaml.safe_load(ctx.revisions.read_text())
     if not isinstance(document, dict) or "revisions" not in document:
         raise CoreError(f"{ctx.revisions} is not a revision map")
     if tag in document["revisions"]:
         raise CoreError(f"revision {tag} is already recorded")
-    entry = {
+    if kind == "cluster":
+        for existing in load_revisions(ctx.revisions):
+            if existing.kind == "cluster" and existing.cluster_id == cluster_id:
+                raise CoreError(
+                    f"{cluster_id} already has a cluster revision ({existing.tag}); "
+                    f"a consolidation needs kind='consolidation'"
+                )
+    entry: dict[str, Any] = {
         "cluster_id": cluster_id,
         "checkpoint_manifest_sha256": sha,
         "normative_change": normative_change,
         "note": note,
+        "kind": kind,
     }
+    if checkpoint is not None:
+        entry["checkpoint"] = checkpoint
     document["revisions"][tag] = entry
-
-    from ai_rfc.draft.gate import load_revisions
 
     with tempfile.TemporaryDirectory() as scratch:
         candidate = Path(scratch) / "revisions.yaml"

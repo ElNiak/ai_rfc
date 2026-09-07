@@ -15,6 +15,7 @@ import sys
 from typing import Any
 
 from ..paths import Context
+from . import CoreError
 
 _A_RFC = "ai_rfc"
 
@@ -31,17 +32,48 @@ def _run(ctx: Context, module: str, *args: str) -> tuple[int, list[str]]:
     ]
 
 
-def write_checkpoint(ctx: Context, cluster_id: str) -> dict[str, Any]:
-    """Freeze the workspace manifest against one cluster.
+def write_checkpoint(
+    ctx: Context,
+    cluster_id: str,
+    consolidation: int | None = None,
+    base: str | None = None,
+) -> dict[str, Any]:
+    """Freeze the workspace manifest against one cluster, or as a consolidation.
 
     Args:
         ctx: The resolved context.
-        cluster_id: The cluster to checkpoint against.
+        cluster_id: The cluster to checkpoint against; for a consolidation, the
+            cluster its base checkpoint belongs to.
+        consolidation: The consolidation's ordinal; when given, the checkpoint
+            lands under ``consolidations/<NN>`` instead of ``checkpoints/``.
+        base: The cluster checkpoint a consolidation follows, relative to the
+            workspace (``checkpoints/<cluster>``). Required with
+            ``consolidation``.
 
     Returns:
-        ``{exit_code, stderr, manifest_sha256?}`` — the sha is read back
-        from the written checkpoint on success.
+        ``{exit_code, stderr, manifest_sha256?}`` — the sha is read back from
+        the written checkpoint on success.
+
+    Raises:
+        CoreError: If ``consolidation`` is given without ``base``.
     """
+    if consolidation is None:
+        out = ctx.workspace / "checkpoints"
+        extra: list[str] = []
+        record_dir = out / cluster_id
+    else:
+        if base is None:
+            raise CoreError(
+                "a consolidation checkpoint needs base=checkpoints/<cluster>"
+            )
+        out = ctx.workspace / "consolidations"
+        extra = [
+            "--consolidation",
+            str(consolidation),
+            "--base",
+            str(ctx.workspace / base),
+        ]
+        record_dir = out / f"{consolidation:02d}"
     code, stderr = _run(
         ctx,
         f"{_A_RFC}.draft",
@@ -52,14 +84,13 @@ def write_checkpoint(ctx: Context, cluster_id: str) -> dict[str, Any]:
         "--cluster",
         cluster_id,
         "--out",
-        str(ctx.workspace / "checkpoints"),
+        str(out),
+        *extra,
     )
     result: dict[str, Any] = {"exit_code": code, "stderr": stderr}
-    record = ctx.workspace / "checkpoints" / cluster_id / "checkpoint.json"
+    record = record_dir / "checkpoint.json"
     if code == 0 and record.exists():
-        result["manifest_sha256"] = json.loads(record.read_text())[
-            "manifest_sha256"
-        ]
+        result["manifest_sha256"] = json.loads(record.read_text())["manifest_sha256"]
     return result
 
 
@@ -132,8 +163,6 @@ def citation_gate(ctx: Context, strict: bool = False) -> dict[str, Any]:
     code, stderr = _run(ctx, f"{_A_RFC}.draft", *args)
     report_path = ctx.workspace / "out" / "gate-report.json"
     findings = (
-        json.loads(report_path.read_text())["findings"]
-        if report_path.exists()
-        else []
+        json.loads(report_path.read_text())["findings"] if report_path.exists() else []
     )
     return {"exit_code": code, "stderr": stderr, "findings": findings}
