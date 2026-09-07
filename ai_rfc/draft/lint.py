@@ -20,7 +20,7 @@ import yaml
 
 from ..models import Manifest, RequirementClass
 from .gate import CITATION
-from .structures import parse_blocks
+from .structures import block_spans, parse_blocks, render_all
 
 REPORT_FILE = "lint-report.json"
 REQUIRED_SECTIONS: tuple[str, ...] = (
@@ -280,7 +280,18 @@ def _keywords(body: str) -> dict[str, Any]:
     }
 
 
-def _blocks(body: str, offset: int) -> dict[str, Any]:
+def _blocks(
+    body: str, offset: int, spans: tuple[tuple[int, int], ...]
+) -> dict[str, Any]:
+    """Count figures and tables, and find figures with no caption citation.
+
+    ``spans`` are structure-block bounds from :func:`block_spans`, as 0-based
+    line indices into the whole draft. A figure the renderer produced inside one
+    of them still counts, but is never reported uncited: every fenced rendering
+    carries its claims in the table below the fence, which is one line past
+    ``FIGURE_CITATION_WINDOW``, so the substrate's own output would otherwise
+    fail the substrate's own lint.
+    """
     lines = body.splitlines()
     figures = 0
     uncited: list[dict[str, Any]] = []
@@ -292,12 +303,14 @@ def _blocks(body: str, offset: int) -> dict[str, Any]:
                 opened = index
                 continue
             figures += 1
-            start = index + 1
-            stop = start + FIGURE_CITATION_WINDOW
-            following = lines[start:stop]
-            window = "\n".join(following)
-            if not CITATION.search(window):
-                uncited.append({"line": offset + opened + 1})
+            inside_block = any(first <= offset + index <= last for first, last in spans)
+            if not inside_block:
+                start = index + 1
+                stop = start + FIGURE_CITATION_WINDOW
+                following = lines[start:stop]
+                window = "\n".join(following)
+                if not CITATION.search(window):
+                    uncited.append({"line": offset + opened + 1})
             opened = None
             continue
         if (
@@ -390,9 +403,24 @@ def _structures(
     ``rendered`` is what the manifest renders *now*, not a checkpoint's frozen
     bytes: the gate owns historical fidelity at a tag, the lint owns "this draft
     has drifted from its manifest".
+
+    With no manifest nothing can be declared, so no block can be compared and
+    every count is zero: accusing each block of naming no declared structure
+    would be a false finding, and it flips ``--strict`` from 0 to 3 on a draft
+    with nothing wrong with it. Malformed delimiters are still read out, because
+    a broken delimiter is a draft-syntax defect no manifest is needed to see.
     """
-    declared = {s.id: s for s in manifest.structures} if manifest else {}
     bodies, malformed = parse_blocks(text)
+    if manifest is None:
+        return {
+            "defined": 0,
+            "rendered": 0,
+            "unrendered": [],
+            "stale": [],
+            "unknown_blocks": [],
+            "malformed": list(malformed),
+        }
+    declared = {s.id: s for s in manifest.structures}
     current, _ = parse_blocks(rendered) if rendered else ({}, ())
     stale = sorted(
         structure_id
@@ -439,9 +467,9 @@ def lint(
             still worth measuring.
         source: Provenance for the report (``path``, ``ref``); the text digest
             is added here.
-        structures: What ``manifest`` renders now, as ``structures.md`` bytes,
-            for the draft's pasted blocks to be compared against; ``None`` when
-            no manifest was loaded.
+        structures: The rendering to compare pasted blocks against; defaults
+            to a live rendering of ``manifest``. Pass it only to compare
+            against a frozen rendering.
 
     Returns:
         The report.
@@ -465,6 +493,8 @@ def lint(
     abstract_text = abstract_text.strip()
     provenance = dict(source or {})
     provenance["sha256"] = hashlib.sha256(text.encode()).hexdigest()
+    if manifest is not None and structures is None:
+        structures = render_all(manifest)
     structure_metrics = _structures(text, manifest, structures)
     unbound = _unbound_data_model_claims(manifest)
     return LintReport(
@@ -481,7 +511,7 @@ def lint(
         },
         references=_references(parts["front"]),
         keywords=_keywords(parts["middle"]),
-        blocks=_blocks(body, middle_offset),
+        blocks=_blocks(body, middle_offset, block_spans(text)),
         citations=_citations(body, manifest),
         narration=_narration(parts["middle"], middle_offset),
         manifest_error=manifest_error,

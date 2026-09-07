@@ -267,3 +267,42 @@ def parse_blocks(text: str) -> tuple[dict[str, str], tuple[str, ...]]:
     if open_id is not None:
         findings.append(f"structure block {open_id} was never closed")
     return bodies, tuple(findings)
+
+
+def block_spans(text: str) -> tuple[tuple[int, int], ...]:
+    """Locate every closed structure block by its delimiter lines.
+
+    The lint needs the bounds rather than the bodies :func:`parse_blocks`
+    returns, to tell a figure the renderer produced from one the author wrote.
+
+    Args:
+        text: The draft source.
+
+    Returns:
+        One ``(first, last)`` pair per closed block, in document order. Both are
+        0-based line indices into ``text`` and both are inclusive: ``first`` is
+        the ``{::comment}`` opening the begin marker, ``last`` the
+        ``{:/comment}`` closing the matching end marker. A block left unclosed,
+        closed by another id, or closed without opening contributes no span —
+        exactly the blocks :func:`parse_blocks` yields no body for.
+    """
+    lines = text.splitlines()
+    spans: list[tuple[int, int]] = []
+    open_at: int | None = None
+    open_id: str | None = None
+    index = 0
+    while index < len(lines):
+        if lines[index].strip() == _OPEN and index + 2 < len(lines):
+            marker = lines[index + 1].strip()
+            begin, end = _BEGIN.match(marker), _END.match(marker)
+            if (begin or end) and lines[index + 2].strip() == _CLOSE:
+                if begin:
+                    open_at, open_id = index, begin.group("id")
+                elif end is not None:
+                    if open_at is not None and end.group("id") == open_id:
+                        spans.append((open_at, index + 2))
+                    open_at, open_id = None, None
+                index += 3
+                continue
+        index += 1
+    return tuple(spans)

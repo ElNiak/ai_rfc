@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from ai_rfc.draft.structures import parse_blocks, render, render_all
+from ai_rfc.draft.structures import block_spans, parse_blocks, render, render_all
 from ai_rfc.models import Field, Manifest, Structure, StructureKind, Transition, Value
 
 pytestmark = pytest.mark.unit
@@ -215,6 +215,48 @@ def test_malformed_delimiters_are_findings_not_exceptions(text, needle):
     bodies, findings = parse_blocks(text)
     assert bodies == {}
     assert any(needle in finding for finding in findings), findings
+
+
+def test_block_spans_bounds_one_block_by_its_delimiter_lines():
+    text = "x\n" + render(_enum()) + "y\n"
+    lines = text.splitlines()
+    (span,) = block_spans(text)
+    first, last = span
+    assert (first, last) == (1, len(lines) - 2)
+    assert lines[first] == "{::comment}"
+    assert lines[first + 1] == "ai_rfc:struct:codes begin"
+    assert lines[last - 1] == "ai_rfc:struct:codes end"
+    assert lines[last] == "{:/comment}"
+
+
+def test_block_spans_finds_every_block_in_order():
+    manifest = Manifest(rfc="spec", title="T", claims=(), structures=(_wire(), _enum()))
+    spans = block_spans(render_all(manifest))
+    assert len(spans) == 2
+    assert spans[0][1] < spans[1][0]
+
+
+def test_block_spans_skips_a_block_that_is_never_closed():
+    text = "{::comment}\nai_rfc:struct:a begin\n{:/comment}\nbody\n"
+    assert block_spans(text) == ()
+    assert parse_blocks(text)[0] == {}
+
+
+def test_block_spans_and_parse_blocks_agree_on_every_block():
+    # Two readers of one input drift, and this module has two: parse_blocks
+    # returns the bodies, block_spans the bounds. Pin them to each other.
+    manifest = Manifest(rfc="spec", title="T", claims=(), structures=(_wire(), _enum()))
+    text = render_all(manifest)
+    lines = text.splitlines()
+    bodies, _ = parse_blocks(text)
+    spans = block_spans(text)
+    assert len(spans) == len(bodies)
+    bounded = []
+    for first, last in spans:
+        # A span bounds the delimiters too: three lines open it, three close it.
+        start, stop = first + 3, last - 2
+        bounded.append("\n".join(lines[start:stop]) + "\n")
+    assert sorted(bounded) == sorted(bodies.values())
 
 
 GOLDENS = Path(__file__).parent / "goldens"

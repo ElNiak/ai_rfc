@@ -9,7 +9,7 @@ from ai_rfc.draft.cli import main
 from ai_rfc.draft.lint import MUST_FRACTION_CEILING, STUB_ABSTRACT_MARKER, lint
 from ai_rfc.schema import load
 
-from .conftest import _manifest_text, git
+from .conftest import STRUCTURED_BLOCK, _manifest_text, git
 
 pytestmark = pytest.mark.unit
 
@@ -437,15 +437,39 @@ def test_a_block_naming_no_declared_structure_is_a_finding():
     )
     report = lint(_draft(body=body), manifest=manifest, structures="")
     assert report.extra["structures"]["unknown_blocks"] == ["ghost"]
+    assert "block ghost names no structure this manifest declares" in report.findings
 
 
 def test_a_data_model_claim_bound_to_no_structure_is_a_finding():
-    from ai_rfc.models import Manifest
+    from ai_rfc.models import (
+        Intent,
+        Level,
+        Manifest,
+        RequirementClaim,
+        RequirementClass,
+    )
 
     manifest = _structured_manifest_obj()
-    orphaned = Manifest(rfc="spec", title="T", claims=manifest.claims, structures=())
+    # A behavioural claim bound to nothing is not a finding: without it, an
+    # implementation that dropped the req_class filter would still pass.
+    behavioural = RequirementClaim(
+        id="spec:1.2",
+        text="t",
+        section="4",
+        level=Level.MUST,
+        layer="wire",
+        req_class=RequirementClass.PROTOCOL_BEHAVIORAL,
+        intent=Intent.INTENDED,
+    )
+    orphaned = Manifest(
+        rfc="spec",
+        title="T",
+        claims=manifest.claims + (behavioural,),
+        structures=(),
+    )
     report = lint(_draft(), manifest=orphaned)
     assert report.extra["data_model_claims_unbound"] == ["spec:1.1"]
+    assert "spec:1.2" not in report.extra["data_model_claims_unbound"]
     assert any("spec:1.1" in f and "no structure" in f for f in report.findings)
 
 
@@ -456,3 +480,173 @@ def test_a_manifest_the_schema_refuses_is_a_finding_not_a_crash():
     report = lint(_draft(), manifest=None, manifest_error="C1: level is 'descriptive'")
     assert any("descriptive" in f for f in report.findings)
     assert report.extra["structures"]["defined"] == 0
+
+
+def _wire_manifest_obj():
+    from ai_rfc.models import (
+        Field,
+        Intent,
+        Level,
+        Manifest,
+        RequirementClaim,
+        RequirementClass,
+        Structure,
+        StructureKind,
+    )
+
+    claim = RequirementClaim(
+        id="spec:1.1",
+        text="t",
+        section="4",
+        level=Level.MUST,
+        layer="wire",
+        req_class=RequirementClass.DATA_MODEL,
+        intent=Intent.INTENDED,
+    )
+    structure = Structure(
+        id="header",
+        kind=StructureKind.WIRE_FORMAT,
+        title="H",
+        section="4",
+        fields=(Field(name="version", claim="spec:1.1", width=8),),
+    )
+    return Manifest(rfc="spec", title="T", claims=(claim,), structures=(structure,))
+
+
+def _machine_manifest_obj():
+    from ai_rfc.models import (
+        Intent,
+        Level,
+        Manifest,
+        RequirementClaim,
+        RequirementClass,
+        Structure,
+        StructureKind,
+        Transition,
+    )
+
+    claim = RequirementClaim(
+        id="spec:1.1",
+        text="t",
+        section="5",
+        level=Level.MUST,
+        layer="core",
+        req_class=RequirementClass.PROTOCOL_BEHAVIORAL,
+        intent=Intent.INTENDED,
+    )
+    structure = Structure(
+        id="conn",
+        kind=StructureKind.STATE_MACHINE,
+        title="C",
+        section="5",
+        states=("idle", "open"),
+        transitions=(
+            Transition(source="idle", event="go", target="open", claim="spec:1.1"),
+        ),
+    )
+    return Manifest(rfc="spec", title="T", claims=(claim,), structures=(structure,))
+
+
+def test_a_rendered_wire_format_figure_needs_no_caption_citation():
+    # The renderer puts its claim citation in a table four lines past the
+    # closing fence, one beyond FIGURE_CITATION_WINDOW, so the substrate's own
+    # output used to fail the substrate's own lint.
+    from ai_rfc.draft.structures import render_all
+
+    manifest = _wire_manifest_obj()
+    report = lint(_draft(body=render_all(manifest)), manifest=manifest)
+    assert report.blocks["figures"] == 1
+    assert report.blocks["figures_without_caption_citation"] == []
+
+
+def test_a_rendered_state_machine_figure_needs_no_caption_citation():
+    from ai_rfc.draft.structures import render_all
+
+    manifest = _machine_manifest_obj()
+    report = lint(_draft(body=render_all(manifest)), manifest=manifest)
+    assert report.blocks["figures"] == 1
+    assert report.blocks["figures_without_caption_citation"] == []
+
+
+def test_a_hand_written_figure_outside_a_block_still_needs_a_citation():
+    from ai_rfc.draft.structures import render_all
+
+    manifest = _wire_manifest_obj()
+    body = render_all(manifest) + "\n~~~\nA hand-drawn figure.\n~~~\n\nProse.\n"
+    draft = _draft(body=body)
+    report = lint(draft, manifest=manifest)
+    assert report.blocks["figures"] == 2
+    # The opening fence sits one line above its caption, so the caption's
+    # 0-based index is the fence's 1-based physical line.
+    caption = draft.splitlines().index("A hand-drawn figure.")
+    assert report.blocks["figures_without_caption_citation"] == [{"line": caption}]
+
+
+def test_a_block_carrying_draft_is_not_accused_when_no_manifest_loaded():
+    # D52's degradation must stay honest: a draft whose blocks are fine gets
+    # the unloadable finding and nothing invented on top of it.
+    from ai_rfc.draft.structures import render_all
+
+    manifest = _structured_manifest_obj()
+    report = lint(
+        _draft(body=render_all(manifest)),
+        manifest=None,
+        manifest_error="C1: level is 'descriptive'",
+    )
+    assert any("unloadable" in f for f in report.findings)
+    assert not any("names no structure" in f for f in report.findings)
+    assert report.extra["structures"]["unknown_blocks"] == []
+    assert report.extra["structures"]["rendered"] == 0
+
+
+def test_a_malformed_block_is_still_reported_without_a_manifest():
+    # A broken delimiter is a draft-syntax defect that needs no manifest to
+    # diagnose, so the quiet path above must still read the blocks.
+    body = "{::comment}\nai_rfc:struct:ghost begin\n{:/comment}\nx\n"
+    report = lint(_draft(body=body), manifest=None)
+    assert report.extra["structures"]["malformed"] == [
+        "structure block ghost was never closed"
+    ]
+    assert "structure block ghost was never closed" in report.findings
+
+
+def test_a_stale_block_is_found_without_being_handed_the_rendering():
+    # A caller that supplies a manifest but no rendering used to get `stale: []`
+    # with no signal that the comparison had been skipped.
+    from ai_rfc.draft.structures import render_all
+
+    manifest = _structured_manifest_obj()
+    mutated = render_all(manifest).replace("uint8", "uint9")
+    report = lint(_draft(body=mutated), manifest=manifest)
+    assert report.extra["structures"]["stale"] == ["header"]
+    assert any("stale" in f for f in report.findings)
+
+
+def test_cli_lint_reports_a_stale_block(lint_repo, tmp_path, capsys):
+    # The verb is the feature's only production caller; without this, dropping
+    # the wiring leaves the suite green.
+    from ai_rfc.draft.structures import render_all
+
+    manifest_path = tmp_path / "manifest.yaml"
+    manifest_path.write_text(_manifest_text(with_second_claim=False) + STRUCTURED_BLOCK)
+    mutated = render_all(load(manifest_path)).replace("uint8", "uint9")
+    (lint_repo / "draft-test-spec.md").write_text(_draft(body=mutated))
+    out = tmp_path / "out"
+    assert (
+        main(
+            [
+                "lint",
+                str(lint_repo),
+                "--out",
+                str(out),
+                "--manifest",
+                str(manifest_path),
+                "--worktree",
+            ]
+        )
+        == 0
+    )
+    written = json.loads((out / "lint-report.json").read_text())
+    assert written["extra"]["structures"]["stale"] == ["header"]
+    assert any("stale" in finding for finding in written["findings"])
+    assert "stale" in capsys.readouterr().err

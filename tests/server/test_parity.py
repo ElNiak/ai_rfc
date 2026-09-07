@@ -276,3 +276,6 @@ def test_the_lint_metrics_carry_the_structures_block(workspace):
     metrics = tools.ai_rfc_draft_lint(worktree=True)["metrics"]
     assert "structures" in metrics["extra"]
     assert "data_model_claims_unbound" in metrics["extra"]
+    # Key presence alone passes on two empty values; the count is what proves
+    # the workspace manifest reached the lint.
+    assert metrics["extra"]["structures"]["defined"] == 1
