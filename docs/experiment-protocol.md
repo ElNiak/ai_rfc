@@ -176,3 +176,35 @@ From the aioquic pilot, `pilot-aioquic-w02-11-20260831`; full report at
   line, not two); the abstract stub-marker check ignores `{::comment}`
   blocks, so a comment that quotes the marker to explain it does not itself
   trip the finding.
+
+### 2026-09-05 — draft quality v2, SP7b
+
+- **Tool surface**: 20 tools (`ai_rfc_structure_upsert` and
+  `ai_rfc_draft_render` added to the 18 above); `ai_rfc_revision_record`
+  gained `kind` and `checkpoint`, and `ai_rfc_checkpoint` gained
+  `consolidation` and `base`; `docs/parity.md` is the table.
+- **Arm C stays frozen** at its pre-v2 surface (spec D42): it never sees
+  `structure-upsert` or `draft-render`, so a v2 campaign compares arms A and
+  B only.
+- **The manifest carries a `structures:` registry** over five kinds
+  (`wire-format`, `message`, `record`, `enum`, `state-machine`), and every
+  field, value and transition a structure declares names the claim it rests
+  on. A structure is exactly as strong as the weakest claim it binds, on both
+  the stored and the supported status — so a figure cannot read as confirmed
+  while the evidence under one of its rows is a gap.
+- **Every revision tag compares each delimited block** in the prose against
+  the rendering frozen in the paired checkpoint's `structures.md`. A block the
+  checkpoint does not name, and a body that differs from the frozen one, are
+  both gate findings — so a figure cannot drift from the manifest it was drawn
+  from, and a hand-edit to a pasted block is caught rather than published.
+- **Consolidation checkpoints live under `consolidations/<NN>/`**, never under
+  `checkpoints/`: a consolidation belongs to no new cluster, so it carries its
+  base checkpoint's cluster rather than one of its own, leaving the cluster
+  checkpoint root to cluster rounds alone (D48). A consolidation may change
+  only `structures:` — its requirements must digest identically to its base's
+  — and one recorded `normative_change: false` keeps every citation the
+  previous revision made, dropping one being a finding (D52).
+- **`level` is now a closed enum** (MUST, MUST NOT, SHOULD, SHOULD NOT, MAY).
+  A manifest the schema refuses is reported as a `manifest: unloadable`
+  finding rather than crashing the lint, and a data-model claim no structure
+  binds is a lint finding of its own.

@@ -66,7 +66,7 @@ they instantiate.
 
 | Arm | Surface | Built-in tools | Allowlist | MCP |
 |---|---|---|---|---|
-| A | class 1, structured-typed: the sixteen `ai_rfc_*` MCP tools | Read, Edit, Write, Grep, Glob | those plus `mcp__ai_rfc` | mounted from a per-run `ai_rfc.json` |
+| A | class 1, structured-typed: the twenty `ai_rfc_*` MCP tools | Read, Edit, Write, Grep, Glob | those plus `mcp__ai_rfc` | mounted from a per-run `ai_rfc.json` |
 | B | class 2, hybrid: the `ai_rfc <verb>` parity CLI through Bash | the same plus Bash | `Bash(ai_rfc *)` | not mounted |
 | C | class 2, hybrid: raw substrate commands through Bash | the same plus Bash | `Bash(python -m ai_rfc*)`, `Bash(git *)`, `Bash(sqlite3 *)` | not mounted |
 

@@ -42,7 +42,10 @@ interpreter with the `ai-rfc` distribution installed (e.g. a venv's
 `bin/python`), read by the plugin's `.mcp.json`; and `AI_RFC_WORKSPACE`, a
 reconstruction workspace (clone, corpus, timeline, clusters, checkpoints,
 manifest, questions, revisions, draft), read by the server and the `ai_rfc`
-CLI. Missing either fails loudly; nothing guesses.
+CLI. Missing either fails loudly; nothing guesses. The manifest's `structures:`
+registry is rendered by the tool — `ai_rfc_draft_render`, or
+`ai_rfc draft-render` — and the blocks it emits are pasted into the draft and
+never hand-edited there.
 
 Three more are read where named and are optional there: `AI_RFC_TOOLCHAIN`, a
 `toolchain.json` that `draft build` and the pipeline's build stage use when no
@@ -59,8 +62,8 @@ experiment harness's state root (default `~/ai-rfc-experiments`).
 | Entry | What it is | Surface |
 |---|---|---|
 | `ai-rfc <verb>` = `python -m ai_rfc <verb>` | The substrate door: one dispatcher (`ai_rfc/cli.py`) over the eight programs `history`, `forge`, `timeline`, `views`, `check`, `draft`, `coverage`, `pipeline`, each also reachable as `python -m ai_rfc.<sub>` | What a person, or the raw experiment arm, runs |
-| `ai_rfc <verb>` (underscore) | The parity CLI (`ai_rfc/server/cli.py`): eighteen workspace-level verbs, one per MCP tool, over the same core the server uses | What the AI+CLI experiment arm runs through Bash |
-| `python -m ai_rfc.server` | The stdio MCP server exposing the same eighteen operations as `ai_rfc_*` tools | What Claude Code mounts from the plugin's `.mcp.json`, and what the AI+MCP arm gets |
+| `ai_rfc <verb>` (underscore) | The parity CLI (`ai_rfc/server/cli.py`): twenty workspace-level verbs, one per MCP tool, over the same core the server uses | What the AI+CLI experiment arm runs through Bash |
+| `python -m ai_rfc.server` | The stdio MCP server exposing the same twenty operations as `ai_rfc_*` tools | What Claude Code mounts from the plugin's `.mcp.json`, and what the AI+MCP arm gets |
 
 The underscore name is interim: the one-door design folds it into `ai-rfc`
 (see the pyproject comment on `[project.scripts]`). Exit codes are the same
