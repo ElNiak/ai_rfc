@@ -28,6 +28,13 @@ MIDDLE = (
     "# Operation\n\n{body}\n\n# Security Considerations\n\nNone known.\n\n"
     "# IANA Considerations\n\nNone.\n"
 )
+#: One structure id, closed and reopened: two blocks the gate cannot tell apart.
+DUPLICATED_BLOCK = (
+    "{::comment}\nai_rfc:struct:header begin\n{:/comment}\nfirst\n"
+    "{::comment}\nai_rfc:struct:header end\n{:/comment}\n\n"
+    "{::comment}\nai_rfc:struct:header begin\n{:/comment}\nsecond\n"
+    "{::comment}\nai_rfc:struct:header end\n{:/comment}\n"
+)
 
 
 def _draft(
@@ -396,35 +403,31 @@ def _structured_manifest_obj():
 
 
 def test_a_declared_but_unrendered_structure_is_a_finding():
-    from ai_rfc.draft.structures import render_all
-
     manifest = _structured_manifest_obj()
-    report = lint(_draft(), manifest=manifest, structures=render_all(manifest))
+    report = lint(_draft(), manifest=manifest)
     assert report.extra["structures"]["unrendered"] == ["header"]
     assert any("header" in f and "not rendered" in f for f in report.findings)
 
 
-def test_a_rendered_structure_that_matches_the_frozen_bytes_is_clean():
+def test_a_block_that_matches_the_live_rendering_is_clean():
     from ai_rfc.draft.structures import render_all
 
     manifest = _structured_manifest_obj()
-    frozen = render_all(manifest)
-    report = lint(_draft(body=frozen), manifest=manifest, structures=frozen)
+    report = lint(_draft(body=render_all(manifest)), manifest=manifest)
     assert report.extra["structures"]["rendered"] == 1
     assert report.extra["structures"]["stale"] == []
     assert report.extra["structures"]["unrendered"] == []
 
 
 def test_a_stale_block_is_a_finding():
+    # The rendering is never handed in: a caller that supplied a manifest but
+    # no rendering used to get `stale: []` with no signal that the comparison
+    # had been skipped, so the lint renders the manifest itself.
     from ai_rfc.draft.structures import render_all
 
     manifest = _structured_manifest_obj()
-    frozen = render_all(manifest)
-    report = lint(
-        _draft(body=frozen.replace("uint8", "uint9")),
-        manifest=manifest,
-        structures=frozen,
-    )
+    mutated = render_all(manifest).replace("uint8", "uint9")
+    report = lint(_draft(body=mutated), manifest=manifest)
     assert report.extra["structures"]["stale"] == ["header"]
     assert any("stale" in f for f in report.findings)
 
@@ -435,7 +438,7 @@ def test_a_block_naming_no_declared_structure_is_a_finding():
         "{::comment}\nai_rfc:struct:ghost begin\n{:/comment}\nx\n"
         "{::comment}\nai_rfc:struct:ghost end\n{:/comment}\n"
     )
-    report = lint(_draft(body=body), manifest=manifest, structures="")
+    report = lint(_draft(body=body), manifest=manifest)
     assert report.extra["structures"]["unknown_blocks"] == ["ghost"]
     assert "block ghost names no structure this manifest declares" in report.findings
 
@@ -610,16 +613,32 @@ def test_a_malformed_block_is_still_reported_without_a_manifest():
     assert "structure block ghost was never closed" in report.findings
 
 
-def test_a_stale_block_is_found_without_being_handed_the_rendering():
-    # A caller that supplies a manifest but no rendering used to get `stale: []`
-    # with no signal that the comparison had been skipped.
-    from ai_rfc.draft.structures import render_all
+def test_a_block_id_that_opens_twice_is_malformed():
+    # Both blocks carry the id, so only one of them can be the one the gate
+    # compares; reporting neither is how a second block silently replaces the
+    # first.
+    report = lint(_draft(body=DUPLICATED_BLOCK), manifest=None)
+    assert report.extra["structures"]["malformed"] == [
+        "structure block header appears more than once"
+    ]
+    assert "structure block header appears more than once" in report.findings
 
-    manifest = _structured_manifest_obj()
-    mutated = render_all(manifest).replace("uint8", "uint9")
-    report = lint(_draft(body=mutated), manifest=manifest)
-    assert report.extra["structures"]["stale"] == ["header"]
-    assert any("stale" in f for f in report.findings)
+
+def test_cli_lint_strict_exits_three_on_a_repeated_block_id(
+    lint_repo, tmp_path, capsys
+):
+    # Without the second run the exit code proves nothing: the fixture draft
+    # has to be clean under `--strict` for 3 to mean the repeated id.
+    out = tmp_path / "out"
+    argv = ["lint", str(lint_repo), "--out", str(out), "--worktree", "--strict"]
+    assert main(argv) == 0
+
+    (lint_repo / "draft-test-spec.md").write_text(_draft(body=DUPLICATED_BLOCK))
+
+    assert main(argv) == 3
+    written = json.loads((out / "lint-report.json").read_text())
+    assert "structure block header appears more than once" in written["findings"]
+    assert "appears more than once" in capsys.readouterr().err
 
 
 def test_cli_lint_reports_a_stale_block(lint_repo, tmp_path, capsys):

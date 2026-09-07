@@ -395,14 +395,12 @@ def _narration(body: str, offset: int) -> list[dict[str, Any]]:
     return entries
 
 
-def _structures(
-    text: str, manifest: Manifest | None, rendered: str | None
-) -> dict[str, Any]:
-    """Compare the draft's delimited blocks with the manifest's rendering.
+def _structures(text: str, manifest: Manifest | None) -> dict[str, Any]:
+    """Compare the draft's delimited blocks with a live rendering of the manifest.
 
-    ``rendered`` is what the manifest renders *now*, not a checkpoint's frozen
-    bytes: the gate owns historical fidelity at a tag, the lint owns "this draft
-    has drifted from its manifest".
+    The gate owns fidelity to the bytes a checkpoint froze; the lint owns "this
+    draft has drifted from the manifest it is rendered from", so it always
+    renders the manifest itself rather than reading a rendering from anywhere.
 
     With no manifest nothing can be declared, so no block can be compared and
     every count is zero: accusing each block of naming no declared structure
@@ -421,7 +419,7 @@ def _structures(
             "malformed": list(malformed),
         }
     declared = {s.id: s for s in manifest.structures}
-    current, _ = parse_blocks(rendered) if rendered else ({}, ())
+    current, _ = parse_blocks(render_all(manifest))
     stale = sorted(
         structure_id
         for structure_id, body in bodies.items()
@@ -455,7 +453,6 @@ def lint(
     manifest: Manifest | None = None,
     manifest_error: str | None = None,
     source: dict[str, str] | None = None,
-    structures: str | None = None,
 ) -> LintReport:
     """Measure one draft text.
 
@@ -467,12 +464,12 @@ def lint(
             still worth measuring.
         source: Provenance for the report (``path``, ``ref``); the text digest
             is added here.
-        structures: The rendering to compare pasted blocks against; defaults
-            to a live rendering of ``manifest``. Pass it only to compare
-            against a frozen rendering.
 
     Returns:
         The report.
+
+    Raises:
+        ValueError: If ``manifest`` refuses to render.
     """
     parts = _parts(text)
     middle_offset = (
@@ -493,9 +490,7 @@ def lint(
     abstract_text = abstract_text.strip()
     provenance = dict(source or {})
     provenance["sha256"] = hashlib.sha256(text.encode()).hexdigest()
-    if manifest is not None and structures is None:
-        structures = render_all(manifest)
-    structure_metrics = _structures(text, manifest, structures)
+    structure_metrics = _structures(text, manifest)
     unbound = _unbound_data_model_claims(manifest)
     return LintReport(
         source=provenance,

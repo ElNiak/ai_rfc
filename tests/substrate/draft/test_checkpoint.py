@@ -160,6 +160,18 @@ STRUCTURED = (
 )
 
 
+TRAILER = (
+    "  trailer:\n"
+    "    kind: record\n"
+    "    title: Message trailer\n"
+    "    section: '5'\n"
+    "    fields:\n"
+    "      - name: checksum\n"
+    "        type: uint32\n"
+    "        claim: spec:2.1\n"
+)
+
+
 def _structured_manifest(tmp_path):
     path = tmp_path / "structured.yaml"
     path.write_text(_manifest_text(with_second_claim=True) + STRUCTURED)
@@ -360,6 +372,41 @@ def test_a_consolidation_may_change_the_structures(tmp_path, timeline_dir):
     assert verify_checkpoint(directory) is None
 
 
+def test_a_consolidation_freezes_its_own_rendering_not_the_bases(
+    tmp_path, timeline_dir
+):
+    """A consolidation that adds a structure freezes the wider rendering.
+
+    D48 exists so a consolidation can change `structures:` alone. A writer that
+    rendered the base's manifest instead would freeze bytes the consolidated
+    draft can never paste, and the gate at the consolidation's tag would read
+    every added block as absent from the checkpoint.
+    """
+    from ai_rfc.draft.structures import STRUCTURES_FILE, render_all
+    from ai_rfc.schema import load
+
+    cluster_id = _pr_cluster_id(timeline_dir)
+    base = write_checkpoint(
+        _structured_manifest(tmp_path),
+        timeline_dir,
+        cluster_id,
+        tmp_path / "checkpoints",
+    )
+    added = tmp_path / "added.yaml"
+    added.write_text(_manifest_text(with_second_claim=True) + STRUCTURED + TRAILER)
+
+    directory = write_consolidation_checkpoint(
+        added, 1, base, cluster_id, tmp_path / "consolidations"
+    )
+
+    written = (directory / STRUCTURES_FILE).read_bytes()
+    assert written != (base / STRUCTURES_FILE).read_bytes()
+    assert written == render_all(load(added)).encode()
+    record = json.loads((directory / "checkpoint.json").read_text())
+    assert record["structures_sha256"] == hashlib.sha256(written).hexdigest()
+    assert verify_checkpoint(directory) is None
+
+
 def test_an_unrecorded_structures_file_is_caught(tmp_path, timeline_dir, manifest_path):
     from ai_rfc.draft.structures import STRUCTURES_FILE
 
@@ -401,7 +448,7 @@ def test_a_failed_rendering_leaves_no_checkpoint_behind(
     out = tmp_path / "checkpoints"
     cluster_id = _pr_cluster_id(timeline_dir)
 
-    with pytest.raises(RuntimeError):
+    with pytest.raises(RuntimeError, match="rendering refused"):
         write_checkpoint(_structured_manifest(tmp_path), timeline_dir, cluster_id, out)
 
     assert not (out / cluster_id).exists()

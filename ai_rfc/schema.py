@@ -231,6 +231,32 @@ def _values(structure_id: str, raw: Any) -> tuple[Value, ...]:
     )
 
 
+def _states(structure_id: str, raw: Any) -> tuple[str, ...]:
+    """Read the declared state names of a state machine.
+
+    Args:
+        structure_id: The structure the states belong to, for the message.
+        raw: The ``states:`` value as YAML read it.
+
+    Returns:
+        The declared names, in the order written.
+
+    Raises:
+        SchemaError: If any state is not a string. A state is a name every
+            transition endpoint is matched against and the ladder renders into
+            a box, so a mapping there reaches the endpoint diagnostic and dies
+            sorting itself rather than naming the line to fix.
+    """
+    states = tuple(raw or ())
+    for state in states:
+        if not isinstance(state, str):
+            raise SchemaError(
+                f"{structure_id}: state is {state!r} ({type(state).__name__}); "
+                f"a state is a name, written as a string"
+            )
+    return states
+
+
 def _transitions(
     structure_id: str, raw: Any, states: tuple[str, ...]
 ) -> tuple[Transition, ...]:
@@ -281,7 +307,7 @@ def _structure(structure_id: Any, raw: Any) -> Structure:
                 f"{structure_id}: a structure of kind {kind.value} does not "
                 f"take {key}"
             )
-    states = tuple(raw.get("states") or ())
+    states = _states(structure_id, raw.get("states"))
     structure = Structure(
         id=structure_id,
         kind=kind,

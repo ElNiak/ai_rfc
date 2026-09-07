@@ -427,6 +427,35 @@ structures:
     assert "not a declared state" in str(error.value)
 
 
+def test_a_state_that_is_not_a_name_is_refused(tmp_path):
+    """`states:` written as a list of mappings is the natural mistake.
+
+    The loader used to carry the mappings through, and the first diagnostic
+    that sorted them — the transition endpoint check — died on a `TypeError`
+    comparing two dicts, so the author saw a crash instead of the line to fix.
+    """
+    block = """\
+structures:
+  conn:
+    kind: state-machine
+    title: Connection
+    section: "5"
+    states:
+      - name: idle
+      - name: open
+    transitions:
+      - from: idle
+        event: connect
+        to: open
+        claim: spec:1.1
+"""
+    with pytest.raises(SchemaError) as error:
+        load(_with_structures(tmp_path, block=block))
+    assert "conn:" in str(error.value)
+    assert "dict" in str(error.value)
+    assert "written as a string" in str(error.value)
+
+
 def test_structure_ids_are_constrained(tmp_path):
     for bad in ("-header", "hea--der", "head er"):
         block = STRUCTURES.replace("  header:", f"  {bad}:")

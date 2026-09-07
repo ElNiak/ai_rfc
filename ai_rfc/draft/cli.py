@@ -248,14 +248,17 @@ def main(argv: list[str] | None = None) -> int:
     if args.verb == "render":
         try:
             text = render_all(load(args.manifest))
-        except (SchemaError, OSError) as error:
+        except (ValueError, OSError) as error:
             _report(f"error: {error}")
             return 1
         if text:
             print(text, end="")
         if args.out is not None:
             args.out.mkdir(parents=True, exist_ok=True)
-            (args.out / STRUCTURES_FILE).write_text(text)
+            # The checkpoint writers freeze these bytes and the gate compares
+            # them; `write_text` would translate the newlines and the two
+            # renderings of one manifest would differ off POSIX.
+            (args.out / STRUCTURES_FILE).write_bytes(text.encode())
         return 0
 
     if args.verb == "completeness":
@@ -338,22 +341,25 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 _, text = draft_text(args.draftrepo, args.ref)
                 ref = args.ref
-        except (GateError, OSError) as error:
+            manifest = None
+            manifest_error = None
+            if args.manifest is not None:
+                try:
+                    manifest = load(args.manifest)
+                except (SchemaError, OSError) as error:
+                    manifest_error = str(error)
+            # `lint` renders the manifest itself, so it raises whatever the
+            # renderer does; a manifest the loader accepted can still refuse to
+            # render, and that must read as an error rather than a traceback.
+            report = lint(
+                text,
+                manifest=manifest,
+                manifest_error=manifest_error,
+                source={"path": str(args.draftrepo), "ref": ref},
+            )
+        except (ValueError, OSError) as error:
             _report(f"error: {error}")
             return 1
-        manifest = None
-        manifest_error = None
-        if args.manifest is not None:
-            try:
-                manifest = load(args.manifest)
-            except (SchemaError, OSError) as error:
-                manifest_error = str(error)
-        report = lint(
-            text,
-            manifest=manifest,
-            manifest_error=manifest_error,
-            source={"path": str(args.draftrepo), "ref": ref},
-        )
         args.out.mkdir(parents=True, exist_ok=True)
         (args.out / LINT_REPORT_FILE).write_text(report.to_json())
         for finding in report.findings:

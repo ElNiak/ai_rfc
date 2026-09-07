@@ -114,8 +114,59 @@ def test_render_can_also_write_the_file(tmp_path, capsys):
     path.write_text(_manifest_text(with_second_claim=True) + STRUCTURED_BLOCK)
     out = tmp_path / "out"
     assert cli.main(["render", str(path), "--out", str(out)]) == 0
-    capsys.readouterr()
-    assert "ai_rfc:struct:header begin" in (out / STRUCTURES_FILE).read_text()
+    written = (out / STRUCTURES_FILE).read_bytes()
+    assert "ai_rfc:struct:header begin" in written.decode()
+    # The file and stdout are the same bytes: a draft pastes what it sees on
+    # the terminal, and the checkpoint freezes what lands on disk.
+    assert capsys.readouterr().out == written.decode()
+
+
+def test_render_exits_one_when_the_rendering_refuses(tmp_path, capsys, monkeypatch):
+    """R13's `ValueError` is a programmer-error assertion, not a traceback.
+
+    `SchemaError` subclasses `ValueError`, so catching the subclass alone let
+    the parent through to the user as a stack trace.
+    """
+
+    def refuse(manifest):
+        raise ValueError("a wire-format field has no width")
+
+    monkeypatch.setattr("ai_rfc.draft.cli.render_all", refuse)
+    path = tmp_path / "m.yaml"
+    path.write_text(_manifest_text(with_second_claim=True) + STRUCTURED_BLOCK)
+
+    assert cli.main(["render", str(path)]) == 1
+
+    captured = capsys.readouterr()
+    assert "error: a wire-format field has no width" in captured.err
+    assert captured.out == ""
+
+
+def test_lint_exits_one_when_the_live_rendering_refuses(
+    draft_workspace, tmp_path, capsys, monkeypatch
+):
+    """The lint renders the manifest itself, so it can raise what the renderer does."""
+
+    def refuse(manifest):
+        raise ValueError("a wire-format field has no width")
+
+    monkeypatch.setattr("ai_rfc.draft.lint.render_all", refuse)
+    manifest = tmp_path / "m.yaml"
+    manifest.write_text(_manifest_text(with_second_claim=True) + STRUCTURED_BLOCK)
+
+    code = cli.main(
+        [
+            "lint",
+            str(draft_workspace["repo"]),
+            "--out",
+            str(tmp_path / "lint-out"),
+            "--manifest",
+            str(manifest),
+        ]
+    )
+
+    assert code == 1
+    assert "error: a wire-format field has no width" in capsys.readouterr().err
 
 
 def test_render_of_a_structure_free_manifest_prints_nothing_and_succeeds(
