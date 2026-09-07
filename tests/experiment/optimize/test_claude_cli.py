@@ -189,7 +189,7 @@ def test_a_nonzero_exit_keeps_the_quota_the_stream_already_carried(profile, tmp_
     error = caught.value
     assert error.exit_code == 1
     assert "exited 1" in str(error)
-    assert "limit" in str(error) and "five_hour" in str(error)
+    assert "exited 1: limit" in str(error) and "five_hour" in str(error)
 
 
 def test_a_timeout_raises_and_names_the_cap(profile, tmp_path):

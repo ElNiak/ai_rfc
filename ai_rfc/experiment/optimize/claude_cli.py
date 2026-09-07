@@ -219,7 +219,8 @@ class ClaudeCliCall:
         if completed.returncode != 0:
             # A hard usage-limit trip may exit non-zero with the quota event
             # already on stdout, and that window is the only meter this design
-            # has; whatever else a failed call left there is not parseable.
+            # has. A failed call may equally leave stdout partial, so a parse
+            # failure here is not itself the error worth reporting.
             try:
                 events = parse_stream(completed.stdout)
             except ExperimentError:
