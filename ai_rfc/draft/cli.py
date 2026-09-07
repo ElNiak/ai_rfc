@@ -224,6 +224,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.verb == "checkpoint":
         if args.consolidation is not None and args.base is None:
             parser.error("--consolidation requires --base")
+        if args.base is not None and args.consolidation is None:
+            parser.error("--base requires --consolidation")
         try:
             if args.consolidation is not None:
                 checkpoint_dir = write_consolidation_checkpoint(

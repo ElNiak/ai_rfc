@@ -1,11 +1,13 @@
+import json
 from pathlib import Path
 
 import pytest
 
 from ai_rfc.draft import cli
+from ai_rfc.draft.checkpoint import write_consolidation_checkpoint
 from ai_rfc.timeline.store import read_clusters
 
-from .conftest import STRUCTURED_BLOCK, _manifest_text, git
+from .conftest import STRUCTURED_BLOCK, _manifest_text, _record_consolidation, git
 
 pytestmark = pytest.mark.unit
 
@@ -122,7 +124,7 @@ def test_render_of_a_structure_free_manifest_prints_nothing_and_succeeds(
     path = tmp_path / "m.yaml"
     path.write_text(_manifest_text(with_second_claim=False))
     assert cli.main(["render", str(path)]) == 0
-    assert capsys.readouterr().out.strip() == ""
+    assert capsys.readouterr().out == ""
 
 
 def test_checkpoint_writes_a_consolidation_when_asked(tmp_path, timeline_dir, capsys):
@@ -189,3 +191,105 @@ def test_consolidation_requires_a_base(tmp_path, timeline_dir, capsys):
         )
     assert exit_.value.code == 2
     assert "--base" in capsys.readouterr().err
+
+
+def test_base_requires_a_consolidation(tmp_path, timeline_dir, capsys):
+    path = tmp_path / "m.yaml"
+    path.write_text(_manifest_text(with_second_claim=False))
+    with pytest.raises(SystemExit) as exit_:
+        cli.main(
+            [
+                "checkpoint",
+                str(path),
+                "--timeline",
+                str(timeline_dir),
+                "--cluster",
+                read_clusters(timeline_dir)[0]["id"],
+                "--out",
+                str(tmp_path / "c"),
+                "--base",
+                str(tmp_path / "base"),
+            ]
+        )
+    assert exit_.value.code == 2
+    assert "--consolidation" in capsys.readouterr().err
+
+
+def test_consolidation_with_the_wrong_cluster_exits_one(tmp_path, timeline_dir, capsys):
+    clusters = read_clusters(timeline_dir)
+    base_cluster, other_cluster = clusters[1]["id"], clusters[0]["id"]
+    path = tmp_path / "m.yaml"
+    path.write_text(_manifest_text(with_second_claim=True) + STRUCTURED_BLOCK)
+    checkpoints = tmp_path / "checkpoints"
+    assert (
+        cli.main(
+            [
+                "checkpoint",
+                str(path),
+                "--timeline",
+                str(timeline_dir),
+                "--cluster",
+                base_cluster,
+                "--out",
+                str(checkpoints),
+            ]
+        )
+        == 0
+    )
+    assert (
+        cli.main(
+            [
+                "checkpoint",
+                str(path),
+                "--timeline",
+                str(timeline_dir),
+                "--cluster",
+                other_cluster,
+                "--out",
+                str(tmp_path / "consolidations"),
+                "--consolidation",
+                "1",
+                "--base",
+                str(checkpoints / base_cluster),
+            ]
+        )
+        == 1
+    )
+    assert "is not the base's cluster" in capsys.readouterr().err
+
+
+def test_gate_reads_consolidations_from_the_named_root(
+    structured_workspace, tmp_path: Path
+):
+    base = structured_workspace["last_checkpoint"]
+    structured_workspace["consolidations"] = tmp_path / "far" / "consolidations"
+    write_consolidation_checkpoint(
+        base / "manifest.yaml",
+        1,
+        base,
+        structured_workspace["last_cluster"],
+        structured_workspace["consolidations"],
+    )
+    _record_consolidation(
+        structured_workspace, ordinal=2, checkpoint="consolidations/01"
+    )
+
+    named = tmp_path / "named"
+    assert (
+        cli.main(
+            _gate_argv(
+                structured_workspace,
+                named,
+                "--consolidations",
+                str(structured_workspace["consolidations"]),
+            )
+        )
+        == 0
+    )
+    assert json.loads((named / "gate-report.json").read_text())["findings"] == []
+    # The default root is the sibling of --checkpoints, where nothing was
+    # written, so the same run without the flag must not find the checkpoint.
+    assert (
+        cli.main(_gate_argv(structured_workspace, tmp_path / "sibling", "--strict"))
+        == 3
+    )

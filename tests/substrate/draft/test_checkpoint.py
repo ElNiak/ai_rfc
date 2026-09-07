@@ -278,6 +278,47 @@ def test_a_consolidation_checkpoint_is_write_once(tmp_path, timeline_dir):
     assert "immutable" in str(error.value)
 
 
+def test_a_consolidation_refuses_a_cluster_the_base_does_not_carry(
+    tmp_path, timeline_dir
+):
+    """The cluster a consolidation claims must be the one its base records.
+
+    Mislabelling it silently reparents the consolidation: the gate resolves a
+    revision's checkpoint by the recorded cluster, so a wrong id points the
+    prose at prose frozen for a different round.
+    """
+    base_cluster = _pr_cluster_id(timeline_dir)
+    other_cluster = [
+        cluster["id"]
+        for cluster in read_clusters(timeline_dir)
+        if cluster["id"] != base_cluster
+    ][0]
+    base = write_checkpoint(
+        _structured_manifest(tmp_path), timeline_dir, base_cluster, tmp_path / "cp"
+    )
+    consolidations = tmp_path / "consolidations"
+    with pytest.raises(CheckpointError) as error:
+        write_consolidation_checkpoint(
+            _structured_manifest(tmp_path), 1, base, other_cluster, consolidations
+        )
+    assert "is not the base's cluster" in str(error.value)
+    assert not (consolidations / "01").exists()
+
+
+def test_a_consolidation_refuses_a_base_with_no_record(tmp_path, timeline_dir):
+    cluster_id = _pr_cluster_id(timeline_dir)
+    base = write_checkpoint(
+        _structured_manifest(tmp_path), timeline_dir, cluster_id, tmp_path / "cp"
+    )
+    (base / "checkpoint.json").unlink()
+    with pytest.raises(CheckpointError) as error:
+        write_consolidation_checkpoint(
+            _structured_manifest(tmp_path), 1, base, cluster_id, tmp_path / "cons"
+        )
+    assert "to consolidate from" in str(error.value)
+    assert "checkpoint.json" in str(error.value)
+
+
 def test_a_failed_consolidation_leaves_no_directory(tmp_path, timeline_dir):
     consolidations = tmp_path / "consolidations"
     missing = tmp_path / "nope.yaml"

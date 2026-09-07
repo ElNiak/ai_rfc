@@ -203,7 +203,8 @@ def write_consolidation_checkpoint(
 
     Raises:
         CheckpointError: If the ordinal does not fit two digits, the base is
-            unreadable, or the manifest changes any requirement rather than
+            unreadable, ``cluster_id`` is not the cluster the base's own
+            record names, or the manifest changes any requirement rather than
             only its structures.
     """
     if not 1 <= ordinal <= 99:
@@ -216,6 +217,20 @@ def write_consolidation_checkpoint(
     if not base_manifest_path.is_file():
         raise CheckpointError(
             f"{base_checkpoint}: no {MANIFEST_FILE} to consolidate from"
+        )
+    base_record_path = base_checkpoint / CHECKPOINT_FILE
+    if not base_record_path.is_file():
+        raise CheckpointError(
+            f"{base_checkpoint}: no {CHECKPOINT_FILE} to consolidate from"
+        )
+    # Read the cluster off the base's record rather than its directory name: a
+    # consolidation's own directory is an ordinal, so a name comparison would
+    # refuse every consolidation stacked on another one.
+    base_record = json.loads(base_record_path.read_text())
+    if base_record["cluster_id"] != cluster_id:
+        raise CheckpointError(
+            f"consolidation {ordinal:02d}: cluster {cluster_id} is not the "
+            f"base's cluster {base_record['cluster_id']}"
         )
     base = load(base_manifest_path)
     if requirements_digest(manifest) != requirements_digest(base):
