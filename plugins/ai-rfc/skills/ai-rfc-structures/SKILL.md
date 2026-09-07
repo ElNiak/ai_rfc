@@ -23,10 +23,15 @@ as its weakest claim — a structure built on a `gap` claim reports as a gap.
 ## How
 
 1. `ai_rfc_structure_upsert` with the id, the kind, the title, the section it
-   belongs to, and its members. Each member names a `claim:` that must already
-   exist in `requirements:`; declare the claim first.
-2. `ai_rfc_draft_render` returns the blocks. Paste them **verbatim** into the
-   owning section, delimiters included.
+   belongs to, and its members under the key its kind takes: `fields:` for
+   `wire-format`, `message` and `record`, `values:` for `enum`, `states:` and
+   `transitions:` for `state-machine`. (The tool's second parameter is named
+   `fields`, but it carries the whole body, members included.) Each field,
+   value and transition names a `claim:` that must already exist in
+   `requirements:`; a state is just a name.
+2. `ai_rfc_draft_render` returns one block per declared structure, ordered by
+   id. Paste each block **verbatim** into the section that structure names,
+   delimiters included.
 3. Never edit inside the delimiters. The checkpoint freezes those bytes and
    every revision tag compares against them, so a single edited character is a
    gate finding. To change a figure, change the manifest and re-render.
@@ -34,9 +39,11 @@ as its weakest claim — a structure built on a `gap` claim reports as a gap.
 ## Widths
 
 `width` is a bit count, or `variable` for a trailing field of unbounded
-length. Only the last field of a structure may be `variable`.
+length. Every `wire-format` field needs one, because it is drawn as a bit
+diagram; a `message` or `record` field may omit it. Only the last field of a
+structure may be `variable`.
 
 ## What not to draw
 
 Architecture and sequence overviews are free-form figures, not structures —
-see the figures skill. A structure describes data, not a story.
+see `ai-rfc-figures`. A structure describes data, not a story.
