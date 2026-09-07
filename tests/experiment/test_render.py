@@ -169,3 +169,14 @@ def test_render_task_leaves_a_placeholder_it_cannot_fill(tmp_path):
         render_task((3, 3), template=template)
         == "Ordinals 3..3 under $AI_RFC_WORKSPACE.\n"
     )
+
+
+def test_the_structures_skill_names_every_kind_and_the_tool():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    text = (root / "plugins/ai-rfc/skills/ai-rfc-structures/SKILL.md").read_text()
+    for kind in ("wire-format", "message", "record", "enum", "state-machine"):
+        assert kind in text
+    assert "ai_rfc_structure_upsert" in text
+    assert "ai_rfc_draft_render" in text
