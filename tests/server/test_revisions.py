@@ -111,6 +111,24 @@ def test_a_cluster_revision_naming_a_checkpoint_is_refused_as_a_core_error(works
     assert "only a consolidation may name a checkpoint" in str(error.value)
 
 
+def test_a_corrupt_revision_map_on_disk_is_a_core_error(workspace):
+    # The map on disk is read through the gate's loader only for a cluster
+    # revision; a consolidation meets the same corruption in the candidate. Both
+    # paths must report one class, or the exception depends on the argument
+    # rather than on the defect.
+    first, _ = _checkpointed_cluster(workspace)
+    workspace.revisions.write_text(
+        "revisions:\n"
+        "  bad-tag:\n"
+        "    cluster_id: c\n"
+        "    checkpoint_manifest_sha256: abc\n"
+        "    normative_change: true\n"
+    )
+    with pytest.raises(CoreError) as error:
+        revisions.record_revision(workspace, "draft-test-spec-00", first, True, "x")
+    assert "not a revision tag" in str(error.value)
+
+
 def test_a_cluster_may_not_be_recorded_twice(workspace):
     first, _ = _checkpointed_cluster(workspace)
     revisions.record_revision(workspace, "draft-test-spec-00", first, True, "first")

@@ -46,10 +46,8 @@ def record_revision(
     Raises:
         CoreError: If the checkpoint is missing, the tag already exists, a
             consolidation names no checkpoint or one outside the workspace, the
-            cluster already has a cluster revision, or the resulting revision
-            map does not validate.
-        GateError: If the revision map already on disk does not validate, which
-            is a defect in the file rather than in what was asked for.
+            cluster already has a cluster revision, or either the revision map
+            already on disk or the resulting one fails the gate's loader.
     """
     if kind == "consolidation":
         if not checkpoint:
@@ -79,7 +77,11 @@ def record_revision(
     if tag in document["revisions"]:
         raise CoreError(f"revision {tag} is already recorded")
     if kind == "cluster":
-        for existing in load_revisions(ctx.revisions):
+        try:
+            recorded = load_revisions(ctx.revisions)
+        except GateError as error:
+            raise CoreError(str(error)) from error
+        for existing in recorded:
             if existing.kind == "cluster" and existing.cluster_id == cluster_id:
                 raise CoreError(
                     f"{cluster_id} already has a cluster revision ({existing.tag}); "
