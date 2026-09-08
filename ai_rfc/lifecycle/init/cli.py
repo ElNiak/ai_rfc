@@ -14,12 +14,12 @@ from pathlib import Path
 
 from ... import __version__
 from ...config import ConfigError, ReconConfig, dump_config, load_config
+from ...draft.build import Toolchain
 from .. import LifecycleError
 from ..workspace import (
     TEMPLATE_COMMIT,
     TEMPLATE_URL,
     Layout,
-    Toolchain,
     acquire,
     require_toolchain,
     scaffold,

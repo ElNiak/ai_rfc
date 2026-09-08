@@ -148,7 +148,9 @@ def test_init_removes_the_workspace_it_half_built(
     assert not (tmp_path / "ws").exists()
 
     assert cli.main(argv) == 1
-    assert "exists" not in capsys.readouterr().err
+    # The refusal by name: a bare "exists" would pass on git's own "does not
+    # exist" and so would say nothing about the path this test is guarding.
+    assert "initialised once" not in capsys.readouterr().err
 
 
 def test_init_leaves_a_directory_it_did_not_create(
