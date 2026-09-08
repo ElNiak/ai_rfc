@@ -9,6 +9,7 @@ import shutil
 import subprocess
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Callable
 
 from ... import __version__, toolchain
 from ...config import (
@@ -20,7 +21,7 @@ from ...config import (
 )
 from ...toolchain import RECORD_FILE, TOOLS_DIR
 from ..common import CONFIG_ENV, report
-from ..profile import init_profile, login_command
+from ..profile import login_command
 
 
 @dataclass(frozen=True)
@@ -68,9 +69,13 @@ def _claude(config: ReconConfig | None) -> Check:
 def _profile(config: ReconConfig | None) -> Check:
     """The isolated Claude Code profile sessions launch against.
 
-    ``init_profile`` and ``login_command`` both take the experiments ROOT and
-    derive ``root / "profile"`` themselves, so a configured profile is only
-    expressible when it is named ``profile`` inside its parent.
+    Reports the directory; never creates it. A diagnostic that fixed what it
+    found could not report a missing profile at all — asking would have made
+    the answer yes — and would write to the filesystem on every run.
+
+    ``login_command`` takes the experiments ROOT and derives ``root /
+    "profile"`` itself, so a configured profile is only expressible when it is
+    named ``profile`` inside its parent.
     """
     configured = (
         config.sessions.profile
@@ -83,19 +88,24 @@ def _profile(config: ReconConfig | None) -> Check:
             "profile",
             False,
             "warning",
-            f"sessions.profile is {directory}; init_profile derives "
-            "<root>/profile, so this path is not created for you",
-            f"name it 'profile' under its parent ({directory.parent / 'profile'}), "
-            "or create the directory yourself",
+            f"sessions.profile is {directory}; the harness derives "
+            "<root>/profile, so nothing here reads this path",
+            f"name it 'profile' under its parent ({directory.parent / 'profile'})",
         )
     root = directory.parent
-    created = not directory.exists()
-    init_profile(root)
-    detail = (
-        f"{directory} ({'created' if created else 'present'}); "
-        f"log in once with: {login_command(root)}"
+    login = login_command(root)
+    if not directory.is_dir():
+        return Check(
+            "profile",
+            False,
+            "warning",
+            f"no profile at {directory}; model sessions would launch "
+            "unauthenticated (the deterministic stages do not need one)",
+            f"mkdir -p {directory}, then log in once with: {login}",
+        )
+    return Check(
+        "profile", True, "info", f"{directory} is present; log in once with: {login}"
     )
-    return Check("profile", True, "info", detail)
 
 
 def _toolchain(config: ReconConfig | None) -> Check:
@@ -178,6 +188,33 @@ def _workspace(config: ReconConfig | None) -> Check:
     )
 
 
+def _guarded(name: str, question: Callable[[], Check]) -> Check:
+    """Run one check, turning a failure of the check itself into its answer.
+
+    ``doctor`` is what an operator runs when the environment is already
+    broken, so a check that raises is the one outcome it must not have: a
+    read-only root or an unreadable refcache would otherwise reach them as a
+    stack trace instead of the line naming which question could not be asked.
+
+    Args:
+        name: The check's name, so a failure stays attributable to it.
+        question: The check to run.
+
+    Returns:
+        The check's own answer, or an error-severity one naming the failure.
+    """
+    try:
+        return question()
+    except OSError as error:
+        return Check(
+            name,
+            False,
+            "error",
+            f"the check itself failed: {error}",
+            "fix the filesystem error above, then re-run ai-rfc doctor",
+        )
+
+
 def checks(config: ReconConfig | None) -> list[Check]:
     """Every check, in the order they are printed.
 
@@ -186,20 +223,26 @@ def checks(config: ReconConfig | None) -> list[Check]:
             questions that do not need one.
 
     Returns:
-        One :class:`Check` per question.
+        One :class:`Check` per question. Never raises ``OSError``: a check
+        that cannot complete answers with its own failure.
     """
     return [
-        _claude(config),
-        _profile(config),
-        _toolchain(config),
-        _token(config),
-        _deps(),
-        _workspace(config),
+        _guarded("claude", lambda: _claude(config)),
+        _guarded("profile", lambda: _profile(config)),
+        _guarded("toolchain", lambda: _toolchain(config)),
+        _guarded("token", lambda: _token(config)),
+        _guarded("deps", _deps),
+        _guarded("workspace", lambda: _workspace(config)),
     ]
 
 
 def configure(parser: argparse.ArgumentParser) -> None:
-    """Arguments of ``ai-rfc doctor``."""
+    """Arguments of ``ai-rfc doctor``.
+
+    Args:
+        parser: The sub-parser the root door mounts this verb into, or this
+            command's own standalone parser.
+    """
     parser.description = (
         "Check the environment a reconstruction runs in; exit 1 only for what "
         "a run cannot survive."

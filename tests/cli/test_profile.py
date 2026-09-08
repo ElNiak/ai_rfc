@@ -1,15 +1,29 @@
+import importlib
 from pathlib import Path
 
+import pytest
+
+from ai_rfc.config import experiments_root, profile_dir
 from ai_rfc.experiment import cli
-from ai_rfc.experiment.paths import default_root, profile_dir
 from ai_rfc.lifecycle.profile import init_profile, login_command, profile_env
 
 
-def test_default_root_honours_env(monkeypatch, tmp_path):
+def test_experiments_root_honours_env(monkeypatch, tmp_path):
     monkeypatch.setenv("AI_RFC_EXPERIMENTS_ROOT", str(tmp_path / "exp"))
-    assert default_root() == tmp_path / "exp"
+    assert experiments_root() == tmp_path / "exp"
     monkeypatch.delenv("AI_RFC_EXPERIMENTS_ROOT")
-    assert default_root() == Path("~/ai-rfc-experiments").expanduser()
+    assert experiments_root() == Path("~/ai-rfc-experiments").expanduser()
+
+
+def test_the_instrument_has_no_paths_forwarder_onto_the_config():
+    """The harness imports production directly, not through a module of aliases.
+
+    ``experiment/paths.py`` held nothing but ``experiments_root`` under a
+    second name and ``profile_dir``. A forwarder is what lets an import creep
+    back the wrong way round, so its absence is the thing worth asserting.
+    """
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("ai_rfc.experiment.paths")
 
 
 def test_init_profile_creates_dir_and_names_login(tmp_path):

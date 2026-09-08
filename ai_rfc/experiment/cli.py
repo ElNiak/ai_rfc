@@ -12,13 +12,11 @@ import sys
 from pathlib import Path
 from typing import Callable
 
-from ..config import ConfigError, load_config
+from ..config import ConfigError, experiments_root, load_config, profile_dir
 from ..lifecycle.profile import init_profile, login_command
 from ..lifecycle.workspace import TEMPLATE_COMMIT, TEMPLATE_URL
-from ..toolchain import ToolchainError
 from . import DEFAULT_MODEL, EFFORTS, ExperimentError
 from .arms import ARMS
-from .paths import default_root, profile_dir
 from .workspace import migrate_draft as migrate_draft_workspace
 from .workspace import prepare as prepare_workspace
 from .workspace import reseal as reseal_workspace
@@ -1002,7 +1000,7 @@ def main(argv: list[str] | None = None) -> int:
         must stop a campaign, and the two call for opposite responses.
     """
     args = _parser().parse_args(argv)
-    root = args.root if getattr(args, "root", None) else default_root()
+    root = args.root if getattr(args, "root", None) else experiments_root()
     try:
         if args.command == "profile" and args.verb == "init":
             profile_path = init_profile(root)
@@ -1244,7 +1242,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(diff_stat(repo, owned), end="")
             print(f"rendered: {applied.rendered_skill}")
             print(NOT_COMMITTED)
-    except (ExperimentError, ToolchainError, OSError) as error:
+    except (ExperimentError, OSError) as error:
         _report(f"error: {error}")
         return 1
     return 0

@@ -20,10 +20,10 @@ from pathlib import Path
 from typing import Any
 
 from .. import toolchain as toolchain_module
+from ..config import profile_dir as default_profile_dir
 from ..lifecycle.workspace import DIGEST_FILE, RECORD_FILE
 from . import ExperimentError
 from .arms import ARMS
-from .paths import profile_dir as default_profile_dir
 from .render import (
     TASK_TEMPLATE,
     arm_prompt,

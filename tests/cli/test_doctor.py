@@ -56,13 +56,61 @@ def test_doctor_passes_with_a_binary_a_profile_and_a_verified_toolchain(
     record = root / "tools" / "toolchain.json"
     record.parent.mkdir(parents=True)
     record.write_text("{}")
+    (root / "profile").mkdir()
     monkeypatch.setattr(toolchain, "verify", lambda record, runner=None: (True, ()))
     assert cli.main(["doctor", "--config", str(_config(tmp_path)), "--json"]) == 0
     checks = {c["name"]: c for c in json.loads(capsys.readouterr().out)["checks"]}
     assert checks["claude"]["ok"] and "2.1.258" in checks["claude"]["detail"]
-    assert checks["profile"]["ok"] and (root / "profile").is_dir()
+    assert checks["profile"]["ok"] and "is present" in checks["profile"]["detail"]
     assert checks["toolchain"]["ok"]
     assert checks["token"]["ok"] and checks["deps"]["ok"]
+
+
+def test_doctor_reports_a_missing_profile_without_creating_it(
+    tmp_path, monkeypatch, capsys
+):
+    """A diagnostic answers questions; it does not quietly fix what it found.
+
+    Creating the directory made the check unfalsifiable — it could never
+    report a missing profile, because asking created one — and made every
+    ``doctor`` run a filesystem write.
+    """
+    root = tmp_path / "root"
+    monkeypatch.setenv("AI_RFC_EXPERIMENTS_ROOT", str(root))
+    monkeypatch.setenv("PATH", str(_fake_claude(tmp_path).parent))
+    assert cli.main(["doctor", "--config", str(_config(tmp_path)), "--json"]) == 0
+    checks = {c["name"]: c for c in json.loads(capsys.readouterr().out)["checks"]}
+    assert not checks["profile"]["ok"]
+    assert checks["profile"]["severity"] == "warning"
+    assert str(root / "profile") in checks["profile"]["detail"]
+    assert "claude auth login" in checks["profile"]["fix"]
+    assert not (root / "profile").exists()
+
+
+def test_doctor_reports_a_check_that_itself_failed_rather_than_raising(
+    tmp_path, monkeypatch, capsys
+):
+    """The one command run when the environment is broken must not traceback.
+
+    ``toolchain.verify`` reads the refcache and builds in a temporary
+    directory, so an unreadable or full filesystem raises ``OSError`` out of
+    it. Unguarded, that reaches the operator as a stack trace.
+    """
+    root = tmp_path / "root"
+    monkeypatch.setenv("AI_RFC_EXPERIMENTS_ROOT", str(root))
+    monkeypatch.setenv("PATH", str(_fake_claude(tmp_path).parent))
+    record = root / "tools" / "toolchain.json"
+    record.parent.mkdir(parents=True)
+    record.write_text("{}")
+
+    def _explode(record, runner=None):
+        raise OSError("Read-only file system")
+
+    monkeypatch.setattr(toolchain, "verify", _explode)
+    assert cli.main(["doctor", "--json"]) == 1
+    checks = {c["name"]: c for c in json.loads(capsys.readouterr().out)["checks"]}
+    assert checks["toolchain"]["severity"] == "error"
+    assert "Read-only file system" in checks["toolchain"]["detail"]
 
 
 def test_doctor_warns_about_a_claude_md_ancestor_and_a_missing_token(

@@ -13,7 +13,12 @@ from ..workspace import TEMPLATE_COMMIT, TEMPLATE_URL
 
 
 def configure(parser: argparse.ArgumentParser) -> None:
-    """Add the ``provision`` and ``verify`` verbs."""
+    """Add the ``provision`` and ``verify`` verbs.
+
+    Args:
+        parser: The sub-parser the root door mounts this verb into, or this
+            command's own standalone parser.
+    """
     parser.description = (
         "Install once (networked) or re-check offline the template toolchain "
         "every build uses."
