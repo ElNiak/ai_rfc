@@ -4,8 +4,10 @@ Both read the same config, the same layout and the same ledger as `run`.
 """
 
 import json
+from types import SimpleNamespace
 
 from ai_rfc import cli
+from ai_rfc.lifecycle.verify import cli as verify_cli
 
 
 def test_status_json_carries_stages_ledger_init_and_drift(initialised, capsys):
@@ -97,6 +99,7 @@ def test_verify_builds_when_the_config_names_a_usable_toolchain(
     cli.main(["verify", "--config", str(config_path), "--strict"])
     err = capsys.readouterr().err
     assert "build: skipped" not in err
+    assert "build: ok" in err
     assert "checks: 6 ran, 0 skipped" in err
 
 
@@ -107,3 +110,35 @@ def test_verify_reports_a_refused_drift_as_a_finding(initialised, capsys):
     )
     assert cli.main(["verify", "--config", str(config_path), "--strict"]) == 3
     assert "drift: refused" in capsys.readouterr().err
+
+
+def test_verify_strict_exits_zero_when_every_check_that_ran_passed(
+    initialised, capsys, monkeypatch
+):
+    """The all-clean path, which no fixture reaches on its own.
+
+    Every other test here carries at least one finding — an unrun workspace
+    still lints its skeleton abstract — so ``--strict`` always returns through
+    the findings branch and the clean one is never taken. ``perform`` is
+    stubbed rather than a clean workspace built, because what is under test is
+    the aggregation: no finding anywhere must survive ``--strict`` as 0, and a
+    workspace clean enough to prove that would take a real draft to build.
+    """
+    config_path, _ = initialised
+    monkeypatch.setattr(
+        verify_cli, "perform", lambda *a, **k: SimpleNamespace(exit_code=0)
+    )
+    capsys.readouterr()
+
+    assert cli.main(["verify", "--config", str(config_path), "--strict"]) == 0
+    assert "checks: 3 ran, 3 skipped" in capsys.readouterr().err
+
+
+def test_a_verb_reads_the_config_from_the_environment(initialised, capsys, monkeypatch):
+    """``$AI_RFC_CONFIG`` is the door for a driver that runs many verbs."""
+    config_path, _ = initialised
+    monkeypatch.setenv("AI_RFC_CONFIG", str(config_path))
+    capsys.readouterr()
+
+    assert cli.main(["status"]) == 0
+    assert "clusters:" in capsys.readouterr().out

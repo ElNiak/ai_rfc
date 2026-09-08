@@ -253,6 +253,27 @@ def test_a_corrupt_artifact_reads_as_stale_rather_than_crashing(
     assert payload["next_action"]["stage"] == "timeline"
 
 
+def test_an_unreadable_ledger_reads_as_stale_rather_than_crashing(
+    mined_workspace: Path, capsys
+):
+    """`checkpoint` reads the ledger, so the ledger is an artifact like any other.
+
+    `_mining` already grades an unloadable manifest STALE. The ledger reached
+    `state()` later and by another door, and `LedgerError` is a sibling of
+    `PipelineError` rather than a subclass — so an unreadable `revisions.yaml`
+    escaped every verb's handler and broke the 0/1/2/3 exit-code contract on
+    exactly the half-written workspace this report exists to describe.
+    """
+    (mined_workspace / "revisions.yaml").write_text("revisions: [\n")
+    capsys.readouterr()
+
+    assert cli.main(["status", str(mined_workspace), "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    by_name = {entry["name"]: entry for entry in payload["stages"]}
+    assert by_name["checkpoint"]["state"] == "stale"
+    assert "revisions.yaml" in by_name["checkpoint"]["reason"]
+
+
 def test_run_skips_build_without_a_toolchain_and_says_so(
     drafted_workspace, capsys, monkeypatch
 ):

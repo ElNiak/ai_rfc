@@ -226,7 +226,16 @@ def _checkpoint(ws: Workspace, mining: State) -> tuple[State, str]:
     # it before writing the record, so a kill between the two leaves one that
     # holds nothing. Requiring the record matches what ``draft/completeness``
     # and the harness's own metrics already count, so the three agree.
-    states = ledger.clusters(ws.root)
+    # Graded like `_mining`'s unloadable manifest, and for the same reason: a
+    # state reader is asked exactly when a workspace is half-written, so an
+    # artifact it cannot read is a stage to re-run rather than an exception
+    # for every caller of `state()` to grow a handler for. `LedgerError` is a
+    # sibling of `PipelineError`, not a subclass, so no verb's handler catches
+    # it on the way out.
+    try:
+        states = ledger.clusters(ws.root)
+    except ledger.LedgerError as error:
+        return State.STALE, f"the ledger does not load: {error}"
     total = len(states)
     frozen = sum(1 for state in states if state.checkpoint)
     if not frozen:

@@ -10,6 +10,7 @@ from pathlib import Path
 
 from ai_rfc import __version__
 
+from ..ledger import LedgerError
 from .run import PipelineError, perform, workspace_from
 from .stages import BY_NAME, OPTIONAL, STAGES, Performer, is_optional
 from .state import State, draft_head, next_stage, state
@@ -430,7 +431,7 @@ def run(args: argparse.Namespace) -> int:
                 _report(f"error: {problem}")
             return 1 if problems else 0
         return _run(args)
-    except (PipelineError, OSError) as error:
+    except (PipelineError, LedgerError, OSError) as error:
         _report(f"error: {error}")
         return 1
 

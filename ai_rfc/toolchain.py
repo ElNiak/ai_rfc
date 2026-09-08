@@ -20,7 +20,13 @@ from typing import Any, Callable
 
 from .draft.build import BuildError, build, load_toolchain, probe_toolchain
 from .lifecycle import LifecycleError
-from .lifecycle.workspace import TEMPLATE_COMMIT, TEMPLATE_URL, _git, _run_git
+from .lifecycle.workspace import (
+    SKELETON_REFERENCES,
+    TEMPLATE_COMMIT,
+    TEMPLATE_URL,
+    _git,
+    _run_git,
+)
 
 
 class ToolchainError(RuntimeError):
@@ -107,10 +113,10 @@ def _version(run: Runner, *argv: str) -> str:
 
 def _seed_draft(references: tuple[str, ...]) -> str:
     listed = "\n".join(
-        f"  {ref}:" for ref in references if ref not in ("RFC2119", "RFC8174")
+        f"  {ref}:" for ref in references if ref not in SKELETON_REFERENCES
     )
     cited = ", ".join(
-        f"{{{{{ref}}}}}" for ref in references if ref not in ("RFC2119", "RFC8174")
+        f"{{{{{ref}}}}}" for ref in references if ref not in SKELETON_REFERENCES
     )
     return (
         _SEED_FRONT
