@@ -130,16 +130,36 @@ def _entries(workspace: Path) -> dict[str, tuple[str, bool | None]]:
 
 
 def _tags(draft: Path) -> set[str]:
+    """Every tag in the draft repository, or none when there is no repository.
+
+    A repository that exists but will not answer is an error rather than an
+    empty set: swallowing it makes every cluster read ``tag_exists`` False, so
+    the whole reconstruction reports as outstanding and ``next_cluster`` offers
+    the same cluster forever with nothing saying why.
+
+    Args:
+        draft: The nested prose-draft repository.
+
+    Returns:
+        The tag names, empty when ``draft`` is not a git repository at all.
+
+    Raises:
+        LedgerError: If the repository exists but its tags cannot be listed.
+    """
     if not (draft / ".git").exists():
         return set()
-    result = subprocess.run(
-        ["git", "-C", str(draft), "tag", "-l"], capture_output=True, text=True
-    )
-    return (
-        {tag for tag in result.stdout.splitlines() if tag}
-        if not result.returncode
-        else set()
-    )
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(draft), "tag", "-l"], capture_output=True, text=True
+        )
+    except OSError as error:
+        raise LedgerError(f"{draft}: could not run git: {error}") from None
+    if result.returncode:
+        raise LedgerError(
+            f"{draft}: git tag -l exited {result.returncode}: "
+            f"{result.stderr.strip() or '(no stderr)'}"
+        )
+    return {tag for tag in result.stdout.splitlines() if tag}
 
 
 def window_of(workspace: Path) -> tuple[int, int] | None:

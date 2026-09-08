@@ -264,9 +264,9 @@ def build(
     uncited_at_head, never_cited = citation_gaps(
         draft_repo, revisions_path, checkpointed
     )
-    # The workspace root is derived rather than taken as a parameter: every
-    # caller already addresses the workspace by its root, and a sixth path
-    # would let one be handed a checkpoints directory from another workspace.
+    # The root is derived rather than passed: a sixth parameter would change
+    # `build`'s only call site, and the workspace layout already puts
+    # `checkpoints/` directly under the root the other four paths share.
     try:
         states = ledger.clusters(checkpoints_dir.parent)
     except ledger.LedgerError as error:
