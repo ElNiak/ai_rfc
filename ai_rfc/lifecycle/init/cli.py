@@ -6,9 +6,7 @@ import argparse
 import dataclasses
 import hashlib
 import json
-import os
 import shutil
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -16,6 +14,7 @@ from ... import __version__
 from ...config import ConfigError, ReconConfig, dump_config, load_config
 from ...draft.build import Toolchain
 from .. import LifecycleError
+from ..common import add_config_argument, config_path_from, report
 from ..workspace import (
     TEMPLATE_COMMIT,
     TEMPLATE_URL,
@@ -27,42 +26,6 @@ from ..workspace import (
     write_digest,
     write_registers,
 )
-
-CONFIG_ENV = "AI_RFC_CONFIG"
-
-
-def _report(message: str) -> None:
-    """Diagnostics to stderr — the ``panther.*`` loggers swallow warnings."""
-    print(message, file=sys.stderr)
-
-
-def config_path_from(args: argparse.Namespace) -> Path:
-    """``--config`` or ``$AI_RFC_CONFIG``; nothing is guessed.
-
-    Args:
-        args: The parsed arguments of any lifecycle verb.
-
-    Returns:
-        The configuration file to read.
-
-    Raises:
-        LifecycleError: If neither the flag nor the variable names one.
-    """
-    if args.config is not None:
-        return args.config
-    if os.environ.get(CONFIG_ENV):
-        return Path(os.environ[CONFIG_ENV])
-    raise LifecycleError(f"no config: pass --config or set {CONFIG_ENV}")
-
-
-def add_config_argument(parser: argparse.ArgumentParser) -> None:
-    """The one argument every lifecycle verb shares."""
-    parser.add_argument(
-        "--config",
-        type=Path,
-        default=None,
-        help=f"recon.yaml (default: ${CONFIG_ENV}).",
-    )
 
 
 def initialise(
@@ -222,7 +185,7 @@ def run(args: argparse.Namespace) -> int:
             template_commit=args.template_commit,
         )
     except (LifecycleError, ConfigError, OSError) as error:
-        _report(f"error: {error}")
+        report(f"error: {error}")
         return 1
     print(f"workspace: {root}")
     print(f"next: ai-rfc run --config {config_path}")

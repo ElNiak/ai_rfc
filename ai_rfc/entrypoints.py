@@ -98,6 +98,29 @@ ENTRY_POINTS: tuple[EntryPoint, ...] = (
         LIFECYCLE,
     ),
     EntryPoint(
+        "run",
+        "ai-rfc run",
+        f"{PACKAGE}.lifecycle.run.cli",
+        "Perform every deterministic stage that is next, then stop at the "
+        "agent boundary",
+        LIFECYCLE,
+    ),
+    EntryPoint(
+        "status",
+        "ai-rfc status",
+        f"{PACKAGE}.lifecycle.status.cli",
+        "Where the reconstruction stands: stage states, the cluster ledger, "
+        "the pin, config drift",
+        LIFECYCLE,
+    ),
+    EntryPoint(
+        "verify",
+        "ai-rfc verify",
+        f"{PACKAGE}.lifecycle.verify.cli",
+        "Every gate the workspace can pass, in one exit code",
+        LIFECYCLE,
+    ),
+    EntryPoint(
         "pipeline",
         "ai-rfc pipeline",
         f"{PACKAGE}.pipeline.cli",

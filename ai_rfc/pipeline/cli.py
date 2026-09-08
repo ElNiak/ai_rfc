@@ -134,7 +134,20 @@ def build_standalone_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _status_payload(workspace: Path) -> dict:
+def status_payload(workspace: Path) -> dict:
+    """Every stage's state and the next action, as ``pipeline-status.json``.
+
+    Public because ``ai-rfc status`` prints this same body under a config's
+    own layout; a second derivation there would be free to disagree with the
+    one a driver reads.
+
+    Args:
+        workspace: The workspace root, recorded verbatim under ``workspace``.
+
+    Returns:
+        The status payload: ``workspace``, one ``stages`` entry per stage, and
+        ``next_action``.
+    """
     ws = workspace_from(workspace)
     action = next_stage(ws)
     return {
@@ -166,7 +179,13 @@ def _status_payload(workspace: Path) -> dict:
     }
 
 
-def _print_status(payload: dict) -> None:
+def print_status(payload: dict) -> None:
+    """Print the stage table and the next action.
+
+    Args:
+        payload: A body from :func:`status_payload`; extra keys are ignored,
+            so a caller may print its own lines beneath this one.
+    """
     for entry in payload["stages"]:
         line = f"{entry['ordinal']}  {entry['name']:<12} {entry['state']}"
         if entry["reason"]:
@@ -399,11 +418,11 @@ def run(args: argparse.Namespace) -> int:
     """
     try:
         if args.verb == "status":
-            payload = _status_payload(args.workspace)
+            payload = status_payload(args.workspace)
             if args.as_json:
                 print(json.dumps(payload, indent=2))
             else:
-                _print_status(payload)
+                print_status(payload)
             return 0
         if args.verb == "substrate":
             problems = check(Workspace(root=args.workspace).clone)

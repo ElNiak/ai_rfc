@@ -15,30 +15,11 @@ from ai_rfc.config import load_config
 from ai_rfc.lifecycle.workspace import Layout, verify_digest
 from ai_rfc.server.testing import git
 
-DATE = "2026-01-01T00:00:09+00:00"
-
 
 @pytest.fixture(autouse=True)
 def _experiments_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Every defaulted path resolves under the test's own tree, never $HOME."""
     monkeypatch.setenv("AI_RFC_EXPERIMENTS_ROOT", str(tmp_path / "root"))
-
-
-@pytest.fixture
-def source_repo(tmp_path: Path) -> Path:
-    """A tiny local repository standing in for the implementation."""
-    repo = tmp_path / "upstream"
-    repo.mkdir()
-    git(repo, "init", "-q", "-b", "main")
-    git(repo, "config", "user.email", "t@t")
-    git(repo, "config", "user.name", "t")
-    (repo / "a.py").write_text("print(1)\n")
-    git(repo, "add", "a.py")
-    git(repo, "commit", "-q", "-m", "first", date=DATE)
-    (repo / "a.py").write_text("print(2)\n")
-    git(repo, "add", "a.py")
-    git(repo, "commit", "-q", "-m", "second", date="2026-01-02T00:00:09+00:00")
-    return repo
 
 
 def _config(tmp_path: Path, source_repo: Path, extra: str = "") -> Path:
