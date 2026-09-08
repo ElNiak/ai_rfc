@@ -88,6 +88,9 @@ def test_init_builds_the_workspace_and_seals_the_config(
     )
     sealed = load_config(ws.config)
     assert sealed.name == "fixture" and sealed.source.pin == "main"
+    # A production init writes the workspace the config already named, so no
+    # drift line appears when the same file is passed to a later verb.
+    assert sealed.workspace == ws.root
     record = json.loads(ws.init_record.read_text())
     assert record["resolved_pin"] == head and record["forge_snapshot"] is None
     assert (
@@ -116,6 +119,67 @@ def test_init_refuses_an_existing_workspace(
     assert cli.main(argv) == 0
     assert cli.main(argv) == 1
     assert "exists" in capsys.readouterr().err
+
+
+def test_init_removes_the_workspace_it_half_built(
+    tmp_path, source_repo, template_repo, capsys
+):
+    """A failed acquisition must leave nothing for the retry to trip over.
+
+    ``init`` creates the root before it clones, so without cleanup a bad pin or
+    an unreachable source leaves a directory the next attempt refuses as an
+    already-initialised workspace, recoverable only with ``rm -rf``.
+    """
+    template, commit = template_repo
+    not_a_repo = tmp_path / "not-a-repo"
+    not_a_repo.mkdir()
+    config_path = _config(tmp_path, not_a_repo)
+    argv = [
+        "init",
+        "--config",
+        str(config_path),
+        "--template",
+        template,
+        "--template-commit",
+        commit,
+    ]
+    assert cli.main(argv) == 1
+    assert "cloning" in capsys.readouterr().err
+    assert not (tmp_path / "ws").exists()
+
+    assert cli.main(argv) == 1
+    assert "exists" not in capsys.readouterr().err
+
+
+def test_init_leaves_a_directory_it_did_not_create(
+    tmp_path, source_repo, template_repo
+):
+    """The cleanup must never reach a tree that was there before this call.
+
+    The refusal path exists because an operator may point ``init`` at a real
+    directory, so only a root this invocation created may be removed.
+    """
+    template, commit = template_repo
+    not_a_repo = tmp_path / "not-a-repo"
+    not_a_repo.mkdir()
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    config_path = _config(tmp_path, not_a_repo)
+    assert (
+        cli.main(
+            [
+                "init",
+                "--config",
+                str(config_path),
+                "--template",
+                template,
+                "--template-commit",
+                commit,
+            ]
+        )
+        == 1
+    )
+    assert workspace.is_dir()
 
 
 def test_init_resolves_a_sha_pin_and_records_the_window(
@@ -160,7 +224,10 @@ def test_init_with_references_needs_a_toolchain_and_seals_them(
         commit,
     ]
     assert cli.main(argv) == 1
-    assert "toolchain" in capsys.readouterr().err
+    # Specific to the refusal: a bare "toolchain" also matches the defaulted
+    # tools/toolchain.json path inside the same message, so it discriminates
+    # nothing and the exit code would be carrying the whole assertion.
+    assert "no toolchain record exists" in capsys.readouterr().err
     config_path.write_text(config_path.read_text() + f"toolchain: {toolchain_record}\n")
     assert cli.main(argv) == 0
     ws = Layout(tmp_path / "ws")

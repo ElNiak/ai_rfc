@@ -328,7 +328,9 @@ def prepare(
 
     Raises:
         ExperimentError: If the pristine directory exists, initialisation
-            refuses, a substrate stage fails or the views do not reproduce.
+            refuses, a substrate stage fails, the views do not reproduce, or
+            the timeline clustered nothing. Nothing is left behind on a
+            refusal.
     """
     pristine = root / "pristine" / pristine_name(config)
     if pristine.exists():
@@ -346,6 +348,19 @@ def prepare(
     except LifecycleError as error:
         raise ExperimentError(str(error)) from None
 
+    # `initialise` removes what it built when it fails; everything below is
+    # this function's, and a refusal here would otherwise leave a tree the
+    # retry refuses as already prepared. The directory is known not to have
+    # existed, so there is nothing of anyone else's to reach.
+    try:
+        return _carry_through_the_stages(config, pristine)
+    except BaseException:
+        shutil.rmtree(pristine, ignore_errors=True)
+        raise
+
+
+def _carry_through_the_stages(config: ReconConfig, pristine: Path) -> Path:
+    """Run the deterministic stages over an initialised workspace and seal it."""
     layout = Layout(pristine)
     for name in PREPARED_STAGES:
         result = perform(BY_NAME[name], layout)
@@ -357,6 +372,12 @@ def prepare(
             raise ExperimentError("views do not reproduce byte-for-byte; see stderr")
 
     ordinals = [row["ordinal"] for row in read_clusters(layout.timeline)]
+    if not ordinals:
+        raise ExperimentError(
+            f"{config.name}: the timeline holds no clusters, so there is no "
+            f"window to derive and nothing to seal; check that "
+            f"{config.source.repo} at {config.source.pin} has history"
+        )
     window = config.window or (min(ordinals), max(ordinals))
     seeded = preseed(pristine, out_of_window(ordinals, window))
 

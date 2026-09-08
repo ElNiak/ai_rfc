@@ -347,7 +347,7 @@ def test_prepared_window_is_the_only_unprocessed_range(
     assert composite["clusters_processed"] == 1
 
 
-def test_prepare_refuses_to_overwrite_or_to_run_without_the_substrate(
+def test_prepare_refuses_to_overwrite_and_cleans_up_after_a_source_it_cannot_clone(
     fixture_workspace, template_repo, tmp_path
 ):
     _prepare(fixture_workspace, template_repo, tmp_path)
@@ -368,6 +368,46 @@ def test_prepare_refuses_to_overwrite_or_to_run_without_the_substrate(
             template_commit=commit,
         )
     assert str(empty / "clone") in str(missing.value)
+    # The half-built tree goes with the failure, or the retry dies on "exists".
+    assert not (tmp_path / "other-root" / "pristine" / "fixture-w02-02").exists()
+
+
+def test_prepare_seals_a_config_that_names_the_pristine_it_sits_in(
+    fixture_workspace, template_repo, tmp_path
+):
+    """A campaign pristine is never at the path the config's own ``workspace:`` names.
+
+    ``prepare`` overrides the root, so sealing the file as written would leave
+    every pristine carrying a config that points at a different tree.
+    """
+    from ai_rfc.config import load_config
+
+    pristine = _prepare(fixture_workspace, template_repo, tmp_path)
+    assert load_config(pristine / "recon.yaml").workspace == pristine
+
+
+def test_prepare_refuses_a_timeline_that_clustered_nothing(
+    fixture_workspace, template_repo, tmp_path, monkeypatch
+):
+    """Without clusters there is no window to derive and nothing worth sealing.
+
+    A windowless config used to reach ``min(())`` here and die with a bare
+    ValueError naming neither the config nor the workspace.
+    """
+    from ai_rfc.experiment import workspace as workspace_module
+
+    template, commit = template_repo
+    config, config_path = fixture_config(tmp_path, fixture_workspace)
+    monkeypatch.setattr(workspace_module, "read_clusters", lambda _: [])
+    with pytest.raises(ExperimentError) as excinfo:
+        prepare(
+            dataclasses.replace(config, window=None),
+            root=tmp_path / "root",
+            config_path=config_path,
+            template=template,
+            template_commit=commit,
+        )
+    assert "no clusters" in str(excinfo.value)
 
 
 def test_prepare_seals_the_configs_references_into_the_workspace(

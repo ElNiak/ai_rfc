@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import hashlib
 import json
 import os
+import shutil
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,6 +19,7 @@ from ..workspace import (
     TEMPLATE_COMMIT,
     TEMPLATE_URL,
     Layout,
+    Toolchain,
     acquire,
     require_toolchain,
     scaffold,
@@ -90,14 +93,53 @@ def initialise(
     if layout.root.exists() and any(layout.root.iterdir()):
         raise LifecycleError(f"{layout.root} exists; a workspace is initialised once")
     toolchain = require_toolchain(config)
+    # Only a root this call brings into being may be removed on failure. An
+    # operator may point `init` at a directory that is already theirs — that is
+    # what the refusal above is for — and cleaning up must never reach it.
+    created = not layout.root.exists()
     layout.root.mkdir(parents=True, exist_ok=True)
+    try:
+        return _fill(
+            config,
+            layout,
+            config_path=config_path,
+            dest=dest,
+            toolchain=toolchain,
+            template=template,
+            template_commit=template_commit,
+        )
+    # BaseException, not Exception: a Ctrl-C landing mid-clone leaves exactly
+    # the half-built tree the next attempt would refuse as already initialised.
+    except BaseException:
+        if created:
+            shutil.rmtree(layout.root, ignore_errors=True)
+        raise
+
+
+def _fill(
+    config: ReconConfig,
+    layout: Layout,
+    *,
+    config_path: Path,
+    dest: Path | None,
+    toolchain: Toolchain | None,
+    template: str,
+    template_commit: str,
+) -> Path:
+    """Acquire, scaffold and seal into a workspace root that already exists."""
     acquired = acquire(config, layout)
     draft_head = scaffold(
         config, layout, template=template, template_commit=template_commit
     )
     write_registers(config, layout)
     refcache_sha256, template_home = seal_references(config, layout, toolchain)
-    layout.config.write_text(dump_config(config))
+    # A campaign pristine is not at the path the config's own `workspace:`
+    # names, so sealing the file as written would leave every pristine holding
+    # a config that points at a different tree.
+    sealed = (
+        config if dest is None else dataclasses.replace(config, workspace=layout.root)
+    )
+    layout.config.write_text(dump_config(sealed))
     record = {
         "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "name": config.name,

@@ -81,11 +81,6 @@ class Layout(Workspace):
         """Interview transcripts the question register points at."""
         return self.root / "interviews"
 
-    @property
-    def out(self) -> Path:
-        """Reports the stages write."""
-        return self.root / "out"
-
 
 def _run_git(*args: str, date: str | None = None) -> subprocess.CompletedProcess[str]:
     env = dict(os.environ)
