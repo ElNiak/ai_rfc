@@ -39,7 +39,7 @@ Everything is kept under `AI_RFC_EXPERIMENTS_ROOT` (default
 | `profile init` | Create the isolated `CLAUDE_CONFIG_DIR` under `<root>/profile` |
 | `preflight` | S0: fourteen real `claude -p` calls, one dollar each, proving the profile is hermetic and that the `PreToolUse` guard actually blocks. Re-run whenever the CLI version moves |
 | `render` | Regenerate `plugins/ai-rfc/skills/ai-rfc-reconstruction-loop/SKILL.md` from `prompts/loop.tmpl.md` (see "Prompts") |
-| `workspace prepare TARGET` | Build a pristine workspace: copy `clone/`, `corpus/`, `timeline/` and the pinned forge snapshot from the source reconstruction, emit and re-verify every view, write an empty manifest and registers, scaffold the draft repository from the pinned Internet-Draft template, mark every cluster outside the window as processed by harness-authored checkpoints, and write `pristine.sha256` and `pristine.json` |
+| `workspace prepare --config recon.yaml` | Build a pristine workspace: initialise it exactly as `ai-rfc init` does (clone at the pin, fetch the forge, scaffold the draft, write the empty manifest and registers, seal the declared references and the config), run `history`, `timeline` and `views` and re-verify that the views reproduce, mark every cluster outside the window as processed by harness-authored checkpoints, and write `pristine.sha256` and `pristine.json` |
 | `workspace reseal WORKSPACE --as NAME` | Turn a stopped run's workspace into a new pristine baseline, by copy; the run directory is evidence and is never modified |
 | `campaign init` | Freeze a run matrix: arms, repeats, seeded interleaved order, model, effort, budget, timeout, the resolved `claude` binary and version, the rendered prompts and their digests, the pristine digest, git describes of both checkouts. Runs the parity suite first unless `--skip-parity` |
 | `run CAMPAIGN [--only IDS]` | Launch pending runs in the frozen order; a run with a `status.json` is skipped, a run directory without one is refused as an interrupted launch |
@@ -50,13 +50,16 @@ Everything is kept under `AI_RFC_EXPERIMENTS_ROOT` (default
 Run ids are `<arm><block>` — `A1`, `C1`, `B1`, `B2`, … — and the order is a
 seeded shuffle inside each repeat block, so a campaign replays identically.
 
-Both `workspace prepare` and `campaign init` take `--panther-repo`: the source
-reconstructions the targets are built from (`reconstructions/aioquic`,
-`reconstructions/mark`, and their pinned forge snapshots) live in the PANTHER
-checkout, not in this repository. The two targets are declared in
-`workspace.py` (`TARGETS`): `aioquic`, window 2–11, and `mark`, window 1–69.
-A production sweep is simply a target whose window spans every cluster, run
-with `--session-mode per-cluster`.
+`workspace prepare` takes a `recon.yaml` and nothing else: the source
+repository, the window and the draft's front matter are declared there, so a
+campaign and a production reconstruction are prepared from the same file. The
+closed target table it replaced is gone; `--window` and `--toolchain` remain
+as overrides of the config's own values, for a dry run over a slice. A
+production sweep is simply a config whose window spans every cluster, run with
+`--session-mode per-cluster`.
+
+`campaign init` still takes `--panther-repo`: it records a `git describe` of
+the PANTHER checkout in the campaign, and no longer locates any substrate.
 
 ## Arms
 

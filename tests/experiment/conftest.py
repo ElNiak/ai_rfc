@@ -6,7 +6,6 @@ fake ``claude``.
 """
 
 import json
-import stat
 import sys
 from pathlib import Path
 
@@ -15,13 +14,6 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FAKE_CLAUDE = Path(__file__).parent / "fake_claude" / "claude"
 FAKE_CLAUDE_LM = Path(__file__).parent / "fake_claude" / "claude-lm"
-
-
-def _executable(path: Path) -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("#!/bin/sh\nexit 0\n")
-    path.chmod(path.stat().st_mode | stat.S_IXUSR)
-    return path
 
 
 @pytest.fixture
@@ -50,106 +42,72 @@ def fixture_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return root
 
 
-@pytest.fixture
-def template_repo(tmp_path: Path) -> tuple[str, str]:
-    """A local stand-in for auto-i-d-template: library root, template/, example/."""
-    from ai_rfc.server.testing import git
-
-    repo = tmp_path / "template"
-    (repo / "template").mkdir(parents=True)
-    (repo / "example").mkdir()
-    git(repo, "init", "-q", "-b", "main")
-    git(repo, "config", "user.email", "t@t")
-    git(repo, "config", "user.name", "t")
-    (repo / "main.mk").write_text("txt::\n\t@echo build\n")
-    (repo / "CLAUDE.md").write_text("template agent notes\n")
-    (repo / "template" / "Makefile").write_text(
-        "LIBDIR := lib\ninclude $(LIBDIR)/main.mk\n"
-    )
-    (repo / "template" / ".gitignore").write_text("*.txt\n*.html\n*.xml\n/versioned\n")
-    (repo / "template" / ".editorconfig").write_text("root = true\n")
-    (repo / "example" / "draft-todo-yourname-protocol.md").write_text(
-        "---\ntitle: TODO\ndocname: draft-todo-yourname-protocol-latest\n---\n\n"
-        "--- abstract\n\nTODO\n\n--- middle\n\n# Introduction\n\nTODO\n\n--- back\n"
-    )
-    git(repo, "add", "-A")
-    git(repo, "commit", "-q", "-m", "template", date="2026-01-01T00:00:09+00:00")
-    return str(repo), git(repo, "rev-parse", "HEAD")
-
-
-def fixture_target(source: Path, window: tuple[int, int] = (2, 2)):
-    """The two-cluster fixture target every workspace test builds from.
+def fixture_config(
+    tmp_path: Path,
+    source: Path,
+    window: tuple[int, int] = (2, 2),
+    *,
+    references: tuple[str, ...] = (),
+    toolchain: Path | None = None,
+):
+    """The two-cluster fixture configuration every workspace test builds from.
 
     The default window holds one cluster, which is all most tests need. A test
     that has to observe several sessions widens it to both.
-    """
-    from ai_rfc.experiment.workspace import Target
 
-    return Target(
-        name="fixture",
-        source=source,
-        forge_snapshot=None,
-        window=window,
-        draft_name="draft-test-fixture",
-        rfc_id="FIX-1",
-        title="Fixture",
-        abbrev="Fix",
+    Args:
+        tmp_path: The test's own directory; the ``recon.yaml`` lands in it.
+        source: A workspace built by ``build_workspace``; its ``clone/`` is
+            the source repository. A directory without one yields a config
+            pinned to ``main``, so the clone failure is what a test observes.
+        window: Inclusive ordinal range to reconstruct.
+        references: RFC ids the draft may cite.
+        toolchain: The toolchain record; defaults to a path that does not
+            exist, so nothing reaches the operator's real experiments root.
+
+    Returns:
+        The loaded configuration and the file it was read from.
+    """
+    from ai_rfc.config import load_config
+    from ai_rfc.server.testing import git
+
+    clone = source / "clone"
+    pin = git(clone, "rev-parse", "HEAD") if (clone / ".git").exists() else "main"
+    low, high = window
+    path = tmp_path / f"recon-{source.name}.yaml"
+    path.write_text(
+        "name: fixture\n"
+        f"workspace: {tmp_path / 'fixture-workspace'}\n"
+        "source:\n"
+        f"  repo: {clone}\n"
+        "  host: none\n"
+        f"  pin: {pin}\n"
+        f"window: [{low}, {high}]\n"
+        "draft:\n"
+        "  name: draft-test-fixture\n"
+        "  title: Fixture\n"
+        "  abbrev: Fix\n"
+        "  rfc_id: FIX-1\n"
+        f"references: [{', '.join(references)}]\n"
+        f"toolchain: {toolchain or tmp_path / 'tools' / 'toolchain.json'}\n"
     )
+    return load_config(path), path
 
 
 @pytest.fixture
-def pristine(fixture_workspace, panther_repo, template_repo, tmp_path) -> Path:
-    """A prepared pristine workspace of the fixture target (window 2-2)."""
+def pristine(fixture_workspace, template_repo, tmp_path) -> Path:
+    """A prepared pristine workspace of the fixture config (window 2-2)."""
     from ai_rfc.experiment.workspace import prepare
 
     template, commit = template_repo
+    config, config_path = fixture_config(tmp_path, fixture_workspace)
     return prepare(
-        fixture_target(fixture_workspace),
+        config,
         root=tmp_path / "root",
-        panther_repo=panther_repo,
+        config_path=config_path,
         template=template,
         template_commit=commit,
     )
-
-
-@pytest.fixture
-def toolchain_record(tmp_path: Path) -> Path:
-    """A toolchain record whose executables exist and do nothing.
-
-    Mirrors ``tests/substrate/draft/test_build.py``'s fixture of the same
-    shape: real (no-op) executables so :func:`ai_rfc.draft.build.probe_toolchain`
-    would pass it for real, even though ``verify`` is monkeypatched below for
-    every campaign fixture that consumes this record.
-    """
-    home = tmp_path / "tools" / "i-d-template"
-    (home / "main.mk").parent.mkdir(parents=True)
-    (home / "main.mk").write_text("txt:\n")
-    refcache = tmp_path / "tools" / ".refcache"
-    refcache.mkdir()
-    (refcache / "reference.RFC.2119.xml").write_text("<reference/>\n")
-    record = {
-        "template_home": str(home),
-        "template_commit": "0" * 40,
-        "make": {"path": str(_executable(tmp_path / "bin" / "make"))},
-        "python": {"venv": str(home / ".venv")},
-        "ruby": {
-            "bin_dir": str(tmp_path / "ruby-bin"),
-            "gem_path": str(home / ".gems" / "ruby" / "4.0.0"),
-            "kramdown_rfc": str(
-                _executable(home / ".gems" / "ruby" / "4.0.0" / "bin" / "kramdown-rfc")
-            ),
-        },
-        "node": {
-            "bin_dir": str(tmp_path / "node-bin"),
-            "idnits": str(
-                _executable(tmp_path / "tools" / "node_modules" / ".bin" / "idnits")
-            ),
-        },
-        "refcache": {"dir": str(refcache)},
-    }
-    path = tmp_path / "tools" / "toolchain.json"
-    path.write_text(json.dumps(record, indent=2))
-    return path
 
 
 @pytest.fixture(autouse=True)

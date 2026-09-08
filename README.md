@@ -103,8 +103,8 @@ State lives under `AI_RFC_EXPERIMENTS_ROOT` (default
 reported in `docs/experiments/2026-08-31-pilot-aioquic.md`; the protocol is
 `docs/experiment-protocol.md`; the tool-to-CLI parity table is
 `docs/parity.md`; the harness's own usage page is `ai_rfc/experiment/README.md`.
-A whole-repository sweep is a target whose window spans every cluster, in a
-campaign initialised with `--session-mode per-cluster`; see
+A whole-repository sweep is a `recon.yaml` whose window spans every cluster, in
+a campaign initialised with `--session-mode per-cluster`; see
 `ai_rfc/experiment/per_cluster.py`. The draft repository is scaffolded as a
 template adopter (`Makefile`, `.gitignore`, `.editorconfig`); the shared
 library lives under `<root>/tools/i-d-template`. `campaign init` does not
@@ -121,7 +121,7 @@ that artifact's checkpoints, `c0049-pr-ba8ca432c304` and
 record `normative_change: true`. This is a data defect in that reconstruction,
 not a gate regression: the rule says a revision claiming to change the
 specification must change the manifest the specification is made of, and there
-two consecutive revisions did not. `workspace prepare mark` is unaffected — it
+two consecutive revisions did not. Preparing MARK is unaffected — `init`
 resets `revisions.yaml`, so a campaign starting from a prepared workspace never
 carries those two entries.
 

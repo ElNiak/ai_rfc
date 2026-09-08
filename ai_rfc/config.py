@@ -657,10 +657,13 @@ def dump_config(config: ReconConfig) -> str:
                 "experiment.seed": config.experiment.seed,
             }
         )
+    # An empty string is "not set", not a value: every string kind the loader
+    # accepts rejects one, so writing `token_env: ''` would seal a config that
+    # `load_config` then refuses to read back.
     ordered = {
         f.path: flat[f.path]
         for f in FIELDS
-        if f.path in flat and flat[f.path] is not None
+        if f.path in flat and flat[f.path] is not None and flat[f.path] != ""
     }
     return yaml.safe_dump(
         _nest(ordered), sort_keys=False, default_flow_style=None, allow_unicode=True

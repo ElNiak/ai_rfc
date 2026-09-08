@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from ..lifecycle.workspace import DIGEST_FILE, RECORD_FILE
 from . import ExperimentError
 from . import toolchain as toolchain_module
 from .arms import ARMS
@@ -31,7 +32,6 @@ from .render import (
     task_template_path,
     unified_diff,
 )
-from .workspace import DIGEST_FILE, RECORD_FILE
 
 TASK_TEMPLATE_FILE = "task.tmpl.md"
 LOOP_TEMPLATE_FILE = "loop.tmpl.md"

@@ -1,3 +1,10 @@
+import json
+import stat
+from pathlib import Path
+
+import pytest
+
+
 def pytest_addoption(parser):
     parser.addoption(
         "--update-goldens",
@@ -5,3 +12,80 @@ def pytest_addoption(parser):
         default=False,
         help="Rewrite the structure goldens from the current renderer.",
     )
+
+
+def _executable(path: Path) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("#!/bin/sh\nexit 0\n")
+    path.chmod(path.stat().st_mode | stat.S_IXUSR)
+    return path
+
+
+@pytest.fixture
+def template_repo(tmp_path: Path) -> tuple[str, str]:
+    """A local stand-in for auto-i-d-template: library root, template/, example/."""
+    from ai_rfc.server.testing import git
+
+    repo = tmp_path / "template"
+    (repo / "template").mkdir(parents=True)
+    (repo / "example").mkdir()
+    git(repo, "init", "-q", "-b", "main")
+    git(repo, "config", "user.email", "t@t")
+    git(repo, "config", "user.name", "t")
+    (repo / "main.mk").write_text("txt::\n\t@echo build\n")
+    (repo / "CLAUDE.md").write_text("template agent notes\n")
+    (repo / "template" / "Makefile").write_text(
+        "LIBDIR := lib\ninclude $(LIBDIR)/main.mk\n"
+    )
+    (repo / "template" / ".gitignore").write_text("*.txt\n*.html\n*.xml\n/versioned\n")
+    (repo / "template" / ".editorconfig").write_text("root = true\n")
+    (repo / "example" / "draft-todo-yourname-protocol.md").write_text(
+        "---\ntitle: TODO\ndocname: draft-todo-yourname-protocol-latest\n---\n\n"
+        "--- abstract\n\nTODO\n\n--- middle\n\n# Introduction\n\nTODO\n\n--- back\n"
+    )
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "template", date="2026-01-01T00:00:09+00:00")
+    return str(repo), git(repo, "rev-parse", "HEAD")
+
+
+@pytest.fixture
+def toolchain_record(tmp_path: Path) -> Path:
+    """A toolchain record whose executables exist and do nothing.
+
+    Mirrors ``tests/substrate/draft/test_build.py``'s fixture of the same
+    shape: real (no-op) executables so :func:`ai_rfc.draft.build.probe_toolchain`
+    would pass it for real, even though ``verify`` is monkeypatched in
+    ``tests/experiment`` for every campaign fixture that consumes this record.
+    """
+    home = tmp_path / "tools" / "i-d-template"
+    (home / "main.mk").parent.mkdir(parents=True)
+    (home / "main.mk").write_text("txt:\n")
+    refcache = tmp_path / "tools" / ".refcache"
+    refcache.mkdir()
+    for number in ("2119", "8174", "9000"):
+        (refcache / f"reference.RFC.{number}.xml").write_text(
+            f"<reference anchor='RFC{number}'/>\n"
+        )
+    record = {
+        "template_home": str(home),
+        "template_commit": "0" * 40,
+        "make": {"path": str(_executable(tmp_path / "bin" / "make"))},
+        "python": {"venv": str(home / ".venv")},
+        "ruby": {
+            "bin_dir": str(tmp_path / "ruby-bin"),
+            "gem_path": str(home / ".gems" / "ruby" / "4.0.0"),
+            "kramdown_rfc": str(
+                _executable(home / ".gems" / "ruby" / "4.0.0" / "bin" / "kramdown-rfc")
+            ),
+        },
+        "node": {
+            "bin_dir": str(tmp_path / "node-bin"),
+            "idnits": str(
+                _executable(tmp_path / "tools" / "node_modules" / ".bin" / "idnits")
+            ),
+        },
+        "refcache": {"dir": str(refcache)},
+    }
+    path = tmp_path / "tools" / "toolchain.json"
+    path.write_text(json.dumps(record, indent=2))
+    return path

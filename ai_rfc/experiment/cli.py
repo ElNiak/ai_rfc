@@ -12,11 +12,12 @@ import sys
 from pathlib import Path
 from typing import Callable
 
+from ..config import ConfigError, load_config
+from ..lifecycle.workspace import TEMPLATE_COMMIT, TEMPLATE_URL
 from . import DEFAULT_MODEL, EFFORTS, ExperimentError
 from .arms import ARMS
 from .paths import default_root, profile_dir
 from .profile import init_profile, login_command
-from .workspace import TARGETS, TEMPLATE_COMMIT, TEMPLATE_URL
 from .workspace import migrate_draft as migrate_draft_workspace
 from .workspace import prepare as prepare_workspace
 from .workspace import reseal as reseal_workspace
@@ -595,22 +596,17 @@ def _parser() -> argparse.ArgumentParser:
     prepare = workspace_verbs.add_parser("prepare", help="Build a pristine workspace.")
     _add_root(prepare)
     prepare.add_argument(
-        "target",
-        choices=sorted(TARGETS),
-        help="Reconstruction target; fixes the source workspace and window.",
+        "--config",
+        type=Path,
+        required=True,
+        help="recon.yaml naming the source, the window and the draft.",
     )
     prepare.add_argument(
         "--window",
         type=_window,
         default=None,
         help="Inclusive ordinal range LOW-HIGH to leave unprocessed, "
-        "overriding the target's own; e.g. 49-51 for a three-cluster slice.",
-    )
-    prepare.add_argument(
-        "--panther-repo",
-        type=Path,
-        required=True,
-        help="Checkout holding the substrate and the source reconstruction.",
+        "overriding the config's own; e.g. 49-51 for a three-cluster slice.",
     )
     prepare.add_argument(
         "--template",
@@ -626,10 +622,8 @@ def _parser() -> argparse.ArgumentParser:
         "--toolchain",
         type=Path,
         default=None,
-        help=(
-            "Toolchain record for sealing declared references (default: "
-            "<root>/tools/toolchain.json when it exists)."
-        ),
+        help="Toolchain record for sealing declared references, overriding "
+        "the config's own.",
     )
 
     reseal = workspace_verbs.add_parser(
@@ -1074,19 +1068,19 @@ def main(argv: list[str] | None = None) -> int:
                     print(reason)
             return 0 if ok else 1
         elif args.command == "workspace" and args.verb == "prepare":
-            target = TARGETS[args.target]
+            config_path = args.config.resolve()
+            try:
+                config = load_config(config_path)
+            except ConfigError as error:
+                raise ExperimentError(str(error)) from None
             if args.window is not None:
-                target = dataclasses.replace(target, window=args.window)
-            toolchain = args.toolchain
-            if toolchain is None:
-                default_toolchain = root / "tools" / "toolchain.json"
-                if default_toolchain.exists():
-                    toolchain = default_toolchain
+                config = dataclasses.replace(config, window=args.window)
+            if args.toolchain is not None:
+                config = dataclasses.replace(config, toolchain=args.toolchain)
             pristine = prepare_workspace(
-                target,
+                config,
                 root=root,
-                panther_repo=args.panther_repo.resolve(),
-                toolchain=toolchain,
+                config_path=config_path,
                 template=args.template,
                 template_commit=args.template_commit,
             )

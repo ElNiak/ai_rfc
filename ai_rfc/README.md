@@ -487,8 +487,8 @@ coupling the file-on-disk boundary exists to prevent:
 
 | Helper | Copies |
 |---|---|
-| `_git` subprocess call | `anchors.py` · `draft/gate.py` · `coverage/commit.py` · `history/git_log.py` · `pipeline/substrate.py` · `draft/build.py` |
-| stderr `_report` | `check/cli.py` · `coverage/cli.py` · `draft/cli.py` · `forge/cli.py` · `history/cli.py` · `pipeline/cli.py` · `timeline/cli.py` · `views/cli.py` |
+| `_git` subprocess call | `anchors.py` · `draft/gate.py` · `coverage/commit.py` · `history/git_log.py` · `lifecycle/workspace.py` · `pipeline/substrate.py` · `draft/build.py` |
+| stderr `_report` | `check/cli.py` · `coverage/cli.py` · `draft/cli.py` · `forge/cli.py` · `history/cli.py` · `lifecycle/init/cli.py` · `pipeline/cli.py` · `timeline/cli.py` · `views/cli.py` |
 | SHA-256 `_digest` (path → hex) | `history/index.py` · `timeline/store.py` · `views/emit.py` |
 | SHA-256 `_digest_bytes` (bytes → hex) | `draft/checkpoint.py` · `views/emit.py` |
 | JSONL corpus readers | `history/store.py` · `timeline/corpus.py` · `views/emit.py` |

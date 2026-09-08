@@ -25,8 +25,10 @@ from ai_rfc.schema import dump, load
 from ai_rfc.server.testing import build_workspace
 from ai_rfc.timeline.store import read_clusters
 
+from ...config import load_config
+from ...lifecycle.workspace import RECORD_FILE
 from .. import ExperimentError
-from ..workspace import RECORD_FILE, Target, prepare, reseal
+from ..workspace import prepare, reseal
 
 #: Appended to a sealed baseline's directory name to reach the record of what
 #: was planted in it. The record names which claim the author confirmed word
@@ -198,11 +200,12 @@ def build_interview_pristine(
     Args:
         root: Where the fixture is built; the baseline lands in
             ``root/pristine/<name>`` and the intermediate under ``root/build``.
-        panther_repo: PANTHER repository root, passed through to ``prepare``.
+        panther_repo: Unused since the harness prepares from a config; kept so
+            the four callers that pass it do not all have to change at once.
         template: Draft template clone source.
         template_commit: The commit the draft scaffold is pinned to.
-        toolchain: Toolchain record, passed through to ``prepare``; the
-            target declares no references, so it goes unused.
+        toolchain: Toolchain record written into the config; the fixture
+            declares no references, so it goes unused.
         name: Directory name of the sealed baseline.
 
     Returns:
@@ -215,21 +218,28 @@ def build_interview_pristine(
         SchemaError: If the planted claims do not load.
     """
     root.mkdir(parents=True, exist_ok=True)
-    target = Target(
-        name="interview",
-        source=build_workspace(root / "substrate"),
-        forge_snapshot=None,
-        window=WINDOW,
-        draft_name="draft-test-interview",
-        rfc_id="INT-1",
-        title="Interview fixture",
-        abbrev="Int",
+    substrate = build_workspace(root / "substrate")
+    low, high = WINDOW
+    config_path = root / "recon.yaml"
+    config_path.write_text(
+        "name: interview\n"
+        f"workspace: {root / 'build'}\n"
+        "source:\n"
+        f"  repo: {substrate / 'clone'}\n"
+        "  host: none\n"
+        "  pin: main\n"
+        f"window: [{low}, {high}]\n"
+        "draft:\n"
+        "  name: draft-test-interview\n"
+        "  title: Interview fixture\n"
+        "  abbrev: Int\n"
+        "  rfc_id: INT-1\n"
+        + (f"toolchain: {toolchain}\n" if toolchain is not None else "")
     )
     workspace = prepare(
-        target,
+        load_config(config_path),
         root=root / "build",
-        panther_repo=panther_repo,
-        toolchain=toolchain,
+        config_path=config_path,
         template=template,
         template_commit=template_commit,
     )

@@ -12,11 +12,11 @@ from ai_rfc.experiment.progress import window_progress
 from ai_rfc.experiment.runner import EVENTS_FILE, RESULT_FILE
 from ai_rfc.experiment.stream import parse_stream, result_events
 
-from .conftest import COMPLETE_STEPS, FAKE_CLAUDE, fixture_target
+from .conftest import COMPLETE_STEPS, FAKE_CLAUDE, fixture_config
 
 
 @pytest.fixture
-def wide_pristine(fixture_workspace, panther_repo, template_repo, tmp_path):
+def wide_pristine(fixture_workspace, template_repo, tmp_path):
     """A pristine workspace whose window holds both fixture clusters.
 
     The shared fixture windows one cluster, which cannot distinguish a run of
@@ -26,10 +26,11 @@ def wide_pristine(fixture_workspace, panther_repo, template_repo, tmp_path):
     from ai_rfc.experiment.workspace import prepare
 
     template, commit = template_repo
+    config, config_path = fixture_config(tmp_path, fixture_workspace, window=(1, 2))
     return prepare(
-        fixture_target(fixture_workspace, window=(1, 2)),
+        config,
         root=tmp_path / "root",
-        panther_repo=panther_repo,
+        config_path=config_path,
         template=template,
         template_commit=commit,
     )

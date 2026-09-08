@@ -1,3 +1,4 @@
+import dataclasses
 import hashlib
 import json
 from pathlib import Path
@@ -6,22 +7,26 @@ import pytest
 
 from ai_rfc.experiment import ExperimentError
 from ai_rfc.experiment.workspace import (
-    DIGEST_FILE,
     HARNESS_MARKER,
-    RECORD_FILE,
-    TARGETS,
     copy_workspace,
     out_of_window,
     prepare,
     preseed,
+    pristine_name,
     reseal,
-    scaffold_draft,
+)
+from ai_rfc.lifecycle import LifecycleError
+from ai_rfc.lifecycle.workspace import (
+    DIGEST_FILE,
+    RECORD_FILE,
+    Layout,
+    scaffold,
     verify_digest,
     write_digest,
 )
 from ai_rfc.server.testing import git
 
-from .conftest import fixture_target
+from .conftest import fixture_config
 
 
 def test_out_of_window_keeps_order():
@@ -29,8 +34,13 @@ def test_out_of_window_keeps_order():
     assert out_of_window([], (2, 4)) == []
 
 
-def test_pristine_name_encodes_target_and_window():
-    assert fixture_target(Path("/x")).pristine_name == "fixture-w02-02"
+def test_pristine_name_encodes_the_reconstruction_and_its_window(tmp_path):
+    """Two windowed slices of one source must not collide in pristine/."""
+    narrow, _ = fixture_config(tmp_path, tmp_path, window=(49, 51))
+    wide, _ = fixture_config(tmp_path, tmp_path, window=(1, 69))
+    assert pristine_name(narrow) == "fixture-w49-51"
+    assert pristine_name(wide) == "fixture-w01-69"
+    assert pristine_name(dataclasses.replace(wide, window=None)) == "fixture-all"
 
 
 def test_scaffold_writes_the_adopter_layout_and_seeds_the_draft(
@@ -38,9 +48,8 @@ def test_scaffold_writes_the_adopter_layout_and_seeds_the_draft(
 ):
     template, commit = template_repo
     dest = tmp_path / "draft"
-    head = scaffold_draft(
-        dest, fixture_target(tmp_path), template=template, template_commit=commit
-    )
+    config, _ = fixture_config(tmp_path, tmp_path)
+    head = scaffold(config, Layout(tmp_path), template=template, template_commit=commit)
     body = (dest / "draft-test-fixture.md").read_text()
     assert (
         dest / "Makefile"
@@ -67,17 +76,12 @@ def test_scaffold_writes_the_adopter_layout_and_seeds_the_draft(
 
 def test_scaffold_is_byte_deterministic(template_repo, tmp_path):
     template, commit = template_repo
-    first = scaffold_draft(
-        tmp_path / "a",
-        fixture_target(tmp_path),
-        template=template,
-        template_commit=commit,
+    config, _ = fixture_config(tmp_path, tmp_path)
+    first = scaffold(
+        config, Layout(tmp_path / "a"), template=template, template_commit=commit
     )
-    second = scaffold_draft(
-        tmp_path / "b",
-        fixture_target(tmp_path),
-        template=template,
-        template_commit=commit,
+    second = scaffold(
+        config, Layout(tmp_path / "b"), template=template, template_commit=commit
     )
     assert first == second
 
@@ -86,10 +90,9 @@ def test_scaffold_refuses_an_existing_destination(template_repo, tmp_path):
     template, commit = template_repo
     dest = tmp_path / "draft"
     dest.mkdir()
-    with pytest.raises(ExperimentError) as excinfo:
-        scaffold_draft(
-            dest, fixture_target(tmp_path), template=template, template_commit=commit
-        )
+    config, _ = fixture_config(tmp_path, tmp_path)
+    with pytest.raises(LifecycleError) as excinfo:
+        scaffold(config, Layout(tmp_path), template=template, template_commit=commit)
     assert "scaffolded once" in str(excinfo.value)
 
 
@@ -290,21 +293,20 @@ def test_reseal_refuses_a_clone_whose_head_moved(sealed, tmp_path):
     assert "clone HEAD" in str(excinfo.value)
 
 
-def _prepare(fixture_workspace, panther_repo, template_repo, tmp_path):
+def _prepare(fixture_workspace, template_repo, tmp_path, **config_kwargs):
     template, commit = template_repo
+    config, config_path = fixture_config(tmp_path, fixture_workspace, **config_kwargs)
     return prepare(
-        fixture_target(fixture_workspace),
+        config,
         root=tmp_path / "root",
-        panther_repo=panther_repo,
+        config_path=config_path,
         template=template,
         template_commit=commit,
     )
 
 
-def test_prepare_builds_the_pristine_tree(
-    fixture_workspace, panther_repo, template_repo, tmp_path
-):
-    pristine = _prepare(fixture_workspace, panther_repo, template_repo, tmp_path)
+def test_prepare_builds_the_pristine_tree(fixture_workspace, template_repo, tmp_path):
+    pristine = _prepare(fixture_workspace, template_repo, tmp_path)
     assert pristine == tmp_path / "root" / "pristine" / "fixture-w02-02"
     ids = _cluster_ids(pristine)
     assert sorted(p.name for p in (pristine / "clusters").iterdir()) == sorted(ids)
@@ -330,9 +332,9 @@ def test_prepare_builds_the_pristine_tree(
 
 
 def test_prepared_window_is_the_only_unprocessed_range(
-    fixture_workspace, panther_repo, template_repo, tmp_path, monkeypatch
+    fixture_workspace, template_repo, tmp_path, monkeypatch
 ):
-    pristine = _prepare(fixture_workspace, panther_repo, template_repo, tmp_path)
+    pristine = _prepare(fixture_workspace, template_repo, tmp_path)
     monkeypatch.setenv("AI_RFC_WORKSPACE", str(pristine))
 
     from ai_rfc.server.core.queries import cluster_next, status
@@ -346,66 +348,37 @@ def test_prepared_window_is_the_only_unprocessed_range(
 
 
 def test_prepare_refuses_to_overwrite_or_to_run_without_the_substrate(
-    fixture_workspace, panther_repo, template_repo, tmp_path
+    fixture_workspace, template_repo, tmp_path
 ):
-    _prepare(fixture_workspace, panther_repo, template_repo, tmp_path)
+    _prepare(fixture_workspace, template_repo, tmp_path)
     with pytest.raises(ExperimentError) as overwrite:
-        _prepare(fixture_workspace, panther_repo, template_repo, tmp_path)
+        _prepare(fixture_workspace, template_repo, tmp_path)
     assert "prepared once" in str(overwrite.value)
 
     empty = tmp_path / "empty-source"
     empty.mkdir()
     template, commit = template_repo
+    config, config_path = fixture_config(tmp_path, empty)
     with pytest.raises(ExperimentError) as missing:
         prepare(
-            fixture_target(empty),
+            config,
             root=tmp_path / "other-root",
-            panther_repo=panther_repo,
+            config_path=config_path,
             template=template,
             template_commit=commit,
         )
     assert str(empty / "clone") in str(missing.value)
 
 
-@pytest.fixture
-def toolchain_record(tmp_path: Path) -> Path:
-    tools = tmp_path / "tools"
-    cache = tools / ".refcache"
-    cache.mkdir(parents=True)
-    for number in ("2119", "8174", "9000"):
-        (cache / f"reference.RFC.{number}.xml").write_text(
-            f"<reference anchor='RFC{number}'/>\n"
-        )
-    record = tools / "toolchain.json"
-    record.write_text(
-        json.dumps(
-            {
-                "template_home": str(tools / "i-d-template"),
-                "refcache": {"dir": str(cache)},
-                "make": {"path": "/usr/bin/make"},
-                "python": {"venv": "/v"},
-                "ruby": {"bin_dir": "/r", "gem_path": "/g", "kramdown_rfc": "/k"},
-                "node": {"bin_dir": "/n", "idnits": "/i"},
-            }
-        )
-    )
-    return record
-
-
-def test_prepare_seals_the_targets_references_into_the_workspace(
-    fixture_workspace, panther_repo, template_repo, tmp_path, toolchain_record
+def test_prepare_seals_the_configs_references_into_the_workspace(
+    fixture_workspace, template_repo, tmp_path, toolchain_record
 ):
-    from dataclasses import replace
-
-    template, commit = template_repo
-    target = replace(fixture_target(fixture_workspace), references=("RFC9000",))
-    pristine = prepare(
-        target,
-        root=tmp_path / "root",
-        panther_repo=panther_repo,
+    pristine = _prepare(
+        fixture_workspace,
+        template_repo,
+        tmp_path,
+        references=("RFC9000",),
         toolchain=toolchain_record,
-        template=template,
-        template_commit=commit,
     )
     assert (pristine / "references.yaml").read_text() == "references:\n- RFC9000\n"
     assert (pristine / "refcache" / "reference.RFC.9000.xml").exists()
@@ -426,20 +399,15 @@ def test_prepare_seals_the_targets_references_into_the_workspace(
 
 
 def test_prepare_refuses_a_reference_the_toolchain_never_cached(
-    fixture_workspace, panther_repo, template_repo, tmp_path, toolchain_record
+    fixture_workspace, template_repo, tmp_path, toolchain_record
 ):
-    from dataclasses import replace
-
-    template, commit = template_repo
-    target = replace(fixture_target(fixture_workspace), references=("RFC9999",))
     with pytest.raises(ExperimentError) as excinfo:
-        prepare(
-            target,
-            root=tmp_path / "root",
-            panther_repo=panther_repo,
+        _prepare(
+            fixture_workspace,
+            template_repo,
+            tmp_path,
+            references=("RFC9999",),
             toolchain=toolchain_record,
-            template=template,
-            template_commit=commit,
         )
     assert "RFC9999" in str(excinfo.value) and "toolchain provision" in str(
         excinfo.value
@@ -448,62 +416,46 @@ def test_prepare_refuses_a_reference_the_toolchain_never_cached(
 
 
 def test_prepare_with_references_needs_a_toolchain(
-    fixture_workspace, panther_repo, template_repo, tmp_path
+    fixture_workspace, template_repo, tmp_path
 ):
-    from dataclasses import replace
-
-    template, commit = template_repo
-    target = replace(fixture_target(fixture_workspace), references=("RFC9000",))
     with pytest.raises(ExperimentError) as excinfo:
-        prepare(
-            target,
-            root=tmp_path / "root",
-            panther_repo=panther_repo,
-            template=template,
-            template_commit=commit,
-        )
-    assert "--toolchain" in str(excinfo.value)
+        _prepare(fixture_workspace, template_repo, tmp_path, references=("RFC9000",))
+    assert "no toolchain record exists" in str(excinfo.value)
     assert not (tmp_path / "root" / "pristine" / "fixture-w02-02").exists()
 
 
 def test_prepare_refuses_an_unusable_toolchain_record(
-    fixture_workspace, panther_repo, template_repo, tmp_path
+    fixture_workspace, template_repo, tmp_path
 ):
-    from dataclasses import replace
-
-    template, commit = template_repo
-    target = replace(fixture_target(fixture_workspace), references=("RFC9000",))
     bad_toolchain = tmp_path / "toolchain.json"
     bad_toolchain.write_text(json.dumps({"template_home": "/t"}))
     with pytest.raises(ExperimentError) as excinfo:
-        prepare(
-            target,
-            root=tmp_path / "root",
-            panther_repo=panther_repo,
+        _prepare(
+            fixture_workspace,
+            template_repo,
+            tmp_path,
+            references=("RFC9000",),
             toolchain=bad_toolchain,
-            template=template,
-            template_commit=commit,
         )
     assert str(bad_toolchain) in str(excinfo.value)
     assert not (tmp_path / "root" / "pristine" / "fixture-w02-02").exists()
 
 
 def test_cli_workspace_prepare_reports_the_tree(
-    fixture_workspace, panther_repo, template_repo, tmp_path, monkeypatch, capsys
+    fixture_workspace, template_repo, tmp_path, capsys
 ):
     from ai_rfc.experiment.cli import main
 
     template, commit = template_repo
-    monkeypatch.setitem(TARGETS, "fixture", fixture_target(fixture_workspace))
+    _, config_path = fixture_config(tmp_path, fixture_workspace)
     code = main(
         [
             "workspace",
             "prepare",
-            "fixture",
             "--root",
             str(tmp_path / "root"),
-            "--panther-repo",
-            str(panther_repo),
+            "--config",
+            str(config_path),
             "--template",
             template,
             "--template-commit",
@@ -638,9 +590,8 @@ def test_the_skeleton_compiles_as_a_stub_that_lint_recognises(template_repo, tmp
 
     template, commit = template_repo
     dest = tmp_path / "draft"
-    scaffold_draft(
-        dest, fixture_target(tmp_path), template=template, template_commit=commit
-    )
+    config, _ = fixture_config(tmp_path, tmp_path)
+    scaffold(config, Layout(tmp_path), template=template, template_commit=commit)
     text = (dest / "draft-test-fixture.md").read_text()
     assert "$" not in text
     assert "RFC2119:" not in text and "RFC8174:" not in text
@@ -674,9 +625,8 @@ def test_the_skeleton_abstract_clears_once_real_prose_replaces_the_stub(
 
     template, commit = template_repo
     dest = tmp_path / "draft"
-    scaffold_draft(
-        dest, fixture_target(tmp_path), template=template, template_commit=commit
-    )
+    config, _ = fixture_config(tmp_path, tmp_path)
+    scaffold(config, Layout(tmp_path), template=template, template_commit=commit)
     path = dest / "draft-test-fixture.md"
     text = path.read_text()
     stub_paragraph = (

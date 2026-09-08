@@ -1,5 +1,6 @@
 import json
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -115,21 +116,38 @@ def test_a_failing_parity_suite_exits_three_not_two(
     assert code == 3
 
 
-def test_a_window_override_reaches_the_target_prepare_builds(tmp_path, monkeypatch):
-    """A slice of a target, for a dry run that must not cost a whole sweep.
+def _recon(tmp_path: Path) -> Path:
+    """A minimal recon.yaml the CLI can load without reaching the network."""
+    path = tmp_path / "recon.yaml"
+    path.write_text(
+        "name: mark\n"
+        f"workspace: {tmp_path / 'ws'}\n"
+        "source:\n"
+        f"  repo: {tmp_path / 'source'}\n"
+        "  host: none\n"
+        "  pin: main\n"
+        "window: [1, 69]\n"
+        "draft:\n"
+        "  name: draft-test-mark\n"
+        f"toolchain: {tmp_path / 'tools' / 'toolchain.json'}\n"
+    )
+    return path
+
+
+def test_a_window_override_reaches_the_config_prepare_builds(tmp_path, monkeypatch):
+    """A slice of a reconstruction, for a dry run that must not cost a sweep.
 
     The window is what made the pilot a pilot; without an override, trying two
-    clusters of MARK means either editing a module constant or paying for
-    sixty-nine.
+    clusters of MARK means either editing the config or paying for sixty-nine.
 
     Asserting the parsed value alone proved nothing: deleting the
     dataclasses.replace that applies it left that test green. What matters is
-    the Target prepare actually receives, so that is what is captured.
+    the config prepare actually receives, so that is what is captured.
     """
     seen = {}
 
-    def fake_prepare(target, **kwargs):
-        seen["target"] = target
+    def fake_prepare(config, **kwargs):
+        seen["config"] = config
         (tmp_path / "pristine.json").write_text(
             '{"cluster_count": 69, "pre_seeded": [], "window": [49, 51]}'
         )
@@ -141,9 +159,8 @@ def test_a_window_override_reaches_the_target_prepare_builds(tmp_path, monkeypat
         [
             "workspace",
             "prepare",
-            "mark",
-            "--panther-repo",
-            ".",
+            "--config",
+            str(_recon(tmp_path)),
             "--root",
             str(tmp_path / "root"),
             "--window",
@@ -151,18 +168,15 @@ def test_a_window_override_reaches_the_target_prepare_builds(tmp_path, monkeypat
         ]
     )
 
-    assert seen["target"].window == (49, 51)
-    assert seen["target"].name == "mark"
-    # The override must flow into the derived name too, or two differently
-    # windowed slices of one target would collide in pristine/.
-    assert seen["target"].pristine_name == "mark-w49-51"
+    assert seen["config"].window == (49, 51)
+    assert seen["config"].name == "mark"
 
 
-def test_without_the_override_the_targets_own_window_is_used(tmp_path, monkeypatch):
+def test_without_the_override_the_configs_own_window_is_used(tmp_path, monkeypatch):
     seen = {}
 
-    def fake_prepare(target, **kwargs):
-        seen["target"] = target
+    def fake_prepare(config, **kwargs):
+        seen["config"] = config
         (tmp_path / "pristine.json").write_text(
             '{"cluster_count": 69, "pre_seeded": [], "window": [1, 69]}'
         )
@@ -174,22 +188,21 @@ def test_without_the_override_the_targets_own_window_is_used(tmp_path, monkeypat
         [
             "workspace",
             "prepare",
-            "mark",
-            "--panther-repo",
-            ".",
+            "--config",
+            str(_recon(tmp_path)),
             "--root",
             str(tmp_path / "root"),
         ]
     )
 
-    assert seen["target"].window == (1, 69)
+    assert seen["config"].window == (1, 69)
 
 
 def test_a_malformed_window_is_refused_at_parse_time(capsys):
     parser = cli._parser()
     with pytest.raises(SystemExit):
         parser.parse_args(
-            ["workspace", "prepare", "mark", "--panther-repo", ".", "--window", "5"]
+            ["workspace", "prepare", "--config", "recon.yaml", "--window", "5"]
         )
     assert "window" in capsys.readouterr().err
 

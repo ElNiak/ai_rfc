@@ -90,6 +90,14 @@ ENTRY_POINTS: tuple[EntryPoint, ...] = (
         LIFECYCLE,
     ),
     EntryPoint(
+        "init",
+        "ai-rfc init",
+        f"{PACKAGE}.lifecycle.init.cli",
+        "Create the workspace from recon.yaml: clone at the pin, fetch the "
+        "forge, scaffold the draft",
+        LIFECYCLE,
+    ),
+    EntryPoint(
         "pipeline",
         "ai-rfc pipeline",
         f"{PACKAGE}.pipeline.cli",

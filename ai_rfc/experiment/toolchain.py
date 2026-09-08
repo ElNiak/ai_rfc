@@ -20,8 +20,9 @@ from typing import Any, Callable
 
 from ai_rfc.draft.build import BuildError, build, load_toolchain, probe_toolchain
 
+from ..lifecycle import LifecycleError
+from ..lifecycle.workspace import TEMPLATE_COMMIT, TEMPLATE_URL, _git, _run_git
 from . import ExperimentError
-from .workspace import TEMPLATE_COMMIT, TEMPLATE_URL, _git, _run_git
 
 Runner = Callable[..., "subprocess.CompletedProcess[str]"]
 
@@ -174,7 +175,10 @@ def provision(
     cloned = _run_git("clone", "-q", template, str(home))
     if cloned.returncode != 0:
         raise ExperimentError(f"cloning {template} failed: {cloned.stderr.strip()}")
-    _git(home, "checkout", "-q", template_commit)
+    try:
+        _git(home, "checkout", "-q", template_commit)
+    except LifecycleError as error:
+        raise ExperimentError(str(error)) from None
     shutil.rmtree(home / ".git")
 
     probe = tools / PROBE_DIR
@@ -346,7 +350,7 @@ def verify(
             _git(
                 repo, "commit", "-q", "-m", "example", date="2026-08-26T00:00:00+00:00"
             )
-        except (OSError, ExperimentError) as error:
+        except (OSError, LifecycleError) as error:
             return False, (f"could not stage the example draft: {error}",)
         digests = []
         for attempt in ("first", "second"):
