@@ -10,11 +10,10 @@ import json
 from pathlib import Path
 
 from ... import __version__, ledger
-from ...config import ConfigError, drift, load_config
+from ...config import ConfigError
 from ...pipeline.cli import print_status, status_payload
 from .. import LifecycleError
-from ..common import add_config_argument, config_path_from, report
-from ..workspace import Layout
+from ..common import add_config_argument, config_path_from, load_pair, report
 
 
 def payload(config_path: Path) -> dict:
@@ -32,15 +31,9 @@ def payload(config_path: Path) -> dict:
         ConfigError: If either the given or the sealed config does not validate.
         ledger.LedgerError: If the workspace's progress cannot be read.
     """
-    given = load_config(config_path)
-    layout = Layout(given.workspace)
-    if not layout.init_record.exists():
-        raise LifecycleError(
-            f"{layout.root} is not an initialised workspace; "
-            f"run: ai-rfc init --config {config_path}"
-        )
-    sealed = load_config(layout.config)
-    refused, noted = drift(sealed, given)
+    # `load_pair`, not `load_sealed`: reporting a refused identity field is
+    # this verb's job, so raising on one would hide exactly what was asked for.
+    given, _sealed, layout, refused, noted = load_pair(config_path)
     # A timeline that was never built is a state the stage table already
     # reports, not an unreadable ledger; asking the ledger for it anyway turns
     # `status` on a freshly initialised workspace into the error it exists to

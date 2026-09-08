@@ -1,17 +1,7 @@
 """`ai-rfc run`: perform what is next, stop at the boundary with the ledger in hand."""
 
-from pathlib import Path
-
-import pytest
-
 from ai_rfc import cli
 from ai_rfc.lifecycle.workspace import Layout
-
-
-@pytest.fixture(autouse=True)
-def _experiments_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Every defaulted path resolves under the test's own tree, never $HOME."""
-    monkeypatch.setenv("AI_RFC_EXPERIMENTS_ROOT", str(tmp_path / "root"))
 
 
 def test_run_performs_the_deterministic_stages_and_stops_at_mining(initialised, capsys):
@@ -42,6 +32,23 @@ def test_until_stops_after_the_named_stage(initialised, capsys):
     ws = Layout(root)
     assert ws.commits.exists() and not ws.timeline_json.exists()
     assert "stopped after history" in capsys.readouterr().err
+
+
+def test_until_stops_again_when_the_named_stage_is_already_current(initialised, capsys):
+    """``--until`` bounds the walk, not only the stages this invocation performed.
+
+    The first run performs ``history`` and stops. The second finds it already
+    done, and must still stop there rather than stepping over the bound and
+    performing ``timeline`` and ``views`` — a documented flag overrunning on
+    its second invocation.
+    """
+    config_path, root = initialised
+    assert cli.main(["run", "--config", str(config_path), "--until", "history"]) == 0
+    capsys.readouterr()
+    assert cli.main(["run", "--config", str(config_path), "--until", "history"]) == 0
+    err = capsys.readouterr().err
+    assert "stopped after history" in err
+    assert not Layout(root).timeline_json.exists()
 
 
 def test_a_drifted_pin_is_refused_before_anything_runs(initialised, capsys):

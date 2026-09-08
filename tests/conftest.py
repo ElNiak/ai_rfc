@@ -112,18 +112,29 @@ def source_repo(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def initialised(
-    tmp_path: Path, source_repo: Path, template_repo: tuple[str, str]
+    tmp_path: Path,
+    source_repo: Path,
+    template_repo: tuple[str, str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> tuple[Path, Path]:
     """A config file and the workspace ``ai-rfc init`` built from it.
 
     Host ``none`` and no references, so nothing here reaches the network or
     needs a toolchain record.
 
+    The experiments root is redirected here rather than by the consuming
+    module, and that is load-bearing: the config names no ``toolchain:``, so
+    it defaults to ``<experiments root>/tools/toolchain.json`` — which exists
+    on a developer's machine. Left alone, ``ai-rfc verify`` against this
+    workspace would find it and run a real draft build against the operator's
+    own toolchain.
+
     Returns:
         The config file's path and the workspace root it names.
     """
     from ai_rfc import cli
 
+    monkeypatch.setenv("AI_RFC_EXPERIMENTS_ROOT", str(tmp_path / "root"))
     template, commit = template_repo
     config_path = tmp_path / "recon.yaml"
     config_path.write_text(

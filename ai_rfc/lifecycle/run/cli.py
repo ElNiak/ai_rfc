@@ -53,7 +53,7 @@ def run_stages(config_path: Path, *, until: str | None = None) -> int:
             drifted, or the clone is not pinned.
         ledger.LedgerError: If the workspace's progress cannot be read.
     """
-    given, sealed, layout, noted = load_sealed(config_path)
+    given, _sealed, layout, noted = load_sealed(config_path)
     for line in noted:
         report(f"note: config drift: {line}")
     by_name = {entry.stage.name: entry for entry in state(layout)}
@@ -63,6 +63,7 @@ def run_stages(config_path: Path, *, until: str | None = None) -> int:
             f"run: ai-rfc init --config {config_path}"
         )
     performed: list[str] = []
+    stopped: str | None = None
     for stage in STAGES:
         if stage.performer is not Performer.DETERMINISTIC:
             if stage.name == BOUNDARY:
@@ -73,20 +74,32 @@ def run_stages(config_path: Path, *, until: str | None = None) -> int:
         if is_optional(stage):
             continue  # forge was acquired at init; build needs sessions (CLI-2)
         entry = by_name[stage.name]
-        if entry.state in (State.DONE, State.RECOMPUTED):
-            continue
-        result = perform(stage, layout)
-        performed.append(stage.name)
-        if not result.ok:
-            report(f"error: {stage.name} exited {result.exit_code}")
-            return result.exit_code
-        report(f"performed: {stage.name}")
+        if entry.state not in (State.DONE, State.RECOMPUTED):
+            result = perform(stage, layout)
+            performed.append(stage.name)
+            if not result.ok:
+                report(f"error: {stage.name} exited {result.exit_code}")
+                return result.exit_code
+            report(f"performed: {stage.name}")
+            by_name = {e.stage.name: e for e in state(layout)}
+        # Tested after the already-current branch, not inside it: `--until`
+        # bounds the walk, so it must stop whether or not this invocation was
+        # the one that performed the stage. Testing it only after a `perform`
+        # let a second `run --until history` step over its own bound and go on
+        # to build the timeline and the views.
         if until == stage.name:
-            report(f"stopped after {stage.name}")
-            return 0
-        by_name = {e.stage.name: e for e in state(layout)}
+            stopped = stage.name
+            break
     if not performed:
-        report("performed: nothing (every deterministic stage is current)")
+        report("performed: nothing (everything the walk reached was current)")
+    if stopped is not None:
+        report(f"stopped after {stopped}")
+        return 0
+    # The ledger is read unguarded here, unlike in `status` and `verify`:
+    # reaching this line means the walk ran to the boundary, so `views` is
+    # current, so the timeline it was built from is on disk. The two reporting
+    # verbs have no such guarantee — they are asked about workspaces at any
+    # stage, including one that was only initialised.
     summary = ledger.counts(ledger.clusters(layout.root))
     nxt = ledger.next_cluster(layout.root)
     report(f"boundary: {BOUNDARY} — {BY_NAME[BOUNDARY].instruction}")

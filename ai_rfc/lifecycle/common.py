@@ -1,6 +1,11 @@
-"""What every lifecycle verb does first.
+"""Plumbing the lifecycle verbs share: the config argument, and the config pair.
 
-Read the config, find the workspace it names, and refuse identity drift.
+Every verb reads the config the operator passed and the copy ``init`` sealed,
+and compares them. What they do about a refused identity field is where they
+part: ``run`` refuses to touch a workspace whose identity moved, while
+``status`` and ``verify`` exist precisely to report that it did. So the load is
+:func:`load_pair` and the refusal is :func:`load_sealed` on top of it, rather
+than one function with a flag.
 """
 
 from __future__ import annotations
@@ -51,15 +56,48 @@ def config_path_from(args: argparse.Namespace) -> Path:
     raise LifecycleError(f"no config: pass --config or set {CONFIG_ENV}")
 
 
-def load_sealed(
+def load_pair(
     config_path: Path,
-) -> tuple[ReconConfig, ReconConfig, Layout, list[str]]:
-    """Load the config as given and as sealed, refusing identity drift.
+) -> tuple[ReconConfig, ReconConfig, Layout, list[str], list[str]]:
+    """Load the config as given and as sealed, and compare them.
 
     The layout comes from the config as given, never from the sealed copy: a
     campaign pristine is sealed with its own root written into ``workspace:``,
     so reading the layout back out of the seal would send every verb to the
     tree the pristine was copied from.
+
+    Args:
+        config_path: The file the operator passed.
+
+    Returns:
+        ``(given, sealed, layout, refused, noted)`` — ``refused`` lists the
+        identity fields that moved (D57) and ``noted`` every other change,
+        both as ``path: old -> new`` lines. Judging them is the caller's.
+
+    Raises:
+        LifecycleError: If the workspace was never initialised.
+        ConfigError: If either file does not validate.
+    """
+    given = load_config(config_path)
+    layout = Layout(given.workspace)
+    if not layout.init_record.exists() or not layout.config.exists():
+        raise LifecycleError(
+            f"{layout.root} is not an initialised workspace; "
+            f"run: ai-rfc init --config {config_path}"
+        )
+    sealed = load_config(layout.config)
+    refused, noted = drift(sealed, given)
+    return given, sealed, layout, refused, noted
+
+
+def load_sealed(
+    config_path: Path,
+) -> tuple[ReconConfig, ReconConfig, Layout, list[str]]:
+    """Load the config pair as :func:`load_pair` does, refusing identity drift.
+
+    For the verbs that act on a workspace rather than report on one: a
+    reconstruction whose pin, window or draft name moved is a different
+    reconstruction, so there is nothing safe to perform against it.
 
     Args:
         config_path: The file the operator passed.
@@ -73,15 +111,7 @@ def load_sealed(
             field drifted.
         ConfigError: If either file does not validate.
     """
-    given = load_config(config_path)
-    layout = Layout(given.workspace)
-    if not layout.init_record.exists() or not layout.config.exists():
-        raise LifecycleError(
-            f"{layout.root} is not an initialised workspace; "
-            f"run: ai-rfc init --config {config_path}"
-        )
-    sealed = load_config(layout.config)
-    refused, noted = drift(sealed, given)
+    given, sealed, layout, refused, noted = load_pair(config_path)
     if refused:
         raise LifecycleError(
             "config drift refused (re-run ai-rfc init into a new workspace to "

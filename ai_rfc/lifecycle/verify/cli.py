@@ -6,15 +6,15 @@ import argparse
 from pathlib import Path
 
 from ... import __version__, ledger
-from ...config import ConfigError, drift, load_config
+from ...config import ConfigError
 from ...draft import cli as draft_cli
 from ...pipeline.run import perform
 from ...pipeline.stages import BY_NAME
 from .. import LifecycleError
-from ..common import add_config_argument, config_path_from, report
-from ..workspace import Layout
+from ..common import add_config_argument, config_path_from, load_pair, report
 
 NO_TIMELINE = "skipped (no timeline yet; run ai-rfc run first)"
+NO_TOOLCHAIN = "skipped (no toolchain record; see ai-rfc doctor)"
 
 
 def _outcome(code: int) -> str:
@@ -34,23 +34,21 @@ def verify(config_path: Path, *, strict: bool) -> int:
         strict: Whether findings reach the caller as an exit code.
 
     Returns:
-        0 clean; 3 findings (only under ``strict``); 1 when any check could
-        not run.
+        0 when nothing that ran failed; 3 findings (only under ``strict``); 1
+        when a check ran and could not complete. A skipped check contributes
+        no exit code, so the tally on the last line — not the exit code — is
+        what says whether every check ran.
 
     Raises:
         LifecycleError: If the workspace was never initialised.
         ConfigError: If either the given or the sealed config does not validate.
     """
-    given = load_config(config_path)
-    layout = Layout(given.workspace)
-    if not layout.init_record.exists():
-        raise LifecycleError(
-            f"{layout.root} is not an initialised workspace; "
-            f"run: ai-rfc init --config {config_path}"
-        )
-    sealed = load_config(layout.config)
-    refused, noted = drift(sealed, given)
+    # `load_pair`, not `load_sealed`: a refused identity field is a finding
+    # this verb reports, so raising on one would hide what was asked for.
+    given, _sealed, layout, refused, noted = load_pair(config_path)
     codes: list[int] = []
+    ran = ["drift"]
+    skipped: list[str] = []
     if refused:
         report("drift: refused — " + "; ".join(refused))
         codes.append(3)
@@ -65,26 +63,39 @@ def verify(config_path: Path, *, strict: bool) -> int:
     for name in ("check", "gate", "lint"):
         if name == "gate" and not clustered:
             report(f"gate: {NO_TIMELINE}")
+            skipped.append(name)
             continue
         result = perform(BY_NAME[name], layout, strict=True)
         report(f"{name}: {_outcome(result.exit_code)}")
         codes.append(result.exit_code)
+        ran.append(name)
     if clustered:
         completeness = draft_cli.main(
             ["completeness", str(layout.root), "--out", str(layout.out), "--strict"]
         )
         report(f"completeness: {_outcome(completeness)}")
         codes.append(completeness)
+        ran.append("completeness")
     else:
         report(f"completeness: {NO_TIMELINE}")
+        skipped.append("completeness")
     if given.toolchain is not None and given.toolchain.exists():
         result = perform(
             BY_NAME["build"], layout, strict=True, toolchain=given.toolchain
         )
         report(f"build: {_outcome(result.exit_code)}")
         codes.append(result.exit_code)
+        ran.append("build")
     else:
-        report("build: skipped (no toolchain record; see ai-rfc doctor)")
+        report(f"build: {NO_TOOLCHAIN}")
+        skipped.append("build")
+    # A skipped check appends no exit code, so 0 cannot be told from a clean
+    # full pass by the code alone. The tally is what carries that difference
+    # to an operator and to a driver reading stderr.
+    report(
+        f"checks: {len(ran)} ran, {len(skipped)} skipped"
+        + (f" ({', '.join(skipped)})" if skipped else "")
+    )
     if any(code not in (0, 3) for code in codes):
         return 1
     if 3 in codes:
@@ -96,7 +107,10 @@ def configure(parser: argparse.ArgumentParser) -> None:
     """Arguments of ``ai-rfc verify``."""
     parser.description = (
         "Config drift, strict manifest check, citation gate, completeness, "
-        "lint and build, in one exit code."
+        "lint and build, in one exit code. A check whose inputs do not exist "
+        "yet is skipped and contributes no exit code, so 0 means nothing that "
+        "ran failed, not that everything ran; the last line tallies how many "
+        "checks ran and names every one that was skipped."
     )
     add_config_argument(parser)
     parser.add_argument(

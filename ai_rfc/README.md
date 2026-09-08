@@ -489,6 +489,7 @@ coupling the file-on-disk boundary exists to prevent:
 |---|---|
 | `_git` subprocess call | `anchors.py` · `draft/gate.py` · `coverage/commit.py` · `history/git_log.py` · `lifecycle/workspace.py` · `pipeline/substrate.py` · `draft/build.py` |
 | stderr `_report` | `check/cli.py` · `coverage/cli.py` · `draft/cli.py` · `forge/cli.py` · `history/cli.py` · `pipeline/cli.py` · `timeline/cli.py` · `views/cli.py` |
+| stderr `report` (consolidated, not a copy) | `lifecycle/common.py` — every lifecycle verb imports this one rather than keeping its own. Not tracked by `TRACKED_HELPERS`: `` `_report` `` and `` `report` `` are substrings of one another, so the table's row lookup cannot tell the two apart. Listed here so the `_report` row above is not read as the whole picture. |
 | SHA-256 `_digest` (path → hex) | `history/index.py` · `timeline/store.py` · `views/emit.py` |
 | SHA-256 `_digest_bytes` (bytes → hex) | `draft/checkpoint.py` · `views/emit.py` |
 | JSONL corpus readers | `history/store.py` · `timeline/corpus.py` · `views/emit.py` |
