@@ -62,30 +62,33 @@ def _add_target_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="ai-rfc forge",
-        description=(
-            "Collect a repository's pull/merge requests, reviews and comments "
-            "into an immutable disk snapshot — from the forge API, or from "
-            "records obtained without credentials."
-        ),
-        epilog=(
-            "environment:\n"
-            "  GITHUB_TOKEN, GITLAB_TOKEN\n"
-            "                        Read for the matching forge kind. Without\n"
-            "                        one the fetch is unauthenticated:\n"
-            "                        discussion endpoints are refused, the\n"
-            "                        snapshot records complete: false with a\n"
-            "                        denied_subfetches count, and the command\n"
-            "                        still exits 0. Read meta.json before\n"
-            "                        treating a snapshot as whole.\n"
-        ),
-        formatter_class=argparse.RawDescriptionHelpFormatter,
+def configure(parser: argparse.ArgumentParser) -> None:
+    """Add this command's arguments to ``parser``.
+
+    Args:
+        parser: Either the root's subparser for this command or the standalone
+            parser :func:`build_standalone_parser` builds; both must carry the
+            same arguments, so both are configured here. The formatter is set
+            here rather than at construction because the epilog below is
+            hand-laid and the default formatter reflows it.
+    """
+    parser.description = (
+        "Collect a repository's pull/merge requests, reviews and comments "
+        "into an immutable disk snapshot — from the forge API, or from "
+        "records obtained without credentials."
     )
-    parser.add_argument(
-        "--version", action="version", version=f"ai-rfc forge {__version__}"
+    parser.epilog = (
+        "environment:\n"
+        "  GITHUB_TOKEN, GITLAB_TOKEN\n"
+        "                        Read for the matching forge kind. Without\n"
+        "                        one the fetch is unauthenticated:\n"
+        "                        discussion endpoints are refused, the\n"
+        "                        snapshot records complete: false with a\n"
+        "                        denied_subfetches count, and the command\n"
+        "                        still exits 0. Read meta.json before\n"
+        "                        treating a snapshot as whole.\n"
     )
+    parser.formatter_class = argparse.RawDescriptionHelpFormatter
     verbs = parser.add_subparsers(dest="verb", required=True)
 
     fetch = verbs.add_parser("fetch", help="Fetch pull data from the forge API.")
@@ -124,10 +127,23 @@ def _parser() -> argparse.ArgumentParser:
     )
     _add_target_arguments(adopt)
 
+
+def build_standalone_parser() -> argparse.ArgumentParser:
+    """Build the parser ``python -m ai_rfc.forge`` uses.
+
+    Returns:
+        A parser carrying this command's own ``prog`` and ``--version``, over
+        the arguments the root mounts through :func:`configure`.
+    """
+    parser = argparse.ArgumentParser(prog="ai-rfc forge")
+    parser.add_argument(
+        "--version", action="version", version=f"ai-rfc forge {__version__}"
+    )
+    configure(parser)
     return parser
 
 
-def main(argv: list[str] | None = None, transport: Transport | None = None) -> int:
+def run(args: argparse.Namespace, transport: Transport | None = None) -> int:
     """Collect pull data by the chosen route and write one snapshot.
 
     Both verbs pin the same clone and write through the same writer; they
@@ -135,15 +151,13 @@ def main(argv: list[str] | None = None, transport: Transport | None = None) -> i
     a reader can tell how much the route could ever have delivered.
 
     Args:
-        argv: Argument vector; ``None`` reads ``sys.argv``.
+        args: The parsed arguments, from either door.
         transport: Transport override for tests; ``None`` uses urllib.
 
     Returns:
         0 on success, 1 if the clone, the forge or the records could not be
         read, or the snapshot already exists.
     """
-    args = _parser().parse_args(argv)
-
     try:
         target = parse_url(args.url, args.host)
     except ForgeError as error:
@@ -229,3 +243,16 @@ def main(argv: list[str] | None = None, transport: Transport | None = None) -> i
             f"data); the snapshot records the denial"
         )
     return 0
+
+
+def main(argv: list[str] | None = None, transport: Transport | None = None) -> int:
+    """Run the command from the command line (``python -m ai_rfc.forge``).
+
+    Args:
+        argv: Argument vector; ``None`` reads ``sys.argv``.
+        transport: Transport override for tests; ``None`` uses urllib.
+
+    Returns:
+        The command's exit code.
+    """
+    return run(build_standalone_parser().parse_args(argv), transport)

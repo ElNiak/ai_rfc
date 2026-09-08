@@ -43,16 +43,17 @@ def _report(message: str) -> None:
     print(message, file=sys.stderr)
 
 
-def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="ai-rfc timeline",
-        description=(
-            "Cluster a commit corpus into a total-ordered timeline of PR "
-            "clusters and epoch clusters of direct pushes."
-        ),
-    )
-    parser.add_argument(
-        "--version", action="version", version=f"ai-rfc timeline {__version__}"
+def configure(parser: argparse.ArgumentParser) -> None:
+    """Add this command's arguments to ``parser``.
+
+    Args:
+        parser: Either the root's subparser for this command or the standalone
+            parser :func:`build_standalone_parser` builds; both must carry the
+            same arguments, so both are configured here.
+    """
+    parser.description = (
+        "Cluster a commit corpus into a total-ordered timeline of PR "
+        "clusters and epoch clusters of direct pushes."
     )
     parser.add_argument("corpus", type=Path, help="Directory holding the corpus.")
     parser.add_argument(
@@ -77,21 +78,33 @@ def _parser() -> argparse.ArgumentParser:
             "The snapshot must have been fetched at the corpus tip."
         ),
     )
+
+
+def build_standalone_parser() -> argparse.ArgumentParser:
+    """Build the parser ``python -m ai_rfc.timeline`` uses.
+
+    Returns:
+        A parser carrying this command's own ``prog`` and ``--version``, over
+        the arguments the root mounts through :func:`configure`.
+    """
+    parser = argparse.ArgumentParser(prog="ai-rfc timeline")
+    parser.add_argument(
+        "--version", action="version", version=f"ai-rfc timeline {__version__}"
+    )
+    configure(parser)
     return parser
 
 
-def main(argv: list[str] | None = None) -> int:
+def run(args: argparse.Namespace) -> int:
     """Cluster a corpus into a timeline directory.
 
     Args:
-        argv: Argument vector; ``None`` reads ``sys.argv``.
+        args: The parsed arguments, from either door.
 
     Returns:
         0 on success, 1 if the corpus could not be read or clustered, or if
         ``--repo`` names a clone whose HEAD is not the corpus tip.
     """
-    args = _parser().parse_args(argv)
-
     try:
         commits = read_commits(args.corpus)
         tip = find_tip(commits)
@@ -191,3 +204,15 @@ def main(argv: list[str] | None = None) -> int:
                 f"{' …' if len(unmatched) > 20 else ''}"
             )
     return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run the command from the command line (``python -m ai_rfc.timeline``).
+
+    Args:
+        argv: Argument vector; ``None`` reads ``sys.argv``.
+
+    Returns:
+        The command's exit code.
+    """
+    return run(build_standalone_parser().parse_args(argv))

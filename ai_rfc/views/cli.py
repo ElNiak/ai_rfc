@@ -21,16 +21,17 @@ def _report(message: str) -> None:
     print(message, file=sys.stderr)
 
 
-def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="ai-rfc views",
-        description=(
-            "Emit one evidence folder per timeline cluster: metadata, the "
-            "member file set, and a deterministic span diff."
-        ),
-    )
-    parser.add_argument(
-        "--version", action="version", version=f"ai-rfc views {__version__}"
+def configure(parser: argparse.ArgumentParser) -> None:
+    """Add this command's arguments to ``parser``.
+
+    Args:
+        parser: Either the root's subparser for this command or the standalone
+            parser :func:`build_standalone_parser` builds; both must carry the
+            same arguments, so both are configured here.
+    """
+    parser.description = (
+        "Emit one evidence folder per timeline cluster: metadata, the "
+        "member file set, and a deterministic span diff."
     )
     parser.add_argument("timeline", type=Path, help="Timeline directory.")
     parser.add_argument(
@@ -83,22 +84,34 @@ def _parser() -> argparse.ArgumentParser:
             "what --out already holds; drift exits 3."
         ),
     )
+
+
+def build_standalone_parser() -> argparse.ArgumentParser:
+    """Build the parser ``python -m ai_rfc.views`` uses.
+
+    Returns:
+        A parser carrying this command's own ``prog`` and ``--version``, over
+        the arguments the root mounts through :func:`configure`.
+    """
+    parser = argparse.ArgumentParser(prog="ai-rfc views")
+    parser.add_argument(
+        "--version", action="version", version=f"ai-rfc views {__version__}"
+    )
+    configure(parser)
     return parser
 
 
-def main(argv: list[str] | None = None) -> int:
+def run(args: argparse.Namespace) -> int:
     """Emit or verify per-cluster views.
 
     Args:
-        argv: Argument vector; ``None`` reads ``sys.argv``.
+        args: The parsed arguments, from either door.
 
     Returns:
         0 on success, 1 if the inputs could not be read or are stale, and 3
         when ``--verify`` found a view whose bytes no longer reproduce. 2 is
         left to ``argparse`` for a malformed invocation.
     """
-    args = _parser().parse_args(argv)
-
     try:
         if args.verify:
             drifted = verify_views(
@@ -137,3 +150,15 @@ def main(argv: list[str] | None = None) -> int:
             "cluster — its absence means 'not fetched', not 'not a PR'"
         )
     return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run the command from the command line (``python -m ai_rfc.views``).
+
+    Args:
+        argv: Argument vector; ``None`` reads ``sys.argv``.
+
+    Returns:
+        The command's exit code.
+    """
+    return run(build_standalone_parser().parse_args(argv))

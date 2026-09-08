@@ -1,10 +1,10 @@
 """The commands this package exposes, declared once.
 
-The registry is read by ``ai_rfc.cli`` (the ``ai-rfc`` door), which builds its
-usage listing from it, and the conventions suite asserts its invariants
-across it. Modules are named by dotted string rather than imported, so
-reading the registry costs nothing and the eight argparse CLIs load only
-when one of them is invoked.
+The registry is read by ``ai_rfc.cli`` (the ``ai-rfc`` door), which mounts
+every command it names into one argparse tree, and the conventions suite
+asserts its invariants across it. Modules are named by dotted string rather
+than imported, so reading the registry itself costs nothing — a reader that
+only wants the verb table never imports a command.
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ class EntryPoint:
             CLI reference by ``mkdocs-click``, where it is the only description
             a reader gets, since the arguments forward untouched.
         section: The heading ``ai-rfc --help`` prints this command under,
-            rendered by ``_usage()`` in ``ai_rfc/cli.py`` in registration
+            rendered by ``_epilog()`` in ``ai_rfc/cli.py`` in registration
             order. Entries sharing one are kept contiguous in
             :data:`ENTRY_POINTS`, because that order is the order the help
             prints.
@@ -64,14 +64,29 @@ class EntryPoint:
         return cast(CommandModule, import_module(self.module))
 
 
-#: Headings ``ai-rfc --help`` lists commands under. Plain text: ``_usage()`` in
-#: ``ai_rfc/cli.py`` writes them verbatim, so backticks would print as backticks.
+#: Headings ``ai-rfc --help`` lists commands under. Plain text: ``_epilog()``
+#: in ``ai_rfc/cli.py`` writes them verbatim, so backticks would print as
+#: backticks.
+LIFECYCLE = "Lifecycle: one config, one workspace"
 DRIVEN = "Commands you drive"
 BY_HAND = "Run these yourself"
 PERFORMED = "Stages pipeline run reaches before it needs you"
+AGENT = "Agent verbs (used inside sessions)"
+
+#: The order ``ai-rfc --help`` prints the headings in. Kept beside them rather
+#: than derived from :data:`ENTRY_POINTS` so a heading with no rows yet still
+#: has a declared place, and so the help's shape is readable in one line.
+SECTIONS = (LIFECYCLE, DRIVEN, BY_HAND, PERFORMED, AGENT)
 
 
 ENTRY_POINTS: tuple[EntryPoint, ...] = (
+    EntryPoint(
+        "config",
+        "ai-rfc config",
+        f"{PACKAGE}.lifecycle.config.cli",
+        "Print a starter recon.yaml (example) or the field reference (reference)",
+        LIFECYCLE,
+    ),
     EntryPoint(
         "pipeline",
         "ai-rfc pipeline",

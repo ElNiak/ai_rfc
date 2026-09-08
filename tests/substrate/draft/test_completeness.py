@@ -305,7 +305,7 @@ def test_completeness_verb_exits_one_on_unreadable_input(tmp_path: Path) -> None
 
 def test_gate_strict_help_states_the_code_it_actually_returns() -> None:
     """draft/cli.py:74 claimed exit 2; the code returns 3."""
-    parser = draft_cli._parser()
+    parser = draft_cli.build_standalone_parser()
     subparsers = next(
         action
         for action in parser._actions

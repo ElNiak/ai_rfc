@@ -1,8 +1,8 @@
 """Conventions every ai_rfc entry point holds to.
 
-The substrate is eight independent ``python -m`` commands that a human and an
-agent both drive, so the properties that make them scriptable are worth
-asserting once across all of them rather than eight times in eight files.
+The substrate is a set of independent ``python -m`` commands that a human and
+an agent both drive, so the properties that make them scriptable are worth
+asserting once across all of them rather than once per file.
 """
 
 import importlib
@@ -173,3 +173,13 @@ def test_entries_sharing_a_section_are_contiguous():
         if not runs or runs[-1] != entry.section:
             runs.append(entry.section)
     assert len(runs) == len(set(runs))
+
+
+def test_main_is_the_standalone_door_over_configure_and_run(capsys):
+    """``python -m ai_rfc.<sub> --help`` still works for every registered module."""
+    for entry in ENTRY_POINTS:
+        module = importlib.import_module(entry.module)
+        with pytest.raises(SystemExit) as excinfo:
+            module.main(["--help"])
+        assert excinfo.value.code == 0, entry.verb
+        assert f"usage: {entry.prog}" in capsys.readouterr().out, entry.verb

@@ -46,18 +46,23 @@ def _report(message: str) -> None:
     print(message, file=sys.stderr)
 
 
-def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="ai-rfc draft",
-        description=(
-            "Freeze manifest checkpoints against timeline clusters, gate a "
-            "prose draft's revision map against them, and measure how much of "
-            "the timeline the reconstruction has actually specified."
-        ),
+def configure(parser: argparse.ArgumentParser) -> None:
+    """Add this command's arguments to ``parser``.
+
+    Args:
+        parser: Either the root's subparser for this command or the standalone
+            parser :func:`build_standalone_parser` builds; both must carry the
+            same arguments, so both are configured here.
+    """
+    parser.description = (
+        "Freeze manifest checkpoints against timeline clusters, gate a "
+        "prose draft's revision map against them, and measure how much of "
+        "the timeline the reconstruction has actually specified."
     )
-    parser.add_argument(
-        "--version", action="version", version=f"ai-rfc draft {__version__}"
-    )
+    # `run` reports one cross-argument requirement argparse cannot express, and
+    # only the parser that owns the arguments can print the usage line beneath
+    # it — which differs between the two doors, so it is carried, not rebuilt.
+    parser.set_defaults(_parser=parser)
     verbs = parser.add_subparsers(dest="verb", required=True)
 
     checkpoint = verbs.add_parser(
@@ -204,28 +209,39 @@ def _parser() -> argparse.ArgumentParser:
     lint_verb.add_argument(
         "--strict", action="store_true", help="Exit 3 when any finding is reported."
     )
+
+
+def build_standalone_parser() -> argparse.ArgumentParser:
+    """Build the parser ``python -m ai_rfc.draft`` uses.
+
+    Returns:
+        A parser carrying this command's own ``prog`` and ``--version``, over
+        the arguments the root mounts through :func:`configure`.
+    """
+    parser = argparse.ArgumentParser(prog="ai-rfc draft")
+    parser.add_argument(
+        "--version", action="version", version=f"ai-rfc draft {__version__}"
+    )
+    configure(parser)
     return parser
 
 
-def main(argv: list[str] | None = None) -> int:
-    """Run the requested verb.
+def run(args: argparse.Namespace) -> int:
+    """Perform the parsed verb.
 
     Args:
-        argv: Argument vector; ``None`` reads ``sys.argv``.
+        args: The parsed arguments, from either door.
 
     Returns:
         0 on success, 1 if an input could not be read or interpreted, and 3
         when ``gate --strict``, ``completeness --strict``, ``build --strict``
         or ``lint --strict`` reported findings.
     """
-    parser = _parser()
-    args = parser.parse_args(argv)
-
     if args.verb == "checkpoint":
         if args.consolidation is not None and args.base is None:
-            parser.error("--consolidation requires --base")
+            args._parser.error("--consolidation requires --base")
         if args.base is not None and args.consolidation is None:
-            parser.error("--base requires --consolidation")
+            args._parser.error("--base requires --consolidation")
         try:
             if args.consolidation is not None:
                 checkpoint_dir = write_consolidation_checkpoint(
@@ -369,28 +385,46 @@ def main(argv: list[str] | None = None) -> int:
             return 3
         return 0
 
-    try:
-        findings = run_gate(
-            args.draftrepo,
-            args.timeline,
-            args.checkpoints,
-            args.questions,
-            args.revisions,
-            consolidations_dir=args.consolidations,
+    if args.verb == "gate":
+        try:
+            findings = run_gate(
+                args.draftrepo,
+                args.timeline,
+                args.checkpoints,
+                args.questions,
+                args.revisions,
+                consolidations_dir=args.consolidations,
+            )
+        except (GateError, OSError) as error:
+            _report(f"error: {error}")
+            return 1
+
+        args.out.mkdir(parents=True, exist_ok=True)
+        (args.out / "gate-report.json").write_text(
+            json.dumps({"findings": list(findings)}, sort_keys=True, indent=2) + "\n"
         )
-    except (GateError, OSError) as error:
-        _report(f"error: {error}")
-        return 1
 
-    args.out.mkdir(parents=True, exist_ok=True)
-    (args.out / "gate-report.json").write_text(
-        json.dumps({"findings": list(findings)}, sort_keys=True, indent=2) + "\n"
-    )
+        for finding in findings:
+            _report(f"finding: {finding}")
+        if findings and args.strict:
+            return 3
+        if not findings:
+            _report("note: gate clean")
+        return 0
 
-    for finding in findings:
-        _report(f"finding: {finding}")
-    if findings and args.strict:
-        return 3
-    if not findings:
-        _report("note: gate clean")
-    return 0
+    # argparse admits only the verbs above, so this is unreachable by argv. It
+    # replaces the fallthrough that used to run `gate` for any verb missing a
+    # branch, silently and with the wrong arguments.
+    raise AssertionError(f"unhandled verb {args.verb!r}")
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run the requested verb from the command line (``python -m ai_rfc.draft``).
+
+    Args:
+        argv: Argument vector; ``None`` reads ``sys.argv``.
+
+    Returns:
+        The verb's exit code.
+    """
+    return run(build_standalone_parser().parse_args(argv))

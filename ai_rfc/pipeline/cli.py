@@ -27,16 +27,17 @@ def _report(message: str) -> None:
     print(message, file=sys.stderr)
 
 
-def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="ai-rfc pipeline",
-        description=(
-            "Run the deterministic stages of a reconstruction in order, "
-            "stopping wherever a person or a model has to act."
-        ),
-    )
-    parser.add_argument(
-        "--version", action="version", version=f"ai-rfc pipeline {__version__}"
+def configure(parser: argparse.ArgumentParser) -> None:
+    """Add this command's arguments to ``parser``.
+
+    Args:
+        parser: Either the root's subparser for this command or the standalone
+            parser :func:`build_standalone_parser` builds; both must carry the
+            same arguments, so both are configured here.
+    """
+    parser.description = (
+        "Run the deterministic stages of a reconstruction in order, "
+        "stopping wherever a person or a model has to act."
     )
     verbs = parser.add_subparsers(dest="verb", required=True)
 
@@ -60,7 +61,7 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument(
         "--from",
         dest="start",
-        choices=sorted(BY_NAME),
+        choices=[stage.name for stage in STAGES],
         default=None,
         help=(
             "First stage to run; default is wherever the workspace stands. "
@@ -71,7 +72,7 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument(
         "--until",
         dest="until",
-        choices=sorted(BY_NAME),
+        choices=[stage.name for stage in STAGES],
         default=None,
         help=(
             "Last stage to run; default is the next agent boundary. The "
@@ -116,6 +117,20 @@ def _parser() -> argparse.ArgumentParser:
         dest="as_json",
         help="Emit a machine-readable record of the run to stdout.",
     )
+
+
+def build_standalone_parser() -> argparse.ArgumentParser:
+    """Build the parser ``python -m ai_rfc.pipeline`` uses.
+
+    Returns:
+        A parser carrying this command's own ``prog`` and ``--version``, over
+        the arguments the root mounts through :func:`configure`.
+    """
+    parser = argparse.ArgumentParser(prog="ai-rfc pipeline")
+    parser.add_argument(
+        "--version", action="version", version=f"ai-rfc pipeline {__version__}"
+    )
+    configure(parser)
     return parser
 
 
@@ -367,11 +382,11 @@ def _finish(
     return code
 
 
-def main(argv: list[str] | None = None) -> int:
+def run(args: argparse.Namespace) -> int:
     """Report or advance a reconstruction workspace.
 
     Args:
-        argv: Argument vector; ``None`` reads ``sys.argv``.
+        args: The parsed arguments, from either door.
 
     Returns:
         0 on success, including when the run stops at a stage a person or a
@@ -382,7 +397,6 @@ def main(argv: list[str] | None = None) -> int:
         this command does not perform. Otherwise a stage's own exit code, so a
         strict gate's 3 reaches the caller unchanged. 2 is left to argparse.
     """
-    args = _parser().parse_args(argv)
     try:
         if args.verb == "status":
             payload = _status_payload(args.workspace)
@@ -400,3 +414,15 @@ def main(argv: list[str] | None = None) -> int:
     except (PipelineError, OSError) as error:
         _report(f"error: {error}")
         return 1
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run the command from the command line (``python -m ai_rfc.pipeline``).
+
+    Args:
+        argv: Argument vector; ``None`` reads ``sys.argv``.
+
+    Returns:
+        The command's exit code.
+    """
+    return run(build_standalone_parser().parse_args(argv))

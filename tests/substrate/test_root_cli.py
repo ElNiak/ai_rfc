@@ -1,4 +1,4 @@
-"""The one door: ``ai-rfc <verb>`` forwards to the registered sub-CLI."""
+"""The one door: ``ai-rfc <verb>`` reaches the registered sub-CLI's ``run``."""
 
 import re
 
@@ -13,30 +13,42 @@ pytestmark = pytest.mark.unit
 def test_help_lists_every_verb_in_registration_order(capsys):
     """Registration order is the workflow order; the listing must keep it.
 
-    The needle is "exactly two spaces then a word": the second usage line is
-    indented deeper, and a bare ``startswith("  ")`` would capture it.
+    The needle is "exactly two spaces then a word", read over the verb table
+    alone: argparse indents its own option rows the same way, so scanning the
+    whole help would capture ``-h``, ``--version`` and the ``<verb>`` metavar
+    as if they were commands. The table starts at the first section heading.
     """
-    assert cli.main(["--help"]) == 0
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main(["--help"])
+    assert exit_info.value.code == 0
     out = capsys.readouterr().out
+    first_heading = out.index(f"{ENTRY_POINTS[0].section}:")
+    table = out[first_heading:]
     rendered = [
-        line.split()[0] for line in out.splitlines() if re.match(r"^ {2}\S", line)
+        line.split()[0] for line in table.splitlines() if re.match(r"^ {2}\S", line)
     ]
     assert rendered == [entry.verb for entry in ENTRY_POINTS]
 
 
 def test_a_bare_invocation_is_a_usage_error(capsys):
     """Like ``panther``: usage printed, exit 2, because nothing was asked."""
-    assert cli.main([]) == 2
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main([])
+    assert exit_info.value.code == 2
     assert "usage: ai-rfc" in capsys.readouterr().err
 
 
 def test_an_unknown_verb_exits_two(capsys):
-    assert cli.main(["frobnicate"]) == 2
-    assert "unknown verb" in capsys.readouterr().err
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main(["frobnicate"])
+    assert exit_info.value.code == 2
+    assert "invalid choice" in capsys.readouterr().err
 
 
 def test_version_names_the_door(capsys):
-    assert cli.main(["--version"]) == 0
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main(["--version"])
+    assert exit_info.value.code == 0
     assert capsys.readouterr().out == f"ai-rfc {__version__}\n"
 
 

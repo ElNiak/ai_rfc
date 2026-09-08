@@ -33,26 +33,29 @@ def _report(message: str) -> None:
     print(message, file=sys.stderr)
 
 
-def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="ai-rfc coverage",
-        description=(
-            "Propose runtime anchors for the claims whose cited code lines a "
-            "test run actually reached. Writes proposals; never edits the "
-            "manifest."
-        ),
-        epilog=(
-            "note:\n"
-            "  A runtime anchor is primary evidence, so merging one beside an\n"
-            "  existing code anchor takes a claim to confirmed. The criterion\n"
-            "  is line-executed: the line ran. Nothing in a coverage report\n"
-            "  says an assertion examined what it did.\n"
-        ),
-        formatter_class=argparse.RawDescriptionHelpFormatter,
+def configure(parser: argparse.ArgumentParser) -> None:
+    """Add this command's arguments to ``parser``.
+
+    Args:
+        parser: Either the root's subparser for this command or the standalone
+            parser :func:`build_standalone_parser` builds; both must carry the
+            same arguments, so both are configured here. The formatter is set
+            here rather than at construction because the epilog below is
+            hand-laid and the default formatter reflows it.
+    """
+    parser.description = (
+        "Propose runtime anchors for the claims whose cited code lines a "
+        "test run actually reached. Writes proposals; never edits the "
+        "manifest."
     )
-    parser.add_argument(
-        "--version", action="version", version=f"ai-rfc coverage {__version__}"
+    parser.epilog = (
+        "note:\n"
+        "  A runtime anchor is primary evidence, so merging one beside an\n"
+        "  existing code anchor takes a claim to confirmed. The criterion\n"
+        "  is line-executed: the line ran. Nothing in a coverage report\n"
+        "  says an assertion examined what it did.\n"
     )
+    parser.formatter_class = argparse.RawDescriptionHelpFormatter
     parser.add_argument("manifest", type=Path, help="The manifest to corroborate.")
     parser.add_argument(
         "--coverage", type=Path, required=True, help="The coverage report to read."
@@ -80,14 +83,28 @@ def _parser() -> argparse.ArgumentParser:
         required=True,
         help="Directory for runtime-anchors.yaml and runtime-anchors.json.",
     )
+
+
+def build_standalone_parser() -> argparse.ArgumentParser:
+    """Build the parser ``python -m ai_rfc.coverage`` uses.
+
+    Returns:
+        A parser carrying this command's own ``prog`` and ``--version``, over
+        the arguments the root mounts through :func:`configure`.
+    """
+    parser = argparse.ArgumentParser(prog="ai-rfc coverage")
+    parser.add_argument(
+        "--version", action="version", version=f"ai-rfc coverage {__version__}"
+    )
+    configure(parser)
     return parser
 
 
-def main(argv: list[str] | None = None) -> int:
+def run(args: argparse.Namespace) -> int:
     """Propose runtime anchors from one coverage run.
 
     Args:
-        argv: Argument vector; ``None`` reads ``sys.argv``.
+        args: The parsed arguments, from either door.
 
     Returns:
         0 on success, including when a run corroborates nothing — a report
@@ -95,8 +112,6 @@ def main(argv: list[str] | None = None) -> int:
         not a failure of this command. 1 if an input could not be read or the
         checkout could not be bound. 2 is left to argparse.
     """
-    args = _parser().parse_args(argv)
-
     try:
         manifest = load(args.manifest)
         report = READERS[args.format](args.coverage)
@@ -148,3 +163,15 @@ def main(argv: list[str] | None = None) -> int:
             "about the test suite, not about the claims."
         )
     return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run the command from the command line (``python -m ai_rfc.coverage``).
+
+    Args:
+        argv: Argument vector; ``None`` reads ``sys.argv``.
+
+    Returns:
+        The command's exit code.
+    """
+    return run(build_standalone_parser().parse_args(argv))

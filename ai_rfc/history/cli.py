@@ -23,16 +23,17 @@ def _report(message: str) -> None:
     print(message, file=sys.stderr)
 
 
-def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="ai-rfc history",
-        description=(
-            "Extract a repository's commit history into a deterministic JSONL "
-            "corpus, with an optional SQLite index for querying."
-        ),
-    )
-    parser.add_argument(
-        "--version", action="version", version=f"ai-rfc history {__version__}"
+def configure(parser: argparse.ArgumentParser) -> None:
+    """Add this command's arguments to ``parser``.
+
+    Args:
+        parser: Either the root's subparser for this command or the standalone
+            parser :func:`build_standalone_parser` builds; both must carry the
+            same arguments, so both are configured here.
+    """
+    parser.description = (
+        "Extract a repository's commit history into a deterministic JSONL "
+        "corpus, with an optional SQLite index for querying."
     )
     parser.add_argument("repo", type=Path, help="Path to an existing clone.")
     parser.add_argument(
@@ -52,21 +53,33 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Write the JSONL corpus without building the SQLite index.",
     )
+
+
+def build_standalone_parser() -> argparse.ArgumentParser:
+    """Build the parser ``python -m ai_rfc.history`` uses.
+
+    Returns:
+        A parser carrying this command's own ``prog`` and ``--version``, over
+        the arguments the root mounts through :func:`configure`.
+    """
+    parser = argparse.ArgumentParser(prog="ai-rfc history")
+    parser.add_argument(
+        "--version", action="version", version=f"ai-rfc history {__version__}"
+    )
+    configure(parser)
     return parser
 
 
-def main(argv: list[str] | None = None) -> int:
+def run(args: argparse.Namespace) -> int:
     """Extract a repository into a corpus directory.
 
     Args:
-        argv: Argument vector; ``None`` reads ``sys.argv``.
+        args: The parsed arguments, from either door.
 
     Returns:
         0 on success, 1 if the repository could not be read — which includes a
         shallow clone, whose truncated history would otherwise pass silently.
     """
-    args = _parser().parse_args(argv)
-
     try:
         commits, changes, report = extract(args.repo, cap=args.cap)
     except GitError as error:
@@ -84,3 +97,15 @@ def main(argv: list[str] | None = None) -> int:
             f"are recorded in {report.commit_count} commit records"
         )
     return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run the command from the command line (``python -m ai_rfc.history``).
+
+    Args:
+        argv: Argument vector; ``None`` reads ``sys.argv``.
+
+    Returns:
+        The command's exit code.
+    """
+    return run(build_standalone_parser().parse_args(argv))

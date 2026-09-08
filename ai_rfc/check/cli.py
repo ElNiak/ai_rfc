@@ -24,18 +24,19 @@ def _report(message: str) -> None:
     print(message, file=sys.stderr)
 
 
-def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="ai-rfc check",
-        description=(
-            "Report which claims in a reconstructed requirement manifest are "
-            "not backed by the code their anchors point at: check the schema, "
-            "weigh every claim against the promotion rule, and optionally "
-            "verify repository anchors against their pinned commits."
-        ),
-    )
-    parser.add_argument(
-        "--version", action="version", version=f"ai-rfc check {__version__}"
+def configure(parser: argparse.ArgumentParser) -> None:
+    """Add this command's arguments to ``parser``.
+
+    Args:
+        parser: Either the root's subparser for this command or the standalone
+            parser :func:`build_standalone_parser` builds; both must carry the
+            same arguments, so both are configured here.
+    """
+    parser.description = (
+        "Report which claims in a reconstructed requirement manifest are "
+        "not backed by the code their anchors point at: check the schema, "
+        "weigh every claim against the promotion rule, and optionally "
+        "verify repository anchors against their pinned commits."
     )
     parser.add_argument("manifest", type=Path, help="Path to the YAML manifest.")
     parser.add_argument(
@@ -58,14 +59,28 @@ def _parser() -> argparse.ArgumentParser:
             "supports, or an anchor that does not resolve at its pinned commit."
         ),
     )
+
+
+def build_standalone_parser() -> argparse.ArgumentParser:
+    """Build the parser ``python -m ai_rfc.check`` uses.
+
+    Returns:
+        A parser carrying this command's own ``prog`` and ``--version``, over
+        the arguments the root mounts through :func:`configure`.
+    """
+    parser = argparse.ArgumentParser(prog="ai-rfc check")
+    parser.add_argument(
+        "--version", action="version", version=f"ai-rfc check {__version__}"
+    )
+    configure(parser)
     return parser
 
 
-def main(argv: list[str] | None = None) -> int:
+def run(args: argparse.Namespace) -> int:
     """Validate a manifest and write its report.
 
     Args:
-        argv: Argument vector; ``None`` reads ``sys.argv``.
+        args: The parsed arguments, from either door.
 
     Returns:
         0 on success, 1 if the manifest or repository could not be read, and 3
@@ -79,8 +94,6 @@ def main(argv: list[str] | None = None) -> int:
         manifest overstates its evidence" left a caller unable to tell them
         apart, and they call for opposite responses.
     """
-    args = _parser().parse_args(argv)
-
     try:
         manifest = load(args.manifest)
     except (SchemaError, OSError) as error:
@@ -112,3 +125,15 @@ def main(argv: list[str] | None = None) -> int:
     if (report.violations or report.unverified) and args.strict:
         return 3
     return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run the command from the command line (``python -m ai_rfc.check``).
+
+    Args:
+        argv: Argument vector; ``None`` reads ``sys.argv``.
+
+    Returns:
+        The command's exit code.
+    """
+    return run(build_standalone_parser().parse_args(argv))
