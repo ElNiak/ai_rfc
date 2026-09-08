@@ -7,9 +7,7 @@ import re
 import subprocess
 from typing import Any
 
-import yaml
-
-from ...draft.checkpoint import CHECKPOINT_FILE
+from ... import ledger
 from ..paths import Context
 from . import CoreError, GuardrailError
 
@@ -67,37 +65,18 @@ def _clusters(ctx: Context) -> list[dict[str, Any]]:
     return [json.loads(line) for line in path.read_text().splitlines()]
 
 
-def _processed_cluster_ids(ctx: Context) -> set[str]:
-    # A checkpoint directory counts only with its record in it: an empty
-    # directory named after a cluster would otherwise skip that cluster, and
-    # one per cluster would skip the whole window with nothing checkpointed.
-    checkpoints = ctx.workspace / "checkpoints"
-    processed = (
-        {
-            entry.name
-            for entry in checkpoints.iterdir()
-            if entry.is_dir() and (entry / CHECKPOINT_FILE).exists()
-        }
-        if checkpoints.is_dir()
-        else set()
-    )
-    revisions = (
-        yaml.safe_load(ctx.revisions.read_text()) if ctx.revisions.exists() else None
-    )
-    if isinstance(revisions, dict):
-        for body in (revisions.get("revisions") or {}).values():
-            if isinstance(body, dict) and "cluster_id" in body:
-                processed.add(body["cluster_id"])
-    return processed
-
-
 def cluster_next(ctx: Context) -> dict[str, Any] | None:
-    """Return the lowest-ordinal cluster not yet processed, or ``None``."""
-    processed = _processed_cluster_ids(ctx)
-    for cluster in _clusters(ctx):
-        if cluster["id"] not in processed:
-            return cluster
-    return None
+    """Return the lowest-ordinal cluster not yet finished, or ``None``.
+
+    Finished means what :mod:`ai_rfc.ledger` says it means: the checkpoint
+    record, the cluster's revision entry and that entry's tag. A checkpoint on
+    its own leaves the cluster outstanding, so a round abandoned between the
+    checkpoint and the tag is offered again rather than silently skipped.
+    """
+    state = ledger.next_cluster(ctx.workspace)
+    if state is None:
+        return None
+    return next(row for row in _clusters(ctx) if row["id"] == state.id)
 
 
 def cluster_get(
@@ -146,7 +125,8 @@ def status(ctx: Context) -> dict[str, Any]:
     timeline_path = ctx.workspace / "timeline" / "timeline.json"
     timeline = json.loads(timeline_path.read_text()) if timeline_path.exists() else None
     clusters = _clusters(ctx) if timeline else []
-    processed = _processed_cluster_ids(ctx) if timeline else set()
+    states = ledger.clusters(ctx.workspace) if timeline else ()
+    processed = {state.id for state in states if state.done}
     report_path = ctx.workspace / "out" / "report.json"
     report = json.loads(report_path.read_text()) if report_path.exists() else None
 
@@ -177,6 +157,7 @@ def status(ctx: Context) -> dict[str, Any]:
         "timeline": timeline,
         "clusters_total": len(clusters),
         "clusters_processed": len(processed),
+        "ledger": ledger.counts(states),
         "next_cluster": next_cluster["id"] if next_cluster else None,
         "report": (
             {

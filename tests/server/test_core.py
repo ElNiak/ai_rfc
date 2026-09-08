@@ -15,6 +15,7 @@ from ai_rfc.server.core.queries import (
 )
 from ai_rfc.server.core.questions import draft_question, export_open, record_answer
 from ai_rfc.server.core.revisions import record_revision
+from ai_rfc.server.testing import git
 
 
 def test_upsert_rejects_status(workspace):
@@ -100,12 +101,14 @@ def test_cluster_navigation_and_get(workspace):
         cluster_get(workspace, "c9999-pr-000000000000")
 
 
-def test_a_cluster_is_processed_only_once_its_checkpoint_record_exists(workspace):
-    """An empty directory named after a cluster does not process it.
+def test_neither_a_bare_directory_nor_a_lone_record_finishes_a_cluster(workspace):
+    """A cluster is finished by its checkpoint, its revision entry and its tag.
 
-    Counting the directory alone lets a run skip the whole window by
-    creating one directory per cluster, with no checkpoint behind any of
-    them.
+    Counting the directory alone lets a run skip the whole window by creating
+    one directory per cluster, with no checkpoint behind any of them. Counting
+    the record alone skips a cluster abandoned between the checkpoint and the
+    tag, which is the drift `ai_rfc.ledger` exists to end (CLI-1 task 3): the
+    lowest-ordinal unfinished cluster is offered again until it is finished.
     """
     first = cluster_next(workspace)
     bare = workspace.workspace / "checkpoints" / first["id"]
@@ -113,7 +116,7 @@ def test_a_cluster_is_processed_only_once_its_checkpoint_record_exists(workspace
     assert cluster_next(workspace)["id"] == first["id"]
 
     (bare / "checkpoint.json").write_text("{}")
-    assert cluster_next(workspace)["id"] != first["id"]
+    assert cluster_next(workspace)["id"] == first["id"]
 
 
 def test_checkpoint_revision_and_next_advance(workspace):
@@ -121,12 +124,25 @@ def test_checkpoint_revision_and_next_advance(workspace):
     result = write_checkpoint(workspace, first["id"])
     assert result["exit_code"] == 0
     assert len(result["manifest_sha256"]) == 64
-    second = cluster_next(workspace)
-    assert second["ordinal"] == 2
+    # The checkpoint alone does not advance the cursor: the entry and its tag
+    # are the rest of a finished cluster (CLI-1 task 3).
+    assert cluster_next(workspace)["id"] == first["id"]
     entry = record_revision(
         workspace, "draft-test-spec-00", first["id"], True, "initial"
     )
     assert entry["checkpoint_manifest_sha256"] == result["manifest_sha256"]
+    assert cluster_next(workspace)["id"] == first["id"]
+    git(
+        workspace.workspace / "draft",
+        "tag",
+        "-a",
+        "draft-test-spec-00",
+        "-m",
+        "00",
+        date="2026-01-01T00:00:09+00:00",
+    )
+    second = cluster_next(workspace)
+    assert second["ordinal"] == 2
     with pytest.raises(CoreError):
         record_revision(workspace, "draft-test-spec-00", first["id"], True, "dup")
     with pytest.raises(CoreError):
@@ -134,9 +150,7 @@ def test_checkpoint_revision_and_next_advance(workspace):
 
 
 def test_question_round_trip_and_sign_off_rule(workspace):
-    drafted = draft_question(
-        workspace, "Is 'Thing one.' deliberate?", ["t:1.1"]
-    )
+    drafted = draft_question(workspace, "Is 'Thing one.' deliberate?", ["t:1.1"])
     assert drafted["id"] == "q-001"
     assert drafted["linked"] == ["t:1.1"]
     with pytest.raises(GuardrailError):
@@ -157,9 +171,7 @@ def test_question_round_trip_and_sign_off_rule(workspace):
     transcript = workspace.workspace / "interviews" / "int-001.md"
     transcript.write_text("2026-08-25, dev-01: yes it is deliberate.\n")
     with pytest.raises(GuardrailError):
-        record_answer(
-            workspace, "q-001", "yes", "dev-01", "int-001.md", "not in there"
-        )
+        record_answer(workspace, "q-001", "yes", "dev-01", "int-001.md", "not in there")
     result = record_answer(
         workspace,
         "q-001",

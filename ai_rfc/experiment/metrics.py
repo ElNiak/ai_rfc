@@ -11,15 +11,13 @@ from __future__ import annotations
 
 import json
 import shutil
-import subprocess
 import tempfile
 from collections import Counter
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-import yaml
-
+from .. import ledger
 from . import ExperimentError
 from .arms import arm_profile
 from .config import Campaign
@@ -31,7 +29,6 @@ from .stream import (
     tool_uses,
     usage_series,
 )
-from .workspace import HARNESS_MARKER, RECORD_FILE
 
 DEFINITIONS = {
     "artifacts": "checkpoint exists without a harness marker AND a revisions.yaml entry names the cluster AND that entry's tag exists in draft/",
@@ -48,28 +45,22 @@ DEFINITIONS = {
 
 
 def window_clusters(workspace: Path) -> list[dict[str, Any]]:
-    """The timeline rows inside the pristine record's window, in ordinal order.
+    """The timeline rows inside the workspace's recorded window, in ordinal order.
 
     Args:
         workspace: A run's final workspace.
 
     Returns:
-        The in-window cluster rows.
+        The in-window cluster rows, or every row when no window is recorded.
     """
-    record = json.loads((workspace / RECORD_FILE).read_text())
-    low, high = record["window"]
+    bounds = ledger.window_of(workspace)
     rows = [
         json.loads(line)
         for line in (workspace / "timeline" / "clusters.jsonl").read_text().splitlines()
     ]
-    return [row for row in rows if low <= row["ordinal"] <= high]
-
-
-def _tags(draft: Path) -> set[str]:
-    result = subprocess.run(
-        ["git", "-C", str(draft), "tag", "-l"], capture_output=True, text=True
-    )
-    return set(result.stdout.split()) if result.returncode == 0 else set()
+    if bounds is None:
+        return rows
+    return [row for row in rows if bounds[0] <= row["ordinal"] <= bounds[1]]
 
 
 def cluster_artifacts(workspace: Path, cluster: dict[str, Any]) -> dict[str, Any]:
@@ -82,30 +73,22 @@ def cluster_artifacts(workspace: Path, cluster: dict[str, Any]) -> dict[str, Any
     Returns:
         The cluster's artifact record.
     """
-    checkpoint_dir = workspace / "checkpoints" / cluster["id"]
-    checkpoint = (checkpoint_dir / "checkpoint.json").exists()
-    pre_seeded = (checkpoint_dir / HARNESS_MARKER).exists()
-    document = yaml.safe_load((workspace / "revisions.yaml").read_text()) or {}
-    entries = [
-        (str(tag), body)
-        for tag, body in (document.get("revisions") or {}).items()
-        if isinstance(body, dict) and body.get("cluster_id") == cluster["id"]
-    ]
-    tag, body = entries[0] if entries else (None, None)
-    tag_exists = tag in _tags(workspace / "draft") if tag else False
+    state = next((s for s in ledger.clusters(workspace) if s.id == cluster["id"]), None)
+    if state is None:
+        raise ExperimentError(
+            f"{cluster['id']} is not a cluster of {workspace}'s timeline"
+        )
     return {
-        "cluster_id": cluster["id"],
+        "cluster_id": state.id,
         "ordinal": cluster["ordinal"],
         "kind": cluster.get("kind"),
         "provenance": cluster.get("provenance"),
-        "checkpoint": checkpoint,
-        "pre_seeded": pre_seeded,
-        "revision_tag": tag,
-        "normative_change": (
-            None if body is None else bool(body.get("normative_change"))
-        ),
-        "tag_exists": tag_exists,
-        "artifacts": checkpoint and not pre_seeded and tag is not None and tag_exists,
+        "checkpoint": state.checkpoint,
+        "pre_seeded": state.pre_seeded,
+        "revision_tag": state.revision_tag,
+        "normative_change": state.normative_change,
+        "tag_exists": state.tag_exists,
+        "artifacts": state.done and state.in_window and not state.pre_seeded,
     }
 
 

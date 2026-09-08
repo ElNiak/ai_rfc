@@ -13,6 +13,7 @@ import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from .. import ledger
 from ..schema import SchemaError, load
 from .checkpoint import CHECKPOINT_FILE, MANIFEST_FILE
 from .gate import GateError, cited_ids, load_revisions
@@ -263,11 +264,18 @@ def build(
     uncited_at_head, never_cited = citation_gaps(
         draft_repo, revisions_path, checkpointed
     )
+    # The workspace root is derived rather than taken as a parameter: every
+    # caller already addresses the workspace by its root, and a sixth path
+    # would let one be handed a checkpoints directory from another workspace.
+    try:
+        states = ledger.clusters(checkpoints_dir.parent)
+    except ledger.LedgerError as error:
+        raise CompletenessError(str(error)) from error
     processed = sum(1 for row in rows if row.checkpointed)
     return CompletenessReport(
         clusters=rows,
         unprocessed_clusters=tuple(
-            row.cluster_id for row in rows if not row.checkpointed
+            state.id for state in states if not state.checkpoint
         ),
         silent_clusters=tuple(
             row.cluster_id

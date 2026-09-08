@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
+from .. import ledger
 from ..draft.build import BUILD_DIR, REPORT_FILE
 from ..forge.store import FIDELITY_CEILINGS, FULL_FIDELITY
 from ..schema import SchemaError, load
@@ -225,11 +226,9 @@ def _checkpoint(ws: Workspace, mining: State) -> tuple[State, str]:
     # it before writing the record, so a kill between the two leaves one that
     # holds nothing. Requiring the record matches what ``draft/completeness``
     # and the harness's own metrics already count, so the three agree.
-    ids = _cluster_ids(ws)
-    total = len(ids)
-    frozen = sum(
-        1 for cid in ids if (ws.checkpoints / cid / "checkpoint.json").is_file()
-    )
+    states = ledger.clusters(ws.root)
+    total = len(states)
+    frozen = sum(1 for state in states if state.checkpoint)
     if not frozen:
         return State.PENDING, f"no cluster checkpointed of {total}"
     if frozen < total:

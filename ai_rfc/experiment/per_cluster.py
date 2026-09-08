@@ -24,6 +24,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
+from .. import ledger
 from . import ExperimentError
 from .arms import arm_profile
 from .config import Campaign, render_task
@@ -75,13 +76,11 @@ def partial_reason(artifacts: dict[str, Any]) -> str | None:
     Returns:
         A short description of what is already on disk, or None.
     """
-    if not artifacts.get("checkpoint"):
-        return None
-    if not artifacts.get("revision_tag"):
-        return "checkpoint present, no revision entry"
-    if not artifacts.get("tag_exists"):
-        return "checkpoint present, revision entry recorded, tag missing"
-    return None
+    return ledger.partial_reason(
+        bool(artifacts.get("checkpoint")),
+        artifacts.get("revision_tag"),
+        bool(artifacts.get("tag_exists")),
+    )
 
 
 def _read_events(events_path: Path) -> tuple[list[dict[str, Any]], int]:

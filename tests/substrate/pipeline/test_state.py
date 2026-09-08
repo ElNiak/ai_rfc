@@ -142,7 +142,10 @@ def _checkpointed(workspace: Path, *, of: int, frozen: int) -> tuple[State, str]
     timeline = workspace / "timeline"
     timeline.mkdir(parents=True, exist_ok=True)
     timeline.joinpath("clusters.jsonl").write_text(
-        "\n".join(json.dumps({"id": f"c{n:04d}"}) for n in range(1, of + 1)) + "\n"
+        "\n".join(
+            json.dumps({"id": f"c{n:04d}", "ordinal": n}) for n in range(1, of + 1)
+        )
+        + "\n"
     )
     for n in range(1, frozen + 1):
         directory = workspace / "checkpoints" / f"c{n:04d}"
