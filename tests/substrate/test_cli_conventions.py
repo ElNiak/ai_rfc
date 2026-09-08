@@ -163,10 +163,12 @@ def test_every_entry_declares_a_section():
 def test_entries_sharing_a_section_are_contiguous():
     """Declaration order is the help's order, so a section must not be split.
 
-    ``_usage()`` in ``ai_rfc/cli.py`` prints a heading whenever the section
-    changes from the previous entry, so a split section would print its
-    heading twice, and the second block would read as a different group —
-    the reason this is asserted here.
+    ``_epilog()`` in ``ai_rfc/cli.py`` groups by section instead of printing a
+    heading whenever it changes, so the failure a split now produces is the
+    quieter one: rather than double-heading, the stray rows are pulled back
+    silently under the earlier block and the listing stops matching the order
+    the registry declares. That is a weaker symptom than the one this
+    assertion was written against, which is the argument for keeping it.
     """
     runs: list[str] = []
     for entry in ENTRY_POINTS:

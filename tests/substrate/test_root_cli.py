@@ -53,6 +53,19 @@ def test_version_names_the_door(capsys):
 
 
 @pytest.mark.parametrize("entry", ENTRY_POINTS, ids=[e.verb for e in ENTRY_POINTS])
+def test_a_verb_has_no_version_of_its_own(entry):
+    """``--version`` is the program's, not each command's, by design.
+
+    The root answers ``ai-rfc --version`` and each command's standalone parser
+    answers ``python -m ai_rfc.<sub> --version``; mounting it on every verb
+    here as well would repeat one answer as a row in nine help listings.
+    """
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main([entry.verb, "--version"])
+    assert exit_info.value.code == 2
+
+
+@pytest.mark.parametrize("entry", ENTRY_POINTS, ids=[e.verb for e in ENTRY_POINTS])
 def test_a_verb_forwards_its_arguments_untouched(entry):
     """argparse owns 2 for a malformed invocation, and the door must not relabel it."""
     with pytest.raises(SystemExit) as exit_info:

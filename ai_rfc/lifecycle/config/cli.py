@@ -52,8 +52,17 @@ def run(args: argparse.Namespace) -> int:
     Returns:
         0; both renderings are pure functions of the field table.
     """
-    print(example() if args.verb == "example" else reference_markdown(), end="")
-    return 0
+    if args.verb == "example":
+        print(example(), end="")
+        return 0
+    if args.verb == "reference":
+        print(reference_markdown(), end="")
+        return 0
+
+    # argparse admits only the verbs above. Written as two branches rather than
+    # a conditional expression so a third verb cannot inherit the reference
+    # arm the way an unguarded fallthrough inherits the last one.
+    raise AssertionError(f"unhandled verb {args.verb!r}")
 
 
 def main(argv: list[str] | None = None) -> int:

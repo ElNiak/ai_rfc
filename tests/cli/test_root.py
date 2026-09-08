@@ -3,11 +3,12 @@
 Every verb mounts under ``ai-rfc``, forwards untouched, and shares one help.
 """
 
+import argparse
 import importlib
 
 import pytest
 
-from ai_rfc import __version__, cli
+from ai_rfc import cli
 from ai_rfc.entrypoints import ENTRY_POINTS
 from ai_rfc.pipeline.stages import STAGES
 
@@ -33,18 +34,17 @@ def test_every_registered_module_exposes_the_configure_run_contract():
         assert callable(module.main), entry.module
 
 
-def test_version_names_the_one_program(capsys):
-    with pytest.raises(SystemExit) as excinfo:
-        cli.main(["--version"])
-    assert excinfo.value.code == 0
-    assert capsys.readouterr().out == f"ai-rfc {__version__}\n"
+def test_the_config_verb_refuses_a_verb_it_does_not_implement():
+    """A third verb must not silently render whichever branch was the fallback.
 
+    The same hazard ``draft``'s explicit ``gate`` branch removed: a dispatcher
+    ending in an unguarded expression runs its last arm for anything it does
+    not recognise, with arguments meant for something else.
+    """
+    from ai_rfc.lifecycle.config import cli as config_cli
 
-def test_an_unknown_verb_exits_two(capsys):
-    with pytest.raises(SystemExit) as excinfo:
-        cli.main(["frobnicate"])
-    assert excinfo.value.code == 2
-    assert "invalid choice" in capsys.readouterr().err
+    with pytest.raises(AssertionError):
+        config_cli.run(argparse.Namespace(verb="frobnicate"))
 
 
 def test_a_verb_forwards_to_its_module_run(tmp_path, capsys):

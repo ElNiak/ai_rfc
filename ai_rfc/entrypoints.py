@@ -39,9 +39,11 @@ class EntryPoint:
             can assert the two agree.
         module: Dotted path of the ``cli`` module, not of its package — the
             ``__main__`` guard test derives that name by trimming one segment.
-        summary: One line. Shown by ``--help`` and rendered into the generated
-            CLI reference by ``mkdocs-click``, where it is the only description
-            a reader gets, since the arguments forward untouched.
+        summary: One line. The verb table under ``ai-rfc --help`` shows this
+            and nothing else, and ``mkdocs-click`` renders it into the
+            generated CLI reference; it is what a reader chooses a command
+            from, before the command's own ``--help`` — built by its
+            ``configure`` — describes it and its arguments.
         section: The heading ``ai-rfc --help`` prints this command under,
             rendered by ``_epilog()`` in ``ai_rfc/cli.py`` in registration
             order. Entries sharing one are kept contiguous in
@@ -67,7 +69,7 @@ class EntryPoint:
 #: Headings ``ai-rfc --help`` lists commands under. Plain text: ``_epilog()``
 #: in ``ai_rfc/cli.py`` writes them verbatim, so backticks would print as
 #: backticks.
-LIFECYCLE = "Lifecycle: one config, one workspace"
+LIFECYCLE = "Lifecycle"
 DRIVEN = "Commands you drive"
 BY_HAND = "Run these yourself"
 PERFORMED = "Stages pipeline run reaches before it needs you"

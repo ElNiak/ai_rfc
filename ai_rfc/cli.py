@@ -16,9 +16,9 @@ from .entrypoints import ENTRY_POINTS, SECTIONS
 
 PROG = "ai-rfc"
 
-#: Written rather than derived. argparse would list every verb inline in the
-#: usage line, which the sectioned epilog already does properly; and
-#: ``panther ai-rfc --help`` is asserted to open with this exact line.
+#: Written rather than derived, for one reason only: PANTHER's door test
+#: asserts ``panther ai-rfc --help`` opens with exactly ``usage: ai-rfc
+#: <verb>``, and that test lives in a repository this one cannot edit.
 USAGE = "%(prog)s <verb> [args]\n       %(prog)s --help | --version"
 
 
@@ -85,4 +85,4 @@ def main(argv: list[str] | None = None) -> int:
         itself, and raises ``SystemExit`` for ``--help`` and ``--version``).
     """
     args = build_parser().parse_args(argv)
-    return int(args._run(args))
+    return args._run(args)
