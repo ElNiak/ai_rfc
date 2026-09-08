@@ -464,6 +464,21 @@ def test_structure_ids_are_constrained(tmp_path):
         assert bad in str(error.value)
 
 
+def test_a_structure_id_may_not_carry_a_line_break(tmp_path):
+    """The id is the one thing the renderer writes into a marker uncollapsed.
+
+    An id ending in a line break splits the begin marker across two lines, so
+    no block opens, no block closes, and `parse_blocks` reports neither a body
+    nor a finding: the gate then has nothing to compare on either side and a
+    hand-edited paste passes in silence.
+    """
+    for bad in (r'"header\n"', r'"hea\nder"'):
+        block = STRUCTURES.replace("  header:", f"  {bad}:")
+        with pytest.raises(SchemaError) as error:
+            load(_with_structures(tmp_path, block=block))
+        assert "a structure id must match" in str(error.value)
+
+
 def test_an_unquoted_structure_id_yaml_reads_as_a_number_is_refused(tmp_path):
     """An id YAML coerced to a float must not reach the id pattern.
 

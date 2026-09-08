@@ -138,7 +138,10 @@ def _claim(claim_id: Any, raw: Any) -> RequirementClaim:
     )
 
 
-_STRUCTURE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]*$")
+# `\Z`, not `$`: `$` also matches immediately before a trailing newline, and an
+# id is the one value the renderer writes into a block marker uncollapsed, so
+# `"header\n"` would split the marker across two lines and open no block at all.
+_STRUCTURE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]*\Z")
 _MEMBER_KEYS = {
     StructureKind.WIRE_FORMAT: "fields",
     StructureKind.MESSAGE: "fields",
