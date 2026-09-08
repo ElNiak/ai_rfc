@@ -160,15 +160,20 @@ Python 3.11; the rest of the harness runs on 3.10. `gepa` is pinned to a git
 commit — the released 0.1.4 carries no `optimize_anything`.
 
 ```bash
-python3.11 -m venv .superpowers/venv-optimize
-SSLKEYLOGFILE= .superpowers/venv-optimize/bin/python -m pip install \
+python3.11 -m venv ~/ai-rfc-experiments/venv-optimize
+SSLKEYLOGFILE= ~/ai-rfc-experiments/venv-optimize/bin/python -m pip install \
     --timeout 120 --retries 5 -e '.[optimize,tests]'
 ```
 
-The long timeouts are not decoration: the default retry dies on
-`files.pythonhosted.org`. An optimization must also run with any command
-sandbox off, because the backend always stands up an eval server and that
-binds a TCP socket.
+Keep that environment outside the checkout. Inside a Claude Code project
+directory every `.pth` file acquires the macOS hidden flag within a minute,
+and Python 3.11.9 and later skip hidden `.pth` files, so an editable install
+placed there stops importing in every subprocess — the strict gates report
+`No module named 'ai_rfc'` while in-process tests still pass. The 3.10
+interpreter ignores the flag. The long timeouts are not decoration: the
+default retry dies on `files.pythonhosted.org`. An optimization must also run
+with any command sandbox off, because the backend always stands up an eval
+server and that binds a TCP socket.
 
 A pilot also needs the `claude` CLI on `PATH` and an authenticated profile:
 `python -m ai_rfc.experiment profile init` creates one and prints the one-time

@@ -5,7 +5,7 @@ touches the backend is skipped where ``gepa`` is not importable, which is the
 interpreter the rest of the harness runs on: it installs only under the
 ``optimize`` extra, on 3.11. Run those with that environment's interpreter::
 
-    SSLKEYLOGFILE= .superpowers/venv-optimize/bin/python \\
+    SSLKEYLOGFILE= ~/ai-rfc-experiments/venv-optimize/bin/python \\
         -m pytest tests/experiment/optimize -q -p no:cacheprovider
 
 The Stage 1 case is the point of the module: a real optimization, with real
