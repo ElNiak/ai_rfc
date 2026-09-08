@@ -4,12 +4,18 @@
 whose every claim is gated against the evidence behind it. One repository
 holds all of it:
 
-- `ai_rfc/` — the deterministic **substrate**: eight programs for corpus
-  extraction, forge snapshots, timeline clustering, evidence views, claim
-  manifests, checkpoints and gates. The substrate makes no model calls and
-  opens no socket except in `forge`; the two subpackages below live under the
-  same directory but are not substrate. Its design and schema are documented
-  in `ai_rfc/README.md`.
+- `ai_rfc/lifecycle/` — the **one door** an operator uses: seven verbs
+  (`config`, `init`, `run`, `status`, `verify`, `toolchain`, `doctor`) driven
+  by one `recon.yaml`, which work out every path the substrate below needs.
+  The flow is under "Reconstructing a specification".
+- `ai_rfc/` — the deterministic **substrate** the lifecycle verbs perform:
+  eight programs for corpus extraction, forge snapshots, timeline clustering,
+  evidence views, claim manifests, checkpoints and gates, each still reachable
+  by hand with explicit paths. The substrate makes no model calls, and the only
+  code here that opens a socket is `forge`, `init`'s acquisition of the clone
+  and the snapshot, and `toolchain provision`; the three subpackages named
+  separately in this list live under the same directory but are not substrate.
+  Its design and schema are documented in `ai_rfc/README.md`.
 - `ai_rfc/server/` — the **MCP server** and its parity CLI (`ai_rfc <verb>`):
   one core, two frontends, so an agent cannot overstate what the evidence
   supports whichever door it uses. Tool-to-verb table: `docs/parity.md`.

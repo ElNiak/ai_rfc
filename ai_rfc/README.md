@@ -117,8 +117,8 @@ help.
 
 | Command | Purpose |
 |---|---|
-| `ai-rfc config example\|reference` | Print a starter `recon.yaml`, or the field table it and the loader are both rendered from |
-| `ai-rfc init --config recon.yaml [--template URL] [--template-commit SHA]` | Create the workspace: clone at the pin, fetch the forge, scaffold the draft, seal the config (the one networked lifecycle verb) |
+| `ai-rfc config example\|reference` | Print a starter `recon.yaml`, or the field table both are rendered from, so neither can drift from what the loader accepts |
+| `ai-rfc init --config recon.yaml [--template URL] [--template-commit SHA]` | Create the workspace: clone at the pin, fetch the forge, scaffold the draft, seal the config (networked, as `toolchain provision` is; no other lifecycle verb opens a socket) |
 | `ai-rfc run --config recon.yaml [--until history\|timeline\|views]` | Perform every deterministic stage that is next, then stop at the agent boundary with the ledger printed |
 | `ai-rfc status --config recon.yaml [--json]` | Stage states, the cluster ledger, the pin, config drift |
 | `ai-rfc verify --config recon.yaml [--strict]` | Config drift, strict check, citation gate, completeness, lint and build in one exit code; a check whose inputs are missing is skipped and named |
