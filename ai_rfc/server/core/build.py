@@ -44,7 +44,7 @@ def draft_build(ctx: Context, ref: str = "HEAD") -> dict[str, Any]:
     if ctx.toolchain is None:
         raise CoreError(
             "AI_RFC_TOOLCHAIN is unset; the build gate needs a provisioned "
-            "toolchain (experiment toolchain provision)"
+            "toolchain (ai-rfc toolchain provision)"
         )
     args = [
         "build",

@@ -83,7 +83,7 @@ def load_toolchain(path: Path) -> Toolchain:
     """Read a toolchain record.
 
     Args:
-        path: The ``toolchain.json`` written by ``experiment toolchain provision``.
+        path: The ``toolchain.json`` written by ``ai-rfc toolchain provision``.
 
     Returns:
         The toolchain.

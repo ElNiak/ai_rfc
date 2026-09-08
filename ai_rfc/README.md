@@ -105,9 +105,26 @@ authoring loop below actively tells them to do. See `pipeline/README.md`.
 It is one more caller of the same CLIs, not a layer over them: it imports each
 sub-package's `cli.main` and nothing else, so data still hands over on disk.
 
+## The command surface
+
+Every command below is one dispatcher's verb, reachable as `ai-rfc <verb>` or
+`python -m ai_rfc <verb>`. The lifecycle verbs come first: they take a
+`recon.yaml` and work out every path from it, and between them they perform
+most of the explicit-path commands under them. Those explicit-path forms stay
+mounted — they are what a person runs to drive one stage by hand, and what the
+experiment's raw arm invokes — until CLI-3 retires them from the operator's
+help.
+
 | Command | Purpose |
 |---|---|
-| `ai-rfc forge fetch URL --repo CLONE --out DIR [--host github\|gitlab]` | Fetch pull data into an immutable snapshot (the only networked command); a token is optional and the snapshot records the fidelity it reached |
+| `ai-rfc config example\|reference` | Print a starter `recon.yaml`, or the field table it and the loader are both rendered from |
+| `ai-rfc init --config recon.yaml [--template URL] [--template-commit SHA]` | Create the workspace: clone at the pin, fetch the forge, scaffold the draft, seal the config (the one networked lifecycle verb) |
+| `ai-rfc run --config recon.yaml [--until history\|timeline\|views]` | Perform every deterministic stage that is next, then stop at the agent boundary with the ledger printed |
+| `ai-rfc status --config recon.yaml [--json]` | Stage states, the cluster ledger, the pin, config drift |
+| `ai-rfc verify --config recon.yaml [--strict]` | Config drift, strict check, citation gate, completeness, lint and build in one exit code; a check whose inputs are missing is skipped and named |
+| `ai-rfc doctor [--config recon.yaml] [--json]` | Six environment checks — claude, profile, toolchain, forge token, deps, workspace; exit 1 only for what a run cannot survive |
+| `ai-rfc toolchain provision\|verify` | Install the Internet-Draft toolchain once (networked), or re-check it offline |
+| `ai-rfc forge fetch URL --repo CLONE --out DIR [--host github\|gitlab]` | Fetch pull data into an immutable snapshot (the only networked substrate program); a token is optional and the snapshot records the fidelity it reached |
 | `ai-rfc forge adopt RECORDS URL --repo CLONE --out DIR [--host github\|gitlab]` | Write the same snapshot from records obtained without credentials |
 | `ai-rfc pipeline substrate WORKSPACE` | Report every reason the pinned clone cannot carry a reconstruction |
 | `ai-rfc timeline CORPUS --out DIR [--repo CLONE] [--forge SNAPDIR]` | Cluster the corpus; `--repo` refuses a clone whose HEAD left the corpus tip; `--forge` enriches and rescues |
@@ -205,6 +222,14 @@ Exit codes follow the table above: 0 as a linter, 1 on unreadable input, 3 under
 `--strict` when anything is outstanding.
 
 ## How to use
+
+**The config-driven flow comes first.** `ai-rfc init --config recon.yaml`
+creates the workspace, `ai-rfc run --config recon.yaml` performs `history`,
+`timeline` and `views` and stops where a model session is needed, and `ai-rfc
+verify --config recon.yaml --strict` runs the gate below together with the
+citation gate, completeness, lint and build. The explicit-path verbs this
+section describes are what those three perform; run one by hand to drive a
+single stage, or to understand what a lifecycle verb did.
 
 The pipeline has four stages, and this module is only the last one:
 

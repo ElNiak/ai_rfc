@@ -212,3 +212,34 @@ From the aioquic pilot, `pilot-aioquic-w02-11-20260831`; full report at
   A manifest the schema refuses is reported as a `manifest: unloadable`
   finding rather than crashing the lint, and a data-model claim no structure
   binds is a lint finding of its own.
+
+### 2026-09-03 — CLI-1, the one door
+
+Recorded after the 2026-09-05 entry because it landed after it; the date is the
+plan's, as it is for the two draft-quality entries above.
+
+- **Pristines are prepared from a config.** `experiment workspace prepare
+  --config recon.yaml` takes the same `recon.yaml` the lifecycle verbs read.
+  The closed target table `{aioquic, mark}` and the `Target` record behind it
+  are gone, so a new subject is a file an author writes rather than a table an
+  author edits, and the pristine and the reconstruction it is cut from cannot
+  disagree about the pin, the window or the draft's name.
+- **Progress is read by one ledger, with one strict definition.**
+  `ai_rfc/ledger.py` is the only reader of which clusters are done, for the
+  harness, the MCP status, `ai-rfc status`, `ai-rfc run` and completeness
+  alike. A cluster counts as done only when its checkpoint record, its
+  `kind: cluster` revision entry and its annotated tag all exist; what is on
+  disk decides, never a counter in memory. Five places used to compute this and reached three
+  different answers — a bare checkpoint directory for the MCP status, a
+  checkpoint plus revision entry plus tag for the harness, checkpoint records
+  for completeness — so a run's reported progress depended on which surface was
+  asked.
+- **`experiment toolchain` moved to `ai-rfc toolchain`.** Provisioning and
+  verifying the Internet-Draft toolchain are lifecycle verbs now, not harness
+  verbs: an operator with no experiment to run still needs a toolchain to build
+  a draft. `experiment campaign init --toolchain` is unaffected, and its own
+  help already names the new spelling.
+- **What CLI-1 does not change.** The arms, their tool surfaces, the metrics
+  and the tool-to-verb table in `docs/parity.md` are untouched, and `ai-rfc
+  run` still stops at the agent boundary — driving sessions from it is CLI-2.
+  Nothing here invalidates a campaign run before this date.

@@ -310,7 +310,7 @@ def run(args: argparse.Namespace) -> int:
         if toolchain_path is None:
             _report(
                 f"error: no toolchain; pass --toolchain or set {TOOLCHAIN_ENV} "
-                "(experiment toolchain provision writes it)"
+                "(ai-rfc toolchain provision writes it)"
             )
             return 1
         try:

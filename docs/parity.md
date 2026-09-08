@@ -33,6 +33,8 @@ The middle column is the `ai_rfc` console script (underscore,
 | `ai_rfc_structure_upsert` | `ai_rfc structure-upsert ID --json …` | — (not available in arm C, D42) |
 | `ai_rfc_draft_render` | `ai_rfc draft-render` | — (not available in arm C, D42; an operator has `python -m ai_rfc draft render MANIFEST`) |
 
+The `ai_rfc` verbs are unchanged by CLI-1; CLI-3 folds them into `ai-rfc`.
+
 Arm C is frozen at its pre-v2 surface (D42): it never sees the
 `structure-upsert` or `draft-render` verbs or the consolidation flags on
 `revision-record` and `checkpoint`, though the raw `python -m ai_rfc draft

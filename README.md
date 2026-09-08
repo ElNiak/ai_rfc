@@ -33,19 +33,59 @@ be installed in the interpreter `AI_RFC_PYTHON` names for the session.
 
 PANTHER consumes this repository as the submodule
 `panther/plugins/services/testers/ai_rfc`; `panther build dev` installs it and
-PANTHER's `ai-rfc` subcommand forwards to `ai-rfc <verb>`.
+PANTHER's `ai-rfc` subcommand forwards everything after `ai-rfc` to this tool's
+own dispatcher, exiting with whatever it returns, so `panther ai-rfc` and
+`ai-rfc` cannot disagree about a verb, a flag or an exit code.
+
+## Reconstructing a specification
+
+One config file and six commands. `ai-rfc` is the only door an operator needs:
+`init`, `run` and `verify` perform the substrate programs a reconstruction
+needs, with every path worked out from the config, so the explicit-path forms
+documented in `ai_rfc/README.md` are for driving one stage by hand.
+
+```bash
+ai-rfc config example > recon.yaml    # a starter recon.yaml, every field documented
+$EDITOR recon.yaml
+ai-rfc doctor                         # claude, profile, toolchain, forge token, deps, workspace
+ai-rfc init   --config recon.yaml     # networked once: clone at the pin, fetch the forge,
+                                      # scaffold the draft, seal the config
+ai-rfc run    --config recon.yaml     # history, timeline, views; stop at the agent boundary
+ai-rfc status --config recon.yaml     # stage states, the cluster ledger, the pin, config drift
+ai-rfc verify --config recon.yaml --strict   # every gate the workspace can pass, one exit code
+```
+
+`run` performs every deterministic stage that is next and then **stops** at the
+agent boundary, printing the ledger and whose turn it is: mining a cluster's
+claims needs a model session, and nothing in the substrate calls one. Driving
+those sessions from `run` is CLI-2's work; until it lands they are driven by
+the plugin's loop skill or by the experiment instrument below. `verify` skips a
+check whose inputs do not exist yet, so 0 means nothing that ran failed rather
+than that everything ran — its last line tallies what ran and names every skip.
+
+Two more lifecycle verbs stand outside that flow: `ai-rfc toolchain provision`
+installs the Internet-Draft toolchain once over the network and `ai-rfc
+toolchain verify` re-checks it offline, and `ai-rfc config reference` prints the
+`recon.yaml` field table both `config example` and the loader are rendered from,
+so neither can drift from what the loader accepts.
 
 ## Environment contract
+
+`AI_RFC_CONFIG` names the `recon.yaml` a reconstruction is described by.
+`init`, `run`, `status` and `verify` read it when `--config` is not given and
+refuse with `no config: pass --config or set AI_RFC_CONFIG` when neither is;
+`doctor` takes it optionally and falls back to generic checks. `config` and
+`toolchain` take no config at all.
 
 Two variables are required by the plugin and the server: `AI_RFC_PYTHON`, the
 interpreter with the `ai-rfc` distribution installed (e.g. a venv's
 `bin/python`), read by the plugin's `.mcp.json`; and `AI_RFC_WORKSPACE`, a
 reconstruction workspace (clone, corpus, timeline, clusters, checkpoints,
-manifest, questions, revisions, draft), read by the server and the `ai_rfc`
-CLI. Missing either fails loudly; nothing guesses. The manifest's `structures:`
-registry is rendered by the tool — `ai_rfc_draft_render`, or
-`ai_rfc draft-render` — and the blocks it emits are pasted into the draft and
-never hand-edited there.
+manifest, questions, revisions, draft), read by the MCP server and the
+`ai_rfc` parity verbs until CLI-3 derives it from the config. Missing either
+fails loudly; nothing guesses. The manifest's `structures:` registry is
+rendered by the tool — `ai_rfc_draft_render`, or `ai_rfc draft-render` — and
+the blocks it emits are pasted into the draft and never hand-edited there.
 
 Three more are read where named and are optional there: `AI_RFC_TOOLCHAIN`, a
 `toolchain.json` that `draft build` and the pipeline's build stage use when no
@@ -61,7 +101,7 @@ experiment harness's state root (default `~/ai-rfc-experiments`).
 
 | Entry | What it is | Surface |
 |---|---|---|
-| `ai-rfc <verb>` = `python -m ai_rfc <verb>` | The substrate door: one dispatcher (`ai_rfc/cli.py`) over the eight programs `history`, `forge`, `timeline`, `views`, `check`, `draft`, `coverage`, `pipeline`, each also reachable as `python -m ai_rfc.<sub>` | What a person, or the raw experiment arm, runs |
+| `ai-rfc <verb>` = `python -m ai_rfc <verb>` | The one door: a single dispatcher (`ai_rfc/cli.py`) over the seven lifecycle verbs `config`, `init`, `run`, `status`, `verify`, `toolchain`, `doctor` and the eight programs `history`, `forge`, `timeline`, `views`, `check`, `draft`, `coverage`, `pipeline`, each also reachable as `python -m ai_rfc.<sub>` | What a person, or the raw experiment arm, runs |
 | `ai_rfc <verb>` (underscore) | The parity CLI (`ai_rfc/server/cli.py`): twenty workspace-level verbs, one per MCP tool, over the same core the server uses | What the AI+CLI experiment arm runs through Bash |
 | `python -m ai_rfc.server` | The stdio MCP server exposing the same twenty operations as `ai_rfc_*` tools | What Claude Code mounts from the plugin's `.mcp.json`, and what the AI+MCP arm gets |
 
@@ -93,12 +133,22 @@ RFC-style texts are hand-written and are also inlined verbatim into every
 experiment arm's system prompt, so one edit reaches both the plugin and the
 harness.
 
-## Experiment harness
+## The experiment instrument
 
-`python -m ai_rfc.experiment` runs from any directory: `profile init`,
-`preflight`, `render`, `workspace prepare|reseal|migrate-draft`, `toolchain
-provision|verify`, `campaign init`, `run`, `audit`, `questions`, `analyze`.
-State lives under `AI_RFC_EXPERIMENTS_ROOT` (default
+The three-arm comparison is a separate program from the operator's flow above,
+kept because it measures the tool rather than uses it.
+
+```bash
+python -m ai_rfc.experiment workspace prepare --config recon.yaml
+```
+
+A pristine workspace is built from the same `recon.yaml` the lifecycle verbs
+read; the closed target table `{aioquic, mark}` it used to be selected from is
+gone. The rest of the instrument runs from any directory: `profile init`,
+`preflight`, `render`, `workspace prepare|reseal|migrate-draft`, `campaign
+init`, `run`, `audit`, `questions`, `analyze`, `optimize`. Provisioning the
+Internet-Draft toolchain is no longer one of them — that is `ai-rfc toolchain
+provision|verify`. State lives under `AI_RFC_EXPERIMENTS_ROOT` (default
 `~/ai-rfc-experiments`), never inside a repository. The first full campaign is
 reported in `docs/experiments/2026-08-31-pilot-aioquic.md`; the protocol is
 `docs/experiment-protocol.md`; the tool-to-CLI parity table is
@@ -246,7 +296,7 @@ fetches litellm's cost map, and refuses any `--reflection-lm` or
 `--judge-model`: it proposes the seed back and rates every claim itself.
 
 A pilot builds each draft for real, so its `--toolchain` record must name
-executables that exist: use one from `experiment toolchain provision`.
+executables that exist: use one from `ai-rfc toolchain provision`.
 Everything lands under
 `<root>/optimize/<name>/`. A second run over an existing one **resumes** rather
 than starting over; `touch <root>/optimize/<name>/gepa/gepa.stop` is the
