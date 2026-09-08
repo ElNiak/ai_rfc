@@ -19,11 +19,11 @@ from typing import Any
 
 from ai_rfc.server.testing import build_workspace
 
+from ..lifecycle.profile import profile_env
 from . import DEFAULT_MODEL, ExperimentError
 from .arms import ARMS, MCP_FILE, arm_flags, arm_profile, mcp_config
 from .enforcement import bash_prefixes, render_settings
 from .paths import profile_dir
-from .profile import profile_env
 from .stream import (
     assistant_text,
     denials,

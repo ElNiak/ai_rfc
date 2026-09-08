@@ -18,11 +18,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from ai_rfc.draft.build import BuildError, build, load_toolchain, probe_toolchain
+from .draft.build import BuildError, build, load_toolchain, probe_toolchain
+from .lifecycle import LifecycleError
+from .lifecycle.workspace import TEMPLATE_COMMIT, TEMPLATE_URL, _git, _run_git
 
-from ..lifecycle import LifecycleError
-from ..lifecycle.workspace import TEMPLATE_COMMIT, TEMPLATE_URL, _git, _run_git
-from . import ExperimentError
+
+class ToolchainError(RuntimeError):
+    """The toolchain could not be installed or re-checked as asked."""
+
 
 Runner = Callable[..., "subprocess.CompletedProcess[str]"]
 
@@ -95,7 +98,7 @@ def _version(run: Runner, *argv: str) -> str:
     try:
         result = run(list(argv), capture_output=True, text=True)
     except OSError as error:
-        raise ExperimentError(f"cannot run {argv[0]}: {error}") from None
+        raise ToolchainError(f"cannot run {argv[0]}: {error}") from None
     if result.returncode != 0:
         return ""
     text = (result.stdout or result.stderr).strip()
@@ -161,24 +164,24 @@ def provision(
         The record path.
 
     Raises:
-        ExperimentError: If a record exists or any step fails.
+        ToolchainError: If a record exists or any step fails.
     """
     run = runner or subprocess.run
     tools = root / TOOLS_DIR
     record_path = tools / RECORD_FILE
     if record_path.exists():
-        raise ExperimentError(f"{record_path} exists; a toolchain is provisioned once")
+        raise ToolchainError(f"{record_path} exists; a toolchain is provisioned once")
     home = tools / TEMPLATE_DIR
     if home.exists():
-        raise ExperimentError(f"{home} exists; remove it to re-provision")
+        raise ToolchainError(f"{home} exists; remove it to re-provision")
     tools.mkdir(parents=True, exist_ok=True)
     cloned = _run_git("clone", "-q", template, str(home))
     if cloned.returncode != 0:
-        raise ExperimentError(f"cloning {template} failed: {cloned.stderr.strip()}")
+        raise ToolchainError(f"cloning {template} failed: {cloned.stderr.strip()}")
     try:
         _git(home, "checkout", "-q", template_commit)
     except LifecycleError as error:
-        raise ExperimentError(str(error)) from None
+        raise ToolchainError(str(error)) from None
     shutil.rmtree(home / ".git")
 
     probe = tools / PROBE_DIR
@@ -202,18 +205,18 @@ def provision(
         text=True,
     )
     if deps.returncode != 0:
-        raise ExperimentError(f"make deps failed:\n{deps.stderr[-2000:]}")
+        raise ToolchainError(f"make deps failed:\n{deps.stderr[-2000:]}")
     npm = run(
         ["npm", "install", "--prefix", str(tools), "--no-save", *NODE_PACKAGES],
         capture_output=True,
         text=True,
     )
     if npm.returncode != 0:
-        raise ExperimentError(f"npm install failed:\n{npm.stderr[-2000:]}")
+        raise ToolchainError(f"npm install failed:\n{npm.stderr[-2000:]}")
 
     binstubs = sorted(home.glob(".gems/ruby/*/bin/kramdown-rfc"))
     if not binstubs:
-        raise ExperimentError(
+        raise ToolchainError(
             f"no kramdown-rfc binstub under {home / '.gems'}; did bundle install run?"
         )
     kramdown = binstubs[-1]
@@ -221,7 +224,7 @@ def provision(
     ruby = shutil.which("ruby")
     node = shutil.which("node")
     if ruby is None or node is None:
-        raise ExperimentError("ruby and node must be on PATH to provision")
+        raise ToolchainError("ruby and node must be on PATH to provision")
     record: dict[str, Any] = {
         "recorded_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "mode": "native",
@@ -275,14 +278,14 @@ def provision(
         text=True,
     )
     if seed.returncode != 0:
-        raise ExperimentError(f"the online seed build failed:\n{seed.stderr[-2000:]}")
+        raise ToolchainError(f"the online seed build failed:\n{seed.stderr[-2000:]}")
     missing = [
         ref
         for ref in references
         if not (tools / REFCACHE_DIR / f"reference.RFC.{ref[3:]}.xml").exists()
     ]
     if missing:
-        raise ExperimentError(f"the seed build cached nothing for {', '.join(missing)}")
+        raise ToolchainError(f"the seed build cached nothing for {', '.join(missing)}")
     (tools / REFCACHE_DIGEST).write_text(_digest_refcache(tools / REFCACHE_DIR))
     record_path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
     ok, reasons = verify(record_path, runner=run)
@@ -290,7 +293,7 @@ def provision(
         # A retry must actually retry: leaving the record behind would make
         # the next provision() hit "exists" instead of trying again.
         record_path.unlink()
-        raise ExperimentError("provisioned, but verify failed: " + "; ".join(reasons))
+        raise ToolchainError("provisioned, but verify failed: " + "; ".join(reasons))
     return record_path
 
 

@@ -2,7 +2,7 @@ from pathlib import Path
 
 from ai_rfc.experiment import cli
 from ai_rfc.experiment.paths import default_root, profile_dir
-from ai_rfc.experiment.profile import init_profile, login_command, profile_env
+from ai_rfc.lifecycle.profile import init_profile, login_command, profile_env
 
 
 def test_default_root_honours_env(monkeypatch, tmp_path):

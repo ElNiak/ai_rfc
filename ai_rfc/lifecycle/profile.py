@@ -1,11 +1,11 @@
-"""The isolated Claude Code profile every experiment session runs under."""
+"""The isolated Claude Code profile every model session runs under."""
 
 from __future__ import annotations
 
 import os
 from pathlib import Path
 
-from .paths import profile_dir
+from ..config import profile_dir
 
 _README = """This directory is a CLAUDE_CONFIG_DIR for the ai_rfc experiment harness.
 It holds no user settings, plugins or hooks on purpose. Log in once with:

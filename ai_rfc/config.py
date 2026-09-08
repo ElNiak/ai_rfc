@@ -304,6 +304,18 @@ def experiments_root() -> Path:
     return Path(os.environ.get("AI_RFC_EXPERIMENTS_ROOT", DEFAULT_ROOT)).expanduser()
 
 
+def profile_dir(root: Path) -> Path:
+    """The isolated Claude Code config directory under ``root``.
+
+    Args:
+        root: The experiments root.
+
+    Returns:
+        The ``CLAUDE_CONFIG_DIR`` a session launches against.
+    """
+    return root / "profile"
+
+
 @dataclass(frozen=True)
 class SourceConfig:
     """The repository a reconstruction reads, and the commit it is pinned to."""

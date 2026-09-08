@@ -149,7 +149,7 @@ def test_init_campaign_freezes_an_absolute_claude_binary(
 def test_init_refuses_without_a_verified_toolchain(
     pristine, tmp_path, panther_repo, plugin_root, monkeypatch
 ):
-    from ai_rfc.experiment import toolchain as toolchain_module
+    from ai_rfc import toolchain as toolchain_module
 
     record = tmp_path / "toolchain.json"
     record.write_text('{"template_home": "/t"}\n')
@@ -169,7 +169,7 @@ def test_init_refuses_without_a_verified_toolchain(
 def test_init_records_the_toolchain_digest(
     pristine, tmp_path, panther_repo, plugin_root, monkeypatch
 ):
-    from ai_rfc.experiment import toolchain as toolchain_module
+    from ai_rfc import toolchain as toolchain_module
 
     record = tmp_path / "toolchain.json"
     record.write_text('{"template_home": "/t"}\n')
@@ -386,7 +386,7 @@ def test_the_profile_dir_override_is_what_the_campaign_records(
 def test_verify_toolchain_false_leaves_the_toolchain_unverified(
     tmp_path, pristine, panther_repo, plugin_root, monkeypatch
 ):
-    from ai_rfc.experiment import toolchain as toolchain_module
+    from ai_rfc import toolchain as toolchain_module
 
     verified: list[Path] = []
 

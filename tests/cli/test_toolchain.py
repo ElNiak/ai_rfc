@@ -7,13 +7,13 @@ from pathlib import Path
 
 import pytest
 
-from ai_rfc.experiment import ExperimentError
-from ai_rfc.experiment.toolchain import (
+from ai_rfc.toolchain import (
     DEFAULT_REFERENCES,
     EXAMPLE_DRAFT,
     RECORD_FILE,
     REFCACHE_DIGEST,
     TOOLS_DIR,
+    ToolchainError,
     _version,
     provision,
     verify,
@@ -112,7 +112,7 @@ def test_provision_refuses_an_existing_record(tmp_path, template_repo):
     template, commit = template_repo
     root = tmp_path / "root"
     provision(root, template=template, template_commit=commit, runner=_fake_tools(root))
-    with pytest.raises(ExperimentError) as excinfo:
+    with pytest.raises(ToolchainError) as excinfo:
         provision(
             root, template=template, template_commit=commit, runner=_fake_tools(root)
         )
@@ -172,7 +172,7 @@ def test_provision_raises_and_leaves_no_record_when_its_own_verify_fails(
     verify fails, the record must not remain on disk, or a retry hits
     "exists; a toolchain is provisioned once" instead of actually retrying.
     """
-    from ai_rfc.experiment import toolchain as toolchain_module
+    from ai_rfc import toolchain as toolchain_module
 
     template, commit = template_repo
     root = tmp_path / "root"
@@ -180,7 +180,7 @@ def test_provision_raises_and_leaves_no_record_when_its_own_verify_fails(
     monkeypatch.setattr(
         toolchain_module, "verify", lambda record, runner=None: (False, ("nope",))
     )
-    with pytest.raises(ExperimentError) as excinfo:
+    with pytest.raises(ToolchainError) as excinfo:
         provision(root, template=template, template_commit=commit, runner=fake)
     assert "provisioned, but verify failed" in str(excinfo.value)
     assert not (root / TOOLS_DIR / RECORD_FILE).exists()
@@ -212,16 +212,26 @@ def test_version_takes_the_first_line_and_is_empty_on_a_nonzero_exit():
 def test_cli_toolchain_verify_reports_a_reason_naming_the_record_and_exits_one(
     tmp_path, capsys
 ):
-    from ai_rfc.experiment.cli import main
+    """The verb reports through ``report()``, so a reason lands on stderr."""
+    from ai_rfc.cli import main
 
     code = main(["toolchain", "verify", "--root", str(tmp_path)])
-    out = capsys.readouterr().out
+    err = capsys.readouterr().err
     assert code == 1
-    assert str(tmp_path / TOOLS_DIR / RECORD_FILE) in out
+    assert str(tmp_path / TOOLS_DIR / RECORD_FILE) in err
+
+
+def test_cli_toolchain_verify_reads_a_record_named_elsewhere(tmp_path, capsys):
+    """``--record`` names a toolchain.json outside any experiments root."""
+    from ai_rfc.cli import main
+
+    elsewhere = tmp_path / "elsewhere" / RECORD_FILE
+    assert main(["toolchain", "verify", "--record", str(elsewhere)]) == 1
+    assert str(elsewhere) in capsys.readouterr().err
 
 
 def test_cli_toolchain_help_is_wired_for_both_verbs(capsys):
-    from ai_rfc.experiment.cli import main
+    from ai_rfc.cli import main
 
     with pytest.raises(SystemExit) as excinfo:
         main(["toolchain", "provision", "--help"])

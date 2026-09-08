@@ -121,6 +121,20 @@ ENTRY_POINTS: tuple[EntryPoint, ...] = (
         LIFECYCLE,
     ),
     EntryPoint(
+        "toolchain",
+        "ai-rfc toolchain",
+        f"{PACKAGE}.lifecycle.toolchain.cli",
+        "Install (once, networked) or verify (offline) the Internet-Draft toolchain",
+        LIFECYCLE,
+    ),
+    EntryPoint(
+        "doctor",
+        "ai-rfc doctor",
+        f"{PACKAGE}.lifecycle.doctor.cli",
+        "Check the environment a reconstruction runs in",
+        LIFECYCLE,
+    ),
+    EntryPoint(
         "pipeline",
         "ai-rfc pipeline",
         f"{PACKAGE}.pipeline.cli",

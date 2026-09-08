@@ -16,8 +16,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from ...lifecycle.profile import profile_env
 from .. import ExperimentError
-from ..profile import profile_env
 from ..stream import assistant_text, parse_stream, result_event
 
 #: The id form the CLI accepts for a proposer or judge that runs through

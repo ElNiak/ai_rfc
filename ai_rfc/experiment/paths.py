@@ -1,18 +1,13 @@
-"""Where the harness keeps its state: a runs root outside every CLAUDE.md ancestry."""
+"""Where the harness keeps its state: a runs root outside every CLAUDE.md ancestry.
+
+Both names live in :mod:`ai_rfc.config` now — production reads them, and the
+instrument imports them back rather than the other way round. This module is
+the harness's spelling of the same two functions.
+"""
 
 from __future__ import annotations
 
-import os
-from pathlib import Path
+from ..config import experiments_root as default_root
+from ..config import profile_dir
 
-DEFAULT_ROOT = "~/ai-rfc-experiments"
-
-
-def default_root() -> Path:
-    """The runs root: ``AI_RFC_EXPERIMENTS_ROOT`` or ``~/ai-rfc-experiments``."""
-    return Path(os.environ.get("AI_RFC_EXPERIMENTS_ROOT", DEFAULT_ROOT)).expanduser()
-
-
-def profile_dir(root: Path) -> Path:
-    """The isolated Claude Code config directory under ``root``."""
-    return root / "profile"
+__all__ = ["default_root", "profile_dir"]

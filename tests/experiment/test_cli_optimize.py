@@ -700,7 +700,7 @@ def test_a_pilot_refuses_a_toolchain_that_does_not_verify(
     pytest.importorskip("litellm")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "not-used-by-this-test")
 
-    from ai_rfc.experiment import toolchain as toolchain_module
+    from ai_rfc import toolchain as toolchain_module
 
     monkeypatch.setattr(
         toolchain_module,

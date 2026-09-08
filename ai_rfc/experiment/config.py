@@ -19,9 +19,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .. import toolchain as toolchain_module
 from ..lifecycle.workspace import DIGEST_FILE, RECORD_FILE
 from . import ExperimentError
-from . import toolchain as toolchain_module
 from .arms import ARMS
 from .paths import profile_dir as default_profile_dir
 from .render import (
@@ -69,7 +69,7 @@ class CampaignConfig:
     parity: dict[str, Any] | None
     #: ``single`` or ``per-cluster``; see :attr:`Campaign.session_mode`.
     session_mode: str = "single"
-    #: A ``toolchain.json`` from ``experiment toolchain provision``; required —
+    #: A ``toolchain.json`` from ``ai-rfc toolchain provision``; required —
     #: :func:`init_campaign` refuses without one it can verify.
     toolchain: Path | None = None
     #: Loop template *text* the arm prompts are rendered from; ``None`` reads
@@ -288,7 +288,7 @@ def init_campaign(config: CampaignConfig) -> Campaign:
         )
     if config.toolchain is None:
         raise ExperimentError(
-            "a campaign needs a verified toolchain: run `experiment toolchain "
+            "a campaign needs a verified toolchain: run `ai-rfc toolchain "
             "provision` once, then pass --toolchain"
         )
     if config.verify_toolchain:

@@ -13,11 +13,12 @@ from pathlib import Path
 from typing import Callable
 
 from ..config import ConfigError, load_config
+from ..lifecycle.profile import init_profile, login_command
 from ..lifecycle.workspace import TEMPLATE_COMMIT, TEMPLATE_URL
+from ..toolchain import ToolchainError
 from . import DEFAULT_MODEL, EFFORTS, ExperimentError
 from .arms import ARMS
 from .paths import default_root, profile_dir
-from .profile import init_profile, login_command
 from .workspace import migrate_draft as migrate_draft_workspace
 from .workspace import prepare as prepare_workspace
 from .workspace import reseal as reseal_workspace
@@ -470,7 +471,7 @@ def _optimize_run(args: argparse.Namespace, root: Path) -> int:
         # with verify_toolchain off, so this is the one place the record is
         # checked — and a bad record would otherwise zero the prose term for
         # every candidate, visible only in the log.
-        from .toolchain import verify as verify_toolchain
+        from ..toolchain import verify as verify_toolchain
 
         ok, reasons = verify_toolchain(args.toolchain)
         if not ok:
@@ -569,27 +570,6 @@ def _parser() -> argparse.ArgumentParser:
         default=None,
         help="Default: the ai-rfc plugin beside this package.",
     )
-
-    toolchain = commands.add_parser(
-        "toolchain", help="The shared Internet-Draft toolchain."
-    )
-    toolchain_verbs = toolchain.add_subparsers(dest="verb", required=True)
-    provision = toolchain_verbs.add_parser(
-        "provision", help="Install it once (networked)."
-    )
-    _add_root(provision)
-    provision.add_argument(
-        "--template",
-        default=TEMPLATE_URL,
-        help="Template repository (default: %(default)s).",
-    )
-    provision.add_argument(
-        "--template-commit",
-        default=TEMPLATE_COMMIT,
-        help="Commit to pin (default: %(default)s).",
-    )
-    verify_cmd = toolchain_verbs.add_parser("verify", help="Re-check it offline.")
-    _add_root(verify_cmd)
 
     workspace = commands.add_parser("workspace", help="Pristine workspaces.")
     workspace_verbs = workspace.add_subparsers(dest="verb", required=True)
@@ -767,7 +747,7 @@ def _parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help=(
-            "toolchain.json from `experiment toolchain provision` (default: "
+            "toolchain.json from `ai-rfc toolchain provision` (default: "
             "<root>/tools/toolchain.json)."
         ),
     )
@@ -939,7 +919,7 @@ def _parser() -> argparse.ArgumentParser:
         required=True,
         help="toolchain.json every evaluation's campaign records; a campaign "
         "cannot be frozen without one. A pilot builds each draft with it, so "
-        "the executables it names must exist (see `toolchain provision`); a "
+        "the executables it names must exist (see `ai-rfc toolchain provision`); a "
         "rehearsal stubs the build, so any well-formed record will load.",
     )
     optimize_run.add_argument(
@@ -1050,23 +1030,6 @@ def main(argv: list[str] | None = None) -> int:
 
             plugin_dir = args.plugin_dir or _default_plugin_dir()
             print(f"wrote {write_plugin_skill(plugin_dir.resolve())}")
-        elif args.command == "toolchain" and args.verb == "provision":
-            from .toolchain import provision as provision_toolchain
-
-            record = provision_toolchain(
-                root, template=args.template, template_commit=args.template_commit
-            )
-            print(f"toolchain: {record}")
-        elif args.command == "toolchain" and args.verb == "verify":
-            from .toolchain import verify as verify_toolchain
-
-            ok, reasons = verify_toolchain(root / "tools" / "toolchain.json")
-            if ok:
-                print("ok")
-            else:
-                for reason in reasons:
-                    print(reason)
-            return 0 if ok else 1
         elif args.command == "workspace" and args.verb == "prepare":
             config_path = args.config.resolve()
             try:
@@ -1281,7 +1244,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(diff_stat(repo, owned), end="")
             print(f"rendered: {applied.rendered_skill}")
             print(NOT_COMMITTED)
-    except (ExperimentError, OSError) as error:
+    except (ExperimentError, ToolchainError, OSError) as error:
         _report(f"error: {error}")
         return 1
     return 0
