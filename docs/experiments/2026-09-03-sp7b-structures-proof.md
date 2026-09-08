@@ -217,3 +217,42 @@ It does not establish anything about an agent's behaviour: no model was run.
 Whether an agent actually uses `ai_rfc_draft_render` rather than hand-drawing a
 figure is a question for a campaign, not for this suite. The consolidation
 round and its prompts are SP7c's; the instrument and the paid runs are SP7d's.
+
+## Addendum — 2026-09-08, re-measured at `828afa4`
+
+The numbers above were taken at `8246a15`. Before the branch shipped, a review
+of the whole of SP7b found that a newline inside any structure member's text
+reached the rendered block unescaped: a description carrying the three-line
+delimiter sequence closed and reopened its block from inside, the parser
+reported nothing, and a tampered paste gated clean and linted clean. The fix
+wave `3fa166f..828afa4` (five commits) collapses all whitespace at every point
+where author text enters a block, reports a repeated block id and a malformed
+frozen rendering as findings, and anchors the structure-id validator with `\Z`
+so an id cannot carry a trailing newline into a marker. Everything this
+document claims was re-measured at the head that ships:
+
+```
+$ SSLKEYLOGFILE= python -m pytest tests -n auto -p no:cacheprovider
+1300 passed, 11 skipped in 118.86s (0:01:58)
+```
+
+```
+$ python -m ai_rfc.draft gate /tmp/claude/sp7b/mark-b/draft … --strict
+note: gate clean
+exit=0
+```
+
+`gate-report.json`: `{"findings": []}`, 32.9 s wall — still identical to the
+SP7a record.
+
+```
+$ SSLKEYLOGFILE= python -m pytest tests/substrate/draft/test_gate.py \
+  -k "untouched_structured or one_byte" -v
+tests/substrate/draft/test_gate.py::test_a_one_byte_edit_to_a_rendered_block_is_a_finding PASSED
+tests/substrate/draft/test_gate.py::test_an_untouched_structured_draft_gates_clean PASSED
+2 passed, 30 deselected in 0.91s
+```
+
+The five goldens are byte-identical before and after the wave: the collapse
+changes only what a member containing a line terminator renders as, and no
+golden member contains one.

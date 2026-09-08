@@ -33,10 +33,13 @@ The middle column is the `ai_rfc` console script (underscore,
 | `ai_rfc_structure_upsert` | `ai_rfc structure-upsert ID --json …` | — (not available in arm C, D42) |
 | `ai_rfc_draft_render` | `ai_rfc draft-render` | — (not available in arm C, D42; an operator has `python -m ai_rfc draft render MANIFEST`) |
 
-Arm C is frozen at its pre-v2 surface (D42): it never sees `structure-upsert`,
-`draft-render` or the consolidation flags on `revision-record` and
-`checkpoint`. Arms A and B share the full twenty-tool surface above, so a v2
-campaign compares those two.
+Arm C is frozen at its pre-v2 surface (D42): it never sees the
+`structure-upsert` or `draft-render` verbs or the consolidation flags on
+`revision-record` and `checkpoint`, though the raw `python -m ai_rfc draft
+render` and `draft checkpoint --consolidation` stay reachable behind its
+unchanged `Bash(python -m ai_rfc*)` prefix. What D42 freezes is the documented
+tool and verb set, not the substrate the prefix reaches. Arms A and B share the
+full twenty-tool surface above, so a v2 campaign compares those two.
 
 ## Exit codes
 
