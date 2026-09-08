@@ -1,13 +1,17 @@
 """recon.yaml: one field table validates, exemplifies and documents itself."""
 
+import re
 from pathlib import Path
 
 import pytest
 import yaml
 
 from ai_rfc.config import (
+    _KINDS,
     FIELDS,
     ConfigError,
+    Field,
+    _coerce,
     drift,
     dump_config,
     example,
@@ -31,6 +35,32 @@ def _write(tmp_path: Path, text: str) -> Path:
     path = tmp_path / "recon.yaml"
     path.write_text(text)
     return path
+
+
+def _key_lines(text: str) -> dict[str, tuple[int, str]]:
+    """Locate every mapping key in a generated file by its full dotted path.
+
+    Reads nesting from the indent rather than from the loader, so the assertion
+    is about what an operator sees in the file, not about what YAML parses to:
+    a key inlined into a flow mapping never reaches this at all.
+
+    Args:
+        text: The generated ``recon.yaml``.
+
+    Returns:
+        Each key's dotted path, mapped to its line index and its indent.
+    """
+    stack: list[str] = []
+    found: dict[str, tuple[int, str]] = {}
+    for index, line in enumerate(text.splitlines()):
+        match = re.match(r"^( *)([A-Za-z_][A-Za-z0-9_]*):", line)
+        if not match:
+            continue
+        indent, key = match.groups()
+        depth = len(indent) // 2
+        stack[depth:] = [key]
+        found[".".join(stack)] = (index, indent)
+    return found
 
 
 def test_minimal_config_loads_with_documented_defaults(tmp_path, monkeypatch):
@@ -89,9 +119,13 @@ def test_example_round_trips_and_documents_every_field(tmp_path, monkeypatch):
     text = example()
     config = load_config(_write(tmp_path, text))
     assert config.name == "example"
+    lines = text.splitlines()
+    keys = _key_lines(text)
     for field in FIELDS:
         assert field.doc, field.path
-        assert field.path.split(".")[-1] in text, field.path
+        assert field.path in keys, field.path
+        index, indent = keys[field.path]
+        assert lines[index - 1] == f"{indent}# {field.doc}", field.path
     reference = reference_markdown()
     for field in FIELDS:
         assert f"`{field.path}`" in reference
@@ -118,3 +152,35 @@ def test_drift_refuses_identity_fields_and_notes_the_rest(tmp_path, monkeypatch)
     assert refused == ["window: [1, 69] -> [1, 70]"]
     assert noted == ["sessions.budget_usd: 200.0 -> 250.0"]
     assert drift(sealed, sealed) == ([], [])
+
+
+def test_an_unknown_key_holding_an_empty_block_is_still_refused(tmp_path):
+    """An empty block is where "nothing is silently dropped" was leaking."""
+    with pytest.raises(ConfigError, match="bogus: unknown key"):
+        load_config(_write(tmp_path, MINIMAL + "bogus: {}\n"))
+    with pytest.raises(ConfigError, match="source.bogus: unknown key"):
+        load_config(_write(tmp_path, MINIMAL.replace("  pin:", "  bogus: {}\n  pin:")))
+
+
+def test_an_empty_block_on_a_known_path_stays_legal(tmp_path, monkeypatch):
+    """The guard above must not refuse a real section an operator left empty."""
+    monkeypatch.setenv("AI_RFC_EXPERIMENTS_ROOT", str(tmp_path / "root"))
+    config = load_config(_write(tmp_path, MINIMAL + "stages:\n  history: {}\n"))
+    assert config.stages.history_cap is None
+    assert config.sessions is None
+
+
+def test_the_kind_table_and_the_coercer_cannot_drift():
+    """``_KINDS`` is only worth declaring if both sides are held to it.
+
+    Two directions, because either alone passes while the pair disagrees: no
+    field may name a kind the coercer has no branch for, and no declared kind
+    may be one the coercer would reject as unknown.
+    """
+    assert {field.kind for field in FIELDS} <= set(_KINDS)
+    for kind in _KINDS:
+        with pytest.raises(ConfigError) as excinfo:
+            _coerce(Field("probe", kind, "doc"), object())
+        assert "unknown field kind" not in str(excinfo.value), kind
+    with pytest.raises(ConfigError, match="unknown field kind"):
+        _coerce(Field("probe", "nonesuch", "doc"), "x")

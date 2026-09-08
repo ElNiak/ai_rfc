@@ -20,7 +20,7 @@ import yaml
 DEFAULT_ROOT = "~/ai-rfc-experiments"
 IDENTITY_FIELDS = ("source.pin", "window", "draft.name")
 _NAME = re.compile(r"^[a-z0-9][a-z0-9-]*$")
-_SHA = re.compile(r"^[0-9a-f]{7,40}$")
+_KEY_LINE = re.compile(r"^( *)([A-Za-z_][A-Za-z0-9_]*):")
 _KINDS = (
     "str",
     "path",
@@ -263,14 +263,51 @@ FIELDS: tuple[Field, ...] = (
 )
 _BY_PATH = {f.path: f for f in FIELDS}
 
+#: Every dotted prefix a field hangs under (``source``, ``stages.history``, …).
+#: A block at one of these names no keys of its own but is still a real section,
+#: which is what tells an empty one apart from a typo.
+_PREFIXES = frozenset(
+    ".".join(f.path.split(".")[:depth])
+    for f in FIELDS
+    for depth in range(1, len(f.path.split(".")))
+)
+
+for _field in FIELDS:
+    if _field.kind not in _KINDS:
+        raise ConfigError(
+            f"{_field.path}: the field table names unknown kind {_field.kind!r}"
+        )
+
+
+class _BlockMappings(yaml.SafeDumper):
+    """A dumper that never inlines a mapping, so every key starts its own line.
+
+    ``example()`` annotates the file it renders by matching keys at the start of
+    a line; a mapping YAML is free to inline as ``{a: 1, b: 2}`` would take its
+    keys out of reach, silently and only once the values grew short enough.
+    """
+
+    def represent_mapping(
+        self, tag: str, mapping: Any, flow_style: bool | None = None
+    ) -> yaml.MappingNode:
+        """Represent ``mapping`` in block style whatever the caller asked for."""
+        return super().represent_mapping(tag, mapping, flow_style=False)
+
 
 def experiments_root() -> Path:
-    """``AI_RFC_EXPERIMENTS_ROOT`` or ``~/ai-rfc-experiments``, expanded."""
+    """Resolve the root that every defaulted path hangs off.
+
+    Returns:
+        ``AI_RFC_EXPERIMENTS_ROOT`` when set, else ``~/ai-rfc-experiments``,
+        with a leading ``~`` expanded.
+    """
     return Path(os.environ.get("AI_RFC_EXPERIMENTS_ROOT", DEFAULT_ROOT)).expanduser()
 
 
 @dataclass(frozen=True)
 class SourceConfig:
+    """The repository a reconstruction reads, and the commit it is pinned to."""
+
     repo: str
     host: str
     pin: str
@@ -279,6 +316,8 @@ class SourceConfig:
 
 @dataclass(frozen=True)
 class DraftConfig:
+    """The Internet-Draft a reconstruction writes, and its front matter."""
+
     name: str
     title: str
     abbrev: str
@@ -288,6 +327,8 @@ class DraftConfig:
 
 @dataclass(frozen=True)
 class SessionsConfig:
+    """How a reconstruction's model sessions are launched, capped and halted."""
+
     model: str
     effort: str
     budget_usd: float
@@ -300,6 +341,8 @@ class SessionsConfig:
 
 @dataclass(frozen=True)
 class StagesConfig:
+    """Per-stage knobs, flattened out of the nested ``stages:`` block."""
+
     history_cap: int | None
     timeline_forge: bool
     views_patches: str
@@ -309,6 +352,8 @@ class StagesConfig:
 
 @dataclass(frozen=True)
 class ExperimentConfig:
+    """Campaign settings: the instrument's, not one reconstruction's."""
+
     arms: tuple[str, ...]
     repeats: int
     seed: int
@@ -328,12 +373,21 @@ class ReconConfig:
     toolchain: Path | None
     stages: StagesConfig
     experiment: ExperimentConfig | None
-    raw: dict[str, Any] = field(
-        default=None, compare=False, repr=False  # type: ignore[arg-type]
-    )
+    raw: dict[str, Any] | None = field(default=None, compare=False, repr=False)
 
 
 def _flatten(node: Any, prefix: str = "") -> dict[str, Any]:
+    """Flatten the document to dotted paths, keeping every key the file wrote.
+
+    Args:
+        node: The mapping to walk.
+        prefix: The dotted path ``node`` itself sits at.
+
+    Returns:
+        One entry per leaf, keyed by dotted path. A block that yields no leaves
+        is kept as its own entry unless it names a real section, so that an
+        unknown key still reaches the caller when its value is an empty block.
+    """
     flat: dict[str, Any] = {}
     if isinstance(node, dict):
         for key, value in node.items():
@@ -341,7 +395,11 @@ def _flatten(node: Any, prefix: str = "") -> dict[str, Any]:
             if path in _BY_PATH and _BY_PATH[path].kind == "mapping":
                 flat[path] = value
             elif isinstance(value, dict):
-                flat.update(_flatten(value, path))
+                nested = _flatten(value, path)
+                if nested or path in _PREFIXES:
+                    flat.update(nested)
+                else:
+                    flat[path] = value
             else:
                 flat[path] = value
     return flat
@@ -546,7 +604,15 @@ def _nest(flat: dict[str, Any]) -> dict[str, Any]:
 
 
 def dump_config(config: ReconConfig) -> str:
-    """Serialise the validated values, byte-stably, in field-table order."""
+    """Serialise the validated values, byte-stably, in field-table order.
+
+    Args:
+        config: The configuration to write.
+
+    Returns:
+        YAML holding every value that is set, in ``FIELDS`` order, stable
+        enough to seal into a workspace and hash.
+    """
     flat: dict[str, Any] = {
         "name": config.name,
         "workspace": str(config.workspace),
@@ -602,10 +668,15 @@ def dump_config(config: ReconConfig) -> str:
 
 
 def example() -> str:
-    """A starter ``recon.yaml``.
+    """Render a starter ``recon.yaml``.
+
+    Comments are placed by full path rather than by trailing segment: ``name``
+    and ``draft.name`` share a segment, so keying by it puts one field's
+    documentation above the other's key.
 
     Returns:
-        Every field with its example value and its doc as a comment.
+        Every field carrying its example value, each under its own
+        documentation as a comment at the key's own indent.
     """
     lines = [
         "# recon.yaml — one reconstruction, declared."
@@ -613,20 +684,35 @@ def example() -> str:
     ]
     document = _nest({f.path: f.example for f in FIELDS if f.example is not None})
     document["name"] = "example"
-    body = yaml.safe_dump(
-        document, sort_keys=False, default_flow_style=None, allow_unicode=True
+    body = yaml.dump(
+        document,
+        Dumper=_BlockMappings,
+        sort_keys=False,
+        default_flow_style=None,
+        allow_unicode=True,
     )
-    docs = {f.path.split(".")[-1]: f.doc for f in FIELDS}
+    docs = {f.path: f.doc for f in FIELDS}
+    stack: list[str] = []
     for line in body.splitlines():
-        key = line.strip().split(":")[0]
-        if key in docs and not line.startswith("#"):
-            lines.append(f"# {docs[key]}")
+        match = _KEY_LINE.match(line)
+        if match:
+            indent, key = match.groups()
+            depth = len(indent) // 2
+            stack[depth:] = [key]
+            doc = docs.get(".".join(stack))
+            if doc:
+                lines.append(f"{indent}# {doc}")
         lines.append(line)
     return "\n".join(lines) + "\n"
 
 
 def reference_markdown() -> str:
-    """The field table as a Markdown reference page."""
+    """Render the field table as a Markdown reference page.
+
+    Returns:
+        One row per field: its path, kind, whether it is required, its default
+        and its documentation.
+    """
     rows = [
         "| Field | Kind | Required | Default | Description |",
         "|---|---|---|---|---|",
