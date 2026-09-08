@@ -34,6 +34,13 @@ from . import LifecycleError
 #: the directory every other prompt is rendered from.
 PROMPTS = Path(__file__).resolve().parents[1] / "experiment" / "prompts"
 DRAFT_SKELETON = PROMPTS / "draft-skeleton.md"
+#: What the skeleton cites without declaring: its ``{::boilerplate
+#: bcp14-tagged}`` expands to the BCP 14 paragraph, which references both of
+#: these. They belong beside :data:`DRAFT_SKELETON` because the skeleton is
+#: what makes them mandatory — a workspace's sealed refcache overrides the
+#: toolchain's shared one at build time, so a cache holding only the config's
+#: declared references cannot build the draft ``scaffold`` just wrote.
+SKELETON_REFERENCES: tuple[str, ...] = ("RFC2119", "RFC8174")
 TEMPLATE_URL = "https://github.com/ElNiak/auto-i-d-template"
 TEMPLATE_COMMIT = "dcdd985a86afad97a50f7b5e1b613f57c194b774"
 ADOPTER_FILES = ("Makefile", ".gitignore", ".editorconfig")
@@ -263,6 +270,27 @@ def _reference_filename(reference: str) -> str:
     return f"reference.{reference}.xml"
 
 
+def sealed_references(config: ReconConfig) -> tuple[str, ...]:
+    """Everything a workspace's refcache must hold, in a stable order.
+
+    The declared references first, in the order the config gave them, then any
+    of :data:`SKELETON_REFERENCES` the config did not already name. Additive
+    and duplicate-free, so a config that declares RFC2119 itself is unaffected.
+
+    Args:
+        config: The validated configuration.
+
+    Returns:
+        The references to seal. Distinct from ``config.references``, which
+        stays the record of what the operator declared.
+    """
+    sealed = list(config.references)
+    sealed.extend(
+        reference for reference in SKELETON_REFERENCES if reference not in sealed
+    )
+    return tuple(sealed)
+
+
 def require_toolchain(config: ReconConfig) -> Toolchain | None:
     """Load the toolchain a config's references need, before anything is written.
 
@@ -295,7 +323,7 @@ def require_toolchain(config: ReconConfig) -> Toolchain | None:
         ) from None
     missing = [
         reference
-        for reference in config.references
+        for reference in sealed_references(config)
         if not (toolchain.refcache / _reference_filename(reference)).exists()
     ]
     if missing:
@@ -309,10 +337,15 @@ def require_toolchain(config: ReconConfig) -> Toolchain | None:
 def seal_references(
     config: ReconConfig, layout: Layout, toolchain: Toolchain | None
 ) -> tuple[str | None, str | None]:
-    """Copy the declared references into the workspace and record what it holds.
+    """Copy the references the workspace needs into it and record what it holds.
+
+    Seals :func:`sealed_references`, not ``config.references``: the sealed cache
+    overrides the toolchain's at build time, so it must also carry what the
+    scaffolded draft cites on its own. ``references.yaml`` keeps naming the
+    declared set, which is a different fact.
 
     Args:
-        config: Names the references to seal.
+        config: Names the declared references.
         layout: The workspace to seal them into.
         toolchain: The record they are copied from, from
             :func:`require_toolchain`.
@@ -326,7 +359,7 @@ def seal_references(
     if toolchain is not None:
         cache = layout.refcache
         cache.mkdir()
-        for reference in config.references:
+        for reference in sealed_references(config):
             name = _reference_filename(reference)
             shutil.copyfile(toolchain.refcache / name, cache / name)
         refcache_sha256 = hashlib.sha256(

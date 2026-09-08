@@ -165,6 +165,48 @@ def test_init_leaves_a_directory_it_did_not_create(
     assert workspace.is_dir()
 
 
+def test_init_seals_the_references_the_skeleton_itself_cites(
+    tmp_path, source_repo, template_repo, toolchain_record
+):
+    """The scaffolded draft cites BCP 14 whether or not the config names it.
+
+    A workspace's own refcache overrides the toolchain's shared one at build
+    time, so a cache holding only the declared references cannot build the very
+    draft ``init`` just scaffolded — the skeleton's ``{::boilerplate
+    bcp14-tagged}`` pulls in RFC2119 and RFC8174 without declaring them.
+    """
+    template, commit = template_repo
+    config_path = _config(
+        tmp_path,
+        source_repo,
+        extra=f"references: [RFC9000]\ntoolchain: {toolchain_record}\n",
+    )
+    assert (
+        cli.main(
+            [
+                "init",
+                "--config",
+                str(config_path),
+                "--template",
+                template,
+                "--template-commit",
+                commit,
+            ]
+        )
+        == 0
+    )
+    ws = Layout(tmp_path / "ws")
+    assert sorted(p.name for p in ws.refcache.iterdir()) == [
+        "reference.RFC.2119.xml",
+        "reference.RFC.8174.xml",
+        "reference.RFC.9000.xml",
+    ]
+    # What the operator declared and what the workspace had to seal are two
+    # different facts, and later rows read the first one.
+    assert json.loads(ws.init_record.read_text())["references"] == ["RFC9000"]
+    assert (ws.root / "references.yaml").read_text() == "references:\n- RFC9000\n"
+
+
 def test_init_resolves_a_sha_pin_and_records_the_window(
     tmp_path, source_repo, template_repo
 ):

@@ -421,8 +421,13 @@ def test_prepare_seals_the_configs_references_into_the_workspace(
         toolchain=toolchain_record,
     )
     assert (pristine / "references.yaml").read_text() == "references:\n- RFC9000\n"
-    assert (pristine / "refcache" / "reference.RFC.9000.xml").exists()
-    assert not (pristine / "refcache" / "reference.RFC.2119.xml").exists()
+    # The declared reference, plus the two the skeleton cites through its BCP 14
+    # boilerplate, and nothing else the toolchain happened to have cached.
+    assert sorted(p.name for p in (pristine / "refcache").iterdir()) == [
+        "reference.RFC.2119.xml",
+        "reference.RFC.8174.xml",
+        "reference.RFC.9000.xml",
+    ]
     record = json.loads((pristine / "pristine.json").read_text())
     assert record["scaffold_layout"] == "adopter" and record["references"] == [
         "RFC9000"
