@@ -1,4 +1,5 @@
 import re
+import shutil
 
 import pytest
 
@@ -198,3 +199,93 @@ def test_the_editorial_skill_states_the_move_never_drop_rule():
     assert "Move, never drop" in text
     assert "Change Log" in text and "Implementation Notes" in text
     assert "normative" in text.lower()
+    # The superset rule, not the equality one a 2026-09-03 draft stated: a
+    # consolidation may not lose a citation, and may add one.
+    assert "keep every citation" in text and "adding one" in text
+
+
+def test_the_consolidation_template_renders_for_every_arm():
+    from ai_rfc.experiment.render import render_consolidation
+
+    for arm in SLOT_TABLES:
+        text = render_consolidation(arm)
+        assert "{{" not in text and "}}" not in text, f"{arm} left a slot unrendered"
+
+
+def test_arm_c_is_told_the_new_commands_are_unavailable():
+    from ai_rfc.experiment.render import render_consolidation
+
+    assert "not available in arm C" in render_consolidation("C")
+
+
+def test_the_consolidation_prompt_bundles_the_editorial_skills(plugin_root):
+    from ai_rfc.experiment.render import consolidation_prompt
+
+    prompt = consolidation_prompt("A", plugin_root)
+    assert "# Editorial" in prompt
+    assert "# Structures" in prompt
+    assert "# Figures in a reconstructed specification" in prompt
+    # This round adjudicates nothing, so the loop's hygiene text is absent.
+    assert "# Evidence hygiene for reconstruction manifests" not in prompt
+    assert "\nname: ai-rfc-" not in prompt and not prompt.startswith("---")
+
+
+def test_the_loop_and_the_consolidation_share_one_slot_validator():
+    from ai_rfc.experiment.render import render_consolidation
+
+    for render in (render_loop, render_consolidation):
+        with pytest.raises(ExperimentError):
+            render("no-such-arm")
+        with pytest.raises(ExperimentError) as excinfo:
+            render("A", template="{{nonesuch}}\n")
+        assert "nonesuch" in str(excinfo.value)
+
+
+def _plugin_copy(plugin_root, tmp_path):
+    root = tmp_path / "plugin"
+    shutil.copytree(plugin_root, root)
+    return root
+
+
+def test_a_slot_in_a_bundled_skill_body_is_refused(plugin_root, tmp_path):
+    # The template's slots are filled before the skill texts are appended, so
+    # nothing rescanned the result: a slot in a bundled body reached the frozen
+    # prompt verbatim.
+    root = _plugin_copy(plugin_root, tmp_path)
+    body = root / "skills" / "ai-rfc-figures" / "SKILL.md"
+    body.write_text(body.read_text() + "\nSee {{cluster_next}} for the rule.\n")
+    with pytest.raises(ExperimentError) as excinfo:
+        arm_prompt("A", root)
+    assert "cluster_next" in str(excinfo.value)
+    assert "ai-rfc-figures" in str(excinfo.value)
+
+
+def test_a_slot_in_a_bundle_that_opens_on_a_preamble_is_refused(plugin_root, tmp_path):
+    # A profile with a fixed preamble renders no template at all, so before the
+    # bundle was scanned no slot check ran on any part of it.
+    root = _plugin_copy(plugin_root, tmp_path)
+    body = root / "skills" / "ai-rfc-interviewing" / "SKILL.md"
+    body.write_text(body.read_text() + "\nSee {{cluster_next}} for the rule.\n")
+    with pytest.raises(ExperimentError) as excinfo:
+        arm_prompt("A", root, profile="interview")
+    assert "cluster_next" in str(excinfo.value)
+
+
+def test_a_slot_text_that_names_a_slot_is_refused(plugin_root, monkeypatch):
+    # Substitution is single pass, so a slot's own text naming a slot reaches
+    # the rendered opening unfilled.
+    monkeypatch.setitem(
+        SLOT_TABLES, "A", dict(SLOT_TABLES["A"], guidance="See {{gate}}.")
+    )
+    with pytest.raises(ExperimentError) as excinfo:
+        arm_prompt("A", plugin_root)
+    assert "gate" in str(excinfo.value)
+
+
+def test_every_arm_states_the_strict_done_rule_for_the_next_cluster():
+    # A lax rule in one arm and a strict one in another means the arms work
+    # different clusters. The ledger is the only source of truth.
+    for arm in SLOT_TABLES:
+        text = render_loop(arm)
+        assert "neither" not in text.lower(), f"{arm} still states the lax rule"
+        assert "pre-seeded" in text.lower(), f"{arm} omits the pre-seeded clause"

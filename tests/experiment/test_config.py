@@ -463,3 +463,28 @@ def test_init_renders_every_arm_from_a_proposed_loop_template(
     assert frozen.startswith(SLOT_TABLES["A"]["preamble"])
     assert "## Preconditions" not in frozen
     assert (campaign.prompts_dir / "loop.tmpl.md").read_text() == template
+
+
+def test_a_campaign_freezes_a_consolidation_prompt_per_arm(
+    tmp_path, pristine, panther_repo, plugin_root
+):
+    campaign = _init(tmp_path, pristine, panther_repo, plugin_root)
+    for arm in campaign.arms:
+        frozen = campaign.prompts_dir / f"consolidation-{arm}.md"
+        assert frozen.is_file()
+        digest = hashlib.sha256(frozen.read_text().encode()).hexdigest()
+        assert campaign.prompt_sha256[f"consolidation-{arm}.md"] == digest
+
+
+def test_a_campaign_freezes_the_consolidation_task_template(
+    tmp_path, pristine, panther_repo, plugin_root
+):
+    campaign = _init(tmp_path, pristine, panther_repo, plugin_root)
+    frozen = campaign.consolidation_task_template
+    assert frozen.is_file()
+    packaged = task_template_path("consolidation")
+    assert frozen.read_bytes() == packaged.read_bytes()
+    assert (
+        campaign.prompt_sha256[frozen.name]
+        == hashlib.sha256(packaged.read_bytes()).hexdigest()
+    )

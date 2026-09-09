@@ -183,3 +183,16 @@ def test_launch_refuses_to_relaunch(campaign, write_scenario):
     with pytest.raises(ExperimentError):
         launch(campaign, ref)
     assert load_status(run_ref(campaign, "C1").run_dir) is None
+
+
+def test_a_run_can_be_pointed_at_a_different_frozen_prompt(campaign):
+    ref = _ready(campaign, "A1")
+    other = campaign.prompts_dir / f"consolidation-{ref.arm}.md"
+    argv = prepare_run_argv(campaign, ref, prompt_file=other)
+    assert str(other) in argv
+    assert f"arm-{ref.arm}.md" not in " ".join(argv)
+
+
+def test_the_default_prompt_is_still_the_arm_prompt(campaign):
+    ref = _ready(campaign, "A1")
+    assert f"arm-{ref.arm}.md" in " ".join(prepare_run_argv(campaign, ref))

@@ -28,7 +28,7 @@ When the `ai_rfc` MCP server is connected, prefer its tools (`ai_rfc_cluster_nex
 
 ## One iteration
 
-1. **Pick the next cluster**: read `$AI_RFC_WORKSPACE/timeline/clusters.jsonl` in ordinal order and take the first id that has neither a `checkpoints/<id>/` directory nor a `revisions.yaml` entry.
+1. **Pick the next cluster**: read `$AI_RFC_WORKSPACE/timeline/clusters.jsonl` in ordinal order and take the lowest-ordinal in-window cluster that is not done. A cluster is done when `checkpoints/<id>/` holds its checkpoint, `revisions.yaml` holds a `kind: cluster` entry for it, and that entry's tag exists in `$AI_RFC_WORKSPACE/draft`; pre-seeded clusters count as done.
 2. **Read its evidence**: read `$AI_RFC_WORKSPACE/clusters/<id>/view.json` (file set, PR number), `span.diff` (paginate long diffs with `sed -n`) and `evidence/pr.json` when present. For context beyond the cluster,
    query the corpus index — churn-ranked reading beats the directory tree:
    `sqlite3 $AI_RFC_WORKSPACE/corpus/index.sqlite "SELECT path, COUNT(*) c FROM file_changes GROUP BY path ORDER BY c DESC LIMIT 20"`.

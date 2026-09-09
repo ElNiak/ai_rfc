@@ -27,6 +27,7 @@ from .arms import ARMS
 from .render import (
     TASK_TEMPLATE,
     arm_prompt,
+    consolidation_prompt,
     render_task,
     task_profile,
     task_template_path,
@@ -34,6 +35,7 @@ from .render import (
 )
 
 TASK_TEMPLATE_FILE = "task.tmpl.md"
+CONSOLIDATION_TASK_TEMPLATE_FILE = "task-consolidation.tmpl.md"
 LOOP_TEMPLATE_FILE = "loop.tmpl.md"
 CAMPAIGN_FILE = "campaign.json"
 _SHIM = """#!/bin/sh
@@ -160,6 +162,11 @@ class Campaign:
     def task_template(self) -> Path:
         """The frozen task template every per-cluster session renders from."""
         return self.prompts_dir / TASK_TEMPLATE_FILE
+
+    @property
+    def consolidation_task_template(self) -> Path:
+        """The frozen task template every consolidation session renders from."""
+        return self.prompts_dir / CONSOLIDATION_TASK_TEMPLATE_FILE
 
     @property
     def bin_dir(self) -> Path:
@@ -329,8 +336,10 @@ def init_campaign(config: CampaignConfig) -> Campaign:
         )
         for arm in arms
     }
+    consolidation = {arm: consolidation_prompt(arm, plugin_root) for arm in arms}
     task = render_task(tuple(record["window"]), profile=profile)
     task_template = task_template_path(profile)
+    consolidation_task_template = task_template_path("consolidation")
 
     prompts_dir = campaign_dir / "prompts"
     prompts_dir.mkdir(parents=True)
@@ -338,6 +347,9 @@ def init_campaign(config: CampaignConfig) -> Campaign:
     for arm, text in rendered.items():
         (prompts_dir / f"arm-{arm}.md").write_text(text)
         prompt_sha256[f"arm-{arm}.md"] = _sha256(text)
+    for arm, text in consolidation.items():
+        (prompts_dir / f"consolidation-{arm}.md").write_text(text)
+        prompt_sha256[f"consolidation-{arm}.md"] = _sha256(text)
     (prompts_dir / "task.md").write_text(task)
     prompt_sha256["task.md"] = _sha256(task)
     frozen_template = prompts_dir / TASK_TEMPLATE_FILE
@@ -347,6 +359,11 @@ def init_campaign(config: CampaignConfig) -> Campaign:
     # match what write_bytes actually put on disk.
     prompt_sha256[TASK_TEMPLATE_FILE] = hashlib.sha256(
         task_template.read_bytes()
+    ).hexdigest()
+    frozen_consolidation_template = prompts_dir / CONSOLIDATION_TASK_TEMPLATE_FILE
+    frozen_consolidation_template.write_bytes(consolidation_task_template.read_bytes())
+    prompt_sha256[CONSOLIDATION_TASK_TEMPLATE_FILE] = hashlib.sha256(
+        consolidation_task_template.read_bytes()
     ).hexdigest()
     loop_template_sha256 = None
     if config.loop_template is not None:

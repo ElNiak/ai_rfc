@@ -1,6 +1,7 @@
 """Render a task's prompts for the plugin and for each arm.
 
-One template, four invocation tables: ``interactive`` becomes the plugin's
+Two templates — the per-cluster loop and the consolidation round — and four
+invocation tables sharing one validator: ``interactive`` becomes the plugin's
 SKILL.md (a test pins the file to this rendering), ``A``/``B``/``C`` become
 the appended system prompts of the experiment arms. Every arm prompt is the
 rendered loop plus the arm-neutral style and hygiene texts verbatim, so the
@@ -25,7 +26,9 @@ from pathlib import Path
 from . import ExperimentError
 
 PROMPTS = Path(__file__).parent / "prompts"
-TEMPLATE = PROMPTS / "loop.tmpl.md"
+LOOP_TEMPLATE = "loop.tmpl.md"
+CONSOLIDATION_TEMPLATE = "consolidation.tmpl.md"
+TEMPLATE = PROMPTS / LOOP_TEMPLATE
 SLOT_RE = re.compile(r"\{\{([a-z_]+)\}\}")
 NEUTRAL_TEXTS = (
     ("skills", "ai-rfc-rfc-style", "SKILL.md"),
@@ -37,6 +40,15 @@ NEUTRAL_TEXTS = (
 INTERVIEW_TEXTS = (
     ("skills", "ai-rfc-interviewing", "SKILL.md"),
     ("skills", "ai-rfc-evidence-hygiene", "SKILL.md"),
+)
+#: Bundled into the consolidation prompt. The loop's evidence-hygiene text is
+#: absent on purpose: this round adjudicates nothing.
+CONSOLIDATION_TEXTS = (
+    ("skills", "ai-rfc-rfc-style", "SKILL.md"),
+    ("skills", "ai-rfc-rfc-style", "references", "claim-citation.md"),
+    ("skills", "ai-rfc-figures", "SKILL.md"),
+    ("skills", "ai-rfc-structures", "SKILL.md"),
+    ("skills", "ai-rfc-editorial", "SKILL.md"),
 )
 #: The interview profile's own opening, in place of a rendered loop. Only
 #: arm A runs this task, so it names MCP tools and nothing else; a test
@@ -79,12 +91,31 @@ _EXPERIMENT_GUIDANCE = (
     "procedure; apply them throughout."
 )
 
+#: Every arm reads the same two files for this: no tool lists revisions.
+_REVISIONS_SINCE = (
+    "read `$AI_RFC_WORKSPACE/revisions.yaml` and the draft's tags for every "
+    "entry recorded since the last `kind: consolidation` one"
+)
+#: The strict progress contract, in the raw arms' own vocabulary. Its source
+#: of truth is ``ai_rfc.ledger``: a lax restatement here and a strict one in
+#: the tool the other arms call would have the arms working different
+#: clusters, which is a difference the campaign is not measuring.
+_CLUSTER_NEXT_RAW = (
+    "read `$AI_RFC_WORKSPACE/timeline/clusters.jsonl` in ordinal order and take "
+    "the lowest-ordinal in-window cluster that is not done. A cluster is done "
+    "when `checkpoints/<id>/` holds its checkpoint, `revisions.yaml` holds a "
+    "`kind: cluster` entry for it, and that entry's tag exists in "
+    "`$AI_RFC_WORKSPACE/draft`; pre-seeded clusters count as done"
+)
+_CLUSTER_DONE_RULE = (
+    "A cluster is done when its checkpoint is written, `revisions.yaml` holds "
+    "a `kind: cluster` entry for it, and that entry's tag exists in the draft "
+    "repository; pre-seeded clusters count as done"
+)
+
 _RAW = {
-    "cluster_next": (
-        "read `$AI_RFC_WORKSPACE/timeline/clusters.jsonl` in ordinal order and take "
-        "the first id that has neither a `checkpoints/<id>/` directory nor a "
-        "`revisions.yaml` entry"
-    ),
+    "cluster_next": _CLUSTER_NEXT_RAW,
+    "revisions_since": _REVISIONS_SINCE,
     "cluster_get": (
         "read `$AI_RFC_WORKSPACE/clusters/<id>/view.json` (file set, PR number), "
         "`span.diff` (paginate long diffs with `sed -n`) and `evidence/pr.json` "
@@ -157,6 +188,20 @@ SLOT_TABLES: dict[str, dict[str, str]] = {
             "runs manifest gate, build, tag and the strict citation gate "
             "together and deletes the tag again on any finding"
         ),
+        "structure_upsert": (
+            "`ai_rfc_structure_upsert` (or `ai_rfc structure-upsert`) with the "
+            "id, kind, title, section and members"
+        ),
+        "draft_render": "`ai_rfc_draft_render` (or `ai_rfc draft-render`)",
+        "draft_lint": "`ai_rfc_draft_lint()` (or `ai_rfc draft-lint`)",
+        "checkpoint_consolidation": (
+            "`ai_rfc_checkpoint` (or `ai_rfc checkpoint`) with the "
+            "consolidation ordinal and the cluster checkpoint it follows"
+        ),
+        "revision_record_consolidation": (
+            "`ai_rfc_revision_record` (or `ai_rfc revision-record`) with "
+            "`kind='consolidation'` and the consolidation checkpoint's path"
+        ),
         "guidance": (
             "Load `ai-rfc-evidence-hygiene` before touching claims and "
             "`ai-rfc-rfc-style` before touching prose."
@@ -179,6 +224,13 @@ SLOT_TABLES: dict[str, dict[str, str]] = {
         "draft_build": (
             "not available in this arm — skip this step and note it in the summary"
         ),
+        # D42 freezes arm C at its pre-v2 surface, so a consolidation round has
+        # no structure or lint route here at all; Task 7 skips the round for C.
+        "structure_upsert": "not available in arm C — skip this step",
+        "draft_render": "not available in arm C — skip this step",
+        "draft_lint": "not available in arm C — skip this step",
+        "checkpoint_consolidation": "not available in arm C — skip this step",
+        "revision_record_consolidation": "not available in arm C — skip this step",
         "guidance": _EXPERIMENT_GUIDANCE,
         "preamble": (
             "This session has no MCP server and no `ai_rfc` command: drive the "
@@ -198,8 +250,20 @@ SLOT_TABLES: dict[str, dict[str, str]] = {
         ),
         "runtime": "`ai_rfc` is on `PATH` and reads `AI_RFC_WORKSPACE`",
         "cluster_next": (
-            "`ai_rfc cluster-next` (prints the lowest-ordinal cluster with neither "
-            "checkpoint nor revision entry, or `null`)"
+            "`ai_rfc cluster-next` (prints the lowest-ordinal in-window cluster "
+            f"that is not done, or `null`. {_CLUSTER_DONE_RULE})"
+        ),
+        "revisions_since": _REVISIONS_SINCE,
+        "structure_upsert": "`ai_rfc structure-upsert <id> --json '…'`",
+        "draft_render": "`ai_rfc draft-render`",
+        "draft_lint": "`ai_rfc draft-lint`",
+        "checkpoint_consolidation": (
+            "`ai_rfc checkpoint <id> --consolidation NN --base checkpoints/<id>`"
+        ),
+        "revision_record_consolidation": (
+            "`ai_rfc revision-record draft-<name>-NN --cluster <id> "
+            "--kind consolidation --checkpoint consolidations/NN "
+            '--no-normative --note "…"`'
         ),
         "cluster_get": (
             "`ai_rfc cluster-get <id> --patch` (add `--patch-offset N "
@@ -253,8 +317,24 @@ SLOT_TABLES: dict[str, dict[str, str]] = {
             "the `ai_rfc` MCP server is connected and reads `AI_RFC_WORKSPACE`"
         ),
         "cluster_next": (
-            "`ai_rfc_cluster_next` (returns the lowest-ordinal cluster with neither "
-            "checkpoint nor revision entry, or null)"
+            "`ai_rfc_cluster_next` (returns the lowest-ordinal in-window "
+            f"cluster that is not done, or null. {_CLUSTER_DONE_RULE})"
+        ),
+        "revisions_since": _REVISIONS_SINCE,
+        "structure_upsert": (
+            "`ai_rfc_structure_upsert(structure_id, fields)` with the kind, "
+            "title, section and members"
+        ),
+        "draft_render": "`ai_rfc_draft_render()`",
+        "draft_lint": "`ai_rfc_draft_lint()`",
+        "checkpoint_consolidation": (
+            "`ai_rfc_checkpoint(cluster_id, consolidation=NN, "
+            'base="checkpoints/<id>")`'
+        ),
+        "revision_record_consolidation": (
+            '`ai_rfc_revision_record(tag="draft-<name>-NN", cluster_id, '
+            'normative_change=False, note, kind="consolidation", '
+            'checkpoint="consolidations/NN")`'
         ),
         "cluster_get": (
             "`ai_rfc_cluster_get(cluster_id, include_patch=true)` (page long diffs "
@@ -317,6 +397,8 @@ class TaskProfile:
         arms: The arms that may run this task; ``None`` allows every table.
         session_modes: The session modes it may run under; ``None`` allows
             both.
+        prompt_template: The template under ``prompts/`` rendered as the
+            opening when ``preamble`` is None.
     """
 
     task_file: str
@@ -324,6 +406,7 @@ class TaskProfile:
     preamble: str | None = None
     arms: tuple[str, ...] | None = None
     session_modes: tuple[str, ...] | None = None
+    prompt_template: str = LOOP_TEMPLATE
 
 
 TASK_PROFILES: dict[str, TaskProfile] = {
@@ -337,6 +420,11 @@ TASK_PROFILES: dict[str, TaskProfile] = {
         # per-cluster session would find no cluster to open on.
         arms=("A",),
         session_modes=("single",),
+    ),
+    "consolidation": TaskProfile(
+        task_file="task-consolidation.md",
+        texts=CONSOLIDATION_TEXTS,
+        prompt_template=CONSOLIDATION_TEMPLATE,
     ),
 }
 
@@ -378,17 +466,21 @@ def task_template_path(profile: str = "loop") -> Path:
 TASK_TEMPLATE = task_template_path()
 
 
-def render_loop(arm: str, template: str | None = None) -> str:
-    """Render the loop template with one invocation table.
+def _render_template(name: str, arm: str, template: str | None = None) -> str:
+    """Render one prompt template with one invocation table.
+
+    Only the slots the template names are required, never the whole table:
+    that tolerance is what lets the consolidation slots sit in every arm's
+    table without the loop rendering noticing them.
 
     Args:
+        name: A file under :data:`PROMPTS`, read when ``template`` is None.
         arm: A key of :data:`SLOT_TABLES`.
-        template: Template text to render instead of the packaged one, so a
-            campaign can be frozen on proposed text; ``None`` reads the
-            package template.
+        template: Template text to render instead of the packaged file, so a
+            campaign can be frozen on proposed text.
 
     Returns:
-        The rendered loop.
+        The rendered prompt.
 
     Raises:
         ExperimentError: If ``arm`` has no table or a slot stays unfilled.
@@ -399,11 +491,48 @@ def render_loop(arm: str, template: str | None = None) -> str:
         )
     table = SLOT_TABLES[arm]
     if template is None:
-        template = TEMPLATE.read_text()
+        template = (PROMPTS / name).read_text()
     missing = sorted(set(SLOT_RE.findall(template)) - set(table))
     if missing:
         raise ExperimentError(f"table {arm!r} leaves slots unfilled: {missing}")
+    # A function replacement, not a string one: `re.sub` interprets backslash
+    # escapes in a string replacement, so a slot text carrying `\g` or `\1`
+    # would be rewritten on its way into the prompt.
     return SLOT_RE.sub(lambda match: table[match.group(1)], template)
+
+
+def render_loop(arm: str, template: str | None = None) -> str:
+    """Render the per-cluster round prompt for one arm.
+
+    Args:
+        arm: A key of :data:`SLOT_TABLES`.
+        template: Template text to render instead of the packaged one;
+            ``None`` reads the package template.
+
+    Returns:
+        The rendered loop.
+
+    Raises:
+        ExperimentError: If ``arm`` has no table or a slot stays unfilled.
+    """
+    return _render_template(LOOP_TEMPLATE, arm, template)
+
+
+def render_consolidation(arm: str, template: str | None = None) -> str:
+    """Render the consolidation round prompt for one arm.
+
+    Args:
+        arm: A key of :data:`SLOT_TABLES`.
+        template: Template text to render instead of the packaged one;
+            ``None`` reads the package template.
+
+    Returns:
+        The rendered consolidation round.
+
+    Raises:
+        ExperimentError: If ``arm`` has no table or a slot stays unfilled.
+    """
+    return _render_template(CONSOLIDATION_TEMPLATE, arm, template)
 
 
 def render_task(
@@ -444,6 +573,28 @@ def strip_frontmatter(text: str) -> str:
     return text if end < 0 else text[end + len("\n---\n") :].lstrip("\n")
 
 
+def _refuse_slots(text: str, source: str) -> None:
+    """Refuse one part of a bundle that still carries a ``{{slot}}``.
+
+    The renderer fills the template's slots before the skill texts are
+    appended and substitution is single pass, so a slot surviving into the
+    assembled bundle came from text no renderer ever looked at — a bundled
+    body, a fixed preamble, or another slot's own text — and would reach the
+    frozen prompt verbatim.
+
+    Args:
+        text: One part of the bundle.
+        source: What to name in the error: a plugin-relative path or a
+            description of the opening.
+
+    Raises:
+        ExperimentError: If ``text`` holds anything matching :data:`SLOT_RE`.
+    """
+    found = sorted(set(SLOT_RE.findall(text)))
+    if found:
+        raise ExperimentError(f"{source} leaves slots unrendered: {found}")
+
+
 def arm_prompt(
     arm: str,
     plugin_root: Path,
@@ -466,19 +617,44 @@ def arm_prompt(
         stripped of its frontmatter.
 
     Raises:
-        ExperimentError: If no profile carries that name, or the profile does
-            not run on ``arm``.
+        ExperimentError: If no profile carries that name, the profile does not
+            run on ``arm``, or any part of the assembled bundle still carries
+            a slot.
     """
     spec = task_profile(profile)
     if spec.arms is not None and arm not in spec.arms:
         raise ExperimentError(
             f"task profile {profile!r} runs on {', '.join(spec.arms)}, not {arm!r}"
         )
-    opening = spec.preamble if spec.preamble is not None else render_loop(arm, template)
+    if spec.preamble is not None:
+        opening, source = spec.preamble, f"task profile {profile!r}'s preamble"
+    else:
+        opening = _render_template(spec.prompt_template, arm, template)
+        source = f"{spec.prompt_template} rendered for {arm!r}"
+    _refuse_slots(opening, source)
     parts = [opening]
     for relative in spec.texts:
-        parts.append(strip_frontmatter(plugin_root.joinpath(*relative).read_text()))
+        body = strip_frontmatter(plugin_root.joinpath(*relative).read_text())
+        _refuse_slots(body, "/".join(relative))
+        parts.append(body)
     return "\n\n".join(part.rstrip("\n") for part in parts) + "\n"
+
+
+def consolidation_prompt(arm: str, plugin_root: Path) -> str:
+    """The consolidation round's appended system prompt for one arm.
+
+    Args:
+        arm: A key of :data:`SLOT_TABLES`.
+        plugin_root: The plugin whose skill texts are bundled.
+
+    Returns:
+        The bundle, rendered through the same path as every other profile so
+        the two prompts cannot drift in how they strip frontmatter.
+
+    Raises:
+        ExperimentError: As :func:`arm_prompt`.
+    """
+    return arm_prompt(arm, plugin_root, profile="consolidation")
 
 
 def write_plugin_skill(plugin_root: Path, template: str | None = None) -> Path:
