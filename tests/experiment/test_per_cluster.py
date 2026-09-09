@@ -114,6 +114,10 @@ def _stub_spawn(per_cluster, monkeypatch, *, sessions_per_cluster: int):
     """
     calls = {"n": 0}
 
+    # The trailing hyphen is load-bearing: pytest sanitises this module's test
+    # names into tmp_path, so a run directory can hold the substring
+    # "consolidation_" and a needle relaxed to "consolidation" would classify
+    # every cluster round as an editorial pass.
     def fake_spawn(argv, **_kwargs):
         if not any("consolidation-" in str(part) for part in argv):
             calls["n"] += 1
@@ -227,7 +231,7 @@ def test_an_untouched_cluster_is_not_described_as_half_finished(
     assert not any("checkpoint present" in line for line in lines), lines
 
 
-def _ref(campaign, arm=None):
+def _ref(campaign, arm=None, clusters=3):
     from ai_rfc.experiment.runner import run_ref
 
     ref = run_ref(campaign, campaign.run_order[0])
@@ -235,6 +239,15 @@ def _ref(campaign, arm=None):
         ref = dataclasses.replace(ref, arm=arm)
     ref.run_dir.mkdir(parents=True, exist_ok=True)
     ref.workspace.mkdir(parents=True, exist_ok=True)
+    # A real timeline, because the consolidation guard checks its base cluster
+    # against the whole one rather than against the window a test stubs: the
+    # two are deliberately different sets, and a stub for both could not show
+    # that.
+    timeline = ref.workspace / "timeline"
+    timeline.mkdir(exist_ok=True)
+    (timeline / "clusters.jsonl").write_text(
+        "".join(json.dumps(row) + "\n" for row in _clusters(clusters))
+    )
     return ref
 
 
@@ -935,10 +948,11 @@ def test_a_mid_sweep_consolidation_failure_does_not_stop_the_sweep(
 ):
     """D52: a failed editorial pass must not cost the cluster work still left.
 
-    It must also not repeat forever. A round that recorded nothing leaves the
-    disk it is derived from unchanged, so a sweep that returned to the top of
-    the loop after a failure would re-run the same round until the wall clock
-    stopped it, and never reach a cluster at all.
+    It must also not repeat. A round that recorded nothing leaves the disk it
+    is derived from unchanged, so it stays due after every later cluster round;
+    running it again each time roughly doubles the sweep's sessions and spend
+    from the first failure onward. Attempted rounds are remembered for the life
+    of the process — in memory, so a resumed sweep still tries once.
     """
     import ai_rfc.experiment.per_cluster as per_cluster
     from ai_rfc.experiment.consolidation import Due
@@ -962,13 +976,8 @@ def test_a_mid_sweep_consolidation_failure_does_not_stop_the_sweep(
     )
 
     assert exit_code == 0
-    assert _round_kinds(prompts) == [
-        "consolidation",
-        "cluster",
-        "consolidation",
-        "cluster",
-    ]
-    assert sessions == 4 and calls["n"] == 2
+    assert _round_kinds(prompts) == ["consolidation", "cluster", "cluster"]
+    assert sessions == 3 and calls["n"] == 2
     assert any(
         "consolidation" in note and "recorded no revision" in note for note in notes
     ), notes
@@ -1236,3 +1245,143 @@ def test_a_consolidations_session_id_is_not_recorded_as_the_next_clusters(
         for line in (ref.run_dir / per_cluster.SESSIONS_FILE).read_text().splitlines()
     ]
     assert [row["session_id"] for row in rows] == ["sid-cluster"]
+
+
+def test_a_refused_cluster_id_does_not_end_the_sweep(per_cluster_campaign, monkeypatch):
+    """Refusing the id must cost the round, not the campaign.
+
+    launch_pending puts no guard around launch() and refuses to resume a run
+    directory that holds no status record, so an escape here would abort the
+    campaign's remaining runs and leave this one needing an operator to move
+    the directory aside by hand — a worse outcome than the forged base cluster
+    it was guarding against.
+    """
+    import ai_rfc.experiment.per_cluster as per_cluster
+    from ai_rfc.experiment.consolidation import Due
+
+    calls = _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
+    monkeypatch.setattr(progress, "window_clusters", lambda _ws: _clusters(2))
+    monkeypatch.setattr(
+        per_cluster,
+        "consolidation_due",
+        lambda _ws, _every, *, at_end=False: (
+            None if at_end else Due(1, "c1\nforged", 1, "1 cluster round")
+        ),
+    )
+    notes: list[str] = []
+
+    exit_code, _, sessions = per_cluster.run_per_cluster(
+        per_cluster_campaign, _ref(per_cluster_campaign), report=notes.append
+    )
+
+    assert exit_code == 0
+    # Both clusters still ran, and no session was spawned for the refused round.
+    assert calls["n"] == 2 and sessions == 2
+    refusals = [note for note in notes if "not a cluster" in note]
+    assert len(refusals) == 1, notes
+    # repr keeps the forged newline from splitting the operator's line in two.
+    assert "\n" not in refusals[0]
+
+
+def test_a_refused_final_cluster_id_exits_one_without_raising(
+    per_cluster_campaign, monkeypatch
+):
+    """At the sweep's end the round is the deliverable, so refusing it fails.
+
+    It fails as an exit code the run records, not as an exception the launcher
+    cannot catch.
+    """
+    import ai_rfc.experiment.per_cluster as per_cluster
+    from ai_rfc.experiment.consolidation import Due
+
+    _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
+    monkeypatch.setattr(progress, "window_clusters", lambda _ws: _clusters(1))
+    monkeypatch.setattr(
+        per_cluster,
+        "consolidation_due",
+        lambda _ws, _every, *, at_end=False: (
+            Due(1, "../../etc", 1, "sweep end") if at_end else None
+        ),
+    )
+    notes: list[str] = []
+
+    exit_code, _, sessions = per_cluster.run_per_cluster(
+        per_cluster_campaign, _ref(per_cluster_campaign), report=notes.append
+    )
+
+    assert exit_code == 1
+    assert sessions == 1
+    assert any("not a cluster" in note for note in notes), notes
+
+
+def test_a_timed_out_consolidation_is_reported_as_a_timeout(
+    per_cluster_campaign, monkeypatch
+):
+    """status.json reads timed_out off this return, and sets exit_code None from it.
+
+    A consolidation killed on the wall clock whose timeout never reached the
+    caller would be recorded as a run that finished on its own.
+    """
+    import ai_rfc.experiment.per_cluster as per_cluster
+    from ai_rfc.experiment.consolidation import Due
+
+    prompts = _record_prompts(per_cluster, monkeypatch)
+    _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
+    monkeypatch.setattr(progress, "window_clusters", lambda _ws: _clusters(1))
+    counting = per_cluster.spawn
+
+    def killing(*args, **kwargs):
+        if "consolidation-" in str(prompts[-1]):
+            return None, True
+        return counting(*args, **kwargs)
+
+    monkeypatch.setattr(per_cluster, "spawn", killing)
+    monkeypatch.setattr(
+        per_cluster,
+        "consolidation_due",
+        lambda _ws, _every, *, at_end=False: (
+            Due(1, "c1", 1, "sweep end") if at_end else None
+        ),
+    )
+
+    exit_code, timed_out, sessions = per_cluster.run_per_cluster(
+        per_cluster_campaign, _ref(per_cluster_campaign), report=lambda _: None
+    )
+
+    assert timed_out is True
+    assert exit_code == 1 and sessions == 2
+
+
+def test_a_base_cluster_below_the_window_is_still_a_cluster_this_run_knows(
+    per_cluster_campaign, monkeypatch
+):
+    """Membership is of the timeline, not of the window.
+
+    A pre-seeded baseline is copied into the workspace whole, so its last
+    unconsolidated revision can legitimately name a cluster below the window's
+    first ordinal. Checking the window would refuse that id, and refusing it
+    would drop the consolidation the sweep exists to produce.
+    """
+    import ai_rfc.experiment.per_cluster as per_cluster
+    from ai_rfc.experiment.consolidation import Due
+
+    prompts = _record_prompts(per_cluster, monkeypatch)
+    _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
+    # The window opens at ordinal 2; c1 is seeded work below it.
+    monkeypatch.setattr(progress, "window_clusters", lambda _ws: [])
+    monkeypatch.setattr(
+        per_cluster,
+        "consolidation_due",
+        lambda _ws, _every, *, at_end=False: (
+            Due(1, "c1", 1, "sweep end") if at_end else None
+        ),
+    )
+    notes: list[str] = []
+
+    _, _, sessions = per_cluster.run_per_cluster(
+        per_cluster_campaign, _ref(per_cluster_campaign), report=notes.append
+    )
+
+    assert _round_kinds(prompts) == ["consolidation"]
+    assert sessions == 1
+    assert not any("not a cluster" in note for note in notes), notes

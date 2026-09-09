@@ -26,7 +26,8 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .. import ledger
-from . import ExperimentError, progress
+from ..draft.gate import _cluster_ordinals
+from . import ExperimentError
 from .arms import arm_profile
 from .config import Campaign, render_task
 from .consolidation import Due, consolidation_due
@@ -275,7 +276,7 @@ def _account_for_consolidation(
 
 
 def _checked_cluster_id(workspace: Path, cluster_id: str) -> str:
-    """The id, confirmed to name a cluster this run's window actually has.
+    """The id, confirmed to name a cluster this run's timeline actually has.
 
     Membership is the guard rather than a filter over characters. The id is
     read back out of an agent-written ``revisions.yaml``, and YAML's implicit
@@ -287,6 +288,12 @@ def _checked_cluster_id(workspace: Path, cluster_id: str) -> str:
     in the session prompt or in a progress line, and a ``../..`` or an absolute
     path reaching a checkpoint path, in one test.
 
+    The whole timeline, not the run's window: a pre-seeded baseline is copied
+    into the workspace whole, so its last unconsolidated revision can name a
+    cluster below the window's first ordinal and still be perfectly legitimate.
+    The set is the gate's own, so the driver and the gate cannot disagree about
+    which clusters a run knows.
+
     Args:
         workspace: The run's workspace.
         cluster_id: The id to check.
@@ -295,13 +302,14 @@ def _checked_cluster_id(workspace: Path, cluster_id: str) -> str:
         ``cluster_id`` unchanged.
 
     Raises:
-        ExperimentError: If it is not a cluster of this workspace's window.
+        ExperimentError: If it is not a cluster of this workspace's timeline.
     """
-    known = {row.get("id") for row in progress.window_clusters(workspace)}
-    if cluster_id not in known:
+    if cluster_id not in _cluster_ordinals(workspace / "timeline"):
+        # Repr, not the bare value: the message is itself a line-per-record
+        # artifact, and a forged id carries a newline.
         raise ExperimentError(
             f"cluster id {cluster_id!r} is not a cluster of {workspace}'s "
-            "window; it would reach a session prompt and a checkpoint path "
+            "timeline; it would reach a session prompt and a checkpoint path "
             "unescaped"
         )
     return cluster_id
@@ -316,7 +324,7 @@ def _run_consolidation(
     timeout_s: int,
     at_end: bool,
     report: Callable[[str], None],
-) -> bool:
+) -> tuple[bool, bool]:
     """Run one consolidation round.
 
     Args:
@@ -329,14 +337,21 @@ def _run_consolidation(
         report: Progress sink.
 
     Returns:
-        True when the round recorded its revision, re-derived from disk rather
-        than from the session's exit code — an agent can exit 0 having done
-        nothing.
+        ``(recorded, timed_out)``. ``recorded`` is True when the round recorded
+        its revision, re-derived from disk rather than from the session's exit
+        code — an agent can exit 0 having done nothing. ``timed_out`` is the
+        session's, and is returned rather than swallowed because the run's
+        status record reads it: a consolidation killed on the cap would
+        otherwise be filed as a run that finished on its own.
 
     Raises:
         ExperimentError: If the base cluster names no cluster of this run's
-            window, or the campaign froze no consolidation task template.
+            timeline, or the campaign froze no consolidation task template.
     """
+    # Checked before it is reported, not after. The report sink is not only an
+    # operator log: the optimizer passes its own, and those lines become the
+    # feedback text a proposer model reads, so an unchecked id here is a prompt
+    # injection and not merely a broken line.
     base = _checked_cluster_id(ref.workspace, due.base_cluster)
     report(
         f"{ref.run_id}: consolidation {due.ordinal:02d} due ({due.reason}), "
@@ -368,7 +383,7 @@ def _run_consolidation(
         budget_usd=budget_usd,
         prompt_file=campaign.prompts_dir / f"consolidation-{ref.arm}.md",
     )
-    spawn(
+    _, timed_out = spawn(
         argv,
         cwd=ref.workspace,
         env=build_env(campaign, ref),
@@ -382,12 +397,12 @@ def _run_consolidation(
         is None
     ):
         report(f"{ref.run_id}: consolidation {due.ordinal:02d} recorded")
-        return True
+        return True, timed_out
     report(
         f"{ref.run_id}: consolidation {due.ordinal:02d} recorded no revision"
         + ("" if at_end else "; continuing the sweep")
     )
-    return False
+    return False, timed_out
 
 
 def run_per_cluster(
@@ -428,6 +443,12 @@ def run_per_cluster(
     reported_damage = 0
     surface_judged = False
     known_sessions: set[str] = set()
+    # Mid-sweep consolidations already attempted in this process. A round that
+    # recorded nothing stays due after every later cluster round, so without
+    # this the sweep pays for it once per cluster from the first failure
+    # onward. In memory only: D50's "derived, never recorded" is about disk,
+    # and a resumed sweep is entitled to try again.
+    attempted: set[tuple[int, str]] = set()
     seen_claim_ids, seed_error = seed_seen(campaign, ref.workspace)
     started = time.monotonic()
     exit_code: int | None = 0
@@ -460,22 +481,32 @@ def run_per_cluster(
                     )
                     exit_code = exit_code or 1
                 else:
-                    recorded = _run_consolidation(
-                        campaign,
-                        ref,
-                        due,
-                        budget_usd=budget_left,
-                        timeout_s=int(time_left),
-                        at_end=True,
-                        report=report,
-                    )
-                    sessions += 1
-                    cost, results_seen = _account_for_consolidation(
-                        events_path, known_sessions, results_seen
-                    )
-                    spent += cost
-                    if not recorded:
+                    # The final round is not filtered through `attempted`: it
+                    # is the sweep's deliverable, and its failure is what the
+                    # exit code is for, so it is owed one attempt even when a
+                    # mid-sweep round on the same base already failed.
+                    try:
+                        recorded, round_timed_out = _run_consolidation(
+                            campaign,
+                            ref,
+                            due,
+                            budget_usd=budget_left,
+                            timeout_s=int(time_left),
+                            at_end=True,
+                            report=report,
+                        )
+                    except ExperimentError as error:
+                        report(f"{ref.run_id}: final consolidation not run: {error}")
                         exit_code = 1
+                    else:
+                        sessions += 1
+                        any_timeout = any_timeout or round_timed_out
+                        cost, results_seen = _account_for_consolidation(
+                            events_path, known_sessions, results_seen
+                        )
+                        spent += cost
+                        if not recorded:
+                            exit_code = 1
             report(f"{ref.run_id}: window complete after {sessions} session(s)")
             return exit_code, any_timeout, sessions
 
@@ -487,32 +518,45 @@ def run_per_cluster(
         # must already include what the editorial pass spent.
         if ref.arm != "C" and budget_left > 0 and time_left > 0:
             due = consolidation_due(ref.workspace, campaign.consolidate_every)
-            if due is not None:
-                recorded = _run_consolidation(
-                    campaign,
-                    ref,
-                    due,
-                    budget_usd=budget_left,
-                    timeout_s=int(time_left),
-                    at_end=False,
-                    report=report,
-                )
-                sessions += 1
-                cost, results_seen = _account_for_consolidation(
-                    events_path, known_sessions, results_seen
-                )
-                spent += cost
-                budget_left = campaign.budget_usd - spent
-                time_left = campaign.timeout_s - (time.monotonic() - started)
-                if recorded:
-                    # Only when the round changed the disk. The next pass
-                    # re-reads progress, so the consolidation is accounted for
-                    # before a cluster round is chosen. A round that recorded
-                    # nothing left that disk as it was, so going back to the
-                    # top would re-run it every pass until the wall clock
-                    # stopped the sweep — D52 asks for the opposite, and the
-                    # cluster work still outstanding is what would be lost.
-                    continue
+            if due is not None and (due.ordinal, due.base_cluster) not in attempted:
+                attempted.add((due.ordinal, due.base_cluster))
+                try:
+                    recorded, round_timed_out = _run_consolidation(
+                        campaign,
+                        ref,
+                        due,
+                        budget_usd=budget_left,
+                        timeout_s=int(time_left),
+                        at_end=False,
+                        report=report,
+                    )
+                except ExperimentError as error:
+                    # Reported, never raised. launch_pending puts no guard
+                    # around launch() and refuses to resume a run directory
+                    # holding no status record, so an escape here would abort
+                    # the campaign's remaining runs and leave this one needing
+                    # an operator to move the directory aside by hand.
+                    report(
+                        f"{ref.run_id}: consolidation {due.ordinal:02d} "
+                        f"not run: {error}"
+                    )
+                else:
+                    sessions += 1
+                    any_timeout = any_timeout or round_timed_out
+                    cost, results_seen = _account_for_consolidation(
+                        events_path, known_sessions, results_seen
+                    )
+                    spent += cost
+                    budget_left = campaign.budget_usd - spent
+                    time_left = campaign.timeout_s - (time.monotonic() - started)
+                    if recorded:
+                        # Only when the round changed the disk. The next pass
+                        # re-reads progress, so the consolidation is accounted
+                        # for before a cluster round is chosen; a round that
+                        # recorded nothing left that disk as it was, and falls
+                        # through to the cluster work it was scheduled ahead
+                        # of.
+                        continue
 
         if budget_left <= 0 or time_left <= 0:
             reached = "budget" if budget_left <= 0 else "wall clock"
