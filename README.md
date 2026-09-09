@@ -152,7 +152,8 @@ A pristine workspace is built from the same `recon.yaml` the lifecycle verbs
 read; the closed target table `{aioquic, mark}` it used to be selected from is
 gone. The rest of the instrument runs from any directory: `profile init`,
 `preflight`, `render`, `workspace prepare|reseal|migrate-draft`, `campaign
-init`, `run`, `audit`, `questions`, `analyze`, `optimize`. Provisioning the
+init [--consolidate-every N]`, `run [--task consolidation]`, `audit`,
+`questions`, `analyze`, `optimize`. Provisioning the
 Internet-Draft toolchain is no longer one of them — that is `ai-rfc toolchain
 provision|verify`. State lives under `AI_RFC_EXPERIMENTS_ROOT` (default
 `~/ai-rfc-experiments`), never inside a repository. The first full campaign is
@@ -161,7 +162,14 @@ reported in `docs/experiments/2026-08-31-pilot-aioquic.md`; the protocol is
 `docs/parity.md`; the harness's own usage page is `ai_rfc/experiment/README.md`.
 A whole-repository sweep is a `recon.yaml` whose window spans every cluster, in
 a campaign initialised with `--session-mode per-cluster`; see
-`ai_rfc/experiment/per_cluster.py`. The draft repository is scaffolded as a
+`ai_rfc/experiment/per_cluster.py`. Such a sweep interleaves consolidation
+rounds with the cluster rounds — a consolidation round reorganises the draft
+into a specification without changing what it claims. `campaign init
+--consolidate-every N` sets how many cluster rounds pass between them (0
+disables the mid-sweep ones; the round at the sweep's end always runs), and
+`run CAMPAIGN --only RUN --task consolidation --append-to-finished-run` runs a
+single round against the workspace of a run that already finished — point it
+at a copy, never at the original. The draft repository is scaffolded as a
 template adopter (`Makefile`, `.gitignore`, `.editorconfig`); the shared
 library lives under `<root>/tools/i-d-template`. `campaign init` does not
 read `AI_RFC_TOOLCHAIN`; it takes `--toolchain` (defaulting to

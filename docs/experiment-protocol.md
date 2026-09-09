@@ -243,3 +243,67 @@ plan's, as it is for the two draft-quality entries above.
   and the tool-to-verb table in `docs/parity.md` are untouched, and `ai-rfc
   run` still stops at the agent boundary — driving sessions from it is CLI-2.
   Nothing here invalidates a campaign run before this date.
+
+### 2026-09-03 — draft quality v2, SP7c
+
+Recorded after the CLI-1 entry because it landed after it; the date is the
+plan's, as it is for the two draft-quality entries above.
+
+- **A sweep now runs two kinds of round.** A cluster round mines one cluster,
+  as before; a consolidation round reorganises what the cluster rounds have
+  written. A campaign records the interval between them as
+  `consolidate_every`, so a run says how it was scheduled. `campaign init
+  --consolidate-every N` defaults from `recon.yaml`'s own field table
+  (`sessions.consolidate_every`, 10) rather than from a second literal; the
+  frozen campaign record keeps a literal of its own on purpose, so that
+  campaigns frozen before the field existed are not retroactively
+  reinterpreted.
+- **A consolidation round runs every K cluster rounds, and once at the
+  sweep's end.** It is launched with its own frozen `consolidation-<arm>.md`
+  system prompt and its own frozen, hashed task template
+  (`task-consolidation.tmpl.md`), both digested into the campaign's
+  `prompt_sha256` like every other session prompt, and it appends to the
+  run's single transcript.
+- **It changes no claim.** Its revision records `normative_change: false`,
+  and it must not lose a citation the previous revision carried — adding one
+  is allowed, dropping one is a gate finding. This is D52's superset rule:
+  for a consolidation the gate compares citation sets by containment, where
+  for any other non-normative revision it still demands equality.
+- **Its checkpoint lives under `consolidations/<NN>/`** and its revision
+  carries `kind: consolidation`, so a consolidation claims no cluster of its
+  own and the cluster checkpoint root stays cluster rounds' alone.
+- **Arm C never consolidates.** D42 freezes its tool surface, so both the
+  sweep and the one-off verb decline the round for C, and a v2 campaign
+  compares arms A and B. A `consolidation-C.md` prompt is still rendered and
+  frozen alongside the others — the freeze knows nothing of the exclusion —
+  but no session is ever launched from it.
+- **Whether a round is due is derived from `revisions.yaml` alone, and never
+  recorded.** The cluster revisions since the last consolidation entry are
+  the whole state, so a resumed sweep schedules exactly as one that never
+  stopped, and a revisions file the substrate's own loader refuses schedules
+  nothing — a malformed map is the gate's finding, not a document to buy an
+  editorial pass over.
+- **A mid-sweep round that records no revision is reported and the sweep
+  continues; a failed final one exits 1.** A round that cannot record stays
+  due after every later cluster round, so it is attempted once per sweep —
+  keyed on its ordinal, in memory — and not once per cluster round. The
+  final round is owed its attempt regardless, because it is the sweep's
+  deliverable, and a resumed sweep is entitled to try again. Either kind is
+  skipped when the run's budget or wall clock is exhausted; skipping the
+  final one exits 1.
+- **`run --task consolidation` runs one round against an existing workspace,
+  with no sweep around it.** It takes exactly one run id through `--only`,
+  asks the workspace what is outstanding rather than what the interval says,
+  and requires `--append-to-finished-run`: it appends a session to a run
+  whose `status.json` was already written, so `status.json` then describes
+  only a prefix of `events.jsonl`. It writes an `appended.jsonl` marker
+  recording `events_lines_before`, so that discrepancy reads as a decision
+  rather than as corruption. **Point it at a copy of a finished run, never at
+  the original**, and never at a sealed baseline. It exits 1 without spending
+  for an arm C run, and for a workspace with nothing outstanding.
+- **A negative `--consolidate-every` is refused.** The schedule asks whether
+  the cluster rounds since the last consolidation reach the interval, so a
+  negative one is reached by the very first cluster: a mistyped minus sign
+  would buy a paid editorial pass after every single cluster round. 0 is
+  accepted and disables mid-sweep rounds, leaving the round at the sweep's
+  end.
