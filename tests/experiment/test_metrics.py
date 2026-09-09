@@ -11,6 +11,7 @@ from ai_rfc.experiment.metrics import (
     trajectory,
 )
 from ai_rfc.experiment.stream import parse_stream
+from ai_rfc.server.testing import git as _vcs
 
 from .conftest import COMPLETE_STEPS
 
@@ -304,3 +305,84 @@ def test_an_arm_whose_runs_were_all_void_reports_no_figures():
     assert summary["runs"] == 0 and summary["runs_with_broken_surface"] == 1
     assert summary["completed_fraction_mean"] is None
     assert summary["cost_total"] == 0 and summary["cost_mean"] is None
+
+
+def _workspace_with_revisions(tmp_path, revisions_yaml: str):
+    """A workspace the ledger can read, holding the given revision map.
+
+    ``cluster_artifacts`` reads ``ledger.clusters``, which needs the timeline
+    rows, a checkpoint record per cluster and the draft repository's tags, so a
+    bare ``revisions.yaml`` would fail these tests for a reason that has
+    nothing to do with what kind of revision an entry is.
+    """
+    workspace = tmp_path / "workspace"
+    (workspace / "timeline").mkdir(parents=True)
+    (workspace / "timeline" / "clusters.jsonl").write_text(
+        '{"id": "c1", "ordinal": 1}\n{"id": "c9", "ordinal": 9}\n'
+    )
+    for cluster_id in ("c1", "c9"):
+        checkpoint = workspace / "checkpoints" / cluster_id
+        checkpoint.mkdir(parents=True)
+        (checkpoint / "checkpoint.json").write_text("{}\n")
+    (workspace / "revisions.yaml").write_text(revisions_yaml)
+    draft = workspace / "draft"
+    draft.mkdir()
+    _vcs(draft, "init", "-q")
+    _vcs(draft, "config", "user.email", "t@t")
+    _vcs(draft, "config", "user.name", "t")
+    (draft / "draft-t.md").write_text("prose\n")
+    _vcs(draft, "add", "draft-t.md")
+    _vcs(draft, "commit", "-qm", "revision", date="2026-09-03T00:00:00+00:00")
+    for tag in ("draft-t-01", "draft-t-02"):
+        _vcs(draft, "tag", tag)
+    return workspace
+
+
+def test_a_consolidation_is_not_mistaken_for_its_cluster_s_revision(tmp_path):
+    """Regression (R7): the ledger already filters, and must keep doing so.
+
+    Both entries name c1; only the cluster round is c1's own work. This pins
+    the ledger taking that round rather than the consolidation that follows it.
+    """
+    from ai_rfc.experiment.metrics import cluster_artifacts
+
+    workspace = _workspace_with_revisions(
+        tmp_path,
+        "revisions:\n"
+        "  draft-t-01:\n"
+        "    cluster_id: c1\n"
+        f"    checkpoint_manifest_sha256: {'a' * 64}\n"
+        "    normative_change: true\n"
+        "    note: 'the cluster round'\n"
+        "  draft-t-02:\n"
+        "    cluster_id: c1\n"
+        f"    checkpoint_manifest_sha256: {'a' * 64}\n"
+        "    normative_change: false\n"
+        "    note: 'the consolidation'\n"
+        "    kind: consolidation\n"
+        "    checkpoint: consolidations/01\n",
+    )
+    artifacts = cluster_artifacts(workspace, {"id": "c1", "ordinal": 1})
+    # The agent's own account of a round is summary's to report, not metrics';
+    # what metrics must keep straight is whose tag and whose verdict these are.
+    assert artifacts["revision_tag"] == "draft-t-01"
+    assert artifacts["normative_change"] is True
+    assert artifacts["tag_exists"] and artifacts["artifacts"]
+
+
+def test_a_cluster_with_only_a_consolidation_is_not_complete(tmp_path):
+    """Regression (R7): a consolidation alone must not read as a finished round."""
+    from ai_rfc.experiment.metrics import cluster_artifacts
+
+    workspace = _workspace_with_revisions(
+        tmp_path,
+        "revisions:\n"
+        "  draft-t-01:\n"
+        "    cluster_id: c9\n"
+        f"    checkpoint_manifest_sha256: {'a' * 64}\n"
+        "    normative_change: false\n"
+        "    note: 'consolidated'\n"
+        "    kind: consolidation\n"
+        "    checkpoint: consolidations/01\n",
+    )
+    assert not cluster_artifacts(workspace, {"id": "c9", "ordinal": 9})["artifacts"]

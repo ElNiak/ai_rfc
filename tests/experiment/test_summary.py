@@ -329,3 +329,97 @@ def test_a_record_is_written_atomically_and_reread(tmp_path):
     assert path == tmp_path / "summaries" / "c1.json"
     assert json.loads(path.read_text()) == record
     assert not list((tmp_path / "summaries").glob("*.tmp"))
+
+
+def _revisions_with_a_consolidation(tmp_path):
+    """A revision map in the order the recorder writes one: tags, sorted.
+
+    ``record_revision`` re-dumps the whole map with ``sort_keys=True``, so a
+    consolidation of c1 follows c1's own round rather than preceding it, and
+    ``kind`` — not file order — is the only thing that tells them apart. c9 is
+    the case D48 makes reachable: the recorder refuses a second ``cluster``
+    entry for one cluster but never requires a first one, so a consolidation
+    can name a cluster whose own round has not been recorded.
+    """
+    (tmp_path / "revisions.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "revisions": {
+                    "draft-t-01": {
+                        "cluster_id": "c1",
+                        "checkpoint_manifest_sha256": "a" * 64,
+                        "normative_change": True,
+                        "note": "the cluster round",
+                        "kind": "cluster",
+                    },
+                    "draft-t-02": {
+                        "cluster_id": "c1",
+                        "checkpoint_manifest_sha256": "a" * 64,
+                        "normative_change": False,
+                        "note": "the consolidation",
+                        "kind": "consolidation",
+                        "checkpoint": "consolidations/01",
+                    },
+                    "draft-t-03": {
+                        "cluster_id": "c9",
+                        "checkpoint_manifest_sha256": "a" * 64,
+                        "normative_change": False,
+                        "note": "the consolidation",
+                        "kind": "consolidation",
+                        "checkpoint": "consolidations/02",
+                    },
+                }
+            },
+            sort_keys=True,
+        )
+    )
+    return tmp_path
+
+
+def test_a_summary_reports_the_cluster_round_not_the_consolidation(tmp_path):
+    from ai_rfc.experiment.summary import revision_of
+
+    workspace = _revisions_with_a_consolidation(tmp_path)
+
+    entry = revision_of(workspace, "c1")
+    assert entry["note"] == "the cluster round"
+    # c9 is named only by a consolidation, so c9 produced no revision of its
+    # own; reporting the consolidation's note here would credit c9's round
+    # with work it never did.
+    assert revision_of(workspace, "c9") is None
+
+
+def test_a_kind_that_is_not_a_cluster_round_is_never_that_cluster_s_own(tmp_path):
+    """``kind`` is agent-written, so an unrecognised one must not be credited.
+
+    The ledger's join skips anything that is not exactly ``cluster``
+    (``ledger._entries``); this reader has to agree with it, or the two
+    surfaces disagree about which entry is a cluster's own work.
+    """
+    from ai_rfc.experiment.summary import revision_of
+
+    (tmp_path / "revisions.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "revisions": {
+                    "draft-t-01": {
+                        "cluster_id": "c1",
+                        "checkpoint_manifest_sha256": "a" * 64,
+                        "normative_change": True,
+                        "note": "unrecognised kind",
+                        "kind": "Consolidation",
+                    }
+                }
+            }
+        )
+    )
+
+    assert revision_of(tmp_path, "c1") is None
+
+
+def test_the_diff_base_is_the_previous_tag_even_when_it_consolidated(tmp_path):
+    # Deliberate: c3's diff should be against the consolidated draft, which is
+    # the text that actually preceded it.
+    from ai_rfc.experiment.summary import _previous_tag
+
+    assert _previous_tag("draft-t-04") == "draft-t-03"

@@ -76,11 +76,21 @@ def revision_of(workspace: Path, cluster_id: str) -> dict[str, Any] | None:
         cluster_id: The cluster whose revision is wanted.
 
     Returns:
-        The entry with its ``tag`` added, or None.
+        The cluster round's entry with its ``tag`` added, or None. A
+        consolidation carries the preceding cluster's id (D48) and is not that
+        cluster's own round, so it is never returned here.
     """
     for tag, entry in _mapping(workspace / REVISIONS_FILE, "revisions").items():
-        if isinstance(entry, dict) and entry.get("cluster_id") == cluster_id:
-            return {**entry, "tag": str(tag)}
+        if not isinstance(entry, dict) or entry.get("cluster_id") != cluster_id:
+            continue
+        # Not ``== "consolidation"``: ``kind`` is agent-written and never
+        # revalidated on this path, so an unrecognised one must fall to "not
+        # this cluster's round" rather than be credited as one. ``ledger``
+        # decides the same way at its own join, and the two must not disagree
+        # about whose work an entry is.
+        if entry.get("kind", "cluster") != "cluster":
+            continue
+        return {**entry, "tag": str(tag)}
     return None
 
 
@@ -89,6 +99,12 @@ def _previous_tag(tag: str) -> str | None:
 
     Tags are a revision sequence (``draft-<slug>-NN``), not cluster ordinals,
     so the citation delta steps back by number rather than by cluster.
+
+    Deliberately not filtered by kind, unlike :func:`revision_of`. A
+    consolidation shares the tag sequence, so when one sits between two cluster
+    rounds it becomes the next round's diff base — which is what is wanted: the
+    consolidated draft is the text that actually preceded that round, and
+    stepping past it would compare against a state that no longer existed.
     """
     stem, _, number = tag.rpartition("-")
     if not number.isdigit():
