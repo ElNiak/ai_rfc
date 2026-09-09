@@ -336,9 +336,15 @@ def test_the_shipped_skill_cannot_carry_a_slot_a_slot_text_named(tmp_path, monke
 
 
 def test_the_loop_tells_a_cluster_to_register_a_structure_it_defines():
-    from ai_rfc.experiment.render import render_loop
+    # The slots are asserted on the template, not on a rendering: arm C fills
+    # both with a plain "not available" sentence, and every other check in the
+    # repository re-derives what it expects from the template itself, so a
+    # rendering-based needle would survive the slots being dropped.
+    template = TEMPLATE.read_text()
+    assert "{{structure_upsert}}" in template
+    assert "{{draft_render}}" in template
 
-    for arm in ("interactive", "A", "B"):
+    for arm in SLOT_TABLES:
         text = render_loop(arm)
         assert "3b" in text
         assert "structure" in text.lower()
