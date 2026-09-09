@@ -31,11 +31,13 @@ from .workspace import reseal as reseal_workspace
 if TYPE_CHECKING:
     from .config import Campaign
 
-#: Cluster rounds between consolidation rounds, read from ``recon.yaml``'s own
-#: field table rather than restated here. The same number configures a
-#: reconstruction and freezes into a campaign, and two literals would let the
-#: operator-facing value and the campaign's drift apart without anything
-#: saying so.
+#: Cluster rounds between consolidation rounds, read from the schema's declared
+#: default for ``sessions.consolidate_every`` rather than restated here. The
+#: same number configures a reconstruction and freezes into a campaign, and two
+#: literals would let the operator-facing value and the campaign's drift apart
+#: without anything saying so. What is shared is the *declared default*: this
+#: verb reads no value an operator wrote into a ``recon.yaml``, so
+#: ``--consolidate-every`` is the only way to change what a campaign freezes.
 DEFAULT_CONSOLIDATE_EVERY: int = field_default("sessions.consolidate_every")
 
 #: Where a run records the sessions appended to it after it finished. One JSON
@@ -936,7 +938,9 @@ def _parser() -> argparse.ArgumentParser:
         default=DEFAULT_CONSOLIDATE_EVERY,
         help=(
             "Cluster rounds between consolidation rounds; 0 disables mid-sweep "
-            "ones (default: %(default)s, from recon.yaml's own field table)."
+            "ones (default: %(default)s, the schema default this shares with "
+            "recon.yaml's sessions.consolidate_every; a value configured there "
+            "is not read)."
         ),
     )
 

@@ -35,8 +35,11 @@ from .render import (
     unified_diff,
 )
 
-#: Cluster rounds between consolidation rounds, taken from ``recon.yaml``'s own
-#: field table. Only what a caller leaves unset is defaulted here;
+#: Cluster rounds between consolidation rounds, taken from the schema's
+#: declared default for ``sessions.consolidate_every`` — shared with
+#: ``recon.yaml`` so the two cannot drift, but never a value an operator
+#: configured there, which nothing reads. Only what a caller leaves unset is
+#: defaulted here;
 #: :attr:`Campaign.consolidate_every` keeps a literal on purpose, because
 #: ``load_campaign`` applies it to campaigns frozen before the field existed
 #: and re-reading this table would retroactively reinterpret them.
