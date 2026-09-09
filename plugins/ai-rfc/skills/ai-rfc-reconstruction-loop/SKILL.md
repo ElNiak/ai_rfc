@@ -37,6 +37,11 @@ When the `ai_rfc` MCP server is connected, prefer its tools (`ai_rfc_cluster_nex
    NO `status`: edit `$AI_RFC_WORKSPACE/manifest.yaml` by hand — quote every id and section, never write `status`. A commit message stating a decision is an
    `adr` anchor; PR discussion explaining intent supports `intent:` but is
    not itself an anchor class.
+3b. If this cluster defines or changes a wire format, message, record,
+    enumeration or state machine, register it now, binding every field, value
+    or transition to a claim you just recorded: `ai_rfc_structure_upsert` (or `ai_rfc structure-upsert`) with the id, kind, title, section and members
+    Then render and paste the block into its owning section: `ai_rfc_draft_render` (or `ai_rfc draft-render`)
+    Skip this step when the cluster describes only behaviour.
 4. **Lint**: `python -m ai_rfc check $AI_RFC_WORKSPACE/manifest.yaml --out $AI_RFC_WORKSPACE/out --repo $AI_RFC_WORKSPACE/clone` — fix every unverified anchor (wrong paths, wrong
    commits, wrong lines) BEFORE anything is built on top.
 5. **Record statuses**: read `$AI_RFC_WORKSPACE/out/report.json` (`claims[]`) and set each claim's `status` in `manifest.yaml` to exactly its `supported` value. Then the strict gate:

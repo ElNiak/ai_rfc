@@ -27,6 +27,11 @@ clusters in ordinal order; never skip silently.
    NO `status`: {{claim_upsert}}. A commit message stating a decision is an
    `adr` anchor; PR discussion explaining intent supports `intent:` but is
    not itself an anchor class.
+3b. If this cluster defines or changes a wire format, message, record,
+    enumeration or state machine, register it now, binding every field, value
+    or transition to a claim you just recorded: {{structure_upsert}}
+    Then render and paste the block into its owning section: {{draft_render}}
+    Skip this step when the cluster describes only behaviour.
 4. **Lint**: {{lint}} — fix every unverified anchor (wrong paths, wrong
    commits, wrong lines) BEFORE anything is built on top.
 5. **Record statuses**: {{record_status}}. Then the strict gate:

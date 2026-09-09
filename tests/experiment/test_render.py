@@ -333,3 +333,12 @@ def test_the_shipped_skill_cannot_carry_a_slot_a_slot_text_named(tmp_path, monke
     with pytest.raises(ExperimentError) as excinfo:
         write_plugin_skill(root)
     assert "gate" in str(excinfo.value)
+
+
+def test_the_loop_tells_a_cluster_to_register_a_structure_it_defines():
+    from ai_rfc.experiment.render import render_loop
+
+    for arm in ("interactive", "A", "B"):
+        text = render_loop(arm)
+        assert "3b" in text
+        assert "structure" in text.lower()
