@@ -16,9 +16,11 @@ Implementation Notes. If a sentence belongs nowhere, it is telling you the
 document is missing a section — add the section.
 
 A citation that disappears is a normative change, and this round records
-`normative_change: false`. The citation set after your edit must equal the set
-before it, and the gate checks. If you genuinely believe a claim should no
-longer be cited, stop: that is a cluster round's decision, not yours.
+`normative_change: false`. So your edit must keep every citation the
+previous revision carried: the gate rejects a drop, and adding one — a new
+figure's caption, a reference the body already relies on — is allowed. If
+you genuinely believe a claim should no longer be cited, stop: that is a
+cluster round's decision, not yours.
 
 ## The order
 

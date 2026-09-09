@@ -11,6 +11,7 @@ from ai_rfc.experiment.render import (
     arm_prompt,
     render_loop,
     render_task,
+    strip_frontmatter,
     unified_diff,
     write_plugin_skill,
 )
@@ -190,7 +191,10 @@ def test_the_editorial_skill_states_the_move_never_drop_rule():
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[2]
-    text = (root / "plugins/ai-rfc/skills/ai-rfc-editorial/SKILL.md").read_text()
+    raw = (root / "plugins/ai-rfc/skills/ai-rfc-editorial/SKILL.md").read_text()
+    # The bundle carries the body only, so a phrase that lived in the
+    # frontmatter would pin nothing the model ever reads.
+    text = strip_frontmatter(raw)
     assert "Move, never drop" in text
     assert "Change Log" in text and "Implementation Notes" in text
     assert "normative" in text.lower()
