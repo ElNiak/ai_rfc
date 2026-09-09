@@ -93,6 +93,22 @@ def test_yaml_that_cannot_be_scanned_schedules_nothing(tmp_path, broken):
     assert consolidation_due(tmp_path, 2, at_end=True) is None
 
 
+def test_a_tag_key_of_another_type_schedules_nothing(tmp_path):
+    ws = _workspace(
+        tmp_path,
+        _cluster("draft-t-01", "c1") + "  01:\n    cluster_id: c2\n",
+    )
+    assert consolidation_due(ws, 2) is None
+    assert consolidation_due(ws, 2, at_end=True) is None
+
+
+def test_the_reason_counts_a_single_round_in_the_singular(tmp_path):
+    ws = _workspace(tmp_path, _cluster("draft-t-01", "c1"))
+    due = consolidation_due(ws, 1)
+    assert due is not None
+    assert due.reason == "1 cluster round"
+
+
 def test_zero_disables_mid_sweep_consolidation_but_not_the_final_one(tmp_path):
     ws = _workspace(
         tmp_path, _cluster("draft-t-01", "c1") + _cluster("draft-t-02", "c2")

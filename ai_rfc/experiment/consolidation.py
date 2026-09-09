@@ -46,12 +46,13 @@ def consolidation_due(
         return None
     try:
         entries = load_revisions(revisions)
-    except (GateError, OSError, yaml.YAMLError):
+    except (GateError, OSError, yaml.YAMLError, TypeError):
         # A malformed revisions file is the gate's finding to report, not a
-        # reason to schedule an editorial pass over it. YAMLError is in the
-        # tuple because load_revisions documents GateError for a malformed
-        # document but does not catch yaml.safe_load's own error, so catching
-        # it here is what covers the whole of what that docstring promises.
+        # reason to schedule an editorial pass over it. load_revisions
+        # documents GateError for a malformed document but raises two others
+        # before its own validation runs: yaml.safe_load's error when the
+        # document will not scan, and TypeError when it sorts the revision
+        # mapping's keys and one of them implicit-typed to a non-string.
         return None
 
     consolidations = 0
@@ -70,5 +71,6 @@ def consolidation_due(
     if at_end:
         return Due(consolidations + 1, base_cluster, since, "sweep end")
     if every and since >= every:
-        return Due(consolidations + 1, base_cluster, since, f"{since} cluster rounds")
+        rounds = "round" if since == 1 else "rounds"
+        return Due(consolidations + 1, base_cluster, since, f"{since} cluster {rounds}")
     return None
