@@ -231,7 +231,7 @@ def test_an_untouched_cluster_is_not_described_as_half_finished(
     assert not any("checkpoint present" in line for line in lines), lines
 
 
-def _ref(campaign, arm=None, clusters=3):
+def _ref(campaign, arm=None):
     from ai_rfc.experiment.runner import run_ref
 
     ref = run_ref(campaign, campaign.run_order[0])
@@ -242,11 +242,11 @@ def _ref(campaign, arm=None, clusters=3):
     # A real timeline, because the consolidation guard checks its base cluster
     # against the whole one rather than against the window a test stubs: the
     # two are deliberately different sets, and a stub for both could not show
-    # that.
+    # that. Three rows covers the widest sweep any test here drives.
     timeline = ref.workspace / "timeline"
     timeline.mkdir(exist_ok=True)
     (timeline / "clusters.jsonl").write_text(
-        "".join(json.dumps(row) + "\n" for row in _clusters(clusters))
+        "".join(json.dumps(row) + "\n" for row in _clusters(3))
     )
     return ref
 
@@ -862,12 +862,22 @@ def _round_kinds(prompts):
     ]
 
 
-def _record_revisions(per_cluster, monkeypatch, workspace, prompts):
+def _record_revisions(per_cluster, monkeypatch, workspace, prompts, *, editorial=True):
     """Let each stubbed session record the revision its round would.
 
     The sweep derives the cadence from ``revisions.yaml`` alone, so a stub that
     writes nothing leaves every round due forever and nothing under test ever
     advances.
+
+    Args:
+        per_cluster: The module under test.
+        monkeypatch: The fixture installing the stub.
+        workspace: Where ``revisions.yaml`` is written.
+        prompts: The recorded prompt files, newest last; the last one says
+            which kind of round is being run.
+        editorial: False makes consolidation sessions record nothing, which is
+            how a round that can never record is modelled. Cluster rounds still
+            record, so the base cluster keeps moving underneath it.
     """
     counting = per_cluster.spawn
     rows: list[tuple[str, str]] = []
@@ -875,7 +885,8 @@ def _record_revisions(per_cluster, monkeypatch, workspace, prompts):
     def recording(*args, **kwargs):
         result = counting(*args, **kwargs)
         if "consolidation-" in str(prompts[-1]):
-            rows.append(("consolidation", rows[-1][1]))
+            if editorial:
+                rows.append(("consolidation", rows[-1][1]))
         else:
             done = sum(1 for kind, _ in rows if kind == "cluster")
             rows.append(("cluster", f"c{done + 1}"))
@@ -1385,3 +1396,47 @@ def test_a_base_cluster_below_the_window_is_still_a_cluster_this_run_knows(
     assert _round_kinds(prompts) == ["consolidation"]
     assert sessions == 1
     assert not any("not a cluster" in note for note in notes), notes
+
+
+def test_a_consolidation_that_cannot_record_is_attempted_once_per_sweep(
+    per_cluster_campaign, monkeypatch
+):
+    """The base cluster moves under a failed round, so it is not part of the key.
+
+    ``consolidation_due`` names the newest cluster revision as the base, so a
+    round that recorded nothing is re-derived with a different base after every
+    later cluster round. Keying the "already tried this" set on the base as well
+    as the ordinal therefore dedupes nothing, and the sweep pays for the same
+    failing editorial pass once per cluster. The ordinal is the stable half: it
+    stays at ``consolidations + 1`` until a round actually records.
+
+    Driven through the real scheduler, because a stubbed constant ``Due`` cannot
+    show the base moving — which is exactly how this survived the first fix.
+    """
+    import ai_rfc.experiment.per_cluster as per_cluster
+
+    campaign = dataclasses.replace(per_cluster_campaign, consolidate_every=1)
+    calls = _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
+    monkeypatch.setattr(progress, "window_clusters", lambda _ws: _clusters(3))
+    prompts = _record_prompts(per_cluster, monkeypatch)
+    ref = _ref(campaign)
+    _record_revisions(per_cluster, monkeypatch, ref.workspace, prompts, editorial=False)
+    notes: list[str] = []
+
+    exit_code, _, sessions = per_cluster.run_per_cluster(
+        campaign, ref, report=notes.append
+    )
+
+    kinds = _round_kinds(prompts)
+    # One mid-sweep attempt, not one per cluster, and the final round regardless.
+    assert kinds == [
+        "cluster",
+        "consolidation",
+        "cluster",
+        "cluster",
+        "consolidation",
+    ]
+    assert kinds.count("consolidation") == 2
+    assert sessions == 5 and calls["n"] == 3
+    # The final round is the deliverable and it recorded nothing.
+    assert exit_code == 1

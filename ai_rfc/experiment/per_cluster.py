@@ -443,12 +443,16 @@ def run_per_cluster(
     reported_damage = 0
     surface_judged = False
     known_sessions: set[str] = set()
-    # Mid-sweep consolidations already attempted in this process. A round that
-    # recorded nothing stays due after every later cluster round, so without
-    # this the sweep pays for it once per cluster from the first failure
-    # onward. In memory only: D50's "derived, never recorded" is about disk,
-    # and a resumed sweep is entitled to try again.
-    attempted: set[tuple[int, str]] = set()
+    # Ordinals of the mid-sweep consolidations already attempted in this
+    # process. A round that recorded nothing stays due after every later
+    # cluster round, so without this the sweep pays for it once per cluster
+    # from the first failure onward. The ordinal alone is the key: it holds at
+    # consolidations + 1 until a round actually records, whereas the base
+    # cluster is re-derived as the newest cluster revision and therefore moves
+    # under a failed round, deduplicating nothing. In memory only — D50's
+    # "derived, never recorded" is about disk, and a resumed sweep is entitled
+    # to try again.
+    attempted: set[int] = set()
     seen_claim_ids, seed_error = seed_seen(campaign, ref.workspace)
     started = time.monotonic()
     exit_code: int | None = 0
@@ -481,10 +485,11 @@ def run_per_cluster(
                     )
                     exit_code = exit_code or 1
                 else:
-                    # The final round is not filtered through `attempted`: it
-                    # is the sweep's deliverable, and its failure is what the
-                    # exit code is for, so it is owed one attempt even when a
-                    # mid-sweep round on the same base already failed.
+                    # The final round is neither filtered through `attempted`
+                    # nor added to it. Keyed on the ordinal, it shares its key
+                    # with the mid-sweep round that failed — but it is the
+                    # sweep's deliverable and its failure is what the exit code
+                    # is for, so it is owed one attempt regardless.
                     try:
                         recorded, round_timed_out = _run_consolidation(
                             campaign,
@@ -518,8 +523,8 @@ def run_per_cluster(
         # must already include what the editorial pass spent.
         if ref.arm != "C" and budget_left > 0 and time_left > 0:
             due = consolidation_due(ref.workspace, campaign.consolidate_every)
-            if due is not None and (due.ordinal, due.base_cluster) not in attempted:
-                attempted.add((due.ordinal, due.base_cluster))
+            if due is not None and due.ordinal not in attempted:
+                attempted.add(due.ordinal)
                 try:
                     recorded, round_timed_out = _run_consolidation(
                         campaign,
