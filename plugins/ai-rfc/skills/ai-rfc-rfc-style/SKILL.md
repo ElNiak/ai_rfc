@@ -70,8 +70,10 @@ listing them again is a build warning.
   `checkpoint.json`), an explicit boolean `normative_change`, a one-line
   `note`. A round may carry further fields; this list is not closed.
 - A round that changes nothing normative still gets a revision entry with
-  `normative_change: false` and a rationale. Its citation set must equal the
-  previous revision's; the gate checks.
+  `normative_change: false` and a rationale. In a cluster round its citations
+  are exactly the previous revision's; the gate checks. A consolidation round
+  is the carve-out: it keeps every citation the previous revision carried and
+  may add one, never drop one.
 
 ## The build
 

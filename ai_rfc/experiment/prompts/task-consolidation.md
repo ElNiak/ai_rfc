@@ -1,8 +1,9 @@
 Consolidate the draft of this reconstruction, following the consolidation
 round in your instructions exactly.
 
-- This is consolidation $ordinal, over the clusters with ordinals $low
-  through $high. It consolidates from the cluster checkpoint $base.
+- This is consolidation $ordinal. It consolidates from the cluster
+  checkpoint $base, and covers every revision recorded since the previous
+  consolidation — not the whole sweep.
 - Change no claim and add no evidence. The requirements in the consolidation
   checkpoint MUST be byte-identical to those in $base; only the structures
   may differ.

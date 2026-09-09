@@ -91,31 +91,38 @@ _EXPERIMENT_GUIDANCE = (
     "procedure; apply them throughout."
 )
 
-#: Every arm reads the same two files for this: no tool lists revisions.
-_REVISIONS_SINCE = (
-    "read `$AI_RFC_WORKSPACE/revisions.yaml` and the draft's tags for every "
-    "entry recorded since the last `kind: consolidation` one"
+#: No arm has a verb that lists revisions, and every arm has `Read`, so the
+#: register itself is the common route; only naming where the draft now
+#: stands differs, and arm A has no shell to ask git with.
+_REVISIONS_SINCE_READ = (
+    "read `$AI_RFC_WORKSPACE/revisions.yaml` for every entry recorded after "
+    "the last `kind: consolidation` one — each entry is keyed by its own tag"
 )
-#: The strict progress contract, in the raw arms' own vocabulary. Its source
-#: of truth is ``ai_rfc.ledger``: a lax restatement here and a strict one in
-#: the tool the other arms call would have the arms working different
-#: clusters, which is a difference the campaign is not measuring.
-_CLUSTER_NEXT_RAW = (
-    "read `$AI_RFC_WORKSPACE/timeline/clusters.jsonl` in ordinal order and take "
-    "the lowest-ordinal in-window cluster that is not done. A cluster is done "
-    "when `checkpoints/<id>/` holds its checkpoint, `revisions.yaml` holds a "
-    "`kind: cluster` entry for it, and that entry's tag exists in "
-    "`$AI_RFC_WORKSPACE/draft`; pre-seeded clusters count as done"
-)
+#: The strict progress contract, stated once. Its source of truth is
+#: ``ai_rfc.ledger``: a lax restatement here and a strict one in the tool the
+#: other arms call would have the arms working different clusters, which is a
+#: difference the campaign is not measuring. ``kind`` is called out as
+#: optional because the raw arms compute this by hand and are never told to
+#: write one, and ``ledger.py`` reads an absent ``kind`` as ``cluster``.
 _CLUSTER_DONE_RULE = (
-    "A cluster is done when its checkpoint is written, `revisions.yaml` holds "
-    "a `kind: cluster` entry for it, and that entry's tag exists in the draft "
-    "repository; pre-seeded clusters count as done"
+    "A cluster is done when `checkpoints/<id>/` holds its checkpoint, "
+    "`revisions.yaml` holds an entry for it whose `kind` is `cluster` or "
+    "absent (an entry with no `kind` is a cluster entry), and that entry's "
+    "tag exists in `$AI_RFC_WORKSPACE/draft`; pre-seeded clusters count as "
+    "done"
+)
+_CLUSTER_NEXT_RAW = (
+    "read `$AI_RFC_WORKSPACE/timeline/clusters.jsonl` in ordinal order and "
+    f"take the lowest-ordinal in-window cluster that is not done. "
+    f"{_CLUSTER_DONE_RULE}"
 )
 
 _RAW = {
     "cluster_next": _CLUSTER_NEXT_RAW,
-    "revisions_since": _REVISIONS_SINCE,
+    "revisions_since": (
+        f"{_REVISIONS_SINCE_READ}, and "
+        "`git -C $AI_RFC_WORKSPACE/draft tag --list` for the tags they carry"
+    ),
     "cluster_get": (
         "read `$AI_RFC_WORKSPACE/clusters/<id>/view.json` (file set, PR number), "
         "`span.diff` (paginate long diffs with `sed -n`) and `evidence/pr.json` "
@@ -253,7 +260,10 @@ SLOT_TABLES: dict[str, dict[str, str]] = {
             "`ai_rfc cluster-next` (prints the lowest-ordinal in-window cluster "
             f"that is not done, or `null`. {_CLUSTER_DONE_RULE})"
         ),
-        "revisions_since": _REVISIONS_SINCE,
+        "revisions_since": (
+            f"{_REVISIONS_SINCE_READ}, and `ai_rfc status` for where the draft "
+            "now stands"
+        ),
         "structure_upsert": "`ai_rfc structure-upsert <id> --json '…'`",
         "draft_render": "`ai_rfc draft-render`",
         "draft_lint": "`ai_rfc draft-lint`",
@@ -320,7 +330,10 @@ SLOT_TABLES: dict[str, dict[str, str]] = {
             "`ai_rfc_cluster_next` (returns the lowest-ordinal in-window "
             f"cluster that is not done, or null. {_CLUSTER_DONE_RULE})"
         ),
-        "revisions_since": _REVISIONS_SINCE,
+        "revisions_since": (
+            f"{_REVISIONS_SINCE_READ}, and `ai_rfc_status()` for where the "
+            "draft now stands — this session has no shell to list tags with"
+        ),
         "structure_upsert": (
             "`ai_rfc_structure_upsert(structure_id, fields)` with the kind, "
             "title, section and members"
@@ -466,6 +479,27 @@ def task_template_path(profile: str = "loop") -> Path:
 TASK_TEMPLATE = task_template_path()
 
 
+def _refuse_slots(text: str, source: str) -> None:
+    """Refuse text that reaches a produced prompt still carrying a ``{{slot}}``.
+
+    Two ways one gets there, and neither is visible to the pre-substitution
+    check: a slot's own text can name a slot, because substitution is single
+    pass; and a bundled skill body or a profile's fixed preamble is appended
+    after the template was rendered, or with no template rendered at all.
+
+    Args:
+        text: One rendered template, or one part of a bundle.
+        source: What to name in the error: a plugin-relative path, a template
+            and its table, or a description of the opening.
+
+    Raises:
+        ExperimentError: If ``text`` holds anything matching :data:`SLOT_RE`.
+    """
+    found = sorted(set(SLOT_RE.findall(text)))
+    if found:
+        raise ExperimentError(f"{source} leaves slots unrendered: {found}")
+
+
 def _render_template(name: str, arm: str, template: str | None = None) -> str:
     """Render one prompt template with one invocation table.
 
@@ -483,7 +517,8 @@ def _render_template(name: str, arm: str, template: str | None = None) -> str:
         The rendered prompt.
 
     Raises:
-        ExperimentError: If ``arm`` has no table or a slot stays unfilled.
+        ExperimentError: If ``arm`` has no table, a slot stays unfilled, or a
+            slot survives into the rendered text.
     """
     if arm not in SLOT_TABLES:
         raise ExperimentError(
@@ -498,7 +533,11 @@ def _render_template(name: str, arm: str, template: str | None = None) -> str:
     # A function replacement, not a string one: `re.sub` interprets backslash
     # escapes in a string replacement, so a slot text carrying `\g` or `\1`
     # would be rewritten on its way into the prompt.
-    return SLOT_RE.sub(lambda match: table[match.group(1)], template)
+    rendered = SLOT_RE.sub(lambda match: table[match.group(1)], template)
+    # Substitution is single pass, so the check above cannot see a slot that a
+    # slot's own text names: that one only exists after the substitution.
+    _refuse_slots(rendered, f"{name} rendered for table {arm!r}")
+    return rendered
 
 
 def render_loop(arm: str, template: str | None = None) -> str:
@@ -573,28 +612,6 @@ def strip_frontmatter(text: str) -> str:
     return text if end < 0 else text[end + len("\n---\n") :].lstrip("\n")
 
 
-def _refuse_slots(text: str, source: str) -> None:
-    """Refuse one part of a bundle that still carries a ``{{slot}}``.
-
-    The renderer fills the template's slots before the skill texts are
-    appended and substitution is single pass, so a slot surviving into the
-    assembled bundle came from text no renderer ever looked at — a bundled
-    body, a fixed preamble, or another slot's own text — and would reach the
-    frozen prompt verbatim.
-
-    Args:
-        text: One part of the bundle.
-        source: What to name in the error: a plugin-relative path or a
-            description of the opening.
-
-    Raises:
-        ExperimentError: If ``text`` holds anything matching :data:`SLOT_RE`.
-    """
-    found = sorted(set(SLOT_RE.findall(text)))
-    if found:
-        raise ExperimentError(f"{source} leaves slots unrendered: {found}")
-
-
 def arm_prompt(
     arm: str,
     plugin_root: Path,
@@ -627,11 +644,10 @@ def arm_prompt(
             f"task profile {profile!r} runs on {', '.join(spec.arms)}, not {arm!r}"
         )
     if spec.preamble is not None:
-        opening, source = spec.preamble, f"task profile {profile!r}'s preamble"
+        opening = spec.preamble
+        _refuse_slots(opening, f"task profile {profile!r}'s preamble")
     else:
         opening = _render_template(spec.prompt_template, arm, template)
-        source = f"{spec.prompt_template} rendered for {arm!r}"
-    _refuse_slots(opening, source)
     parts = [opening]
     for relative in spec.texts:
         body = strip_frontmatter(plugin_root.joinpath(*relative).read_text())

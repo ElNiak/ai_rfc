@@ -31,6 +31,11 @@ produced document, visually separating evidence pointers from prose.
 
 ## The no-change rule
 
-A revision recorded with `normative_change: false` must have exactly the
-same citation set as the previous revision. Adding or removing a citation
-IS a normative change; record it as one.
+A cluster revision recorded with `normative_change: false` carries exactly
+the citations the previous revision carried. Adding or removing one there IS
+a normative change; record it as one.
+
+A consolidation is the carve-out. It keeps every citation the previous
+revision carried — the gate reports drops and nothing else — so adding one,
+a new figure's caption or a reference the body already relies on, is
+allowed. Losing one is still a normative change.

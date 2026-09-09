@@ -1,3 +1,4 @@
+import dataclasses
 import re
 import shutil
 
@@ -61,13 +62,13 @@ def test_arm_prompt_bundles_the_neutral_texts(plugin_root):
 
 def test_arm_prompts_differ_only_where_slots_differ(plugin_root):
     a, b = arm_prompt("A", plugin_root), arm_prompt("B", plugin_root)
-    diff = unified_diff(a, b, "arm-A", "arm-B")
-    assert diff.startswith("--- arm-A") and "+++ arm-B" in diff
-    changed = [
-        line
-        for line in diff.splitlines()
-        if line[:1] in "+-" and not line.startswith(("+++", "---"))
-    ]
+    lines = unified_diff(a, b, "arm-A", "arm-B").splitlines()
+    assert lines[0].startswith("--- arm-A") and lines[1].startswith("+++ arm-B")
+    # Only lines 0 and 1 are file headers, and a hunk header starts with `@`.
+    # Filtering the body on the `---`/`+++` prefixes instead would silently
+    # drop a *changed* line whose own text begins `--` or `++` — a bare CLI
+    # flag at line start — from the set this asserts on.
+    changed = [line for line in lines[2:] if line[:1] in "+-"]
     assert changed and all("ai_rfc" in line for line in changed)
 
 
@@ -230,6 +231,18 @@ def test_the_consolidation_prompt_bundles_the_editorial_skills(plugin_root):
     assert "\nname: ai-rfc-" not in prompt and not prompt.startswith("---")
 
 
+def test_the_consolidation_prompt_never_states_the_equality_rule(plugin_root):
+    # Step 4 of this very prompt orders the agent to add references and a
+    # figure caption. A bundled skill saying the citation set may not change
+    # would refuse the step above it, inside one prompt.
+    from ai_rfc.experiment.render import consolidation_prompt
+
+    prompt = consolidation_prompt("A", plugin_root)
+    assert "must equal" not in prompt
+    assert "same citation set" not in prompt
+    assert "keeps every citation" in prompt
+
+
 def test_the_loop_and_the_consolidation_share_one_slot_validator():
     from ai_rfc.experiment.render import render_consolidation
 
@@ -289,3 +302,34 @@ def test_every_arm_states_the_strict_done_rule_for_the_next_cluster():
         text = render_loop(arm)
         assert "neither" not in text.lower(), f"{arm} still states the lax rule"
         assert "pre-seeded" in text.lower(), f"{arm} omits the pre-seeded clause"
+
+
+def test_a_slot_in_a_fixed_preamble_is_refused(plugin_root, monkeypatch):
+    # The preamble path renders no template, so its own text is the only part
+    # of that bundle nothing else would ever look at.
+    from ai_rfc.experiment.render import TASK_PROFILES
+
+    spec = TASK_PROFILES["interview"]
+    monkeypatch.setitem(
+        TASK_PROFILES,
+        "interview",
+        dataclasses.replace(spec, preamble=f"{spec.preamble}\nSee {{{{gate}}}}.\n"),
+    )
+    with pytest.raises(ExperimentError) as excinfo:
+        arm_prompt("A", plugin_root, profile="interview")
+    assert "gate" in str(excinfo.value) and "preamble" in str(excinfo.value)
+
+
+def test_the_shipped_skill_cannot_carry_a_slot_a_slot_text_named(tmp_path, monkeypatch):
+    # write_plugin_skill renders without bundling, so the scan has to live in
+    # the renderer: the GEPA apply path writes this file too.
+    monkeypatch.setitem(
+        SLOT_TABLES,
+        "interactive",
+        dict(SLOT_TABLES["interactive"], guidance="See {{gate}}."),
+    )
+    root = tmp_path / "plugin"
+    (root / "skills" / "ai-rfc-reconstruction-loop").mkdir(parents=True)
+    with pytest.raises(ExperimentError) as excinfo:
+        write_plugin_skill(root)
+    assert "gate" in str(excinfo.value)
