@@ -78,10 +78,18 @@ def revision_of(workspace: Path, cluster_id: str) -> dict[str, Any] | None:
     Returns:
         The cluster round's entry with its ``tag`` added, or None. A
         consolidation carries the preceding cluster's id (D48) and is not that
-        cluster's own round, so it is never returned here.
+        cluster's own round, so it is never returned here, and neither is an
+        entry whose key is not a revision tag.
     """
+    from ai_rfc.draft.gate import REVISION_TAG
+
     for tag, entry in _mapping(workspace / REVISIONS_FILE, "revisions").items():
-        if not isinstance(entry, dict) or entry.get("cluster_id") != cluster_id:
+        if not isinstance(entry, dict) or "cluster_id" not in entry:
+            continue
+        # ``str`` because the id is agent-written YAML: an unquoted ``c1`` that
+        # happens to be ``1`` parses to an int, and comparing it raw would make
+        # this reader answer None where ``ledger``, which stringifies, matches.
+        if str(entry["cluster_id"]) != cluster_id:
             continue
         # Not ``== "consolidation"``: ``kind`` is agent-written and never
         # revalidated on this path, so an unrecognised one must fall to "not
@@ -89,6 +97,17 @@ def revision_of(workspace: Path, cluster_id: str) -> dict[str, Any] | None:
         # decides the same way at its own join, and the two must not disagree
         # about whose work an entry is.
         if entry.get("kind", "cluster") != "cluster":
+            continue
+        # The tag returned here is a YAML mapping key — agent-written text —
+        # and every caller hands it straight to git as a revision argument
+        # (``diffstat`` here, ``ls-tree`` and ``show`` under ``citation_delta``).
+        # A key such as ``--output=<path>`` is read by git as an option, not a
+        # revision, and writes that file. Guarding at the three sinks would
+        # leave the next one open, so the grammar is checked once, here, where
+        # they all draw from: the recorder cannot have written a key this
+        # rejects, and a forged one degrades to "no entry" instead of reaching
+        # git at all.
+        if not REVISION_TAG.match(str(tag)):
             continue
         return {**entry, "tag": str(tag)}
     return None
@@ -167,7 +186,21 @@ def diffstat(workspace: Path, tag: str) -> dict[str, int] | None:
     bases = ([previous] if previous is not None else []) + [f"{tag}^", EMPTY_TREE]
     for base in bases:
         result = subprocess.run(
-            ["git", "-C", str(_draft(workspace)), "diff", "--numstat", base, tag],
+            # ``--end-of-options`` is the second line, not the first: the tag
+            # reached here only by matching the revision-tag grammar in
+            # :func:`revision_of`, so it cannot lead with a dash. ``--`` would
+            # not do this job — it separates revisions from pathspecs, and git
+            # still reads a leading-dash revision before it as an option.
+            [
+                "git",
+                "-C",
+                str(_draft(workspace)),
+                "diff",
+                "--numstat",
+                "--end-of-options",
+                base,
+                tag,
+            ],
             capture_output=True,
             text=True,
         )

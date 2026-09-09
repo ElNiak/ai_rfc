@@ -332,14 +332,16 @@ def test_a_record_is_written_atomically_and_reread(tmp_path):
 
 
 def _revisions_with_a_consolidation(tmp_path):
-    """A revision map in the order the recorder writes one: tags, sorted.
+    """A revision map where ``kind``, not file order, tells the two apart.
 
-    ``record_revision`` re-dumps the whole map with ``sort_keys=True``, so a
-    consolidation of c1 follows c1's own round rather than preceding it, and
-    ``kind`` — not file order — is the only thing that tells them apart. c9 is
-    the case D48 makes reachable: the recorder refuses a second ``cluster``
-    entry for one cluster but never requires a first one, so a consolidation
-    can name a cluster whose own round has not been recorded.
+    ``record_revision`` re-dumps the whole map with ``sort_keys=True``, so file
+    order is tag order and c1's consolidation is listed first here. That order
+    is reachable: the recorder refuses a second ``kind: cluster`` entry for one
+    cluster but never requires a first one, so a consolidation naming c1 can be
+    recorded before c1's own round is. It also makes the c1 assertion
+    discriminating — on a raw first-match join it returns the consolidation.
+    c9 is the same gap taken to its end: named only by a consolidation, its own
+    round never recorded.
     """
     (tmp_path / "revisions.yaml").write_text(
         yaml.safe_dump(
@@ -348,17 +350,17 @@ def _revisions_with_a_consolidation(tmp_path):
                     "draft-t-01": {
                         "cluster_id": "c1",
                         "checkpoint_manifest_sha256": "a" * 64,
-                        "normative_change": True,
-                        "note": "the cluster round",
-                        "kind": "cluster",
-                    },
-                    "draft-t-02": {
-                        "cluster_id": "c1",
-                        "checkpoint_manifest_sha256": "a" * 64,
                         "normative_change": False,
                         "note": "the consolidation",
                         "kind": "consolidation",
                         "checkpoint": "consolidations/01",
+                    },
+                    "draft-t-02": {
+                        "cluster_id": "c1",
+                        "checkpoint_manifest_sha256": "a" * 64,
+                        "normative_change": True,
+                        "note": "the cluster round",
+                        "kind": "cluster",
                     },
                     "draft-t-03": {
                         "cluster_id": "c9",
@@ -415,6 +417,56 @@ def test_a_kind_that_is_not_a_cluster_round_is_never_that_cluster_s_own(tmp_path
     )
 
     assert revision_of(tmp_path, "c1") is None
+
+
+def test_a_forged_revision_tag_never_leaves_this_reader(tmp_path):
+    """A tag is a YAML mapping key, and every caller hands it to git as a ref.
+
+    ``git diff --numstat --output=<path> <ref>`` writes that file, so a key
+    shaped like an option is an arbitrary write as the harness user. The three
+    sinks (``diffstat``'s ``diff``, ``citation_delta``'s ``ls-tree`` and
+    ``show``) all draw from here, so the grammar is checked here.
+    """
+    from ai_rfc.experiment.summary import revision_of
+
+    written = tmp_path / "written-by-git"
+    for tag in (f"--output={written}", "-draft-t-01", "draft-t-1", "HEAD"):
+        (tmp_path / "revisions.yaml").write_text(
+            yaml.safe_dump(
+                {
+                    "revisions": {
+                        tag: {
+                            "cluster_id": "c1",
+                            "checkpoint_manifest_sha256": "a" * 64,
+                            "normative_change": True,
+                            "note": "forged",
+                        }
+                    }
+                }
+            )
+        )
+        assert revision_of(tmp_path, "c1") is None, tag
+    assert not written.exists()
+
+
+def test_a_cluster_id_that_yaml_typed_as_an_int_still_matches(tmp_path):
+    """An unquoted ``1`` parses to an int; the ledger stringifies, so must this.
+
+    Otherwise one surface reports the cluster complete off the same entry this
+    one reports no entry for — the disagreement this task exists to remove.
+    """
+    from ai_rfc.experiment.summary import revision_of
+
+    (tmp_path / "revisions.yaml").write_text(
+        "revisions:\n"
+        "  draft-t-01:\n"
+        "    cluster_id: 1\n"
+        f"    checkpoint_manifest_sha256: {'a' * 64}\n"
+        "    normative_change: true\n"
+        "    note: 'an unquoted id'\n"
+    )
+
+    assert revision_of(tmp_path, "1")["note"] == "an unquoted id"
 
 
 def test_the_diff_base_is_the_previous_tag_even_when_it_consolidated(tmp_path):

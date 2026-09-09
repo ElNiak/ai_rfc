@@ -341,8 +341,12 @@ def _workspace_with_revisions(tmp_path, revisions_yaml: str):
 def test_a_consolidation_is_not_mistaken_for_its_cluster_s_revision(tmp_path):
     """Regression (R7): the ledger already filters, and must keep doing so.
 
-    Both entries name c1; only the cluster round is c1's own work. This pins
-    the ledger taking that round rather than the consolidation that follows it.
+    Both entries name c1; only the cluster round is c1's own work. The
+    consolidation is listed first so that ``kind``, not file order, is what
+    decides: on a raw first-match join this fixture returns the consolidation.
+    The recorder can produce this order — it refuses a second ``kind: cluster``
+    entry for one cluster but never requires a first one, so a consolidation
+    naming c1 can be recorded before c1's own round is.
     """
     from ai_rfc.experiment.metrics import cluster_artifacts
 
@@ -352,20 +356,20 @@ def test_a_consolidation_is_not_mistaken_for_its_cluster_s_revision(tmp_path):
         "  draft-t-01:\n"
         "    cluster_id: c1\n"
         f"    checkpoint_manifest_sha256: {'a' * 64}\n"
-        "    normative_change: true\n"
-        "    note: 'the cluster round'\n"
-        "  draft-t-02:\n"
-        "    cluster_id: c1\n"
-        f"    checkpoint_manifest_sha256: {'a' * 64}\n"
         "    normative_change: false\n"
         "    note: 'the consolidation'\n"
         "    kind: consolidation\n"
-        "    checkpoint: consolidations/01\n",
+        "    checkpoint: consolidations/01\n"
+        "  draft-t-02:\n"
+        "    cluster_id: c1\n"
+        f"    checkpoint_manifest_sha256: {'a' * 64}\n"
+        "    normative_change: true\n"
+        "    note: 'the cluster round'\n",
     )
     artifacts = cluster_artifacts(workspace, {"id": "c1", "ordinal": 1})
     # The agent's own account of a round is summary's to report, not metrics';
     # what metrics must keep straight is whose tag and whose verdict these are.
-    assert artifacts["revision_tag"] == "draft-t-01"
+    assert artifacts["revision_tag"] == "draft-t-02"
     assert artifacts["normative_change"] is True
     assert artifacts["tag_exists"] and artifacts["artifacts"]
 
