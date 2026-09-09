@@ -1151,3 +1151,88 @@ def test_the_consolidation_task_comes_from_the_frozen_template(
     )
 
     assert seen == ["FROZEN-MARKER round 4 from c1\n"]
+
+
+def test_a_failed_consolidation_still_narrows_what_the_cluster_round_is_given(
+    per_cluster_campaign, monkeypatch
+):
+    """The round that did not record still spent, and the sweep continues past it.
+
+    The budget figures are read once per pass, before the consolidation runs, so
+    the cluster round the failure falls through to would be launched from what
+    the run had left *before* the editorial pass — and the guard that refuses to
+    start a round past the cap would never see the new total.
+    """
+    import ai_rfc.experiment.per_cluster as per_cluster
+    from ai_rfc.experiment.consolidation import Due
+
+    given: list[float] = []
+    original = per_cluster.prepare_run_argv
+
+    def capture(campaign, ref, **kwargs):
+        given.append(kwargs.get("budget_usd"))
+        return original(campaign, ref, **kwargs)
+
+    _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
+    monkeypatch.setattr(progress, "window_clusters", lambda _ws: _clusters(1))
+    monkeypatch.setattr(per_cluster, "prepare_run_argv", capture)
+    monkeypatch.setattr(
+        per_cluster, "_session_cost", lambda _events, seen: (0.6, seen + 1)
+    )
+    # Never recorded, so the sweep falls through to the cluster round.
+    monkeypatch.setattr(
+        per_cluster,
+        "consolidation_due",
+        lambda _ws, _every, *, at_end=False: (
+            None if at_end else Due(1, "c1", 1, "1 cluster round")
+        ),
+    )
+
+    per_cluster.run_per_cluster(
+        per_cluster_campaign, _ref(per_cluster_campaign), report=lambda _: None
+    )
+
+    assert given == [1.0, 0.4]
+
+
+def test_a_consolidations_session_id_is_not_recorded_as_the_next_clusters(
+    per_cluster_campaign, monkeypatch
+):
+    """A cluster round claims every transcript id it has not seen before.
+
+    Until consolidations existed there was no other kind of session to claim,
+    so an unclaimed consolidation id lands in the cluster's own record — the
+    per-session row, its attempts, and the summary's session list all naming a
+    session that did no part of that cluster's work.
+    """
+    import ai_rfc.experiment.per_cluster as per_cluster
+    from ai_rfc.experiment.consolidation import Due
+
+    prompts = _record_prompts(per_cluster, monkeypatch)
+    _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
+    monkeypatch.setattr(progress, "window_clusters", lambda _ws: _clusters(1))
+    counting = per_cluster.spawn
+
+    def announcing(*args, **kwargs):
+        result = counting(*args, **kwargs)
+        launched = "cons" if "consolidation-" in str(prompts[-1]) else "cluster"
+        with kwargs["events_path"].open("a") as handle:
+            handle.write(json.dumps({"session_id": f"sid-{launched}"}) + "\n")
+        return result
+
+    monkeypatch.setattr(per_cluster, "spawn", announcing)
+    dues = iter([Due(1, "c1", 1, "1 cluster round")])
+    monkeypatch.setattr(
+        per_cluster,
+        "consolidation_due",
+        lambda _ws, _every, *, at_end=False: next(dues, None),
+    )
+
+    ref = _ref(per_cluster_campaign)
+    per_cluster.run_per_cluster(per_cluster_campaign, ref, report=lambda _: None)
+
+    rows = [
+        json.loads(line)
+        for line in (ref.run_dir / per_cluster.SESSIONS_FILE).read_text().splitlines()
+    ]
+    assert [row["session_id"] for row in rows] == ["sid-cluster"]

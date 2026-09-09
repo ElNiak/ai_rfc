@@ -251,6 +251,29 @@ def _finish_cluster(
         return seen_claim_ids | held
 
 
+def _account_for_consolidation(
+    events_path: Path, known_sessions: set[str], seen: int
+) -> tuple[float, int]:
+    """Fold a consolidation session into the run's spend and its session set.
+
+    Claiming the id is what keeps it out of the next cluster's record: a
+    cluster round attributes every transcript id it has not seen before to
+    itself, and until consolidations existed there was no other kind of session
+    for that rule to misattribute.
+
+    Args:
+        events_path: The run's transcript.
+        known_sessions: Ids already attributed; extended in place.
+        seen: How many result events the transcript held before this session.
+
+    Returns:
+        ``(cost, total)`` from :func:`_session_cost`.
+    """
+    events, _ = _read_events(events_path)
+    known_sessions.update(session_ids(events))
+    return _session_cost(events, seen)
+
+
 def _checked_cluster_id(workspace: Path, cluster_id: str) -> str:
     """The id, confirmed to name a cluster this run's window actually has.
 
@@ -447,8 +470,8 @@ def run_per_cluster(
                         report=report,
                     )
                     sessions += 1
-                    cost, results_seen = _session_cost(
-                        _read_events(events_path)[0], results_seen
+                    cost, results_seen = _account_for_consolidation(
+                        events_path, known_sessions, results_seen
                     )
                     spent += cost
                     if not recorded:
@@ -456,19 +479,13 @@ def run_per_cluster(
             report(f"{ref.run_id}: window complete after {sessions} session(s)")
             return exit_code, any_timeout, sessions
 
-        if budget_left <= 0 or time_left <= 0:
-            reached = "budget" if budget_left <= 0 else "wall clock"
-            report(
-                f"{ref.run_id}: {reached} exhausted after {sessions} session(s) "
-                f"(${spent:.2f}); cluster {position} of {total} "
-                f"(ordinal {row['ordinal']}) and later not attempted"
-            )
-            return exit_code or 1, any_timeout, sessions
-
-        # Below the guard, because a consolidation costs money like any round:
-        # running one past the budget would be the same bug as running a
-        # cluster round past it.
-        if ref.arm != "C":
+        # Guarded on the same cap the cluster round is, because a consolidation
+        # costs money like any round. It sits above that guard rather than
+        # below it so one guard covers both: a round that recorded nothing
+        # falls through to the cluster work it was scheduled ahead of, and the
+        # figures the cluster round is then launched from — and refused on —
+        # must already include what the editorial pass spent.
+        if ref.arm != "C" and budget_left > 0 and time_left > 0:
             due = consolidation_due(ref.workspace, campaign.consolidate_every)
             if due is not None:
                 recorded = _run_consolidation(
@@ -481,10 +498,12 @@ def run_per_cluster(
                     report=report,
                 )
                 sessions += 1
-                cost, results_seen = _session_cost(
-                    _read_events(events_path)[0], results_seen
+                cost, results_seen = _account_for_consolidation(
+                    events_path, known_sessions, results_seen
                 )
                 spent += cost
+                budget_left = campaign.budget_usd - spent
+                time_left = campaign.timeout_s - (time.monotonic() - started)
                 if recorded:
                     # Only when the round changed the disk. The next pass
                     # re-reads progress, so the consolidation is accounted for
@@ -494,6 +513,15 @@ def run_per_cluster(
                     # stopped the sweep — D52 asks for the opposite, and the
                     # cluster work still outstanding is what would be lost.
                     continue
+
+        if budget_left <= 0 or time_left <= 0:
+            reached = "budget" if budget_left <= 0 else "wall clock"
+            report(
+                f"{ref.run_id}: {reached} exhausted after {sessions} session(s) "
+                f"(${spent:.2f}); cluster {position} of {total} "
+                f"(ordinal {row['ordinal']}) and later not attempted"
+            )
+            return exit_code or 1, any_timeout, sessions
 
         ordinal = row["ordinal"]
         cluster_attempts: list[dict[str, Any]] = []
