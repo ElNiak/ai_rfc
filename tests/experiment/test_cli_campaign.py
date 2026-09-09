@@ -321,3 +321,215 @@ def test_questions_on_a_run_without_the_file_is_an_error(tmp_path, capsys):
 
     assert cli.main(["questions", str(tmp_path / "run")]) == 1
     assert "could not read" in capsys.readouterr().err
+
+
+def _finished_run(campaign_dir: Path, run_id: str, revisions: str) -> Path:
+    """A run directory holding the revision map a finished sweep left behind.
+
+    Args:
+        campaign_dir: The campaign the run belongs to.
+        run_id: The run's id in the frozen order.
+        revisions: The body of its ``revisions.yaml``.
+
+    Returns:
+        The run's workspace.
+    """
+    workspace = campaign_dir / "runs" / run_id / "workspace"
+    workspace.mkdir(parents=True)
+    (workspace / "revisions.yaml").write_text(revisions)
+    return workspace
+
+
+ONE_UNCONSOLIDATED_CLUSTER = (
+    "revisions:\n"
+    "  draft-t-01:\n"
+    "    cluster_id: c1\n"
+    f"    checkpoint_manifest_sha256: {'0' * 64}\n"
+    "    normative_change: true\n"
+)
+
+
+def test_campaign_init_takes_a_consolidation_interval(
+    tmp_path, pristine, panther_repo, capsys, toolchain_record
+):
+    """The cadence is a property of the campaign, so it is frozen with it."""
+    _, _, campaign_dir = _init(
+        tmp_path,
+        pristine,
+        panther_repo,
+        capsys,
+        toolchain_record,
+        "--consolidate-every",
+        "3",
+    )
+
+    frozen = json.loads((campaign_dir / "campaign.json").read_text())
+    assert frozen["consolidate_every"] == 3
+
+
+def test_the_consolidation_interval_defaults_to_recon_yamls_own(
+    tmp_path, pristine, panther_repo, capsys, toolchain_record, monkeypatch
+):
+    """One default for the interval, so an operator's and a campaign's agree.
+
+    Two halves, because comparing the two numbers while they happen to agree
+    would pass against a parser that restated the literal. The first reaches
+    the operator-facing value through the config loader; the second moves the
+    source and requires a campaign frozen with no flag to follow it.
+    """
+    from ai_rfc.config import load_config
+
+    recon = _recon(tmp_path)
+    recon.write_text(recon.read_text() + "sessions:\n  budget_usd: 1.0\n")
+    assert (
+        load_config(recon).sessions.consolidate_every == cli.DEFAULT_CONSOLIDATE_EVERY
+    )
+
+    monkeypatch.setattr(cli, "DEFAULT_CONSOLIDATE_EVERY", 7)
+    _, _, campaign_dir = _init(
+        tmp_path, pristine, panther_repo, capsys, toolchain_record
+    )
+
+    frozen = json.loads((campaign_dir / "campaign.json").read_text())
+    assert frozen["consolidate_every"] == 7
+
+
+def test_a_negative_consolidation_interval_is_refused(
+    tmp_path, pristine, panther_repo, capsys, toolchain_record
+):
+    """A minus sign inverts the flag's meaning instead of narrowing it.
+
+    The schedule asks whether the clusters since the last round reach the
+    interval, so any negative value is reached by the first cluster and buys an
+    editorial pass after every one of them. recon.yaml's loader already refuses
+    a negative integer; the flag says the same thing rather than less.
+
+    The refusal is read off the message, not only off the code: a parser that
+    does not carry the flag at all also exits 2, and would satisfy a test that
+    asked no more than that.
+    """
+    with pytest.raises(SystemExit) as raised:
+        _init(
+            tmp_path,
+            pristine,
+            panther_repo,
+            capsys,
+            toolchain_record,
+            "--consolidate-every",
+            "-1",
+        )
+
+    assert raised.value.code == 2
+    err = capsys.readouterr().err
+    assert "--consolidate-every" in err and "non-negative" in err
+
+
+def test_one_consolidation_runs_against_a_finished_workspace(
+    tmp_path, pristine, panther_repo, capsys, toolchain_record, monkeypatch
+):
+    """One paid round on a finished copy, with no sweep around it.
+
+    ``at_end`` is what the round is asked with even here: a consolidation run
+    by hand consolidates whatever the workspace still has outstanding, which is
+    not a question the interval answers.
+    """
+    from ai_rfc.experiment import per_cluster
+
+    _, _, campaign_dir = _init(
+        tmp_path, pristine, panther_repo, capsys, toolchain_record
+    )
+    _finished_run(campaign_dir, "A1", ONE_UNCONSOLIDATED_CLUSTER)
+    seen: dict = {}
+
+    def fake_consolidation(campaign, ref, due, **kwargs):
+        seen["at_end"] = kwargs["at_end"]
+        seen["ordinal"] = due.ordinal
+        seen["base"] = due.base_cluster
+        seen["run_id"] = ref.run_id
+        return True, False
+
+    monkeypatch.setattr(per_cluster, "_run_consolidation", fake_consolidation)
+
+    code = cli.main(
+        ["run", str(campaign_dir), "--task", "consolidation", "--only", "A1"]
+    )
+
+    assert code == 0
+    assert seen == {"at_end": True, "ordinal": 1, "base": "c1", "run_id": "A1"}
+
+
+def test_a_manual_consolidation_that_recorded_nothing_exits_nonzero(
+    tmp_path, pristine, panther_repo, capsys, toolchain_record, monkeypatch
+):
+    """The operator paid for a round; whether it landed is the exit code."""
+    from ai_rfc.experiment import per_cluster
+
+    _, _, campaign_dir = _init(
+        tmp_path, pristine, panther_repo, capsys, toolchain_record
+    )
+    _finished_run(campaign_dir, "A1", ONE_UNCONSOLIDATED_CLUSTER)
+    monkeypatch.setattr(
+        per_cluster, "_run_consolidation", lambda *_a, **_k: (False, False)
+    )
+
+    assert (
+        cli.main(["run", str(campaign_dir), "--task", "consolidation", "--only", "A1"])
+        == 1
+    )
+
+
+def test_a_manual_consolidation_launches_nothing_when_none_is_due(
+    tmp_path, pristine, panther_repo, capsys, toolchain_record, monkeypatch
+):
+    """A revisions map that will not scan answers None rather than raising.
+
+    The schedule swallows a malformed document on purpose — it is the gate's
+    finding, not a reason to schedule an editorial pass over it. Outside a
+    sweep that same None must stop a session the operator is paying for,
+    instead of launching one with nothing to tell it what to consolidate.
+    """
+    from ai_rfc.experiment import per_cluster
+
+    _, _, campaign_dir = _init(
+        tmp_path, pristine, panther_repo, capsys, toolchain_record
+    )
+    _finished_run(campaign_dir, "A1", "revisions: [\n")
+
+    def refuse(*_args, **_kwargs):
+        raise AssertionError("no round is due; nothing may be launched")
+
+    monkeypatch.setattr(per_cluster, "_run_consolidation", refuse)
+
+    assert (
+        cli.main(["run", str(campaign_dir), "--task", "consolidation", "--only", "A1"])
+        == 1
+    )
+    assert "nothing to consolidate" in capsys.readouterr().err
+
+
+def test_arm_c_is_refused_a_consolidation_by_hand_too(
+    tmp_path, pristine, panther_repo, capsys, toolchain_record, monkeypatch
+):
+    """The sweep declines C's rounds, and a flag must not route around that.
+
+    Nothing downstream would refuse it: ``consolidation-C.md`` is rendered like
+    every other arm's prompt, so the round would launch, and spend, on an arm
+    whose frozen tool surface leaves every command of it missing.
+    """
+    from ai_rfc.experiment import per_cluster
+
+    _, _, campaign_dir = _init(
+        tmp_path, pristine, panther_repo, capsys, toolchain_record
+    )
+    _finished_run(campaign_dir, "C1", ONE_UNCONSOLIDATED_CLUSTER)
+
+    def refuse(*_args, **_kwargs):
+        raise AssertionError("arm C must not launch a consolidation")
+
+    monkeypatch.setattr(per_cluster, "_run_consolidation", refuse)
+
+    assert (
+        cli.main(["run", str(campaign_dir), "--task", "consolidation", "--only", "C1"])
+        == 1
+    )
+    assert "arm C" in capsys.readouterr().err

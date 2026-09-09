@@ -10,9 +10,9 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
-from ..config import ConfigError, experiments_root, load_config, profile_dir
+from ..config import FIELDS, ConfigError, experiments_root, load_config, profile_dir
 from ..lifecycle.profile import init_profile, login_command
 from ..lifecycle.workspace import TEMPLATE_COMMIT, TEMPLATE_URL
 from . import DEFAULT_MODEL, EFFORTS, ExperimentError
@@ -20,6 +20,18 @@ from .arms import ARMS
 from .workspace import migrate_draft as migrate_draft_workspace
 from .workspace import prepare as prepare_workspace
 from .workspace import reseal as reseal_workspace
+
+if TYPE_CHECKING:
+    from .config import Campaign
+
+#: Cluster rounds between consolidation rounds, read from ``recon.yaml``'s own
+#: field table rather than restated here. The same number configures a
+#: reconstruction and freezes into a campaign, and two literals would let the
+#: operator-facing value and the campaign's drift apart without anything
+#: saying so.
+DEFAULT_CONSOLIDATE_EVERY: int = next(
+    field.default for field in FIELDS if field.path == "sessions.consolidate_every"
+)
 
 #: Printed after every ``optimize apply``. The verb writes the working tree
 #: and stops there, and a diff nobody was told to read is a diff that gets
@@ -127,6 +139,36 @@ def _model(value: str) -> str:
     if not model:
         raise argparse.ArgumentTypeError("model id cannot be empty")
     return model
+
+
+def _interval(value: str) -> int:
+    """Parse a consolidation interval, refusing one that inverts the flag.
+
+    The schedule asks whether the cluster rounds since the last consolidation
+    reach the interval, so a negative one is reached by the very first cluster:
+    a mistyped minus sign turns "rarely" into "after every round" and buys a
+    paid editorial pass per cluster. ``recon.yaml``'s loader already refuses a
+    negative integer for the same field, and this keeps the flag saying no less.
+
+    Args:
+        value: The flag's raw text.
+
+    Returns:
+        The interval; 0 disables mid-sweep rounds.
+
+    Raises:
+        argparse.ArgumentTypeError: If it is not a non-negative integer.
+    """
+    try:
+        interval = int(value)
+    except ValueError:
+        interval = -1
+    if interval < 0:
+        raise argparse.ArgumentTypeError(
+            f"{value!r} is not a non-negative integer; 0 disables mid-sweep "
+            f"rounds, and a negative interval would buy one after every cluster"
+        )
+    return interval
 
 
 def _repo_root() -> Path:
@@ -514,6 +556,76 @@ def _optimize_run(args: argparse.Namespace, root: Path) -> int:
     return 0
 
 
+def _run_one_consolidation(campaign: Campaign, only: list[str] | None) -> int:
+    """Run one consolidation round against a run's workspace as it stands.
+
+    The round is asked with ``at_end`` although no sweep surrounds it: a
+    consolidation run by hand consolidates whatever the workspace still has
+    outstanding, which is not a question the interval answers.
+
+    Args:
+        campaign: The frozen campaign the run belongs to.
+        only: Run ids from ``--only``; exactly one is required.
+
+    Returns:
+        0 when the round recorded its revision, 1 when it did not.
+
+    Raises:
+        ExperimentError: If ``--only`` does not name exactly one run of this
+            campaign, or that run has no workspace.
+    """
+    from . import per_cluster
+    from .consolidation import consolidation_due
+    from .runner import run_ref
+
+    if only is None or len(only) != 1:
+        raise ExperimentError(
+            "--task consolidation runs one round against one run; name that "
+            "run with --only <run id>"
+        )
+    ref = run_ref(campaign, only[0])
+    if ref.arm == "C":
+        # The sweep declines C's rounds because D42 freezes its tool surface,
+        # and nothing further down would: the arm's consolidation prompt is
+        # rendered like every other one, so the round would launch and spend.
+        _report(
+            f"{ref.run_id}: arm C does not consolidate (its tool surface is frozen)"
+        )
+        return 1
+    if not ref.workspace.is_dir():
+        raise ExperimentError(
+            f"{ref.workspace} does not exist; a consolidation round edits a "
+            f"workspace some sweep already left behind"
+        )
+    due = consolidation_due(ref.workspace, campaign.consolidate_every, at_end=True)
+    if due is None:
+        # consolidation_due answers None for a revisions.yaml it cannot read as
+        # well as for one with nothing outstanding, and deliberately: a
+        # malformed map is the gate's finding, not a thing to edit. Inside a
+        # sweep that costs a round nobody needed; here it would spend on a
+        # session with nothing to tell it what to consolidate.
+        _report(
+            f"{ref.run_id}: nothing to consolidate — "
+            f"{ref.workspace / 'revisions.yaml'} records no unconsolidated "
+            f"cluster round the gate's own loader accepts"
+        )
+        return 1
+    recorded, timed_out = per_cluster._run_consolidation(
+        campaign,
+        ref,
+        due,
+        budget_usd=campaign.budget_usd,
+        timeout_s=campaign.timeout_s,
+        at_end=True,
+        report=_report,
+    )
+    print(
+        f"{ref.run_id}: consolidation {due.ordinal:02d} "
+        f"recorded={recorded} timed_out={timed_out}"
+    )
+    return 0 if recorded else 1
+
+
 def _add_root(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--root",
@@ -754,10 +866,28 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Skip the parity suite. It is the protocol's stop-ship check.",
     )
+    init.add_argument(
+        "--consolidate-every",
+        type=_interval,
+        default=DEFAULT_CONSOLIDATE_EVERY,
+        help=(
+            "Cluster rounds between consolidation rounds; 0 disables mid-sweep "
+            "ones (default: %(default)s, from recon.yaml's own field table)."
+        ),
+    )
 
     run = commands.add_parser("run", help="Launch pending runs in the frozen order.")
     run.add_argument("campaign", type=Path, help="Campaign directory.")
     run.add_argument("--only", default=None, help="Comma-separated run ids.")
+    run.add_argument(
+        "--task",
+        choices=("sweep", "consolidation"),
+        default="sweep",
+        help=(
+            "Run the window, or one consolidation round against the workspace "
+            "of the single run named by --only, as it stands."
+        ),
+    )
 
     audit = commands.add_parser("audit", help="Audit every run's transcript.")
     audit.add_argument("campaign", type=Path, help="Campaign directory.")
@@ -1101,6 +1231,7 @@ def main(argv: list[str] | None = None) -> int:
                     parity=parity,
                     session_mode=args.session_mode,
                     toolchain=toolchain,
+                    consolidate_every=args.consolidate_every,
                 )
             )
             print(f"campaign: {campaign.dir}")
@@ -1113,9 +1244,13 @@ def main(argv: list[str] | None = None) -> int:
             from .config import load_campaign
             from .driver import launch_pending
 
+            campaign = load_campaign(args.campaign.resolve())
+            only = args.only.split(",") if args.only else None
+            if args.task == "consolidation":
+                return _run_one_consolidation(campaign, only)
             statuses = launch_pending(
-                load_campaign(args.campaign.resolve()),
-                only=args.only.split(",") if args.only else None,
+                campaign,
+                only=only,
                 report=_report,
             )
             for status in statuses:
