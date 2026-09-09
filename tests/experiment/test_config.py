@@ -324,6 +324,22 @@ def test_a_campaign_defaults_to_consolidating_every_ten_clusters(
     assert stored["consolidate_every"] == 10
 
 
+def test_a_chosen_consolidation_interval_survives_the_round_trip(
+    tmp_path, pristine, panther_repo, plugin_root
+):
+    """Only a non-default value can distinguish wiring from a lucky default.
+
+    Both dataclasses default to 10, so a campaign built without an override
+    says nothing about whether init_campaign threaded the ask into the
+    record. Task 8's ``--consolidate-every`` rests entirely on that thread.
+    """
+    campaign = _init(tmp_path, pristine, panther_repo, plugin_root, consolidate_every=3)
+    assert campaign.consolidate_every == 3
+    stored = json.loads((campaign.dir / "campaign.json").read_text())
+    assert stored["consolidate_every"] == 3
+    assert load_campaign(campaign.dir).consolidate_every == 3
+
+
 def test_a_campaign_frozen_before_consolidation_existed_still_loads(
     tmp_path, pristine, panther_repo, plugin_root
 ):
