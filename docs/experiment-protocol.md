@@ -252,23 +252,39 @@ plan's, as it is for the two draft-quality entries above.
 - **A sweep now runs two kinds of round.** A cluster round mines one cluster,
   as before; a consolidation round reorganises what the cluster rounds have
   written. A campaign records the interval between them as
-  `consolidate_every`, so a run says how it was scheduled. `campaign init
-  --consolidate-every N` defaults from `recon.yaml`'s own field table
-  (`sessions.consolidate_every`, 10) rather than from a second literal; the
-  frozen campaign record keeps a literal of its own on purpose, so that
-  campaigns frozen before the field existed are not retroactively
-  reinterpreted.
+  `consolidate_every`, so a run says how it was scheduled. The flag `campaign
+  init --consolidate-every N` and the `recon.yaml` field
+  `sessions.consolidate_every` now share one schema default (10), so the two
+  numbers cannot drift apart — but **`campaign init` does not read an
+  operator's `recon.yaml` value.** It reads the schema's default and nothing
+  else, so a `sessions.consolidate_every: 3` written into a config file is
+  loaded and then consumed by nobody: the campaign freezes 10 regardless.
+  Pass `--consolidate-every` to change it. Wiring the config field through to
+  `campaign init` is open work for a later row. The frozen campaign record
+  keeps a literal of its own on purpose, so that campaigns frozen before the
+  field existed are not retroactively reinterpreted.
 - **A consolidation round runs every K cluster rounds, and once at the
   sweep's end.** It is launched with its own frozen `consolidation-<arm>.md`
   system prompt and its own frozen, hashed task template
   (`task-consolidation.tmpl.md`), both digested into the campaign's
   `prompt_sha256` like every other session prompt, and it appends to the
   run's single transcript.
-- **It changes no claim.** Its revision records `normative_change: false`,
-  and it must not lose a citation the previous revision carried — adding one
-  is allowed, dropping one is a gate finding. This is D52's superset rule:
-  for a consolidation the gate compares citation sets by containment, where
-  for any other non-normative revision it still demands equality.
+- **It changes no claim, and the strongest guard is a digest, not a flag.**
+  A consolidation checkpoint's requirements must digest identically to its
+  base's — a consolidation may change only `structures:` — and that is
+  refused at **write time**, when the checkpoint is frozen, as well as
+  reported by the gate. It runs unconditionally, whatever the revision
+  claims about itself. Two structural rules run with it: a consolidation
+  cannot be the first revision, and it must name its predecessor's cluster,
+  on both the revision entry and the checkpoint record. Only then come the
+  two softer rules: the revision records `normative_change: false`, and it
+  must not lose a citation the previous revision carried — adding one is
+  allowed, dropping one is a gate finding. That is D52's superset rule (for a
+  consolidation the gate compares citation sets by containment, where for any
+  other non-normative revision it still demands equality), and it is checked
+  only when the revision does record `normative_change: false`; nothing
+  obliges a consolidation to record it. The digest rule is what actually
+  makes the round safe.
 - **Its checkpoint lives under `consolidations/<NN>/`** and its revision
   carries `kind: consolidation`, so a consolidation claims no cluster of its
   own and the cluster checkpoint root stays cluster rounds' alone.
@@ -286,11 +302,13 @@ plan's, as it is for the two draft-quality entries above.
 - **A mid-sweep round that records no revision is reported and the sweep
   continues; a failed final one exits 1.** A round that cannot record stays
   due after every later cluster round, so it is attempted once per sweep —
-  keyed on its ordinal, in memory — and not once per cluster round. The
-  final round is owed its attempt regardless, because it is the sweep's
-  deliverable, and a resumed sweep is entitled to try again. Either kind is
-  skipped when the run's budget or wall clock is exhausted; skipping the
-  final one exits 1.
+  keyed on its ordinal — and not once per cluster round. That suppression is
+  held in memory and does not survive a restart: scheduling itself is derived
+  from disk and so is identical across a resume, but a resumed sweep will
+  retry a mid-sweep round that an unbroken sweep would by then be skipping.
+  The final round is owed its attempt regardless, because it is the sweep's
+  deliverable. Either kind is skipped when the run's budget or wall clock is
+  exhausted; skipping the final one exits 1.
 - **`run --task consolidation` runs one round against an existing workspace,
   with no sweep around it.** It takes exactly one run id through `--only`,
   asks the workspace what is outstanding rather than what the interval says,
