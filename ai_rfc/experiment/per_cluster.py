@@ -20,14 +20,16 @@ so the audit, the metrics and the report cannot tell how it was executed.
 from __future__ import annotations
 
 import json
+import string
 import time
 from pathlib import Path
 from typing import Any, Callable
 
 from .. import ledger
-from . import ExperimentError
+from . import ExperimentError, progress
 from .arms import arm_profile
 from .config import Campaign, render_task
+from .consolidation import Due, consolidation_due
 from .metrics import cluster_artifacts
 from .progress import _bar, _duration, cluster_span, describe, digest, window_progress
 from .runner import EVENTS_FILE, STDERR_FILE, RunRef, build_env, prepare_run_argv
@@ -249,6 +251,122 @@ def _finish_cluster(
         return seen_claim_ids | held
 
 
+def _checked_cluster_id(workspace: Path, cluster_id: str) -> str:
+    """The id, confirmed to name a cluster this run's window actually has.
+
+    Membership is the guard rather than a filter over characters. The id is
+    read back out of an agent-written ``revisions.yaml``, and YAML's implicit
+    typing rewrites it before anything sees it: ``01`` arrives as ``'1'``, an
+    empty value as ``'None'``, a sequence as its repr, a block scalar as a
+    string carrying a real newline. A value can therefore be free of control
+    characters and still name nothing, which no character filter catches.
+    Requiring it to be a known cluster covers that, a newline forging structure
+    in the session prompt or in a progress line, and a ``../..`` or an absolute
+    path reaching a checkpoint path, in one test.
+
+    Args:
+        workspace: The run's workspace.
+        cluster_id: The id to check.
+
+    Returns:
+        ``cluster_id`` unchanged.
+
+    Raises:
+        ExperimentError: If it is not a cluster of this workspace's window.
+    """
+    known = {row.get("id") for row in progress.window_clusters(workspace)}
+    if cluster_id not in known:
+        raise ExperimentError(
+            f"cluster id {cluster_id!r} is not a cluster of {workspace}'s "
+            "window; it would reach a session prompt and a checkpoint path "
+            "unescaped"
+        )
+    return cluster_id
+
+
+def _run_consolidation(
+    campaign: Campaign,
+    ref: RunRef,
+    due: Due,
+    *,
+    budget_usd: float,
+    timeout_s: int,
+    at_end: bool,
+    report: Callable[[str], None],
+) -> bool:
+    """Run one consolidation round.
+
+    Args:
+        campaign: The frozen campaign.
+        ref: The run being swept.
+        due: What :func:`consolidation.consolidation_due` decided.
+        budget_usd: Budget remaining for this session.
+        timeout_s: Seconds remaining.
+        at_end: True for the sweep's final consolidation.
+        report: Progress sink.
+
+    Returns:
+        True when the round recorded its revision, re-derived from disk rather
+        than from the session's exit code — an agent can exit 0 having done
+        nothing.
+
+    Raises:
+        ExperimentError: If the base cluster names no cluster of this run's
+            window, or the campaign froze no consolidation task template.
+    """
+    base = _checked_cluster_id(ref.workspace, due.base_cluster)
+    report(
+        f"{ref.run_id}: consolidation {due.ordinal:02d} due ({due.reason}), "
+        f"base {base}"
+    )
+    if not campaign.consolidation_task_template.exists():
+        raise ExperimentError(
+            f"{campaign.consolidation_task_template} is missing; this campaign "
+            "was frozen before consolidation rounds existed — initialise a new "
+            "campaign"
+        )
+    # Two passes because render_task fills only the window, and the frozen
+    # consolidation template also names the round and its base — per-round
+    # values no campaign can freeze. The second pass cannot be forged by the
+    # first, whose only substitutions are window bounds and therefore integers,
+    # and safe_substitute never re-parses what it substituted, so the checked
+    # id lands verbatim.
+    task = string.Template(
+        render_task(
+            (due.ordinal, due.ordinal),
+            template=campaign.consolidation_task_template,
+            profile="consolidation",
+        )
+    ).safe_substitute(ordinal=due.ordinal, base=base)
+    argv = prepare_run_argv(
+        campaign,
+        ref,
+        task=task,
+        budget_usd=budget_usd,
+        prompt_file=campaign.prompts_dir / f"consolidation-{ref.arm}.md",
+    )
+    spawn(
+        argv,
+        cwd=ref.workspace,
+        env=build_env(campaign, ref),
+        events_path=ref.run_dir / EVENTS_FILE,
+        stderr_path=ref.run_dir / STDERR_FILE,
+        timeout_s=timeout_s,
+        append=True,
+    )
+    if (
+        consolidation_due(ref.workspace, campaign.consolidate_every, at_end=at_end)
+        is None
+    ):
+        report(f"{ref.run_id}: consolidation {due.ordinal:02d} recorded")
+        return True
+    report(
+        f"{ref.run_id}: consolidation {due.ordinal:02d} recorded no revision"
+        + ("" if at_end else "; continuing the sweep")
+    )
+    return False
+
+
 def run_per_cluster(
     campaign: Campaign,
     ref: RunRef,
@@ -294,12 +412,50 @@ def run_per_cluster(
 
     while True:
         row, artifacts, position, done, total = window_progress(ref.workspace)
+        # Above the end-of-sweep branch, not below it: the final consolidation
+        # is a session like any other, and reading what the run has left after
+        # the branch that launches it would leave it uncapped.
+        budget_left = campaign.budget_usd - spent
+        time_left = campaign.timeout_s - (time.monotonic() - started)
         if row is None:
+            if ref.arm == "C":
+                report(
+                    f"{ref.run_id}: arm C does not consolidate "
+                    f"(its tool surface is frozen)"
+                )
+            elif (
+                due := consolidation_due(
+                    ref.workspace, campaign.consolidate_every, at_end=True
+                )
+            ) is not None:
+                if budget_left <= 0 or time_left <= 0:
+                    reached = "budget" if budget_left <= 0 else "wall clock"
+                    report(
+                        f"{ref.run_id}: {reached} exhausted after {sessions} "
+                        f"session(s) (${spent:.2f}); the final consolidation "
+                        f"was not attempted"
+                    )
+                    exit_code = exit_code or 1
+                else:
+                    recorded = _run_consolidation(
+                        campaign,
+                        ref,
+                        due,
+                        budget_usd=budget_left,
+                        timeout_s=int(time_left),
+                        at_end=True,
+                        report=report,
+                    )
+                    sessions += 1
+                    cost, results_seen = _session_cost(
+                        _read_events(events_path)[0], results_seen
+                    )
+                    spent += cost
+                    if not recorded:
+                        exit_code = 1
             report(f"{ref.run_id}: window complete after {sessions} session(s)")
             return exit_code, any_timeout, sessions
 
-        budget_left = campaign.budget_usd - spent
-        time_left = campaign.timeout_s - (time.monotonic() - started)
         if budget_left <= 0 or time_left <= 0:
             reached = "budget" if budget_left <= 0 else "wall clock"
             report(
@@ -308,6 +464,36 @@ def run_per_cluster(
                 f"(ordinal {row['ordinal']}) and later not attempted"
             )
             return exit_code or 1, any_timeout, sessions
+
+        # Below the guard, because a consolidation costs money like any round:
+        # running one past the budget would be the same bug as running a
+        # cluster round past it.
+        if ref.arm != "C":
+            due = consolidation_due(ref.workspace, campaign.consolidate_every)
+            if due is not None:
+                recorded = _run_consolidation(
+                    campaign,
+                    ref,
+                    due,
+                    budget_usd=budget_left,
+                    timeout_s=int(time_left),
+                    at_end=False,
+                    report=report,
+                )
+                sessions += 1
+                cost, results_seen = _session_cost(
+                    _read_events(events_path)[0], results_seen
+                )
+                spent += cost
+                if recorded:
+                    # Only when the round changed the disk. The next pass
+                    # re-reads progress, so the consolidation is accounted for
+                    # before a cluster round is chosen. A round that recorded
+                    # nothing left that disk as it was, so going back to the
+                    # top would re-run it every pass until the wall clock
+                    # stopped the sweep — D52 asks for the opposite, and the
+                    # cluster work still outstanding is what would be lost.
+                    continue
 
         ordinal = row["ordinal"]
         cluster_attempts: list[dict[str, Any]] = []
