@@ -11,6 +11,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+import yaml
+
 from ai_rfc.draft.gate import GateError, load_revisions
 
 
@@ -44,9 +46,12 @@ def consolidation_due(
         return None
     try:
         entries = load_revisions(revisions)
-    except (GateError, OSError):
+    except (GateError, OSError, yaml.YAMLError):
         # A malformed revisions file is the gate's finding to report, not a
-        # reason to schedule an editorial pass over it.
+        # reason to schedule an editorial pass over it. YAMLError is in the
+        # tuple because load_revisions documents GateError for a malformed
+        # document but does not catch yaml.safe_load's own error, so catching
+        # it here is what covers the whole of what that docstring promises.
         return None
 
     consolidations = 0

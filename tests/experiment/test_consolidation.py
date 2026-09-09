@@ -79,6 +79,20 @@ def test_the_sweep_end_does_not_consolidate_twice(tmp_path):
     assert consolidation_due(ws, 2, at_end=True) is None
 
 
+@pytest.mark.parametrize(
+    "broken",
+    [
+        "revisions:\n  draft-t-01:\n\tcluster_id: c1\n",
+        'revisions:\n  draft-t-01:\n    note: "unterminated\n',
+    ],
+    ids=["tab-indent", "unterminated-quote"],
+)
+def test_yaml_that_cannot_be_scanned_schedules_nothing(tmp_path, broken):
+    (tmp_path / "revisions.yaml").write_text(broken)
+    assert consolidation_due(tmp_path, 2) is None
+    assert consolidation_due(tmp_path, 2, at_end=True) is None
+
+
 def test_zero_disables_mid_sweep_consolidation_but_not_the_final_one(tmp_path):
     ws = _workspace(
         tmp_path, _cluster("draft-t-01", "c1") + _cluster("draft-t-02", "c2")
