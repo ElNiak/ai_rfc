@@ -184,3 +184,13 @@ def test_the_structures_skill_names_every_kind_and_the_tool():
     # each kind takes writes a body the schema refuses.
     assert "values:" in text
     assert "transitions:" in text
+
+
+def test_the_editorial_skill_states_the_move_never_drop_rule():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    text = (root / "plugins/ai-rfc/skills/ai-rfc-editorial/SKILL.md").read_text()
+    assert "Move, never drop" in text
+    assert "Change Log" in text and "Implementation Notes" in text
+    assert "normative" in text.lower()
