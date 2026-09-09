@@ -263,6 +263,26 @@ FIELDS: tuple[Field, ...] = (
 )
 _BY_PATH = {f.path: f for f in FIELDS}
 
+
+def field_default(path: str) -> Any:
+    """The declared default of one ``recon.yaml`` field.
+
+    Anything that configures the same value elsewhere — a CLI flag, a frozen
+    campaign record — reads it from here rather than restating the number, so
+    the two cannot drift apart without this table moving.
+
+    Args:
+        path: The field's dotted path.
+
+    Returns:
+        Its default, or None where the table declares none.
+
+    Raises:
+        KeyError: If no field carries that path.
+    """
+    return _BY_PATH[path].default
+
+
 #: Every dotted prefix a field hangs under (``source``, ``stages.history``, …).
 #: A block at one of these names no keys of its own but is still a real section,
 #: which is what tells an empty one apart from a typo.

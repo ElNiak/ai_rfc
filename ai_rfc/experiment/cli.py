@@ -9,10 +9,17 @@ import json
 import os
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
-from ..config import FIELDS, ConfigError, experiments_root, load_config, profile_dir
+from ..config import (
+    ConfigError,
+    experiments_root,
+    field_default,
+    load_config,
+    profile_dir,
+)
 from ..lifecycle.profile import init_profile, login_command
 from ..lifecycle.workspace import TEMPLATE_COMMIT, TEMPLATE_URL
 from . import DEFAULT_MODEL, EFFORTS, ExperimentError
@@ -29,9 +36,11 @@ if TYPE_CHECKING:
 #: reconstruction and freezes into a campaign, and two literals would let the
 #: operator-facing value and the campaign's drift apart without anything
 #: saying so.
-DEFAULT_CONSOLIDATE_EVERY: int = next(
-    field.default for field in FIELDS if field.path == "sessions.consolidate_every"
-)
+DEFAULT_CONSOLIDATE_EVERY: int = field_default("sessions.consolidate_every")
+
+#: Where a run records the sessions appended to it after it finished. One JSON
+#: object per line, in the run directory beside the transcript it explains.
+APPENDED_FILE = "appended.jsonl"
 
 #: Printed after every ``optimize apply``. The verb writes the working tree
 #: and stops there, and a diff nobody was told to read is a diff that gets
@@ -556,7 +565,39 @@ def _optimize_run(args: argparse.Namespace, root: Path) -> int:
     return 0
 
 
-def _run_one_consolidation(campaign: Campaign, only: list[str] | None) -> int:
+def _record_append(
+    run_dir: Path, due: Any, lines_before: int, recorded: bool, timed_out: bool
+) -> None:
+    """Note, in the run directory, a session appended after the run finished.
+
+    ``status.json`` is written once and never revised, so once this verb has
+    run it describes a prefix of ``events.jsonl`` — and ``audit_run`` reads the
+    two together. This says where that prefix ends and what lies past it, so
+    the discrepancy reads as a decision rather than as corruption.
+
+    Args:
+        run_dir: The run's directory.
+        due: The round that was run.
+        lines_before: Transcript lines present before it was launched.
+        recorded: Whether the round recorded its revision.
+        timed_out: Whether the session was killed on its cap.
+    """
+    record = {
+        "kind": "consolidation",
+        "ordinal": due.ordinal,
+        "base_cluster": due.base_cluster,
+        "appended_at": datetime.now(timezone.utc).isoformat(),
+        "events_lines_before": lines_before,
+        "recorded": recorded,
+        "timed_out": timed_out,
+    }
+    with (run_dir / APPENDED_FILE).open("a") as handle:
+        handle.write(json.dumps(record, sort_keys=True) + "\n")
+
+
+def _run_one_consolidation(
+    campaign: Campaign, only: list[str] | None, acknowledged: bool
+) -> int:
     """Run one consolidation round against a run's workspace as it stands.
 
     The round is asked with ``at_end`` although no sweep surrounds it: a
@@ -566,22 +607,36 @@ def _run_one_consolidation(campaign: Campaign, only: list[str] | None) -> int:
     Args:
         campaign: The frozen campaign the run belongs to.
         only: Run ids from ``--only``; exactly one is required.
+        acknowledged: Whether the caller accepted appending to a finished run.
 
     Returns:
         0 when the round recorded its revision, 1 when it did not.
 
     Raises:
         ExperimentError: If ``--only`` does not name exactly one run of this
-            campaign, or that run has no workspace.
+            campaign, the append went unacknowledged, or that run has no
+            workspace.
     """
     from . import per_cluster
     from .consolidation import consolidation_due
-    from .runner import run_ref
+    from .runner import EVENTS_FILE, run_ref
 
     if only is None or len(only) != 1:
         raise ExperimentError(
             "--task consolidation runs one round against one run; name that "
             "run with --only <run id>"
+        )
+    if not acknowledged:
+        # The launcher refuses to relaunch a run in place, and a run directory
+        # exists only because it launched once. Appending a session to it is
+        # defensible — the sweep's own final round is one — but it leaves
+        # status.json describing a prefix of a transcript the audit reads
+        # whole, so it is accepted explicitly rather than crossed in silence.
+        raise ExperimentError(
+            "a consolidation round appends a session to a run that already "
+            "finished, leaving status.json describing only a prefix of "
+            "events.jsonl; pass --append-to-finished-run to accept that, and "
+            "point it at a copy — never at a sealed baseline"
         )
     ref = run_ref(campaign, only[0])
     if ref.arm == "C":
@@ -610,6 +665,13 @@ def _run_one_consolidation(campaign: Campaign, only: list[str] | None) -> int:
             f"cluster round the gate's own loader accepts"
         )
         return 1
+    events_path = ref.run_dir / EVENTS_FILE
+    # Counted before the round, because the round appends to this same file.
+    lines_before = (
+        len(events_path.read_text(errors="replace").splitlines())
+        if events_path.exists()
+        else 0
+    )
     recorded, timed_out = per_cluster._run_consolidation(
         campaign,
         ref,
@@ -619,10 +681,12 @@ def _run_one_consolidation(campaign: Campaign, only: list[str] | None) -> int:
         at_end=True,
         report=_report,
     )
+    _record_append(ref.run_dir, due, lines_before, recorded, timed_out)
     print(
         f"{ref.run_id}: consolidation {due.ordinal:02d} "
         f"recorded={recorded} timed_out={timed_out}"
     )
+    print(f"appended past line {lines_before} of {events_path}; see {APPENDED_FILE}")
     return 0 if recorded else 1
 
 
@@ -886,6 +950,15 @@ def _parser() -> argparse.ArgumentParser:
         help=(
             "Run the window, or one consolidation round against the workspace "
             "of the single run named by --only, as it stands."
+        ),
+    )
+    run.add_argument(
+        "--append-to-finished-run",
+        action="store_true",
+        help=(
+            "Required by --task consolidation: accept that the round appends a "
+            "session to a run that already finished, so status.json will "
+            "describe only a prefix of events.jsonl. Point it at a copy."
         ),
     )
 
@@ -1247,7 +1320,9 @@ def main(argv: list[str] | None = None) -> int:
             campaign = load_campaign(args.campaign.resolve())
             only = args.only.split(",") if args.only else None
             if args.task == "consolidation":
-                return _run_one_consolidation(campaign, only)
+                return _run_one_consolidation(
+                    campaign, only, args.append_to_finished_run
+                )
             statuses = launch_pending(
                 campaign,
                 only=only,

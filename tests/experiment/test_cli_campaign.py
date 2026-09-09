@@ -348,6 +348,35 @@ ONE_UNCONSOLIDATED_CLUSTER = (
     "    normative_change: true\n"
 )
 
+#: What every `--task consolidation` call must say out loud. The verb appends a
+#: session to a transcript `status.json` already describes, which the sweep's
+#: own launcher refuses to do, so the tests below carry the acknowledgment
+#: rather than each restating why it is there.
+ACKNOWLEDGE = "--append-to-finished-run"
+
+
+def _consolidate(campaign_dir: Path, *only: str, acknowledge: bool = True) -> int:
+    """Run one consolidation round through the parser.
+
+    Args:
+        campaign_dir: The campaign directory.
+        only: Run ids for ``--only``; none omits the flag entirely.
+        acknowledge: Whether to pass the append acknowledgment.
+
+    Returns:
+        The command's exit code.
+    """
+    return cli.main(
+        [
+            "run",
+            str(campaign_dir),
+            "--task",
+            "consolidation",
+            *(["--only", ",".join(only)] if only else []),
+            *([ACKNOWLEDGE] if acknowledge else []),
+        ]
+    )
+
 
 def test_campaign_init_takes_a_consolidation_interval(
     tmp_path, pristine, panther_repo, capsys, toolchain_record
@@ -450,9 +479,7 @@ def test_one_consolidation_runs_against_a_finished_workspace(
 
     monkeypatch.setattr(per_cluster, "_run_consolidation", fake_consolidation)
 
-    code = cli.main(
-        ["run", str(campaign_dir), "--task", "consolidation", "--only", "A1"]
-    )
+    code = _consolidate(campaign_dir, "A1")
 
     assert code == 0
     assert seen == {"at_end": True, "ordinal": 1, "base": "c1", "run_id": "A1"}
@@ -472,10 +499,7 @@ def test_a_manual_consolidation_that_recorded_nothing_exits_nonzero(
         per_cluster, "_run_consolidation", lambda *_a, **_k: (False, False)
     )
 
-    assert (
-        cli.main(["run", str(campaign_dir), "--task", "consolidation", "--only", "A1"])
-        == 1
-    )
+    assert _consolidate(campaign_dir, "A1") == 1
 
 
 def test_a_manual_consolidation_launches_nothing_when_none_is_due(
@@ -500,10 +524,7 @@ def test_a_manual_consolidation_launches_nothing_when_none_is_due(
 
     monkeypatch.setattr(per_cluster, "_run_consolidation", refuse)
 
-    assert (
-        cli.main(["run", str(campaign_dir), "--task", "consolidation", "--only", "A1"])
-        == 1
-    )
+    assert _consolidate(campaign_dir, "A1") == 1
     assert "nothing to consolidate" in capsys.readouterr().err
 
 
@@ -528,8 +549,119 @@ def test_arm_c_is_refused_a_consolidation_by_hand_too(
 
     monkeypatch.setattr(per_cluster, "_run_consolidation", refuse)
 
-    assert (
-        cli.main(["run", str(campaign_dir), "--task", "consolidation", "--only", "C1"])
-        == 1
-    )
+    assert _consolidate(campaign_dir, "C1") == 1
     assert "arm C" in capsys.readouterr().err
+
+
+def test_a_zero_consolidation_interval_survives_into_the_campaign(
+    tmp_path, pristine, panther_repo, capsys, toolchain_record
+):
+    """0 is a value, not an absence: it keeps the sweep-end round and no other.
+
+    Worth its own assertion because 0 is the one setting a falsy-default
+    shortcut would silently rewrite, and every other test on this flag would
+    stay green while it did.
+    """
+    _, _, campaign_dir = _init(
+        tmp_path,
+        pristine,
+        panther_repo,
+        capsys,
+        toolchain_record,
+        "--consolidate-every",
+        "0",
+    )
+
+    frozen = json.loads((campaign_dir / "campaign.json").read_text())
+    assert frozen["consolidate_every"] == 0
+
+
+def test_a_manual_consolidation_is_refused_without_the_acknowledgment(
+    tmp_path, pristine, panther_repo, capsys, toolchain_record, monkeypatch
+):
+    """Appending to a finished run crosses an invariant, so it is said out loud.
+
+    The launcher refuses to relaunch a run in place, and a run directory exists
+    only because it launched once. This verb appends a session anyway, leaving
+    `status.json` describing a prefix of `events.jsonl` — defensible, but not
+    something to do silently, since the audit reads both.
+    """
+    from ai_rfc.experiment import per_cluster
+
+    _, _, campaign_dir = _init(
+        tmp_path, pristine, panther_repo, capsys, toolchain_record
+    )
+    _finished_run(campaign_dir, "A1", ONE_UNCONSOLIDATED_CLUSTER)
+
+    def refuse(*_args, **_kwargs):
+        raise AssertionError("the append was not acknowledged; nothing may run")
+
+    monkeypatch.setattr(per_cluster, "_run_consolidation", refuse)
+
+    assert _consolidate(campaign_dir, "A1", acknowledge=False) == 1
+    err = capsys.readouterr().err
+    assert ACKNOWLEDGE in err and "status.json" in err
+
+
+def test_a_manual_consolidation_records_that_it_extended_the_transcript(
+    tmp_path, pristine, panther_repo, capsys, toolchain_record, monkeypatch
+):
+    """A reader of the run must be able to tell the extension was deliberate.
+
+    `status.json` is written once and never revised, so after this verb it
+    describes a prefix of the transcript. The marker says where that prefix
+    ends and what was appended past it.
+    """
+    from ai_rfc.experiment import per_cluster
+
+    _, _, campaign_dir = _init(
+        tmp_path, pristine, panther_repo, capsys, toolchain_record
+    )
+    workspace = _finished_run(campaign_dir, "A1", ONE_UNCONSOLIDATED_CLUSTER)
+    (workspace.parent / "events.jsonl").write_text('{"a": 1}\n{"b": 2}\n')
+    monkeypatch.setattr(
+        per_cluster, "_run_consolidation", lambda *_a, **_k: (True, False)
+    )
+
+    assert _consolidate(campaign_dir, "A1") == 0
+
+    appended = [
+        json.loads(line)
+        for line in (workspace.parent / "appended.jsonl").read_text().splitlines()
+    ]
+    assert len(appended) == 1
+    assert appended[0]["kind"] == "consolidation"
+    assert appended[0]["ordinal"] == 1
+    assert appended[0]["base_cluster"] == "c1"
+    assert appended[0]["events_lines_before"] == 2
+    assert appended[0]["recorded"] is True
+    assert appended[0]["timed_out"] is False
+    assert appended[0]["appended_at"]
+
+
+def test_a_manual_consolidation_needs_exactly_one_run(
+    tmp_path, pristine, panther_repo, capsys, toolchain_record, monkeypatch
+):
+    """The round edits one workspace, and --only is the only thing that says which.
+
+    Both shapes, because they fail for opposite reasons: with no --only the
+    sweep's default is every run in the frozen order, and with two ids there is
+    no answer to which workspace the single round belongs to.
+    """
+    from ai_rfc.experiment import per_cluster
+
+    _, _, campaign_dir = _init(
+        tmp_path, pristine, panther_repo, capsys, toolchain_record
+    )
+    _finished_run(campaign_dir, "A1", ONE_UNCONSOLIDATED_CLUSTER)
+
+    def refuse(*_args, **_kwargs):
+        raise AssertionError("no single run was named; nothing may run")
+
+    monkeypatch.setattr(per_cluster, "_run_consolidation", refuse)
+
+    assert _consolidate(campaign_dir) == 1
+    assert "--only" in capsys.readouterr().err
+
+    assert _consolidate(campaign_dir, "A1", "B1") == 1
+    assert "--only" in capsys.readouterr().err

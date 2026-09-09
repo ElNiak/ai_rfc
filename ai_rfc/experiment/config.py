@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import toolchain as toolchain_module
+from ..config import field_default
 from ..config import profile_dir as default_profile_dir
 from ..lifecycle.workspace import DIGEST_FILE, RECORD_FILE
 from . import ExperimentError
@@ -33,6 +34,13 @@ from .render import (
     task_template_path,
     unified_diff,
 )
+
+#: Cluster rounds between consolidation rounds, taken from ``recon.yaml``'s own
+#: field table. Only what a caller leaves unset is defaulted here;
+#: :attr:`Campaign.consolidate_every` keeps a literal on purpose, because
+#: ``load_campaign`` applies it to campaigns frozen before the field existed
+#: and re-reading this table would retroactively reinterpret them.
+DEFAULT_CONSOLIDATE_EVERY: int = field_default("sessions.consolidate_every")
 
 TASK_TEMPLATE_FILE = "task.tmpl.md"
 CONSOLIDATION_TASK_TEMPLATE_FILE = "task-consolidation.tmpl.md"
@@ -90,7 +98,7 @@ class CampaignConfig:
     verify_toolchain: bool = True
     #: Cluster rounds between consolidation rounds; see
     #: :attr:`Campaign.consolidate_every`.
-    consolidate_every: int = 10
+    consolidate_every: int = DEFAULT_CONSOLIDATE_EVERY
 
 
 @dataclass(frozen=True)
