@@ -628,6 +628,18 @@ def _run_one_consolidation(
             "--task consolidation runs one round against one run; name that "
             "run with --only <run id>"
         )
+    ref = run_ref(campaign, only[0])
+    if ref.arm == "C":
+        # The sweep declines C's rounds because D42 freezes its tool surface,
+        # and nothing further down would: the arm's consolidation prompt is
+        # rendered like every other one, so the round would launch and spend.
+        # Ahead of the acknowledgment, because this refusal is unconditional:
+        # asking for the flag first walks an operator through accepting a risk
+        # that was never on the table, and then refuses them anyway.
+        _report(
+            f"{ref.run_id}: arm C does not consolidate (its tool surface is frozen)"
+        )
+        return 1
     if not acknowledged:
         # The launcher refuses to relaunch a run in place, and a run directory
         # exists only because it launched once. Appending a session to it is
@@ -640,15 +652,6 @@ def _run_one_consolidation(
             "events.jsonl; pass --append-to-finished-run to accept that, and "
             "point it at a copy — never at a sealed baseline"
         )
-    ref = run_ref(campaign, only[0])
-    if ref.arm == "C":
-        # The sweep declines C's rounds because D42 freezes its tool surface,
-        # and nothing further down would: the arm's consolidation prompt is
-        # rendered like every other one, so the round would launch and spend.
-        _report(
-            f"{ref.run_id}: arm C does not consolidate (its tool surface is frozen)"
-        )
-        return 1
     if not ref.workspace.is_dir():
         raise ExperimentError(
             f"{ref.workspace} does not exist; a consolidation round edits a "

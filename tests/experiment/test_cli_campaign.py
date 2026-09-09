@@ -553,6 +553,33 @@ def test_arm_c_is_refused_a_consolidation_by_hand_too(
     assert "arm C" in capsys.readouterr().err
 
 
+def test_an_arm_the_verb_refuses_is_never_sent_to_fetch_a_flag_first(
+    tmp_path, pristine, panther_repo, capsys, toolchain_record, monkeypatch
+):
+    """The refusal an operator cannot argue with comes before the one they can.
+
+    Ordered the other way, an arm C operator is told to add a flag whose own
+    message calls it dangerous, adds it, and is then refused for a reason that
+    had nothing to do with the flag — having been walked through accepting a
+    risk that was never on the table.
+    """
+    from ai_rfc.experiment import per_cluster
+
+    _, _, campaign_dir = _init(
+        tmp_path, pristine, panther_repo, capsys, toolchain_record
+    )
+    _finished_run(campaign_dir, "C1", ONE_UNCONSOLIDATED_CLUSTER)
+
+    def refuse(*_args, **_kwargs):
+        raise AssertionError("arm C must not launch a consolidation")
+
+    monkeypatch.setattr(per_cluster, "_run_consolidation", refuse)
+
+    assert _consolidate(campaign_dir, "C1", acknowledge=False) == 1
+    err = capsys.readouterr().err
+    assert "arm C" in err and ACKNOWLEDGE not in err
+
+
 def test_a_zero_consolidation_interval_survives_into_the_campaign(
     tmp_path, pristine, panther_repo, capsys, toolchain_record
 ):

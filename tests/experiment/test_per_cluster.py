@@ -1440,3 +1440,68 @@ def test_a_consolidation_that_cannot_record_is_attempted_once_per_sweep(
     assert sessions == 5 and calls["n"] == 3
     # The final round is the deliverable and it recorded nothing.
     assert exit_code == 1
+
+
+def test_a_round_that_broke_the_revision_map_is_not_credited_with_recording(
+    per_cluster_campaign, monkeypatch
+):
+    """Success is what the round wrote, never what the scheduler stopped saying.
+
+    ``consolidation_due`` answers None for a revisions map its loader refuses
+    as well as for one with nothing outstanding, and deliberately so. Deriving
+    success from that same None credits a session that destroyed the very file
+    the credit is supposed to be evidence from: the sweep exits 0 and the
+    append marker files a round that recorded nothing as one that did.
+    """
+    import ai_rfc.experiment.per_cluster as per_cluster
+    from ai_rfc.experiment.consolidation import Due
+
+    ref = _ref(per_cluster_campaign)
+    _write_revisions(ref.workspace, [("cluster", "c1")])
+
+    def mangling(*_args, **_kwargs):
+        (ref.workspace / "revisions.yaml").write_text("revisions: [c1]\n")
+        return 0, False
+
+    monkeypatch.setattr(per_cluster, "spawn", mangling)
+    notes: list[str] = []
+
+    recorded, timed_out = per_cluster._run_consolidation(
+        per_cluster_campaign,
+        ref,
+        Due(1, "c1", 1, "sweep end"),
+        budget_usd=1.0,
+        timeout_s=60,
+        at_end=True,
+        report=notes.append,
+    )
+
+    assert (recorded, timed_out) == (False, False)
+    assert any("recorded no revision" in note for note in notes), notes
+
+
+def test_a_sweep_end_whose_revision_map_will_not_load_exits_one(
+    per_cluster_campaign, monkeypatch
+):
+    """The same None must not skip the deliverable and call the sweep a success.
+
+    ``--task consolidation`` reports this value and exits 1; the sweep's own
+    end-of-window branch reached the very same workspace, said nothing, and
+    exited 0 — so the one place D52 makes the final round fatal was the one
+    place that could not see it had never run.
+    """
+    import ai_rfc.experiment.per_cluster as per_cluster
+
+    _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
+    monkeypatch.setattr(progress, "window_clusters", lambda _ws: [])
+    ref = _ref(per_cluster_campaign)
+    (ref.workspace / "revisions.yaml").write_text("revisions: [c1]\n")
+    notes: list[str] = []
+
+    exit_code, _, sessions = per_cluster.run_per_cluster(
+        per_cluster_campaign, ref, report=notes.append
+    )
+
+    assert exit_code == 1
+    assert sessions == 0
+    assert any("unreadable" in note for note in notes), notes

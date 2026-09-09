@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .. import ledger
-from ..draft.gate import _cluster_ordinals
+from ..draft.gate import _cluster_ordinals, load_revisions
 from . import ExperimentError
 from .arms import arm_profile
 from .config import Campaign, render_task
@@ -315,6 +315,28 @@ def _checked_cluster_id(workspace: Path, cluster_id: str) -> str:
     return cluster_id
 
 
+def _consolidations_recorded(workspace: Path) -> int:
+    """How many consolidation revisions the workspace records.
+
+    Read through the gate's own loader so the driver and the gate cannot
+    disagree about what a revision is.
+
+    Args:
+        workspace: The run's workspace.
+
+    Returns:
+        The number of entries carrying ``kind: consolidation``, and 0 when the
+        map is missing or will not load. The count is evidence a round left
+        behind, so anything standing between the caller and that evidence is
+        an absence of proof and never a reason to raise inside a sweep.
+    """
+    try:
+        entries = load_revisions(workspace / "revisions.yaml")
+    except Exception:  # noqa: BLE001 - no proof of a revision is not one
+        return 0
+    return sum(1 for entry in entries if entry.kind == "consolidation")
+
+
 def _run_consolidation(
     campaign: Campaign,
     ref: RunRef,
@@ -392,10 +414,13 @@ def _run_consolidation(
         timeout_s=timeout_s,
         append=True,
     )
-    if (
-        consolidation_due(ref.workspace, campaign.consolidate_every, at_end=at_end)
-        is None
-    ):
+    # Counted, not inferred from the schedule falling silent. consolidation_due
+    # answers None for a revisions map its loader refuses as well as for one
+    # with nothing outstanding, so a round that destroyed that map would be
+    # credited by its own damage. The ordinal is the round this session owed,
+    # which is one more than the map held before it: at least that many is the
+    # evidence it recorded, and more is an agent recording generously.
+    if _consolidations_recorded(ref.workspace) >= due.ordinal:
         report(f"{ref.run_id}: consolidation {due.ordinal:02d} recorded")
         return True, timed_out
     report(
@@ -512,6 +537,25 @@ def run_per_cluster(
                         spent += cost
                         if not recorded:
                             exit_code = 1
+            else:
+                # None is two answers here, and only one of them is a finished
+                # sweep. `run --task consolidation` reports the other and exits
+                # 1; this branch is the one place D52 makes the final round
+                # fatal, so it must not file an unreadable workspace as a run
+                # that had nothing left to do. Asked again rather than asked
+                # differently: consolidation_due's None is deliberate and
+                # tested, and widening it would schedule an editorial pass over
+                # a map the gate is the one to report on.
+                revisions = ref.workspace / "revisions.yaml"
+                if revisions.is_file():
+                    try:
+                        load_revisions(revisions)
+                    except Exception as error:  # noqa: BLE001 - never fatal here
+                        report(
+                            f"{ref.run_id}: final consolidation not run: "
+                            f"{revisions} is unreadable ({error})"
+                        )
+                        exit_code = 1
             report(f"{ref.run_id}: window complete after {sessions} session(s)")
             return exit_code, any_timeout, sessions
 
