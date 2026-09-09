@@ -86,6 +86,9 @@ class CampaignConfig:
     #: Whether to verify ``toolchain`` here. ``False`` says the caller has
     #: already verified this record; the campaign still records it.
     verify_toolchain: bool = True
+    #: Cluster rounds between consolidation rounds; see
+    #: :attr:`Campaign.consolidate_every`.
+    consolidate_every: int = 10
 
 
 @dataclass(frozen=True)
@@ -135,6 +138,8 @@ class Campaign:
     #: The digest of the loop template the arm prompts were rendered from,
     #: when the caller supplied one instead of the package template.
     loop_template_sha256: str | None = None
+    #: Cluster rounds between consolidation rounds; 0 disables mid-sweep ones.
+    consolidate_every: int = 10
 
     @property
     def dir(self) -> Path:
@@ -398,6 +403,7 @@ def init_campaign(config: CampaignConfig) -> Campaign:
         template_home=toolchain_record.get("template_home"),
         task_profile=profile,
         loop_template_sha256=loop_template_sha256,
+        consolidate_every=config.consolidate_every,
     )
     (campaign_dir / CAMPAIGN_FILE).write_text(_dump(campaign))
     return campaign

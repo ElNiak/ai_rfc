@@ -315,6 +315,31 @@ def test_a_campaign_frozen_before_the_profile_fields_existed_still_loads(
     assert loaded.loop_template_sha256 is None
 
 
+def test_a_campaign_defaults_to_consolidating_every_ten_clusters(
+    tmp_path, pristine, panther_repo, plugin_root
+):
+    campaign = _init(tmp_path, pristine, panther_repo, plugin_root)
+    assert campaign.consolidate_every == 10
+    stored = json.loads((campaign.dir / "campaign.json").read_text())
+    assert stored["consolidate_every"] == 10
+
+
+def test_a_campaign_frozen_before_consolidation_existed_still_loads(
+    tmp_path, pristine, panther_repo, plugin_root
+):
+    """load_campaign splats the frozen JSON into the dataclass.
+
+    A field without a default would make every existing campaign.json
+    unloadable - the finished MARK campaign included.
+    """
+    campaign = _init(tmp_path, pristine, panther_repo, plugin_root)
+    stored_path = campaign.dir / "campaign.json"
+    payload = json.loads(stored_path.read_text())
+    del payload["consolidate_every"]
+    stored_path.write_text(json.dumps(payload))
+    assert load_campaign(campaign.dir).consolidate_every == 10
+
+
 def test_the_interview_profile_is_one_arm_and_one_session(
     tmp_path, pristine, panther_repo, plugin_root
 ):
