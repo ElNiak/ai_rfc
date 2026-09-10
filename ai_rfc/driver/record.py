@@ -454,6 +454,23 @@ def move_aside(path: Path, cause: str) -> Path:
     is handed — but what it moves is evidence, so it is moved whole and
     :func:`spent` goes on reading it.
 
+    **A resume scan must skip what is already moved aside**, and this refuses
+    it as well. A moved-aside directory has no ``status.json`` either, so it
+    satisfies the leftover predicate on every subsequent resume; unguarded,
+    each one appends another suffix until the name reaches ``ENAMETOOLONG``
+    and a resume dies mid-scan. Filter the scan on ``INTERRUPTED not in
+    path.name`` — the constant is public for this — rather than relying on the
+    refusal, which is a backstop and not a substitute for not asking.
+
+    One coupling worth knowing, because it is load-bearing and declared
+    nowhere else: ``ai_rfc.draft.completeness.checkpoint_records`` is the only
+    thing that enumerates the checkpoints root, and it skips a directory
+    holding no ``checkpoint.json`` — the same condition that qualified that
+    directory for being moved aside, which is the whole reason a moved-aside
+    checkpoint does not re-enter claim attribution under a second name. A
+    change there that tolerated a missing record would silently double-count
+    every leftover.
+
     Args:
         path: The directory to move aside.
         cause: What interrupted it, as one path segment: letters, digits and
@@ -465,9 +482,10 @@ def move_aside(path: Path, cause: str) -> Path:
 
     Raises:
         DriverError: If the cause is not usable as one path segment, the path
-            is not there, or something already stands at the new name —
-            ``rename`` would silently replace an empty directory, and a
-            leftover that vanished is the one thing this must not do.
+            is not there, it has already been moved aside, or something
+            already stands at the new name — ``rename`` would silently replace
+            an empty directory, and a leftover that vanished is the one thing
+            this must not do.
         OSError: If the rename fails.
     """
     if not _CAUSE.fullmatch(cause):
@@ -478,6 +496,12 @@ def move_aside(path: Path, cause: str) -> Path:
         )
     if not path.exists():
         raise DriverError(f"{path} does not exist; there is nothing to move aside")
+    if INTERRUPTED in path.name:
+        raise DriverError(
+            f"{path} has already been moved aside; it has no status record "
+            "either, so a resume scan that does not skip it would suffix it "
+            f"again on every resume. Filter the scan on {INTERRUPTED!r}"
+        )
     target = path.with_name(f"{path.name}{INTERRUPTED}{cause}")
     if target.exists():
         raise DriverError(

@@ -89,6 +89,52 @@ def _session_row(**overrides: Any) -> dict[str, Any]:
     return body
 
 
+# --- the declared contracts -------------------------------------------------
+#
+# Written out literally rather than derived from the constants. The
+# parametrized tests below take their case list *from* the constant under
+# test, so they catch `_require` failing to check a declared key but are blind
+# to a key leaving the tuple: shrink the contract and every one of those cases
+# simply disappears, silently. Task 10 consumes both shapes, so a narrowing is
+# exactly the change that must not pass unnoticed.
+
+
+def test_the_run_record_contract_is_exactly_these_keys() -> None:
+    """Adding or removing a key here is a decision, never a side effect."""
+    assert record.RUN_RECORD_KEYS == (
+        "run_id",
+        "started_at",
+        "config_sha256",
+        "init_sha256",
+        "prompt_sha256",
+        "task_sha256",
+        "prompt_drift",
+        "claude_version",
+        "budget_usd",
+        "spent_before_usd",
+    )
+
+
+def test_the_session_row_contract_is_exactly_these_keys() -> None:
+    """Including the three the campaign's row does not carry, and no ``attempt``."""
+    assert record.SESSION_ROW_KEYS == (
+        "session",
+        "kind",
+        "cluster_id",
+        "ordinal",
+        "task_template",
+        "exit_code",
+        "timed_out",
+        "cost_usd",
+        "lifetime_cost_usd",
+        "budget_given_usd",
+        "session_id",
+        "wall_s",
+        "damaged",
+        "argv",
+    )
+
+
 # --- run.json ---------------------------------------------------------------
 
 
@@ -497,8 +543,53 @@ def test_move_aside_refuses_a_path_that_is_not_there(tmp_path: Path) -> None:
         record.move_aside(tmp_path / "runs" / "absent", "interrupt")
 
 
+def test_move_aside_refuses_a_directory_already_moved_aside(tmp_path: Path) -> None:
+    """A leftover has no ``status.json`` either, so it re-qualifies forever.
+
+    The resume scan looks for a run directory without a status record, and a
+    moved-aside one satisfies that on every subsequent resume. Left unguarded,
+    each resume appends another suffix until the name reaches ``ENAMETOOLONG``
+    and a resume dies on an ``OSError`` in the middle of its scan.
+    """
+    run_dir = tmp_path / record.RUNS_DIR / "20260910T120000Z"
+    _transcript(run_dir, _result(1.25))
+    moved = record.move_aside(run_dir, "budget")
+
+    with pytest.raises(DriverError, match="already been moved aside"):
+        record.move_aside(moved, "interrupt")
+
+    assert moved.name == "20260910T120000Z.interrupted-budget"
+    assert (moved / record.EVENTS_FILE).exists()
+    assert record.spent(tmp_path) == pytest.approx(1.25)
+
+
+def test_move_aside_refuses_a_second_suffix_however_it_was_named(
+    tmp_path: Path,
+) -> None:
+    """The guard reads the name, not this module's own history of it."""
+    stray = tmp_path / "checkpoints" / "c1.interrupted-20260910T120000Z"
+    stray.mkdir(parents=True)
+
+    with pytest.raises(DriverError, match="already been moved aside"):
+        record.move_aside(stray, "20260910T130000Z")
+
+    assert stray.is_dir()
+    assert list((tmp_path / "checkpoints").iterdir()) == [stray]
+
+
 def test_move_aside_accepts_the_stop_reason_vocabulary(tmp_path: Path) -> None:
-    """Task 9's reasons are the causes Task 10 will pass; none may be refused."""
+    """A cause may be an identifier, and the grammar must not refuse one.
+
+    Of these four, ``budget`` (``experiment/runner.py:292``) and
+    ``surface_shortfall`` (``experiment/per_cluster.py:694``) exist today;
+    ``wall_clock`` exists only as the display string ``"wall clock"``
+    (``per_cluster.py:425,539``) and ``cluster_halted`` nowhere. They are the
+    plan's names for Task 9's stop reasons and so are a **forward guess** —
+    revisit this list when Task 9 lands and settles the vocabulary. What is
+    being asserted meanwhile is the grammar, not the spelling: an identifier
+    with underscores must be accepted, as must the ISO timestamp a checkpoint
+    is moved aside under.
+    """
     for cause in ("budget", "wall_clock", "cluster_halted", "surface_shortfall"):
         run_dir = tmp_path / record.RUNS_DIR / cause
         _transcript(run_dir, _result(0.1))
