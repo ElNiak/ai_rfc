@@ -92,9 +92,13 @@ class SessionSpec:
         append: Append to the run's transcript rather than truncating it, so a
             run made of several sessions leaves one transcript.
         bin_dir: A directory placed first on the session's ``PATH``, holding
-            the campaign's ``ai_rfc`` shim. Arm B reaches the substrate as
-            ``Bash(ai_rfc *)``, and the shim is what that name resolves to;
-            without it the arm keeps the permission and loses the command.
+            the campaign's ``ai_rfc`` shim, which pins the interpreter the
+            campaign was frozen with. It is carried here because the launcher
+            this module replaces prepends it unconditionally: a session that
+            could not would record a different ``PATH``, and a run's
+            ``env.json`` would then depend on which launcher ran it. That is
+            the whole of the reason — a venv that installed the console script
+            of the same name answers the arm too.
     """
 
     claude: str
