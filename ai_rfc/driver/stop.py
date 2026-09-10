@@ -98,8 +98,14 @@ class StopReason(Enum):
     ``session_failed`` and ``consolidation_failed`` are the two. Spec §5 says
     an *errored* session "stops with the resume line" and D59 says a failing
     sweep-end consolidation exits 1, but neither is a row of the table, so
-    reporting them meant either a new name or a borrowed one that would print
-    the wrong repair.
+    reporting them meant either a new name or a borrowed one.
+
+    What borrowing would have cost differs by candidate, and only one of them
+    is repair-level. ``cluster_halted`` would print ``--retry <id>``, telling
+    the operator to reset attempts an errored session never spent — a wrong
+    *repair*. ``stage_failed`` resumes with ``run`` exactly as these two do, so
+    borrowing it would have cost only the **diagnosis**: it is documented as a
+    deterministic stage exiting non-zero, and a session is not a stage.
 
     The value of every member is a bare identifier, because a stop name is
     interpolated into places that cannot escape it: a directory name through

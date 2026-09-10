@@ -103,17 +103,59 @@ INTERRUPT_CAUSE = "interrupt"
 RUN_ID_FORMAT = "%Y%m%dT%H%M%S.%fZ"
 
 
+def printable(text: str) -> str:
+    """One line's worth of text, with anything that is not printable escaped.
+
+    :meth:`str.isprintable` is the whole class in one test — False for every
+    Cc, Cf, Cs, Co and Cn and for every separator but the plain space — and it
+    is a predicate over the *category* rather than a list of characters
+    somebody thought of. That distinction is this row's most repeated lesson:
+    :func:`ai_rfc.driver.stop._quoted` shipped ``shlex.quote`` first and then
+    C0+DEL, and both were necessary and insufficient.
+
+    Escaped rather than refused. This runs on the stop path, where the line
+    being printed *is* the diagnosis; raising here would replace the answer
+    with a second failure. Each offending character becomes its own escape, so
+    the damage is visible in the line instead of acting on it.
+
+    Args:
+        text: The line.
+
+    Returns:
+        ``text`` when it is already printable, else the same line with every
+        unprintable character escaped. A legitimate accented path is
+        printable and is returned untouched.
+    """
+    if text.isprintable():
+        return text
+    return "".join(
+        character if character.isprintable() else repr(character)[1:-1]
+        for character in text
+    )
+
+
 def report(message: str) -> None:
-    """Progress and diagnostics to stderr.
+    """Progress and diagnostics to stderr, as one printable line.
 
     A sweep of sixty-nine clusters runs for hours, and the ``panther.*``
     loggers swallow warnings, so these go straight to the stream an operator
     is watching.
 
+    **This is the one place a value under an agent's control is escaped for
+    this artifact**, and it is a boundary rather than a rule each caller
+    follows. Four lines interpolate a cluster id — the per-cluster progress
+    line, ``cluster_halted``'s detail, the consolidation round's base, and a
+    moved-aside directory's name — and a membership check cannot save any of
+    them: ``ledger._rows`` validates only that ``id`` and ``ordinal`` are
+    *present*, so a cluster id carrying a newline is a perfectly legitimate
+    member of the timeline. This stream is not only an operator's log; the
+    optimize track renders an equivalent line into a prompt a model reads, so
+    a forged record here is a forged record there.
+
     Args:
         message: The line to print.
     """
-    print(message, file=sys.stderr)
+    print(printable(message), file=sys.stderr)
 
 
 @dataclass(frozen=True)
@@ -127,10 +169,13 @@ class Observation:
             a pin something was numbered against.
         window: The inclusive ordinal bounds this reconstruction covers, which
             is what the run's ``task_sha256`` is rendered over.
-        known_clusters: Every cluster id the timeline holds. Carried because
-            a resume line naming one is guarded by membership rather than by a
-            filter over characters, and this package cannot read a timeline
-            from inside :mod:`~ai_rfc.driver.stop`.
+        ordinals: The timeline's ordinal for each of its cluster ids, in
+            ordinal order. It serves two jobs and is stored once for both: a
+            resume line naming a cluster is guarded by **membership** (this
+            package cannot read a timeline from inside
+            :mod:`~ai_rfc.driver.stop`), and a ``--until cluster:<id>`` bound
+            is resolved **positionally**, which needs the ordinal rather than
+            the name. :attr:`known_clusters` is the membership view of it.
         cluster: The lowest-ordinal outstanding cluster, or None when none is.
         attempts: What that cluster has already consumed, across every run of
             the workspace, less anything ``--retry`` forgave.
@@ -157,7 +202,7 @@ class Observation:
     stages: Mapping[str, State]
     any_checkpoint: bool
     window: tuple[int, int]
-    known_clusters: tuple[str, ...]
+    ordinals: Mapping[str, int]
     cluster: ledger.ClusterState | None
     attempts: int
     launches: int
@@ -167,6 +212,19 @@ class Observation:
     attempted_rounds: frozenset[int] = field(default_factory=frozenset)
     shortfall: str | None = None
     last_error: str | None = None
+
+    @property
+    def known_clusters(self) -> tuple[str, ...]:
+        """Every cluster id the timeline holds, in ordinal order.
+
+        Derived rather than stored beside :attr:`ordinals`: two fields over one
+        key set is two answers to one question, and the one that drifted would
+        be the one a membership guard trusted.
+
+        Returns:
+            The ids.
+        """
+        return tuple(self.ordinals)
 
 
 @dataclass(frozen=True)
@@ -341,16 +399,18 @@ def observe(
     """
     layout = workspace_from(workspace)
     stages = {entry.stage.name: entry.state for entry in state(layout)}
-    bounds = cfg.window or ledger.window_of(workspace)
+    bounds = _window_bounds(workspace, cfg)
     states: tuple[ledger.ClusterState, ...] = ()
     if layout.clusters_jsonl.exists():
         states = ledger.clusters(workspace, bounds)
-    known = tuple(cluster.id for cluster in states)
+    # Insertion order is ordinal order: `ledger._rows` sorts by ordinal, so
+    # `known_clusters` reads back in the order `next_cluster` walks.
+    ordinals = {cluster.id: cluster.ordinal for cluster in states}
     for cluster_id in forgiven or {}:
-        _checked_cluster_id(cluster_id, known)
+        _checked_cluster_id(cluster_id, tuple(ordinals))
     outstanding = next((c for c in states if not c.done), None)
-    ordinals = [c.ordinal for c in states]
-    window = bounds or ((min(ordinals), max(ordinals)) if ordinals else (0, 0))
+    seen = list(ordinals.values())
+    window = bounds or ((min(seen), max(seen)) if seen else (0, 0))
     attempts = 0
     if outstanding is not None:
         attempts = max(
@@ -362,7 +422,7 @@ def observe(
         stages=stages,
         any_checkpoint=_any_checkpoint(workspace),
         window=window,
-        known_clusters=known,
+        ordinals=ordinals,
         cluster=outstanding,
         attempts=attempts,
         launches=(launches or {}).get(outstanding.id, 0) if outstanding else 0,
@@ -435,6 +495,15 @@ def plan_next(obs: Observation, cfg: Any) -> Action:
         if obs.stages.get(name) not in (State.DONE, State.RECOMPUTED):
             return Action("stage", stage=name)
     sessions = cfg.sessions
+    if sessions is None:
+        # Guarded here as well as in `run`, and for the same reason
+        # `next_round` guards it: the table must not depend on which caller
+        # reached it. Without this, a hand-mined config raises AttributeError
+        # on the budget row — an error no handler in this tree names.
+        raise DriverError(
+            "no sessions are configured; a sweep has no budget, no attempt "
+            "cap and nothing to launch"
+        )
     if obs.spent_usd >= sessions.budget_usd:
         return Action(
             "stop",
@@ -573,18 +642,42 @@ def move_leftovers_aside(workspace: Path) -> list[Path]:
     return moved
 
 
-def _report_ledger(workspace: Path) -> None:
+def _window_bounds(workspace: Path, cfg: Any) -> tuple[int, int] | None:
+    """The ordinal bounds this reconstruction covers, or None for every cluster.
+
+    One reader, because a figure counted over a different window than the
+    sweep planned against is a figure about someone else's reconstruction.
+
+    Args:
+        workspace: The workspace root.
+        cfg: The validated configuration.
+
+    Returns:
+        The inclusive bounds, or None.
+    """
+    return cfg.window or ledger.window_of(workspace)
+
+
+def _report_ledger(workspace: Path, cfg: Any) -> None:
     """Print the cluster ledger, or say why it cannot be read.
 
     Guarded the way ``status`` and ``verify`` guard theirs: a stop can happen
     before a timeline exists — ``needs_init`` always does — and a stop path
     that raised on its way out would replace the diagnosis with a traceback.
 
+    Counted over the **configured window**, the one :func:`observe` planned
+    against. Read unwindowed, a stop's "N of M done" counts clusters the
+    operator never asked for, and it is that figure a resume decision is made
+    on.
+
     Args:
         workspace: The workspace root.
+        cfg: The validated configuration, for the window.
     """
     try:
-        summary = ledger.counts(ledger.clusters(workspace))
+        summary = ledger.counts(
+            ledger.clusters(workspace, _window_bounds(workspace, cfg))
+        )
     except (ledger.LedgerError, OSError):
         report("clusters: no timeline yet")
         return
@@ -766,6 +859,21 @@ class _Sweep:
     last_error: str | None = None
 
 
+def _passed(cluster: ledger.ClusterState | None, target: int) -> bool:
+    """Whether the sweep has gone past an ordinal it was told to stop at.
+
+    Args:
+        cluster: The outstanding cluster, or None when none is.
+        target: The bound's ordinal.
+
+    Returns:
+        True once nothing is outstanding, or the outstanding cluster sits
+        *after* the target. Equal is not past: the target's own session has
+        not run yet, and a bound is inclusive of the cluster it names.
+    """
+    return cluster is None or cluster.ordinal > target
+
+
 def _bound_reached(until: str | None, obs: Observation) -> bool:
     """Whether ``--until`` says this invocation has done what it was asked.
 
@@ -773,6 +881,15 @@ def _bound_reached(until: str | None, obs: Observation) -> bool:
     satisfied when the sweep started stops it rather than being stepped over —
     the defect ``lifecycle/run`` fixed by moving its own test out of the
     just-performed branch.
+
+    **A cluster or ordinal bound is positional, not a name to match.** Spec §5
+    defines ``--until`` as a place to run *up to*, so the question is whether
+    the outstanding cluster has passed the target — not whether it *is* the
+    target. Asking the latter answered True for every cluster that was not the
+    named one, so ``run --until cluster:c3`` with ``c1`` outstanding printed
+    "stopped at cluster:c3", launched nothing and returned **0**: a success an
+    operator cannot tell from a finished sweep. This is why the ordinal is
+    carried on the observation at all.
 
     Args:
         until: ``<stage>``, ``cluster:<id>``, ``ordinal:<n>``, or None.
@@ -789,14 +906,14 @@ def _bound_reached(until: str | None, obs: Observation) -> bool:
         return False
     if until.startswith("cluster:"):
         cluster_id = _checked_cluster_id(until.split(":", 1)[1], obs.known_clusters)
-        return obs.cluster is None or obs.cluster.id != cluster_id
+        return _passed(obs.cluster, obs.ordinals[cluster_id])
     if until.startswith("ordinal:"):
         raw = until.split(":", 1)[1]
         try:
             ordinal = int(raw)
         except ValueError:
             raise DriverError(f"{raw!r} is not an ordinal") from None
-        return obs.cluster is None or obs.cluster.ordinal != ordinal
+        return _passed(obs.cluster, ordinal)
     if until in obs.stages:
         return obs.stages[until] in (State.DONE, State.RECOMPUTED)
     raise DriverError(
@@ -973,6 +1090,7 @@ def _run_consolidation(
 
 
 def _finish(
+    cfg: Any,
     workspace: Path,
     run_dir: Path | None,
     action: Action,
@@ -990,6 +1108,8 @@ def _finish(
     finished one and leave the next resume nothing to move aside.
 
     Args:
+        cfg: The validated configuration, for the window the ledger line is
+            counted over.
         workspace: The workspace root.
         run_dir: The run's directory, or None when no session ever launched.
         action: The ``stop`` action, carrying the reason and any cluster.
@@ -1024,7 +1144,7 @@ def _finish(
         report(f"{reason.value}: {action.detail}")
     else:
         report(f"{reason.value}")
-    _report_ledger(workspace)
+    _report_ledger(workspace, cfg)
     if reason is not StopReason.done:
         try:
             report(f"resume: {resume_for(action, config_path, known_clusters)}")
@@ -1103,6 +1223,7 @@ def run(
         action = plan_next(obs, cfg)
         if action.kind == "stop":
             return _finish(
+                cfg,
                 workspace,
                 run_dir,
                 action,
@@ -1113,6 +1234,7 @@ def run(
         if action.kind == "gate":
             reason, strict = _build_gate(cfg, workspace)
             return _finish(
+                cfg,
                 workspace,
                 run_dir,
                 Action("stop", reason=reason),
@@ -1126,6 +1248,7 @@ def run(
             result = perform(BY_NAME[action.stage], workspace_from(workspace))
             if not result.ok:
                 return _finish(
+                    cfg,
                     workspace,
                     run_dir,
                     Action(
@@ -1151,6 +1274,7 @@ def run(
                     swept.attempted_rounds.add(action.round_due.ordinal)
                 elif not recorded:
                     return _finish(
+                        cfg,
                         workspace,
                         run_dir,
                         Action(

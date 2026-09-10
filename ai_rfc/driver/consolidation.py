@@ -43,6 +43,14 @@ def consolidations_recorded(workspace: Path) -> int:
         map is missing or will not load. The count is evidence a round left
         behind, so anything standing between the caller and that evidence is an
         absence of proof and never a reason to raise inside a sweep.
+
+        **This can under-report, and that direction is deliberate.** A
+        sweep-end round that genuinely recorded its revision exits 1 if
+        ``revisions.yaml`` momentarily will not load, because 0 is what a
+        caller sees either way. The alternative — treating an unreadable map as
+        proof of success — credits a round for the damage it may itself have
+        done, and a spurious exit 1 costs a re-run while a spurious exit 0
+        ships an unconsolidated draft as finished.
     """
     try:
         entries = load_revisions(workspace / "revisions.yaml")
