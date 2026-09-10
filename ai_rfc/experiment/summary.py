@@ -234,7 +234,9 @@ def held_claim_ids(
         ``(ids, error)``; an empty set and a reason when unreadable.
     """
     try:
-        from ai_rfc.draft.completeness import claim_ids_of
+        from ai_rfc.draft.completeness import (
+            claim_ids_of,
+        )
 
         return claim_ids_of(workspace / "checkpoints" / cluster_id), None
     except Exception as error:  # noqa: BLE001 - a display line may not end a run
@@ -259,7 +261,10 @@ def seed_seen(campaign: Campaign, workspace: Path) -> tuple[frozenset[str], str 
     """
     root = workspace / "checkpoints"
     try:
-        from ai_rfc.draft.completeness import checkpoint_records, claim_ids_of
+        from ai_rfc.draft.completeness import (
+            checkpoint_records,
+            claim_ids_of,
+        )
 
         held: frozenset[str] = frozenset()
         for name, _record in checkpoint_records(root):

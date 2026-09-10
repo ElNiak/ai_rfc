@@ -1,4 +1,5 @@
 import json
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -83,6 +84,48 @@ def test_settings_use_the_nested_hook_shape():
     assert hook["type"] == "command"
     assert hook["command"].startswith("/venv/bin/python /g/guard.py ")
     assert "'ai_rfc '" in hook["command"]
+
+
+def _hook_command(**kwargs) -> str:
+    """The one command string ``render_settings`` mounts as the Bash guard."""
+    document = render_settings(**kwargs)
+    return document["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+
+
+def test_a_path_with_a_space_still_reaches_the_guard_as_one_argument():
+    """A checkout or venv under a path with a space must still mount the guard.
+
+    Claude Code runs this command through a shell, so an unquoted space word-
+    splits it and the hook exits 127 instead of 2. Exit 2 is the only value
+    that blocks (see the module docstring), so the arm keeps a hook that
+    reports as mounted and permits every Bash call — the same silent-mount
+    failure as a wrong guard path, reached by a different route.
+
+    Asserted by re-parsing the command with the shell's own grammar rather
+    than by matching text: what matters is the argv the guard receives.
+    """
+    python = "/Users/x/My Project/.venv/bin/python"
+    guard = Path("/Users/x/My Project/ai_rfc/driver/guard.py")
+
+    command = _hook_command(python=python, guard=guard, prefixes=("ai_rfc ",))
+
+    assert shlex.split(command) == [python, str(guard), "ai_rfc "]
+
+
+def test_a_prefix_needing_both_quote_kinds_is_quoted_for_the_shell():
+    """``repr`` is not shell quoting, and the two diverge on mixed quotes.
+
+    Python renders a value holding both quote kinds as ``'it\\'s "x"'``, and a
+    backslash is literal inside single quotes in POSIX shell, so the shell sees
+    an unterminated string rather than a prefix. No caller passes such a value
+    today — ``bash_prefixes`` derives them from the ``PROFILES`` constants —
+    but ``render_settings`` takes ``prefixes`` as a public argument.
+    """
+    prefix = 'it\'s "x" '
+
+    command = _hook_command(python="/p", guard=Path("/g"), prefixes=(prefix,))
+
+    assert shlex.split(command) == ["/p", "/g", prefix]
 
 
 def _run_guard_raw(payload: str, *prefixes: str) -> int:

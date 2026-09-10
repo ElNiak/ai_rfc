@@ -19,6 +19,7 @@ this module adds enforcement without adding a second source of truth.
 from __future__ import annotations
 
 import re
+import shlex
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -201,7 +202,15 @@ def render_settings(
     Returns:
         A document to write beside the campaign and pass via ``--settings``.
     """
-    argv = " ".join([python, str(guard), *(f"{prefix!r}" for prefix in prefixes)])
+    # Claude Code runs this command through a shell, so every part is quoted
+    # for that grammar. An unquoted space in the interpreter or the guard path
+    # -- a checkout under "My Project", say -- word-splits the command, and the
+    # hook then exits 127 rather than 2. Exit 2 is the only value that blocks,
+    # so the arm would keep a hook that reports as mounted and permits every
+    # Bash call. ``repr`` is not a substitute: it renders a value holding both
+    # quote kinds as 'it\'s "x"', and a backslash is literal inside single
+    # quotes in POSIX shell.
+    argv = shlex.join([python, str(guard), *prefixes])
     return {
         "hooks": {
             "PreToolUse": [
