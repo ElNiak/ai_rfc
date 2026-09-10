@@ -1,0 +1,371 @@
+"""Why a sweep stopped, what it cost the cluster, and what to type next.
+
+Three vocabularies meet here, and keeping them apart is the point of the
+module.
+
+:class:`StopReason` names why a *sweep* stopped — one member per stopping row
+of spec §5's state machine. Its members are the only stop names production
+uses; before this module there were two unrelated ones (``budget`` as a
+``budget_hit`` substring test in the campaign runner, ``surface_shortfall`` as
+an ``outcome=`` value in the per-cluster loop) and ``wall_clock`` existed only
+as a display string.
+
+:data:`CLASSIFICATIONS` names what one *session* did. There are four rather
+than a boolean because they differ in whether they consume one of a cluster's
+attempts, and that difference has already been got wrong once: MARK's ordinal
+38 halted on a $0, one-turn launch error with $12.62 of its budget still to
+spend, and D38 recorded it as a budget stop (D61 corrects this). A launch
+failure never reached the model, so charging the cluster an attempt for it
+spends the retries meant for a model that answered badly on a session that did
+not answer at all.
+
+:func:`exit_code` and :func:`resume_line` are what an operator sees: done 0,
+stopped with work outstanding 1, strict findings 3, and one line to copy.
+"""
+
+from __future__ import annotations
+
+import shlex
+from collections.abc import Collection
+from enum import Enum
+from pathlib import Path
+
+from . import DriverError
+from .session import SessionResult
+from .stream import result_events
+
+#: The root door's program name. Written rather than imported from
+#: ``ai_rfc.cli``: that module is the top of the tree and this package is the
+#: bottom, so importing it here would invert the layering for one string.
+#: ``tests/driver/test_stop.py`` asserts the two still agree.
+PROG = "ai-rfc"
+
+#: The session worked — it reached the model and ended on its own terms — and
+#: the cluster is not done. **The only classification that consumes one of the
+#: cluster's attempts.**
+REFUSED = "refused"
+#: ``is_error`` with at most one turn: a launch or API failure. The session
+#: never reached the model, so it consumes no attempt (D61).
+ERRORED = "errored"
+#: A timeout or an interrupt killed the process group. It did not end on its
+#: own terms, so it consumes no attempt (D61).
+KILLED = "killed"
+#: The session stopped because ``--max-budget-usd`` was reached. A cap stopped
+#: it, exactly as the wall clock stops a killed one, so it consumes no attempt.
+BUDGET_HIT = "budget_hit"
+
+#: Everything :func:`classify` can return, in the order spec §5 lists them.
+CLASSIFICATIONS: tuple[str, ...] = (REFUSED, ERRORED, KILLED, BUDGET_HIT)
+
+#: The classifications that spend one of a cluster's attempts.
+#:
+#: One member, and the whole reason the four exist. D61's rule is that attempts
+#: count only sessions that *ended on their own*: a killed session was stopped
+#: by the clock, a budget-hit one by the cap, and an errored one never started.
+#: Only a refusal is a session the model was given and did not finish the
+#: cluster with.
+CONSUMES_ATTEMPT: frozenset[str] = frozenset({REFUSED})
+
+#: Exit code of a sweep that finished everything.
+DONE_EXIT = 0
+#: Exit code of a sweep that stopped with work outstanding — every stop but
+#: ``done``, and the code the operator's resume line answers.
+STOPPED_EXIT = 1
+#: Exit code when the build gate's ``check --strict`` reported findings, which
+#: is what ``ai-rfc check --strict`` itself returns (``check/cli.py:126``).
+STRICT_FINDINGS_EXIT = 3
+
+
+class StopReason(Enum):
+    """Why a sweep stopped — one member per stopping row of spec §5.
+
+    The value of every member is a bare identifier, because a stop name is
+    interpolated into places that cannot escape it: a directory name through
+    :func:`~ai_rfc.driver.record.move_aside`, whose ``_CAUSE`` grammar refuses
+    non-ASCII and a leading ``-``, a report line, and a progress line a model
+    reads in the optimize track.
+    """
+
+    #: The clone is not pinned; ``init`` does the clone and the forge (D34).
+    needs_init = "needs_init"
+    #: A deterministic stage the sweep performed exited non-zero.
+    stage_failed = "stage_failed"
+    #: The timeline or the views are stale and a checkpoint exists —
+    #: re-clustering would renumber what those checkpoints pin.
+    stale_substrate = "stale_substrate"
+    #: A cluster reached its attempt cap without finishing.
+    cluster_halted = "cluster_halted"
+    #: The lifetime budget is spent.
+    budget = "budget"
+    #: The sweep's wall-clock cap is reached.
+    wall_clock = "wall_clock"
+    #: The first judgeable session mounted no ``ai_rfc`` MCP surface, so the
+    #: rest of the window could not checkpoint, gate or tag either.
+    surface_shortfall = "surface_shortfall"
+    #: The build gate (``check --strict``, ``lint``, ``build``) had findings.
+    build_failed = "build_failed"
+    #: Nothing outstanding and no round due. The only reason that is not a
+    #: failure, and the only one with no resume line.
+    done = "done"
+
+
+#: The verb each reason's resume line calls. ``run`` is the resume for anything
+#: the operator fixes and retries; the three exceptions each send the operator
+#: somewhere ``run`` would only stop again:
+#:
+#: ``needs_init``
+#:     There is no workspace to resume into yet.
+#: ``stale_substrate``
+#:     ``run`` refuses a stale substrate under checkpoints (spec §7), so a
+#:     resume line naming it would reproduce the stop verbatim. ``status``
+#:     prints the stage states and the drift the operator has to rule on.
+#: ``surface_shortfall``
+#:     Spec §5 asks for a doctor hint: what failed is the environment the
+#:     session was launched into, which is what ``doctor`` reports on.
+_VERB: dict[StopReason, str] = {
+    StopReason.needs_init: "init",
+    StopReason.stage_failed: "run",
+    StopReason.stale_substrate: "status",
+    StopReason.cluster_halted: "run",
+    StopReason.budget: "run",
+    StopReason.wall_clock: "run",
+    StopReason.surface_shortfall: "doctor",
+    StopReason.build_failed: "run",
+}
+
+
+def classify(result: SessionResult, *, seen: int = 0) -> str:
+    """What one session did, as one of :data:`CLASSIFICATIONS`.
+
+    Read in the order the evidence is trustworthy in. A kill is a fact about
+    the process, so it is read before the transcript: a killed session emits no
+    result event of its own, and the tail of the shared transcript is then
+    still the *previous* session's success.
+
+    The budget subtype is read before the turn count for the same reason D38
+    was wrong the other way round. ``is_error`` with one turn is the shape of a
+    launch failure, but a launch failure cannot produce a subtype naming the
+    budget — so testing the subtype first keeps a first-turn budget stop and a
+    one-turn launch error distinguishable, while testing the turn count first
+    would file the budget stop as an error that consumed nothing.
+
+    Args:
+        result: What :func:`~ai_rfc.driver.session.run_session` returned.
+        seen: How many result events the transcript held **before** this
+            session — the same value handed to ``run_session``. Leaving it at 0
+            on a transcript that already holds results classifies this session
+            on an earlier one's result event, which for a session that died
+            without saying anything returns ``refused`` and charges the cluster
+            an attempt it never spent. That is D61's defect exactly.
+
+    Returns:
+        One of :data:`CLASSIFICATIONS`. Pass it to :func:`consumes_attempt`
+        rather than comparing it by hand.
+    """
+    if result.timed_out:
+        return KILLED
+    mine = result_events(list(result.events))[seen:]
+    if not mine:
+        # The process returned without a result event of its own: the CLI never
+        # got far enough to report. Nothing about the model can be read off
+        # this, which is precisely what "errored" says.
+        return ERRORED
+    final = mine[-1]
+    # The substring test, not an equality: the subtype carries the reason as
+    # part of a longer name. `experiment/runner.py:292` is the precedent, and
+    # it cannot be imported — this package may not depend on `ai_rfc.experiment`.
+    if "budget" in str(final.get("subtype", "")).lower():
+        return BUDGET_HIT
+    turns = final.get("num_turns")
+    # A session that failed before its first turn omits the count entirely, so
+    # this must not be a comparison against None.
+    counted = int(turns) if isinstance(turns, (int, float)) else 0
+    if final.get("is_error") and counted <= 1:
+        return ERRORED
+    return REFUSED
+
+
+def consumes_attempt(classification: str) -> bool:
+    """Whether this session spent one of its cluster's attempts.
+
+    Args:
+        classification: One of :data:`CLASSIFICATIONS`, as :func:`classify`
+            returned it.
+
+    Returns:
+        True only for a refusal. See :data:`CONSUMES_ATTEMPT`.
+
+    Raises:
+        DriverError: If the classification is not one of the four. An unknown
+            label must not read as "consumed nothing": that answer retries the
+            cluster forever, and it is the answer a typo would otherwise get.
+    """
+    if classification not in CLASSIFICATIONS:
+        raise DriverError(
+            f"{classification!r} is not a session classification; classify "
+            f"returns one of {', '.join(CLASSIFICATIONS)}, and an unrecognised "
+            "one would silently consume no attempt and retry forever"
+        )
+    return classification in CONSUMES_ATTEMPT
+
+
+def exit_code(reason: StopReason, *, strict_findings: bool = False) -> int:
+    """The process exit code a sweep that stopped for this reason returns.
+
+    Args:
+        reason: Why the sweep stopped.
+        strict_findings: Whether the build gate stopped on ``check --strict``
+            reporting findings, rather than on ``lint`` or ``build`` failing.
+            It is a separate argument because the reason cannot carry it: spec
+            §5 gives one ``build_failed`` for all three gates while also
+            reserving 3 for strict findings, and only the caller that ran the
+            gate knows which fired.
+
+    Returns:
+        :data:`DONE_EXIT` for ``done``, :data:`STRICT_FINDINGS_EXIT` for a
+        build gate that reported strict findings, :data:`STOPPED_EXIT`
+        otherwise.
+
+    Raises:
+        DriverError: If ``strict_findings`` is given for anything but
+            ``build_failed``; no other stop runs the check gate, so it could
+            only be a caller passing the flag through by accident.
+    """
+    if strict_findings and reason is not StopReason.build_failed:
+        raise DriverError(
+            f"{reason.value} did not run the check gate; only build_failed can "
+            "report strict findings"
+        )
+    if strict_findings:
+        return STRICT_FINDINGS_EXIT
+    return DONE_EXIT if reason is StopReason.done else STOPPED_EXIT
+
+
+def _quoted(value: str, what: str) -> str:
+    """One shell argument, refusing anything that cannot be printed on a line.
+
+    :func:`shlex.quote` alone is not enough, which the first spelling of this
+    module got wrong. It makes a newline *parse* as part of one argument, but
+    the rendered line still spans two physical lines — and it is the printed
+    line that an operator copies and that the optimize track renders into a
+    prompt a model reads, where the second line reads as an instruction of its
+    own. A carriage return rewrites what the terminal shows, and an escape
+    introduces a control sequence. So control characters are refused outright
+    and everything else is quoted.
+
+    Args:
+        value: The value to interpolate.
+        what: What it is, for the message.
+
+    Returns:
+        ``value``, quoted for a shell.
+
+    Raises:
+        DriverError: If it holds a control character.
+    """
+    if any(ord(character) < 0x20 or ord(character) == 0x7F for character in value):
+        raise DriverError(
+            f"{what} {value!r} holds a control character; a resume line is "
+            "copied into a terminal and rendered into a prompt, so it must be "
+            "one printable line"
+        )
+    return shlex.quote(value)
+
+
+def _checked_cluster_id(cluster_id: str, known: Collection[str] | None) -> str:
+    """The id, confirmed to name a cluster the caller's timeline actually has.
+
+    Membership is the guard rather than a filter over characters, following
+    ``experiment/per_cluster._checked_cluster_id``. A cluster id originates in
+    an agent-written YAML file, and YAML's implicit typing rewrites it before
+    anything sees it: ``01`` arrives as ``'1'``, an empty value as ``'None'``,
+    a sequence as its repr. Such a value carries no control character and names
+    no cluster, so no character filter catches it — while requiring it to be a
+    known cluster covers that, a newline forging a second line in the terminal
+    or in a progress line a model reads, and a path escape, in one test.
+
+    Args:
+        cluster_id: The id to check.
+        known: Every cluster id the caller's timeline holds.
+
+    Returns:
+        ``cluster_id`` unchanged.
+
+    Raises:
+        DriverError: If ``known`` is None, or the id is not one of it.
+    """
+    if known is None:
+        raise DriverError(
+            "a resume line naming a cluster needs the timeline's known cluster "
+            "ids; this package cannot read the timeline, and a filter over "
+            "characters is not a substitute for membership"
+        )
+    if cluster_id not in known:
+        # Repr, not the bare value: this message is itself a line-per-record
+        # artifact and a forged id carries a newline.
+        raise DriverError(
+            f"cluster id {cluster_id!r} is not one of this workspace's "
+            "clusters; it would reach a copied command line unescaped"
+        )
+    return cluster_id
+
+
+def resume_line(
+    reason: StopReason,
+    config_path: Path,
+    *,
+    cluster_id: str | None = None,
+    known_clusters: Collection[str] | None = None,
+) -> str:
+    """The one line an operator types after this stop.
+
+    It is copied into a terminal, and the optimize track renders an equivalent
+    progress line into a prompt a model reads, so every value interpolated into
+    it is guarded: the cluster id by membership, and both it and the
+    configuration path by :func:`_quoted`, which keeps a path holding a space
+    as one argument and refuses one that could not be printed on a single line.
+
+    Args:
+        reason: Why the sweep stopped.
+        config_path: The operator's ``recon.yaml``, as they named it.
+        cluster_id: The halted cluster. Required for ``cluster_halted``, which
+            resumes with ``--retry <id>``, and refused for every other reason —
+            accepting it silently would print a line that resumes the wrong
+            work.
+        known_clusters: Every cluster id this workspace's timeline holds.
+            Required whenever ``cluster_id`` is given.
+
+    Returns:
+        A single line, beginning with :data:`PROG`.
+
+    Raises:
+        DriverError: If ``reason`` is ``done`` (a finished sweep has nothing to
+            resume, and a line telling the operator to run it again is worse
+            than none), if ``cluster_id`` is given for another reason or
+            missing for ``cluster_halted``, if it names no known cluster, or if
+            either it or the path holds a control character.
+    """
+    if reason is StopReason.done:
+        raise DriverError(
+            "a sweep that reached done has nothing to resume; report the "
+            "outcome rather than a command"
+        )
+    if reason is StopReason.cluster_halted and cluster_id is None:
+        raise DriverError(
+            "cluster_halted resumes with --retry <id>, so it needs the cluster "
+            "that halted"
+        )
+    if reason is not StopReason.cluster_halted and cluster_id is not None:
+        raise DriverError(
+            f"{reason.value} resumes the whole sweep; a cluster id would be "
+            "dropped, and the line would then resume different work than the "
+            "caller asked for"
+        )
+    line = [PROG, _VERB[reason], "--config", _quoted(str(config_path), "the config")]
+    if cluster_id is not None:
+        checked = _checked_cluster_id(cluster_id, known_clusters)
+        # Quoted after the membership check, not instead of it: membership is
+        # the guard, but it can only be as clean as the set it was given, and
+        # the timeline those ids come from is agent-written too.
+        line += ["--retry", _quoted(checked, "the cluster id")]
+    return " ".join(line)

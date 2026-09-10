@@ -580,17 +580,37 @@ def test_move_aside_refuses_a_second_suffix_however_it_was_named(
 def test_move_aside_accepts_the_stop_reason_vocabulary(tmp_path: Path) -> None:
     """A cause may be an identifier, and the grammar must not refuse one.
 
-    Of these four, ``budget`` (``experiment/runner.py:292``) and
-    ``surface_shortfall`` (``experiment/per_cluster.py:694``) exist today;
-    ``wall_clock`` exists only as the display string ``"wall clock"``
-    (``per_cluster.py:425,539``) and ``cluster_halted`` nowhere. They are the
-    plan's names for Task 9's stop reasons and so are a **forward guess** —
-    revisit this list when Task 9 lands and settles the vocabulary. What is
-    being asserted meanwhile is the grammar, not the spelling: an identifier
-    with underscores must be accepted, as must the ISO timestamp a checkpoint
-    is moved aside under.
+    This list was a **forward guess** at Task 9's vocabulary — ``budget``
+    (``experiment/runner.py:292``) and ``surface_shortfall``
+    (``experiment/per_cluster.py:694``) existed, ``wall_clock`` only as the
+    display string ``"wall clock"``, ``cluster_halted`` nowhere. Task 9 has
+    landed and **all four guessed names survived**; the list is extended here
+    to the whole of :class:`ai_rfc.driver.stop.StopReason`, so every name a
+    sweep can mint is proved usable as one path segment.
+
+    The nine are written out rather than read off the enum, and
+    ``tests/driver/test_stop.py`` asserts the same nine literals equal its
+    members: a name added or dropped there fails one of the two, while a test
+    that derived them from the enum could not notice it shrinking.
+
+    Nothing here claims a run is moved aside *under* a stop reason. By the
+    plan's Ruling D a stop-classified exit writes ``status.json``, so what gets
+    moved aside is an interrupted run, whose cause is ``interrupt`` or a
+    timestamp. What is asserted is the grammar: an identifier with underscores
+    must be accepted, as must the ISO timestamp a checkpoint is moved aside
+    under.
     """
-    for cause in ("budget", "wall_clock", "cluster_halted", "surface_shortfall"):
+    for cause in (
+        "needs_init",
+        "stage_failed",
+        "stale_substrate",
+        "cluster_halted",
+        "budget",
+        "wall_clock",
+        "surface_shortfall",
+        "build_failed",
+        "done",
+    ):
         run_dir = tmp_path / record.RUNS_DIR / cause
         _transcript(run_dir, _result(0.1))
         moved = record.move_aside(run_dir, cause)
