@@ -2,7 +2,7 @@ import json
 
 from ai_rfc.driver.stream import parse_stream
 from ai_rfc.experiment.audit import audit_campaign
-from ai_rfc.experiment.driver import launch_pending
+from ai_rfc.experiment.campaign_runs import launch_pending
 from ai_rfc.experiment.metrics import (
     _arm_summary,
     analyze_campaign,

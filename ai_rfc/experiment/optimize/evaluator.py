@@ -32,8 +32,8 @@ from ai_rfc.draft.gate import GateError, load_revisions
 from ...lifecycle.workspace import REFCACHE_DIR
 from .. import ExperimentError
 from ..audit import audit_run
+from ..campaign_runs import launch_pending
 from ..config import Campaign, CampaignConfig, init_campaign
-from ..driver import launch_pending
 from ..metrics import analyze_run, window_clusters
 from .codec import Bundle, CodecError, decode, frontmatters_from_plugin, materialize
 from .fixtures import InterviewFixture

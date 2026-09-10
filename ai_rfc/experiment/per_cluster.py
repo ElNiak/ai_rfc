@@ -450,7 +450,7 @@ def run_per_cluster(
         campaign: The frozen campaign.
         ref: The run being launched; its workspace must already exist.
         report: Where progress lines go. Defaults to printing, as
-            :func:`driver.launch_pending` does: a sweep of sixty-nine clusters
+            :func:`campaign_runs.launch_pending` does: a sweep of sixty-nine clusters
             runs for hours, and the caller that discards these lines leaves an
             operator unable to tell a working run from a stalled one.
 

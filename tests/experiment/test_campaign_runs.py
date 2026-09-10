@@ -1,7 +1,7 @@
 import pytest
 
 from ai_rfc.experiment import ExperimentError
-from ai_rfc.experiment.driver import launch_pending, pending_runs
+from ai_rfc.experiment.campaign_runs import launch_pending, pending_runs
 from ai_rfc.experiment.runner import load_status, run_ref
 
 from .conftest import COMPLETE_STEPS

@@ -10,7 +10,7 @@ from ai_rfc.experiment.audit import (
     edit_target,
     guard_stats,
 )
-from ai_rfc.experiment.driver import launch_pending
+from ai_rfc.experiment.campaign_runs import launch_pending
 
 from .conftest import COMPLETE_STEPS
 

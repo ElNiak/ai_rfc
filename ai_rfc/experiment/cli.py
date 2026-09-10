@@ -1323,8 +1323,8 @@ def main(argv: list[str] | None = None) -> int:
                 _report("finding: parity suite FAILED - stop-ship per protocol")
                 return 3
         elif args.command == "run":
+            from .campaign_runs import launch_pending
             from .config import load_campaign
-            from .driver import launch_pending
 
             campaign = load_campaign(args.campaign.resolve())
             only = args.only.split(",") if args.only else None

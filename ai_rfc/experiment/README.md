@@ -152,6 +152,6 @@ renders the aggregate with every formula named.
 
 `tests/experiment/` drives the harness against `fake_claude/claude`, a
 stand-in that replays a scenario as stream-json and really mutates the
-workspace through the server core, so the runner, driver, per-cluster loop,
-audit and metrics are exercised without spending anything. `preflight` is the
-exception: its calls are real and are made once by hand.
+workspace through the server core, so the runner, campaign runs, per-cluster
+loop, audit and metrics are exercised without spending anything. `preflight`
+is the exception: its calls are real and are made once by hand.

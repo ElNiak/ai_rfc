@@ -241,11 +241,12 @@ def copy_workspace(pristine: Path, dest: Path) -> Path:
 def reseal(workspace: Path, dest: Path) -> Path:
     """Seal a used workspace as a new baseline, leaving the source untouched.
 
-    Every run copies from a sealed baseline, and both :func:`driver.execute` and
-    :func:`copy_workspace` refuse a tree that no longer matches its digest. A
-    run's own workspace moves past its seal the moment a session commits prose,
-    so continuing a stopped sweep in a fresh campaign means re-sealing that
-    workspace rather than relaxing the guard that caught it.
+    Every run copies from a sealed baseline, and both
+    :func:`campaign_runs.launch_pending` and :func:`copy_workspace` refuse a
+    tree that no longer matches its digest. A run's own workspace moves past
+    its seal the moment a session commits prose, so continuing a stopped sweep
+    in a fresh campaign means re-sealing that workspace rather than relaxing
+    the guard that caught it.
 
     The seal is taken on a copy. A finished run's directory is what its audit
     reads, and rewriting the record and digest in place would edit that evidence

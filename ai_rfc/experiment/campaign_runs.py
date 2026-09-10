@@ -4,8 +4,9 @@ Order comes from ``campaign.json`` and is never recomputed. A run with a
 status record is skipped on resume; a run directory without one is an
 interrupted launch and is refused rather than reused — it is evidence.
 
-The module is named for what it does rather than for what it reads: the run
-matrix is the :class:`~experiment.config.Campaign`, and this drives it.
+The name says what this manages: the campaign's frozen runs, whose matrix is
+the :class:`~experiment.config.Campaign`. The unrelated :mod:`ai_rfc.driver`
+package is the session driver — nothing here belongs to it.
 """
 
 from __future__ import annotations
