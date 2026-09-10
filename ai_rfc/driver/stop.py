@@ -47,8 +47,14 @@ REFUSED = "refused"
 #: ``is_error`` with at most one turn: a launch or API failure. The session
 #: never reached the model, so it consumes no attempt (D61).
 ERRORED = "errored"
-#: A timeout or an interrupt killed the process group. It did not end on its
-#: own terms, so it consumes no attempt (D61).
+#: The timeout killed the process group. It did not end on its own terms, so
+#: it consumes no attempt (D61).
+#:
+#: Spec §5 says "timeout or interrupt", but only the timeout can reach here:
+#: ``spawn.py:97-108`` re-raises on an interrupt, so ``run_session`` never
+#: returns and there is no result to classify. That is the design working — an
+#: interrupted run writes no ``status.json`` and is moved aside on the next
+#: resume — not a branch this function is missing.
 KILLED = "killed"
 #: The session stopped because ``--max-budget-usd`` was reached. A cap stopped
 #: it, exactly as the wall clock stops a killed one, so it consumes no attempt.
@@ -64,6 +70,14 @@ CLASSIFICATIONS: tuple[str, ...] = (REFUSED, ERRORED, KILLED, BUDGET_HIT)
 #: by the clock, a budget-hit one by the cap, and an errored one never started.
 #: Only a refusal is a session the model was given and did not finish the
 #: cluster with.
+#:
+#: **Ruling (Task 9): ``budget_hit`` consumes no attempt.** D61's "ended on its
+#: own" is genuinely ambiguous for a session the budget cap stopped, so the
+#: tiebreaker is consequence rather than wording. The sweep stops on
+#: ``StopReason.budget`` either way, so an attempt consumed here could only
+#: ever be spent against a *later, better-funded resume* — halting a cluster
+#: permanently because the operator's cap ran out twice, not because the
+#: cluster ever failed. That punishes the wrong thing.
 CONSUMES_ATTEMPT: frozenset[str] = frozenset({REFUSED})
 
 #: Exit code of a sweep that finished everything.
@@ -161,7 +175,18 @@ def classify(result: SessionResult, *, seen: int = 0) -> str:
     Returns:
         One of :data:`CLASSIFICATIONS`. Pass it to :func:`consumes_attempt`
         rather than comparing it by hand.
+
+    Raises:
+        DriverError: If ``seen`` is negative. Python would slice that from the
+            tail instead — ``seen=-1`` reads the last result event whatever the
+            transcript holds, which is a wrong answer rather than an error.
     """
+    if seen < 0:
+        raise DriverError(
+            f"seen={seen} is not a count of result events; a negative one "
+            "slices from the end of the transcript and classifies this session "
+            "on somebody else's result"
+        )
     if result.timed_out:
         return KILLED
     mine = result_events(list(result.events))[seen:]
@@ -249,9 +274,17 @@ def _quoted(value: str, what: str) -> str:
     the rendered line still spans two physical lines — and it is the printed
     line that an operator copies and that the optimize track renders into a
     prompt a model reads, where the second line reads as an instruction of its
-    own. A carriage return rewrites what the terminal shows, and an escape
-    introduces a control sequence. So control characters are refused outright
-    and everything else is quoted.
+    own.
+
+    C0 and DEL are not the whole class, which the second spelling then got
+    wrong. ``str.splitlines`` already reads NEL (U+0085), LINE SEPARATOR
+    (U+2028) and PARAGRAPH SEPARATOR (U+2029) as breaks, so those three break
+    the line by Python's own definition; RIGHT-TO-LEFT OVERRIDE (U+202E)
+    reorders what a reader sees without breaking anything, and ZERO WIDTH SPACE
+    (U+200B) hides a token boundary. :meth:`str.isprintable` is the whole class
+    in one test — it is False for every Cc, Cf, Cs, Co, Cn and separator except
+    the plain space, which is exactly what may not appear here and exactly what
+    ``shlex.quote`` then handles.
 
     Args:
         value: The value to interpolate.
@@ -261,11 +294,11 @@ def _quoted(value: str, what: str) -> str:
         ``value``, quoted for a shell.
 
     Raises:
-        DriverError: If it holds a control character.
+        DriverError: If it holds anything that is not printable.
     """
-    if any(ord(character) < 0x20 or ord(character) == 0x7F for character in value):
+    if not value.isprintable():
         raise DriverError(
-            f"{what} {value!r} holds a control character; a resume line is "
+            f"{what} {value!r} holds an unprintable character; a resume line is "
             "copied into a terminal and rendered into a prompt, so it must be "
             "one printable line"
         )
@@ -360,6 +393,14 @@ def resume_line(
             f"{reason.value} resumes the whole sweep; a cluster id would be "
             "dropped, and the line would then resume different work than the "
             "caller asked for"
+        )
+    if cluster_id is None and known_clusters is not None:
+        # The mirror of the case above, and refused for the same reason: a
+        # caller that handed over the timeline meant to name a cluster, and
+        # silently ignoring the set prints a whole-sweep line instead.
+        raise DriverError(
+            "known_clusters was given without a cluster id; nothing would be "
+            f"checked against it, and {reason.value} resumes the whole sweep"
         )
     line = [PROG, _VERB[reason], "--config", _quoted(str(config_path), "the config")]
     if cluster_id is not None:

@@ -185,6 +185,36 @@ def test_classify_reads_this_sessions_result_and_not_the_previous_ones() -> None
     assert stop.classify(stale_tail, seen=1) == "errored"
 
 
+def test_classify_reads_the_result_seen_names_and_not_merely_a_later_one() -> None:
+    """The other half of ``seen``: the slice must be *taken*, not emptied.
+
+    Every other ``seen`` case here leaves the slice empty, so an implementation
+    that answered "nothing new" whenever ``seen`` was non-zero would satisfy
+    them all — and would report every later session of a run as errored, never
+    consuming an attempt and retrying the cluster forever. Here the slice holds
+    exactly one event and it is this session's success, so only reading the
+    right element gives the right answer.
+    """
+    second = _session(
+        events=(
+            _event(subtype="error_during_execution", is_error=True, num_turns=1),
+            _event(subtype="success", is_error=False, num_turns=9),
+        ),
+    )
+
+    classification = stop.classify(second, seen=1)
+
+    assert classification == "refused"
+    assert stop.consumes_attempt(classification) is True
+
+
+def test_a_negative_seen_is_refused_rather_than_slicing_from_the_tail() -> None:
+    """``[-1:]`` is a silently wrong answer, not an error: it would read the
+    last result event whatever the transcript holds."""
+    with pytest.raises(DriverError, match="seen"):
+        stop.classify(_worked(), seen=-1)
+
+
 def test_a_session_whose_result_event_omits_the_turn_count_is_errored() -> None:
     """``num_turns`` is absent when the CLI failed before counting a turn."""
     bare = _session(events=(_event(subtype="error", is_error=True),), exit_code=1)
@@ -329,36 +359,80 @@ def test_a_config_path_holding_a_space_stays_one_argument() -> None:
     assert shlex.split(line) == ["ai-rfc", "run", "--config", str(path)]
 
 
-@pytest.mark.parametrize("bad", ["/w/re\ncon.yaml", "/w/re\rcon.yaml", "/w/\x1b[2Kx"])
+#: Every character that breaks or reorders the rendered line. The first three
+#: are C0 and DEL; the last five are the ones a C0-and-DEL filter leaks, and
+#: for NEL, LS and PS Python's own ``str.splitlines`` already reads the result
+#: as two lines. Written out per character rather than as a category, because
+#: the category was what the first guard got wrong.
+UNPRINTABLE = [
+    "\n",  # line feed
+    "\r",  # carriage return: rewrites what the terminal shows
+    "\x1b",  # escape: opens a control sequence
+    "\x85",  # NEL, a line break to str.splitlines
+    " ",  # LINE SEPARATOR
+    " ",  # PARAGRAPH SEPARATOR
+    "‮",  # RIGHT-TO-LEFT OVERRIDE: reorders what is read
+    "​",  # ZERO WIDTH SPACE: hides a token boundary
+]
+
+
+@pytest.mark.parametrize("character", UNPRINTABLE)
 def test_a_config_path_that_could_not_be_printed_on_a_line_is_refused(
-    bad: str,
+    character: str,
 ) -> None:
     """Quoting is not enough, which the first spelling of this test assumed.
 
     ``shlex.quote`` makes a newline *parse* as part of one argument, but the
     printed line still spans two physical lines — and it is the printed line
     that is copied and that the optimize track renders into a prompt a model
-    reads, where the second line reads as an instruction of its own. A carriage
-    return rewrites what the terminal shows and an escape opens a control
-    sequence, so all three are refused rather than quoted.
+    reads, where the second line reads as an instruction of its own.
+
+    C0 and DEL are not the whole class, which the *second* spelling then got
+    wrong: NEL, LINE SEPARATOR and PARAGRAPH SEPARATOR break the line too, and
+    RLO and ZWSP reorder or hide part of it without breaking it at all.
     """
     with pytest.raises(DriverError, match="line"):
-        stop.resume_line(stop.StopReason.budget, Path(bad))
+        stop.resume_line(stop.StopReason.budget, Path(f"/w/re{character}con.yaml"))
 
 
-def test_a_known_cluster_id_that_breaks_the_line_is_still_refused() -> None:
+@pytest.mark.parametrize("character", UNPRINTABLE)
+def test_a_known_cluster_id_that_breaks_the_line_is_still_refused(
+    character: str,
+) -> None:
     """Membership can only be as clean as the set it was handed.
 
     The timeline those ids are read from is agent-written, so a poisoned id can
-    be a *member* — and then membership alone would pass it into the line.
+    be a legitimate *member* — and then membership alone would pass it straight
+    into the line. This is where the leaked characters matter most.
     """
+    poisoned = f"38{character}rm -rf /"
+
     with pytest.raises(DriverError, match="line"):
         stop.resume_line(
             stop.StopReason.cluster_halted,
             CONFIG,
-            cluster_id="38\nrm -rf /",
-            known_clusters={"38\nrm -rf /"},
+            cluster_id=poisoned,
+            known_clusters={poisoned},
         )
+
+
+def test_an_accented_path_is_not_mistaken_for_an_unprintable_one() -> None:
+    """The guard must refuse a class of characters, not everything unfamiliar."""
+    path = Path("/w/reconstruction-café/recon.yaml")
+
+    line = stop.resume_line(stop.StopReason.budget, path)
+
+    assert shlex.split(line) == ["ai-rfc", "run", "--config", str(path)]
+
+
+def test_known_clusters_without_a_cluster_id_is_refused() -> None:
+    """The mirror of the case that is already refused.
+
+    A caller that passed the timeline but not the id meant to name a cluster.
+    Ignoring the set silently prints a whole-sweep resume line instead.
+    """
+    with pytest.raises(DriverError, match="cluster"):
+        stop.resume_line(stop.StopReason.budget, CONFIG, known_clusters={"38"})
 
 
 def test_every_resume_line_names_a_verb_the_root_actually_mounts() -> None:
