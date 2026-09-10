@@ -31,8 +31,13 @@ from .workspace import copy_workspace, verify_digest
 _RUN_ID = re.compile(r"[A-Z][0-9]+")
 
 
-def _checked_run_id(run_id: str) -> str:
+def checked_run_id(run_id: str) -> str:
     """The id, confirmed to be shaped like one before it is used as one.
+
+    Public because both launch paths owe it: the sweep below, and
+    ``cli._run_one_consolidation``, which reaches the same two sinks with a
+    ``--only`` value. One path validating while its sibling does not is worse
+    than neither doing so, because a reader assumes the pair agree.
 
     Membership of ``run_order`` cannot be the guard here: the order is itself
     read back out of ``campaign.json``, so it is the untrusted source rather
@@ -79,7 +84,7 @@ def pending_runs(campaign: Campaign) -> list[str]:
     return [
         run_id
         for run_id in campaign.run_order
-        if load_status(campaign.runs_dir / _checked_run_id(run_id)) is None
+        if load_status(campaign.runs_dir / checked_run_id(run_id)) is None
     ]
 
 
@@ -124,7 +129,7 @@ def launch_pending(
             continue
         # Ahead of both sinks: the id is joined into this run's directory by
         # `run_ref`, and printed into every progress line below.
-        ref = run_ref(campaign, _checked_run_id(run_id))
+        ref = run_ref(campaign, checked_run_id(run_id))
         existing = load_status(ref.run_dir)
         if existing is not None:
             report(

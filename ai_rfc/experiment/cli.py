@@ -625,6 +625,7 @@ def _run_one_consolidation(
     from ai_rfc.driver.stream import result_events, salvage_stream
 
     from . import per_cluster
+    from .campaign_runs import checked_run_id
     from .runner import run_ref
 
     if only is None or len(only) != 1:
@@ -632,7 +633,13 @@ def _run_one_consolidation(
             "--task consolidation runs one round against one run; name that "
             "run with --only <run id>"
         )
-    ref = run_ref(campaign, only[0])
+    # The same validator the sweep applies, and for the same two sinks: below,
+    # the id is joined into a run directory by `run_ref` and interpolated into
+    # every line this function reports. `split_run_id`'s membership check is not
+    # it — `run_order` is itself read out of campaign.json, so a tampered order
+    # satisfies it. One path sanitising while its sibling does not is worse than
+    # neither doing it, because a reader assumes the pair agree.
+    ref = run_ref(campaign, checked_run_id(only[0]))
     if ref.arm == "C":
         # The sweep declines C's rounds because D42 freezes its tool surface,
         # and nothing further down would: the arm's consolidation prompt is

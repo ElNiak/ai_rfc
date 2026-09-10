@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from ai_rfc.driver.session import SessionResult
-from ai_rfc.experiment import cli
+from ai_rfc.experiment import ExperimentError, cli
 
 from .conftest import COMPLETE_STEPS, FAKE_CLAUDE
 
@@ -735,3 +735,28 @@ def test_a_manual_consolidation_needs_exactly_one_run(
 
     assert _consolidate(campaign_dir, "A1", "B1") == 1
     assert "--only" in capsys.readouterr().err
+
+
+def test_the_consolidation_path_refuses_a_malformed_run_id_too(campaign):
+    """The sweep refuses this id; the round run by hand must refuse it as well.
+
+    ``split_run_id`` is not that guard. It checks membership of ``run_order``,
+    which is itself read back out of ``campaign.json`` — so a tampered order
+    satisfies it — and then ``int(run_id[1:])``, which accepts the trailing
+    newline. Without the shared validator the id reaches ``run_ref``'s
+    ``runs_dir / run_id`` join and then every ``ref.run_id`` line this function
+    reports, and the only thing that stops it is a *later* guard failing for an
+    unrelated reason with a message carrying the forged newline.
+
+    An asymmetry is what a later reader misjudges: one path sanitising while
+    its sibling does not is the shape this codebase keeps being bitten by.
+    """
+    tampered = dataclasses.replace(campaign, run_order=("A1\n",))
+
+    with pytest.raises(ExperimentError) as excinfo:
+        cli._run_one_consolidation(tampered, ["A1\n"], True)
+
+    message = str(excinfo.value)
+    assert "not an arm letter" in message
+    # repr keeps the forged newline from splitting the refusal itself in two.
+    assert "\n" not in message

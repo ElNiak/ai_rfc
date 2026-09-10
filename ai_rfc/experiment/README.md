@@ -84,22 +84,33 @@ blocked call is kept as data: the audit counts it as a bypass attempt, and an
 
 ## One run
 
-`runner.py` assembles the launch and `spawn.py` executes it:
+`runner.py` prepares the run and records it, `driver/session.py` launches the
+session, and `driver/spawn.py` executes it. There is one launch path, and every
+session of either mode goes through it:
 
 1. Copy the pristine workspace into `runs/<id>/workspace`.
-2. For arm A, write `ai_rfc.json` naming the interpreter and
-   `-m ai_rfc.server` with `AI_RFC_WORKSPACE` set; for every arm, write the
-   guard settings.
-3. Build the argv with `arms.claude_argv()`: the shared flags
-   (`--output-format stream-json --verbose --include-hook-events
-   --append-system-prompt-file prompts/arm-<X>.md --disable-slash-commands
-   --setting-sources project --model … --effort … --permission-mode dontAsk
-   --max-budget-usd …`) plus the arm's `--tools`, `--allowedTools`,
-   `--strict-mcp-config` and, for A, `--mcp-config`.
-4. `Popen` with a minimal environment, `stdin` closed, its own session, stdout
-   streamed to `events.jsonl` as it arrives, stderr to `stderr.log`. On the
+2. `runner.session_spec()` describes the session in the driver's own terms: the
+   task text, the arm prompt file, the budget and wall clock *this* session
+   gets, and the campaign's `bin/` shim directory. Nothing below this point
+   knows what a campaign is.
+3. `session.prepare_argv()` writes the per-run files and builds the vector. For
+   arm A, `ai_rfc.json` naming the interpreter and `-m ai_rfc.server` with
+   `AI_RFC_WORKSPACE` set; for every arm, the guard settings. Then
+   `arms.claude_argv()`: the shared flags (`--output-format stream-json
+   --verbose --include-hook-events --append-system-prompt-file
+   prompts/arm-<X>.md --disable-slash-commands --setting-sources project
+   --model … --effort … --permission-mode dontAsk --max-budget-usd …`) plus the
+   arm's `--tools`, `--allowedTools`, `--strict-mcp-config` and, for A,
+   `--mcp-config`. `launch()` calls this and `session.session_env()` itself
+   before dispatching, so `argv.json`, `env.json` and the SHA-256 of
+   `guard.json` are on disk before the process that could edit them exists.
+4. `session.run_session()` hands the vector to `spawn.spawn()`, which `Popen`s
+   it with that minimal environment, `stdin` closed, in its own session, stdout
+   streamed to `events.jsonl` as it arrives and stderr to `stderr.log`. On the
    wall-clock cap the whole process group gets SIGTERM, then SIGKILL after a
-   thirty-second grace, so the MCP server dies with the session.
+   thirty-second grace, so the MCP server dies with the session. What the
+   session spent is read back off the transcript, not tracked, because the
+   transcript is what survives a kill.
 5. Write `status.json` exactly once. A run is never relaunched in place.
 
 The run directory keeps `argv.json`, `env.json`, `prompt.md` (a copy of the
