@@ -24,6 +24,7 @@ def test_an_interrupt_kills_the_group_it_started(tmp_path, monkeypatch):
 
         pid = 4242
         calls = 0
+        returncode = None
 
         def wait(self, timeout=None):
             type(self).calls += 1
@@ -47,5 +48,123 @@ def test_an_interrupt_kills_the_group_it_started(tmp_path, monkeypatch):
             stderr_path=tmp_path / "stderr.log",
             timeout_s=30,
         )
+
+    assert killed and killed[0] == (4242, signal.SIGTERM)
+
+
+def _spawn(module, tmp_path):
+    """Call :func:`spawn` with the arguments every test here shares."""
+    return module.spawn(
+        ["true"],
+        cwd=tmp_path,
+        env={},
+        events_path=tmp_path / "events.jsonl",
+        stderr_path=tmp_path / "stderr.log",
+        timeout_s=30,
+    )
+
+
+def test_a_second_interrupt_still_escalates_to_sigkill(tmp_path, monkeypatch):
+    """A double-tap must not strand a child that is ignoring SIGTERM.
+
+    The two conditions are correlated, not independent: a healthy session exits
+    in under a second, so a second Ctrl-C can only land inside the grace window
+    when the child is holding it open -- which is exactly the case where SIGKILL
+    is the only thing that ends the spending.
+    """
+    killed: list[tuple[int, int]] = []
+
+    class _DoubleTapped:
+        """Interrupt the main wait and the grace wait, then reap on the third."""
+
+        pid = 4242
+        calls = 0
+        returncode = None
+
+        def wait(self, timeout=None):
+            type(self).calls += 1
+            if type(self).calls <= 2:
+                raise KeyboardInterrupt
+            return 0
+
+    monkeypatch.setattr(
+        spawn_module.subprocess, "Popen", lambda *a, **k: _DoubleTapped()
+    )
+    monkeypatch.setattr(
+        spawn_module.os, "killpg", lambda pid, sig: killed.append((pid, sig))
+    )
+
+    with pytest.raises(KeyboardInterrupt):
+        _spawn(spawn_module, tmp_path)
+
+    assert killed == [(4242, signal.SIGTERM), (4242, signal.SIGKILL)]
+
+
+def test_an_interrupt_after_a_clean_exit_does_not_signal_a_dead_group(
+    tmp_path, monkeypatch
+):
+    """An interrupt can land after the child was already reaped.
+
+    ``KeyboardInterrupt`` is asynchronous, so it may arrive between ``wait``
+    returning and the ``try`` body ending. Signalling then reaches a pid that no
+    longer exists and the ``ProcessLookupError`` replaces the operator's
+    interrupt with a crash. The timeout path cannot hit this: ``TimeoutExpired``
+    is itself proof the child is still alive.
+    """
+    killed: list[tuple[int, int]] = []
+
+    class _ReapedThenInterrupted:
+        """Reap the child, then interrupt as the real signal would."""
+
+        pid = 4242
+        returncode = None
+
+        def wait(self, timeout=None):
+            type(self).returncode = 0
+            raise KeyboardInterrupt
+
+    def _dead(pid, sig):
+        killed.append((pid, sig))
+        raise ProcessLookupError(pid)
+
+    monkeypatch.setattr(
+        spawn_module.subprocess, "Popen", lambda *a, **k: _ReapedThenInterrupted()
+    )
+    monkeypatch.setattr(spawn_module.os, "killpg", _dead)
+
+    with pytest.raises(KeyboardInterrupt):
+        _spawn(spawn_module, tmp_path)
+
+    assert killed == []
+
+
+def test_a_systemexit_kills_the_group_too(tmp_path, monkeypatch):
+    """Not only Ctrl-C: any abnormal exit must take the session with it.
+
+    A SIGTERM handler installed at the CLI entry point raises ``SystemExit``
+    through this code, and an orphaned group costs the same either way.
+    """
+    killed: list[tuple[int, int]] = []
+
+    class _Exiting:
+        """Exit on the first wait, then reap on the group-kill wait."""
+
+        pid = 4242
+        calls = 0
+        returncode = None
+
+        def wait(self, timeout=None):
+            type(self).calls += 1
+            if type(self).calls == 1:
+                raise SystemExit(1)
+            return 0
+
+    monkeypatch.setattr(spawn_module.subprocess, "Popen", lambda *a, **k: _Exiting())
+    monkeypatch.setattr(
+        spawn_module.os, "killpg", lambda pid, sig: killed.append((pid, sig))
+    )
+
+    with pytest.raises(SystemExit):
+        _spawn(spawn_module, tmp_path)
 
     assert killed and killed[0] == (4242, signal.SIGTERM)

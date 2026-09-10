@@ -23,7 +23,8 @@ def _kill_group(process: subprocess.Popen) -> None:
     """Terminate the process group, then reap it, escalating if it lingers.
 
     Args:
-        process: The group leader, started with ``start_new_session=True``.
+        process: The group leader, started with ``start_new_session=True``,
+            and known not to have exited yet.
     """
     os.killpg(process.pid, signal.SIGTERM)
     try:
@@ -31,6 +32,15 @@ def _kill_group(process: subprocess.Popen) -> None:
     except subprocess.TimeoutExpired:
         os.killpg(process.pid, signal.SIGKILL)
         process.wait()
+    except BaseException:
+        # A second Ctrl-C can only land in this window when the first one
+        # bought nothing: a healthy session is gone in under a second, so the
+        # operator taps again precisely while a SIGTERM-ignoring child holds
+        # the grace open. Escalate now or abandon the one case SIGKILL exists
+        # for.
+        os.killpg(process.pid, signal.SIGKILL)
+        process.wait()
+        raise
 
 
 def spawn(
@@ -77,11 +87,16 @@ def spawn(
         except subprocess.TimeoutExpired:
             timed_out = True
             _kill_group(process)
-        except KeyboardInterrupt:
+        except BaseException:
             # The terminal's SIGINT reached this process only: the session is in
-            # its own group. Kill it here or it outlives the driver and keeps
-            # spending, and nothing downstream can notice -- from this side an
-            # orphaned group looks exactly like a finished one.
-            _kill_group(process)
+            # its own group. BaseException, not Exception, because the Ctrl-C
+            # and the SystemExit a signal handler raises orphan it alike, and
+            # nothing downstream can notice -- from this side a session that is
+            # still spending looks exactly like a finished one. The guard is for
+            # an asynchronous interrupt that landed after the child was already
+            # reaped, where signalling would only raise ProcessLookupError over
+            # the operator's interrupt.
+            if process.returncode is None:
+                _kill_group(process)
             raise
     return exit_code, timed_out
