@@ -29,11 +29,20 @@ from ai_rfc.driver.session import SessionResult
 
 CONFIG = Path("/w/recon.yaml")
 
-#: The nine reasons spec §5's state machine can stop on, written out rather
-#: than taken from the enum: a test that derived them could not notice the
-#: vocabulary shrinking. ``tests/driver/test_record.py`` holds the same nine
+#: Every reason spec §5's state machine can stop on, written out rather than
+#: taken from the enum: a test that derived them could not notice the
+#: vocabulary shrinking. ``tests/driver/test_record.py`` holds the same
 #: literals and proves each is a usable ``move_aside`` cause.
-NINE = (
+#:
+#: Nine of them are spec §5's own rows. ``session_failed`` and
+#: ``consolidation_failed`` were added by Task 10, which found two stopping
+#: events the nine could not name: spec §5 says an *errored* session (a launch
+#: or API failure) "stops with the resume line", and D59 says a failing
+#: sweep-end consolidation exits 1. Neither is a cluster reaching its attempt
+#: cap, a deterministic stage exiting non-zero, or a build gate finding, so
+#: mapping either onto an existing member would have printed a resume line
+#: that fixes something else.
+REASONS = (
     "needs_init",
     "stage_failed",
     "stale_substrate",
@@ -41,6 +50,8 @@ NINE = (
     "budget",
     "wall_clock",
     "surface_shortfall",
+    "session_failed",
+    "consolidation_failed",
     "build_failed",
     "done",
 )
@@ -99,15 +110,15 @@ def _launch_error() -> SessionResult:
 # --- the vocabulary ---------------------------------------------------------
 
 
-def test_stop_reason_is_exactly_the_nine_the_state_machine_names() -> None:
+def test_stop_reason_is_exactly_the_reasons_the_state_machine_names() -> None:
     """Both directions: a member added or dropped fails this.
 
-    Paired with ``test_record.py``'s grammar test over the same nine literals,
-    so a new reason cannot arrive without something proving it is a usable
+    Paired with ``test_record.py``'s grammar test over the same literals, so a
+    new reason cannot arrive without something proving it is a usable
     directory-name cause.
     """
-    assert {reason.value for reason in stop.StopReason} == set(NINE)
-    assert {reason.name for reason in stop.StopReason} == set(NINE)
+    assert {reason.value for reason in stop.StopReason} == set(REASONS)
+    assert {reason.name for reason in stop.StopReason} == set(REASONS)
 
 
 def test_classifications_are_exactly_the_four_spec_5_names() -> None:
@@ -288,6 +299,8 @@ def test_strict_findings_is_refused_on_a_reason_that_never_ran_the_gate() -> Non
         ("budget", "ai-rfc run --config /w/recon.yaml"),
         ("wall_clock", "ai-rfc run --config /w/recon.yaml"),
         ("surface_shortfall", "ai-rfc doctor --config /w/recon.yaml"),
+        ("session_failed", "ai-rfc run --config /w/recon.yaml"),
+        ("consolidation_failed", "ai-rfc run --config /w/recon.yaml"),
         ("build_failed", "ai-rfc run --config /w/recon.yaml"),
     ],
 )

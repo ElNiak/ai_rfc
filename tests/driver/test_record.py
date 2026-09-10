@@ -75,6 +75,7 @@ def _session_row(**overrides: Any) -> dict[str, Any]:
         "cluster_id": "c1",
         "ordinal": 0,
         "task_template": "task-cluster.md",
+        "classification": "refused",
         "exit_code": 0,
         "timed_out": False,
         "cost_usd": 0.25,
@@ -116,13 +117,14 @@ def test_the_run_record_contract_is_exactly_these_keys() -> None:
 
 
 def test_the_session_row_contract_is_exactly_these_keys() -> None:
-    """Including the three the campaign's row does not carry, and no ``attempt``."""
+    """Including the four the campaign's row does not carry, and no ``attempt``."""
     assert record.SESSION_ROW_KEYS == (
         "session",
         "kind",
         "cluster_id",
         "ordinal",
         "task_template",
+        "classification",
         "exit_code",
         "timed_out",
         "cost_usd",
@@ -457,6 +459,67 @@ def test_attempts_refuses_an_empty_cluster_id(tmp_path: Path) -> None:
         record.attempts(tmp_path, "")
 
 
+def test_attempts_counts_only_the_sessions_that_consume_one(tmp_path: Path) -> None:
+    """The measured disagreement with ``stop.consumes_attempt``, closed.
+
+    Three rows for one cluster — a refusal, a session the timeout killed, and
+    a launch error — used to report 3 while
+    ``sum(stop.consumes_attempt(...))`` over the same three reported 1. D61
+    says attempts count only sessions that ended on their own, so 1 is the
+    right answer and the rows now carry the classification that says which.
+    The three costs are deliberately non-zero and distinct so the companion
+    assertion shows ``spent`` still counts every one of them: what a killed
+    session cost is still owed, even though it bought no attempt.
+    """
+    run_dir = tmp_path / record.RUNS_DIR / "20260910T120000Z"
+    _transcript(run_dir, _result(0.25), _result(0.5), _result(1.0))
+    for index, classification in enumerate(("refused", "killed", "errored"), start=1):
+        record.append_session(
+            run_dir,
+            _session_row(session=index, cluster_id="c1", classification=classification),
+        )
+
+    assert record.attempts(tmp_path, "c1") == 1
+    assert record.spent(tmp_path) == pytest.approx(1.75)
+
+
+def test_attempts_counts_a_row_that_carries_no_classification(tmp_path: Path) -> None:
+    """A row without the key counts, because the cap must fail safe.
+
+    ``append_session`` refuses such a row, so this one is written to disk by
+    hand: the branch exists for a hand-edited file and for any row written
+    before the key existed, and a test that went through the writer could not
+    reach it. Counting is the safe answer in both directions — over-counting
+    halts a cluster the operator can resume with ``--retry``, while
+    under-counting retries it forever and spends the whole budget on it.
+    """
+    run_dir = tmp_path / record.RUNS_DIR / "20260910T120000Z"
+    run_dir.mkdir(parents=True)
+    row = _session_row(cluster_id="c1")
+    del row["classification"]
+    (run_dir / record.SESSIONS_FILE).write_text(json.dumps(row) + "\n")
+
+    assert record.attempts(tmp_path, "c1") == 1
+
+
+def test_attempts_counts_a_row_whose_classification_is_not_a_known_label(
+    tmp_path: Path,
+) -> None:
+    """A typo must not read as "consumed nothing" — that retries forever.
+
+    The same rule ``stop.consumes_attempt`` enforces by raising. This one
+    cannot raise: it is read mid-sweep over rows a kill may have mangled, so
+    it falls back to the safe answer rather than ending a run of many hours.
+    """
+    run_dir = tmp_path / record.RUNS_DIR / "20260910T120000Z"
+    run_dir.mkdir(parents=True)
+    (run_dir / record.SESSIONS_FILE).write_text(
+        json.dumps(_session_row(cluster_id="c1", classification="refusal")) + "\n"
+    )
+
+    assert record.attempts(tmp_path, "c1") == 1
+
+
 # --- move_aside(): names the cause, never deletes ---------------------------
 
 
@@ -586,12 +649,15 @@ def test_move_aside_accepts_the_stop_reason_vocabulary(tmp_path: Path) -> None:
     display string ``"wall clock"``, ``cluster_halted`` nowhere. Task 9 has
     landed and **all four guessed names survived**; the list is extended here
     to the whole of :class:`ai_rfc.driver.stop.StopReason`, so every name a
-    sweep can mint is proved usable as one path segment.
+    sweep can mint is proved usable as one path segment. Task 10 added
+    ``session_failed`` and ``consolidation_failed`` to that enum — two
+    stopping events spec §5 names but its nine rows cannot spell — and both
+    are carried here.
 
-    The nine are written out rather than read off the enum, and
-    ``tests/driver/test_stop.py`` asserts the same nine literals equal its
-    members: a name added or dropped there fails one of the two, while a test
-    that derived them from the enum could not notice it shrinking.
+    They are written out rather than read off the enum, and
+    ``tests/driver/test_stop.py`` asserts the same literals equal its members:
+    a name added or dropped there fails one of the two, while a test that
+    derived them from the enum could not notice it shrinking.
 
     Nothing here claims a run is moved aside *under* a stop reason. By the
     plan's Ruling D a stop-classified exit writes ``status.json``, so what gets
@@ -608,6 +674,8 @@ def test_move_aside_accepts_the_stop_reason_vocabulary(tmp_path: Path) -> None:
         "budget",
         "wall_clock",
         "surface_shortfall",
+        "session_failed",
+        "consolidation_failed",
         "build_failed",
         "done",
     ):

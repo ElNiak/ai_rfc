@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from ai_rfc.driver import DriverError
 from ai_rfc.driver.arms import ARMS
 from ai_rfc.driver.render import (
     TASK_TEMPLATE,
@@ -29,6 +30,7 @@ from ai_rfc.driver.render import (
     task_template_path,
     unified_diff,
 )
+from ai_rfc.driver.session import claude_version as driver_claude_version
 
 from .. import toolchain as toolchain_module
 from ..config import field_default
@@ -249,13 +251,19 @@ def git_describe(path: Path) -> str:
 
 
 def _claude_version(claude_bin: str) -> str:
+    """The driver's reading of the binary, in this package's error vocabulary.
+
+    The implementation moved into :func:`ai_rfc.driver.session.claude_version`
+    so a production run's ``run.json`` and a campaign record cannot disagree
+    about what a run's harness version was. Only the refusal is translated:
+    ``init_campaign``'s callers catch :class:`ExperimentError`, and a driver
+    error escaping through them would abort a campaign with an exception no
+    handler names.
+    """
     try:
-        result = subprocess.run(
-            [claude_bin, "--version"], capture_output=True, text=True
-        )
-    except OSError as error:
-        raise ExperimentError(f"cannot run {claude_bin}: {error}") from None
-    return result.stdout.strip() or result.stderr.strip()
+        return driver_claude_version(claude_bin)
+    except DriverError as error:
+        raise ExperimentError(str(error)) from None
 
 
 def _sha256(text: str) -> str:

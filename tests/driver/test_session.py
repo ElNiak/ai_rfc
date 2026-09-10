@@ -265,3 +265,52 @@ def test_a_spec_that_names_no_profile_falls_back_to_the_experiments_root(
     env = session.session_env(_spec(tmp_path, profile=None))
 
     assert env["CLAUDE_CONFIG_DIR"] == str(tmp_path / "root" / "profile")
+
+
+# --- the two facts about a launch that lived in the campaign -----------------
+
+
+def test_surface_shortfall_names_what_mounted_instead() -> None:
+    """The check moved here from ``experiment/per_cluster``, not copied.
+
+    Production needs it as much as a campaign does: a session that mounted no
+    ``ai_rfc`` server still exits 0, and the sweep would spend the whole window
+    on sessions that cannot checkpoint, gate or tag. Two copies of one verdict
+    is the drift this package exists to end, so ``per_cluster`` imports this
+    one and ``tests/experiment/test_per_cluster.py`` asserts the same
+    behaviour through that import.
+    """
+    events = [
+        {
+            "type": "system",
+            "subtype": "init",
+            "mcp_servers": [{"name": "ai_rfc", "status": "failed"}],
+        }
+    ]
+
+    assert session.surface_shortfall("A", events) == (True, "ai_rfc=failed")
+
+
+def test_surface_shortfall_is_not_judged_before_a_session_announces() -> None:
+    """Whole and "cannot tell yet" are separate facts, not both None."""
+    assert session.surface_shortfall("A", []) == (False, None)
+
+
+def test_claude_version_reports_what_the_binary_says(tmp_path: Path) -> None:
+    """``run.json`` records the binary a run launched; this reads it.
+
+    Moved here from ``experiment/config._claude_version`` rather than copied:
+    production and the campaign must agree on what the harness version of a
+    run means, and the campaign's report prints the same string.
+    """
+    binary = tmp_path / "claude"
+    binary.write_text("#!/bin/sh\necho '2.1.247 (Claude Code)'\n")
+    binary.chmod(0o755)
+
+    assert session.claude_version(str(binary)) == "2.1.247 (Claude Code)"
+
+
+def test_claude_version_refuses_a_binary_that_will_not_run(tmp_path: Path) -> None:
+    """A run that cannot say what it launched must not record a guess."""
+    with pytest.raises(session.DriverError, match="cannot run"):
+        session.claude_version(str(tmp_path / "missing"))

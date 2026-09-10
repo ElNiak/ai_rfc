@@ -38,6 +38,7 @@ from typing import Any
 
 from . import DriverError
 from .session import EVENTS_FILE
+from .stop import CLASSIFICATIONS, CONSUMES_ATTEMPT
 from .stream import result_events, salvage_stream
 
 #: One directory per run, under the workspace root. The literal is duplicated
@@ -101,6 +102,15 @@ RUN_RECORD_KEYS: tuple[str, ...] = (
 #:     ``"cluster"`` or ``"consolidation"``, the same vocabulary the revision
 #:     entries and :mod:`ai_rfc.ledger` already use. The campaign had no need
 #:     for it because a campaign's consolidation sessions are a separate verb.
+#: ``classification``
+#:     What :func:`ai_rfc.driver.stop.classify` said the session did. It is on
+#:     the row because :func:`attempts` has nothing else to read: D61 counts
+#:     only sessions that ended on their own, and a transcript carries no
+#:     cluster id, so the row is the one place the two facts meet. Without it
+#:     the two disagreed — three rows for one cluster (refused, killed,
+#:     errored) reported 3 attempts against
+#:     ``sum(stop.consumes_attempt(...)) == 1``. The campaign has no need for
+#:     it because its loop counts every attempt within one run.
 #: ``lifetime_cost_usd``
 #:     The campaign's ``cumulative_cost_usd`` is a *run's* running total, and
 #:     production's cap is not a run's. Renamed rather than reused, so a row
@@ -127,6 +137,7 @@ SESSION_ROW_KEYS: tuple[str, ...] = (
     "cluster_id",
     "ordinal",
     "task_template",
+    "classification",
     "exit_code",
     "timed_out",
     "cost_usd",
@@ -380,6 +391,32 @@ def _rows(path: Path) -> list[dict[str, Any]]:
     return rows
 
 
+def _consumed(row: dict[str, Any]) -> bool:
+    """Whether one session row spent an attempt, failing safe when unsure.
+
+    :func:`ai_rfc.driver.stop.consumes_attempt` is the rule; this applies it
+    without raising, because it reads rows a kill may have mangled in the
+    middle of a run of many hours.
+
+    A row carrying no ``classification``, or one carrying a label outside the
+    vocabulary, counts. That is the safe direction in both senses: over-counting
+    halts a cluster the operator resumes with ``--retry``, while under-counting
+    retries it forever and spends the whole budget on one cluster. It is also
+    what a row written before the key existed used to mean, so the cap never
+    silently loosens under an old file.
+
+    Args:
+        row: One parsed ``sessions.jsonl`` row.
+
+    Returns:
+        True when the row spent one of its cluster's attempts.
+    """
+    label = row.get("classification")
+    if not isinstance(label, str) or label not in CLASSIFICATIONS:
+        return True
+    return label in CONSUMES_ATTEMPT
+
+
 def attempts(workspace: Path, cluster_id: str) -> int:
     """How many sessions this workspace has already spent on one cluster.
 
@@ -387,19 +424,27 @@ def attempts(workspace: Path, cluster_id: str) -> int:
     cluster's retries is a property of the reconstruction and not of the
     invocation that happens to be running.
 
+    Counted by D61's rule and not by the row count: only a session that ended
+    on its own spends an attempt, so a killed, launch-errored or budget-stopped
+    session is on the row without being on this figure. See :func:`_consumed`
+    and :data:`ai_rfc.driver.stop.CONSUMES_ATTEMPT`.
+
     Unlike :func:`spent`, this can only be read off ``sessions.jsonl``: a
     transcript carries no cluster id, so there is nowhere else to look. A
-    session killed before its row was appended is therefore not counted, and a
-    cluster whose sessions are repeatedly killed can be retried more often than
-    the configured cap allows.
+    session killed *before* its row was appended is therefore absent — and
+    under D61's rule that is the right answer rather than an undercount, since
+    a session that never returned never ended on its own. What it cost is
+    still billed: :func:`spent` reads the transcript, which the kill left
+    behind. This is why no pre-launch marker is written: a marker would have to
+    count launches, which is the rule D61 replaced.
 
     Args:
         workspace: The workspace root.
         cluster_id: The cluster's id.
 
     Returns:
-        The number of rows naming that cluster; ``0`` when it has never been
-        attempted.
+        The number of attempt-consuming rows naming that cluster; ``0`` when it
+        has never been attempted.
 
     Raises:
         DriverError: If the cluster id is empty, which would otherwise match
@@ -414,7 +459,7 @@ def attempts(workspace: Path, cluster_id: str) -> int:
         1
         for run_dir in _run_dirs(workspace)
         for row in _rows(run_dir / SESSIONS_FILE)
-        if row.get("cluster_id") == cluster_id
+        if row.get("cluster_id") == cluster_id and _consumed(row)
     )
 
 

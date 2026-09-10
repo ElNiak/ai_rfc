@@ -116,6 +116,20 @@ class StopReason(Enum):
     #: The first judgeable session mounted no ``ai_rfc`` MCP surface, so the
     #: rest of the window could not checkpoint, gate or tag either.
     surface_shortfall = "surface_shortfall"
+    #: A session ended in a launch or API failure. Spec §5 says an *errored*
+    #: session "stops with the resume line", and none of the nine rows can
+    #: spell that: it is not a cluster reaching its attempt cap (an errored
+    #: session consumes none), not a deterministic stage exiting non-zero, and
+    #: not a surface shortfall. Added by Task 10 rather than mapped onto
+    #: ``cluster_halted``, whose line would have told the operator to reset
+    #: attempts that were never spent and cannot fix a launch failure.
+    session_failed = "session_failed"
+    #: The sweep-end consolidation round did not record its revision. D59
+    #: makes exactly this exit 1 while a mid-sweep failure is only noted, so
+    #: the sweep needs a name for it. Added by Task 10 alongside
+    #: ``session_failed``; a consolidation is a session, not a stage, so
+    #: ``stage_failed`` would have named the wrong performer.
+    consolidation_failed = "consolidation_failed"
     #: The build gate (``check --strict``, ``lint``, ``build``) had findings.
     build_failed = "build_failed"
     #: Nothing outstanding and no round due. The only reason that is not a
@@ -144,6 +158,8 @@ _VERB: dict[StopReason, str] = {
     StopReason.budget: "run",
     StopReason.wall_clock: "run",
     StopReason.surface_shortfall: "doctor",
+    StopReason.session_failed: "run",
+    StopReason.consolidation_failed: "run",
     StopReason.build_failed: "run",
 }
 
@@ -376,7 +392,7 @@ def resume_line(
             resume, and a line telling the operator to run it again is worse
             than none), if ``cluster_id`` is given for another reason or
             missing for ``cluster_halted``, if it names no known cluster, or if
-            either it or the path holds a control character.
+            either it or the path holds a character that is not printable.
     """
     if reason is StopReason.done:
         raise DriverError(

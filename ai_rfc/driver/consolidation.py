@@ -26,6 +26,31 @@ class Due:
     reason: str
 
 
+def consolidations_recorded(workspace: Path) -> int:
+    """How many consolidation revisions the workspace records.
+
+    Read through the gate's own loader so the driver and the gate cannot
+    disagree about what a revision is. It is what says a round *worked*:
+    :func:`consolidation_due` answers None both for a map with nothing
+    outstanding and for one its loader refuses, so a round credited by that
+    silence would be credited by its own damage.
+
+    Args:
+        workspace: The run's workspace.
+
+    Returns:
+        The number of entries carrying ``kind: consolidation``, and 0 when the
+        map is missing or will not load. The count is evidence a round left
+        behind, so anything standing between the caller and that evidence is an
+        absence of proof and never a reason to raise inside a sweep.
+    """
+    try:
+        entries = load_revisions(workspace / "revisions.yaml")
+    except Exception:  # noqa: BLE001 - no proof of a revision is not one
+        return 0
+    return sum(1 for entry in entries if entry.kind == "consolidation")
+
+
 def consolidation_due(
     workspace: Path, every: int, *, at_end: bool = False
 ) -> Due | None:

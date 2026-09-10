@@ -26,10 +26,8 @@ from pathlib import Path
 from typing import Any, Callable
 
 from ai_rfc.driver import DriverError
-from ai_rfc.driver.arms import arm_profile
-from ai_rfc.driver.consolidation import Due, consolidation_due
-from ai_rfc.driver.session import SessionResult, run_session
-from ai_rfc.driver.stream import ai_rfc_connected, init_event, mcp_servers
+from ai_rfc.driver.consolidation import Due, consolidation_due, consolidations_recorded
+from ai_rfc.driver.session import SessionResult, run_session, surface_shortfall
 
 from .. import ledger
 from ..draft.gate import _cluster_ordinals, load_revisions
@@ -78,47 +76,6 @@ def partial_reason(artifacts: dict[str, Any]) -> str | None:
         bool(artifacts.get("checkpoint")),
         artifacts.get("revision_tag"),
         bool(artifacts.get("tag_exists")),
-    )
-
-
-def surface_shortfall(
-    arm: str, events: list[dict[str, Any]]
-) -> tuple[bool, str | None]:
-    """What the arm declared it would mount, against what the session did.
-
-    An arm states its surface as data and every session announces what actually
-    mounted, and nothing joined the two — so a server that failed to start gave
-    a session carrying the arm's name and none of its tools. That is not a
-    weaker arm, it is a different one: every write the substrate validates goes
-    through those tools, so without them a session writes unchecked. It still
-    exits 0, which is why one produced thirty-nine claims in a vocabulary the
-    schema rejects and reported success.
-
-    "Whole" and "cannot tell yet" are returned as separate facts rather than
-    both as None. A caller that judges once needs to know whether a verdict was
-    actually reached, or it will treat a silent session as a clean one and
-    never look again.
-
-    Args:
-        arm: The arm the run declares.
-        events: The session's events, already salvaged.
-
-    Returns:
-        ``(judged, shortfall)``. ``judged`` is False when nothing could be
-        decided — an empty transcript, or one whose session has not yet
-        announced what it mounted. ``shortfall`` describes what mounted instead,
-        and is None when the surface is whole or the arm mounts no server.
-    """
-    if not arm_profile(arm).uses_mcp:
-        return True, None
-    if init_event(events) is None:
-        return False, None
-    if ai_rfc_connected(events):
-        return True, None
-    mounted = mcp_servers(events)
-    return (
-        True,
-        ", ".join(f"{n}={s}" for n, s in sorted(mounted.items())) or "no server",
     )
 
 
@@ -233,28 +190,6 @@ def _checked_cluster_id(workspace: Path, cluster_id: str) -> str:
     return cluster_id
 
 
-def _consolidations_recorded(workspace: Path) -> int:
-    """How many consolidation revisions the workspace records.
-
-    Read through the gate's own loader so the driver and the gate cannot
-    disagree about what a revision is.
-
-    Args:
-        workspace: The run's workspace.
-
-    Returns:
-        The number of entries carrying ``kind: consolidation``, and 0 when the
-        map is missing or will not load. The count is evidence a round left
-        behind, so anything standing between the caller and that evidence is
-        an absence of proof and never a reason to raise inside a sweep.
-    """
-    try:
-        entries = load_revisions(workspace / "revisions.yaml")
-    except Exception:  # noqa: BLE001 - no proof of a revision is not one
-        return 0
-    return sum(1 for entry in entries if entry.kind == "consolidation")
-
-
 def _run_consolidation(
     campaign: Campaign,
     ref: RunRef,
@@ -343,7 +278,7 @@ def _run_consolidation(
     # credited by its own damage. The ordinal is the round this session owed,
     # which is one more than the map held before it: at least that many is the
     # evidence it recorded, and more is an agent recording generously.
-    if _consolidations_recorded(ref.workspace) >= due.ordinal:
+    if consolidations_recorded(ref.workspace) >= due.ordinal:
         report(f"{ref.run_id}: consolidation {due.ordinal:02d} recorded")
         return True, result
     report(

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,10 +27,17 @@ from typing import Any
 from ai_rfc.config import experiments_root, profile_dir
 
 from . import DriverError
-from .arms import MCP_FILE, ArmProfile, claude_argv, mcp_config
+from .arms import MCP_FILE, ArmProfile, arm_profile, claude_argv, mcp_config
 from .enforcement import bash_prefixes, render_settings
 from .spawn import spawn
-from .stream import result_events, salvage_stream, session_ids
+from .stream import (
+    ai_rfc_connected,
+    init_event,
+    mcp_servers,
+    result_events,
+    salvage_stream,
+    session_ids,
+)
 
 #: The transcript every session of a run appends to.
 EVENTS_FILE = "events.jsonl"
@@ -58,6 +66,81 @@ def resolve_profile(configured: Path | None) -> Path:
         The configured directory, else ``<experiments root>/profile``.
     """
     return configured or profile_dir(experiments_root())
+
+
+def claude_version(claude_bin: str) -> str:
+    """What the Claude Code binary a run launches reports as its version.
+
+    One reader, because a run's record and a campaign's record must mean the
+    same thing by "the harness version": ``run.json`` writes this string,
+    ``experiment/config.py`` freezes it into a campaign, and the campaign
+    report prints it. Two readers of one binary is the drift this package was
+    split out to end.
+
+    Args:
+        claude_bin: The binary, as resolved.
+
+    Returns:
+        Its ``--version`` output, stripped. ``stderr`` is read when ``stdout``
+        is empty: a binary that answers on the other stream has still said
+        what it is, and recording nothing would be worse.
+
+    Raises:
+        DriverError: If the binary cannot be run at all. A run that cannot say
+            what it launched must not record a guess.
+    """
+    try:
+        result = subprocess.run(
+            [claude_bin, "--version"], capture_output=True, text=True
+        )
+    except OSError as error:
+        raise DriverError(f"cannot run {claude_bin}: {error}") from None
+    return result.stdout.strip() or result.stderr.strip()
+
+
+def surface_shortfall(
+    arm: str, events: list[dict[str, Any]]
+) -> tuple[bool, str | None]:
+    """What the arm declared it would mount, against what the session did.
+
+    An arm states its surface as data and every session announces what
+    actually mounted, and nothing joined the two — so a server that failed to
+    start gave a session carrying the arm's name and none of its tools. That
+    is not a weaker arm, it is a different one: every write the substrate
+    validates goes through those tools, so without them a session writes
+    unchecked. It still exits 0, which is why one produced thirty-nine claims
+    in a vocabulary the schema rejects and reported success.
+
+    "Whole" and "cannot tell yet" are returned as separate facts rather than
+    both as None. A caller that judges once needs to know whether a verdict
+    was actually reached, or it will treat a silent session as a clean one and
+    never look again.
+
+    Args:
+        arm: The arm the run declares.
+        events: The session's events, already salvaged.
+
+    Returns:
+        ``(judged, shortfall)``. ``judged`` is False when nothing could be
+        decided — an empty transcript, or one whose session has not yet
+        announced what it mounted. ``shortfall`` describes what mounted
+        instead, and is None when the surface is whole or the arm mounts no
+        server.
+
+    Raises:
+        DriverError: If ``arm`` is not one of :data:`~ai_rfc.driver.arms.ARMS`.
+    """
+    if not arm_profile(arm).uses_mcp:
+        return True, None
+    if init_event(events) is None:
+        return False, None
+    if ai_rfc_connected(events):
+        return True, None
+    mounted = mcp_servers(events)
+    return (
+        True,
+        ", ".join(f"{n}={s}" for n, s in sorted(mounted.items())) or "no server",
+    )
 
 
 @dataclass(frozen=True)
