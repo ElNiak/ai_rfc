@@ -278,10 +278,13 @@ def init_campaign(config: CampaignConfig) -> Campaign:
 
     Raises:
         ExperimentError: If the campaign exists, an arm is unknown, the task
-            profile is unknown or does not run these arms in this session
-            mode, a supplied loop template leaves a slot unfilled, the
+            profile does not run these arms in this session mode, the
             pristine workspace lacks its digest or record, or the claude
             binary cannot be found.
+        DriverError: If no task profile carries that name, or a supplied loop
+            template leaves a slot unfilled. Both are the renderer's own
+            refusals, raised unwrapped: this verb hands it the proposal and
+            lets it judge.
     """
     root = config.root
     campaign_id = config.campaign_id

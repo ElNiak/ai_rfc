@@ -266,7 +266,7 @@ plan's, as it is for the two draft-quality entries above.
 - **A consolidation round runs every K cluster rounds, and once at the
   sweep's end.** It is launched with its own frozen `consolidation-<arm>.md`
   system prompt and its own frozen, hashed task template
-  (`ai_rfc/driver/prompts/task-consolidation.md`), both digested into the campaign's
+  (`task-consolidation.tmpl.md`), both digested into the campaign's
   `prompt_sha256` like every other session prompt, and it appends to the
   run's single transcript.
 - **It changes no claim, and the strongest guard is a digest, not a flag.**
