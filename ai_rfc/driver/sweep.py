@@ -979,6 +979,7 @@ def _finish(
     swept: _Sweep,
     *,
     config_path: Path,
+    known_clusters: tuple[str, ...],
     strict_findings: bool = False,
 ) -> int:
     """Write the status record, print the ledger and the resume line, exit.
@@ -994,6 +995,10 @@ def _finish(
         action: The ``stop`` action, carrying the reason and any cluster.
         swept: The loop's state.
         config_path: The configuration the resume line names.
+        known_clusters: The timeline's ids, from the observation this stop was
+            planned from. The membership guard is only worth running against
+            the real set: checking a halted cluster's id against a set built
+            from that same id would certify nothing.
         strict_findings: Whether ``check --strict`` reported the findings.
 
     Returns:
@@ -1022,30 +1027,12 @@ def _finish(
     _report_ledger(workspace)
     if reason is not StopReason.done:
         try:
-            report(
-                f"resume: {resume_for(action, config_path, action_clusters(action))}"
-            )
+            report(f"resume: {resume_for(action, config_path, known_clusters)}")
         except DriverError as error:
             # A resume line that cannot be rendered must not replace the stop
             # it was describing. The reason and the ledger are already printed.
             report(f"note: no resume line could be rendered: {error}")
     return code
-
-
-def action_clusters(action: Action) -> tuple[str, ...]:
-    """The membership set a stop's resume line is checked against.
-
-    A ``cluster_halted`` stop names the cluster :func:`plan_next` read off the
-    ledger, so that id is a member of the timeline by construction — this is
-    the set that says so.
-
-    Args:
-        action: The ``stop`` action.
-
-    Returns:
-        The cluster ids the line may name; empty when it names none.
-    """
-    return (action.cluster.id,) if action.cluster is not None else ()
 
 
 def run(
@@ -1115,7 +1102,14 @@ def run(
             return exit_code_for(StopReason.done)
         action = plan_next(obs, cfg)
         if action.kind == "stop":
-            return _finish(workspace, run_dir, action, swept, config_path=resume_path)
+            return _finish(
+                workspace,
+                run_dir,
+                action,
+                swept,
+                config_path=resume_path,
+                known_clusters=obs.known_clusters,
+            )
         if action.kind == "gate":
             reason, strict = _build_gate(cfg, workspace)
             return _finish(
@@ -1124,6 +1118,7 @@ def run(
                 Action("stop", reason=reason),
                 swept,
                 config_path=resume_path,
+                known_clusters=obs.known_clusters,
                 strict_findings=strict,
             )
         if action.kind == "stage":
@@ -1140,6 +1135,7 @@ def run(
                     ),
                     swept,
                     config_path=resume_path,
+                    known_clusters=obs.known_clusters,
                 )
             report(f"performed: {action.stage}")
         else:
@@ -1164,6 +1160,7 @@ def run(
                         ),
                         swept,
                         config_path=resume_path,
+                        known_clusters=obs.known_clusters,
                     )
             else:
                 assert action.cluster is not None  # noqa: S101 - a session's row

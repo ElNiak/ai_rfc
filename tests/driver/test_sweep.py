@@ -42,6 +42,7 @@ from ai_rfc.driver.consolidation import Due
 from ai_rfc.driver.session import SessionResult
 from ai_rfc.driver.stop import StopReason
 from ai_rfc.ledger import ClusterState
+from ai_rfc.pipeline.run import StageResult
 from ai_rfc.pipeline.state import State
 
 # --- builders ---------------------------------------------------------------
@@ -571,27 +572,48 @@ def _drive(
     observations: list[sweep.Observation],
     *,
     results: list[Any] | None = None,
+    max_sessions: int = 8,
 ) -> list[dict[str, Any]]:
-    """Script ``observe`` and ``run_session``; record what each session was given."""
+    """Script ``observe`` and ``run_session``; record what each session was given.
+
+    Several tests hand back the *same* observation on every turn, because what
+    they are testing is that the loop's own bookkeeping stops it. If one of
+    those guards regresses the sweep does not fail — it spins, and a hanging
+    test says far less than a failing one and costs far more to read. So the
+    stand-in refuses to launch more than ``max_sessions``.
+    """
     launched: list[dict[str, Any]] = []
     pending = list(observations)
 
     def _observe(_ws: Path, _cfg: ReconConfig, **kwargs: Any) -> sweep.Observation:
         scripted = pending.pop(0) if len(pending) > 1 else pending[0]
-        # The two facts the loop discovers and hands back are threaded through
-        # rather than dropped: what the last session was is not on disk, and a
-        # stand-in that swallowed them would make the errored and shortfall
-        # stops unreachable in every test that uses it.
+        # Every fact the loop discovers and hands back is threaded through
+        # rather than dropped. None of the four is on disk, and a stand-in that
+        # swallowed them would leave the loop's own bookkeeping untested: the
+        # errored and shortfall stops become unreachable, and the two
+        # infinite-loop guards would pass whatever the loop did or did not
+        # count.
+        launched_for = kwargs.get("launches") or {}
         return dataclasses.replace(
             scripted,
             shortfall=kwargs.get("shortfall") or scripted.shortfall,
             last_error=kwargs.get("last_error") or scripted.last_error,
+            launches=(
+                launched_for.get(scripted.cluster.id, 0) if scripted.cluster else 0
+            ),
+            attempted_rounds=frozenset(kwargs.get("attempted_rounds") or ()),
         )
 
     outcomes = list(results or [])
 
     def _run_session(spec: Any, run_dir: Path, *, seen: int = 0) -> SessionResult:
         launched.append({"spec": spec, "run_dir": run_dir, "seen": seen})
+        if len(launched) > max_sessions:
+            raise AssertionError(
+                f"the sweep launched more than {max_sessions} sessions; one of "
+                "its own loop guards (launches, attempted_rounds) is not "
+                "stopping it"
+            )
         # The default session appends a result of its own, so the shared
         # transcript grows by one per session and ``results_seen`` keeps up. A
         # stand-in that returned the same one event every time would classify
@@ -902,6 +924,92 @@ def test_a_sweep_end_consolidation_failure_exits_one(
         json.loads((latest / record.STATUS_FILE).read_text())["reason"]
         == "consolidation_failed"
     )
+
+
+def test_a_failed_stage_stops_the_sweep_and_writes_no_run_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Row 2's other half: a deterministic stage that exited non-zero.
+
+    ``perform`` is patched the way ``run_session`` is — it is a module global
+    of ``sweep`` — so the failure is a real return value rather than a real
+    broken workspace. Nothing under ``runs/`` is written, because no session
+    was ever reached.
+    """
+    ws = _workspace(tmp_path, clusters=({"id": "c1", "ordinal": 1},))
+    _drive(monkeypatch, ws, [_obs(stages=_stages(history=State.PENDING))])
+    monkeypatch.setattr(
+        sweep,
+        "perform",
+        lambda stage, layout, **kwargs: StageResult(stage, 1, ()),
+    )
+
+    code = sweep.run(_cfg(), ws, config_path=Path("/w/recon.yaml"))
+    printed = capsys.readouterr().err
+
+    assert code == 1
+    assert "stage_failed: history exited 1" in printed
+    assert "ai-rfc run --config /w/recon.yaml" in printed
+    assert not (ws / record.RUNS_DIR).exists()
+
+
+def test_the_loop_counts_its_own_launches_so_killed_sessions_cannot_loop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The guard that pays for narrowing ``attempts`` to refusals.
+
+    A session the timeout killed consumes no attempt (D61), so ``attempts``
+    stays at 0 however many times this cluster is tried — the observation
+    below says so on every turn. Only the launches the loop itself counted can
+    stop it, and nothing else in the suite pins the loop *incrementing* them:
+    delete that one line and every ``plan_next`` test still passes.
+    """
+    ws = _workspace(tmp_path, clusters=({"id": "c1", "ordinal": 1},))
+    launched = _drive(
+        monkeypatch,
+        ws,
+        [_obs(cluster=_cluster("c1"), attempts=0)],
+        results=[_result(timed_out=True) for _ in range(4)],
+    )
+
+    assert sweep.run(_cfg(), ws) == 1
+    assert len(launched) == 2
+
+    latest = sorted((ws / record.RUNS_DIR).iterdir())[-1]
+    status = json.loads((latest / record.STATUS_FILE).read_text())
+    rows = [
+        json.loads(line)
+        for line in (latest / record.SESSIONS_FILE).read_text().splitlines()
+    ]
+
+    assert status["reason"] == "cluster_halted"
+    assert [row["classification"] for row in rows] == ["killed", "killed"]
+    assert record.attempts(ws, "c1") == 0
+
+
+def test_the_loop_remembers_a_failed_round_so_it_is_not_bought_per_cluster(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The other guard, and the other line nothing else pins.
+
+    ``consolidation_due`` stays due after a round that recorded nothing, so
+    without the loop remembering what it already tried the sweep buys that
+    round again before every cluster. The observation says the round is due on
+    every turn; only ``attempted_rounds`` growing stops the second purchase.
+    """
+    ws = _workspace(tmp_path, clusters=({"id": "c1", "ordinal": 1},))
+    _drive(monkeypatch, ws, [_obs(cluster=_cluster("c1"), round_due=_due(1))])
+    monkeypatch.setattr(sweep, "consolidations_recorded", lambda _ws: 0)
+
+    assert sweep.run(_cfg(), ws) == 1
+
+    latest = sorted((ws / record.RUNS_DIR).iterdir())[-1]
+    rows = [
+        json.loads(line)
+        for line in (latest / record.SESSIONS_FILE).read_text().splitlines()
+    ]
+
+    assert [row["kind"] for row in rows] == ["consolidation", "cluster", "cluster"]
 
 
 def test_run_one_performs_exactly_one_action(

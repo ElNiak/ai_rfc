@@ -4,7 +4,9 @@ Three vocabularies meet here, and keeping them apart is the point of the
 module.
 
 :class:`StopReason` names why a *sweep* stopped — one member per stopping row
-of spec §5's state machine. Its members are the only stop names production
+of spec §5's state machine, plus the two events its rows name in prose but
+cannot spell (``session_failed``, ``consolidation_failed``; see their members).
+Its members are the only stop names production
 uses; before this module there were two unrelated ones (``budget`` as a
 ``budget_hit`` substring test in the campaign runner, ``surface_shortfall`` as
 an ``outcome=`` value in the per-cluster loop) and ``wall_clock`` existed only
@@ -91,7 +93,13 @@ STRICT_FINDINGS_EXIT = 3
 
 
 class StopReason(Enum):
-    """Why a sweep stopped — one member per stopping row of spec §5.
+    """Why a sweep stopped: spec §5's nine rows, and two events they imply.
+
+    ``session_failed`` and ``consolidation_failed`` are the two. Spec §5 says
+    an *errored* session "stops with the resume line" and D59 says a failing
+    sweep-end consolidation exits 1, but neither is a row of the table, so
+    reporting them meant either a new name or a borrowed one that would print
+    the wrong repair.
 
     The value of every member is a bare identifier, because a stop name is
     interpolated into places that cannot escape it: a directory name through
