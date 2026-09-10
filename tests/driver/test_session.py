@@ -115,7 +115,7 @@ def _value_after(argv: list[str], flag: str) -> str:
 def test_it_writes_the_mcp_config_and_the_guard_and_passes_both(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The side effects of ``prepare_run_argv`` are part of launching a session.
+    """The side effects of ``prepare_argv`` are part of launching a session.
 
     The guard settings file is what mounts the ``PreToolUse`` hook; a launcher
     that built the argv without writing it would pass ``--settings`` at a file

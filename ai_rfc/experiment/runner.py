@@ -10,29 +10,30 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
-from ai_rfc.driver.arms import MCP_FILE, arm_profile, claude_argv, mcp_config
-from ai_rfc.driver.enforcement import bash_prefixes, render_settings
-from ai_rfc.driver.spawn import spawn
+from ai_rfc.driver.arms import arm_profile
+from ai_rfc.driver.session import (
+    EVENTS_FILE,
+    GUARD_FILE,
+    SessionSpec,
+    prepare_argv,
+    run_session,
+    session_env,
+)
 from ai_rfc.driver.stream import merge_results, result_events, salvage_stream
 
 from . import ExperimentError
 from .config import TASK_TEMPLATE_FILE, Campaign
 
-EVENTS_FILE = "events.jsonl"
 RESULT_FILE = "result.json"
 STATUS_FILE = "status.json"
-STDERR_FILE = "stderr.log"
 ARGV_FILE = "argv.json"
 ENV_FILE = "env.json"
 PROMPT_FILE = "prompt.md"
-GUARD_FILE = "guard.json"
-GUARD = Path(__file__).resolve().parents[1] / "driver" / "guard.py"
 
 
 @dataclass(frozen=True)
@@ -85,44 +86,24 @@ def run_ref(campaign: Campaign, run_id: str) -> RunRef:
     return RunRef(run_id, arm, repeat, campaign.runs_dir / run_id)
 
 
-def build_env(campaign: Campaign, ref: RunRef) -> dict[str, str]:
-    """The minimal environment of a run: profile, contract, PATH, HOME, LANG.
-
-    Args:
-        campaign: The frozen campaign.
-        ref: The run being launched.
-
-    Returns:
-        The complete environment; nothing else is inherited.
-    """
-    venv_bin = str(Path(campaign.python).parent)
-    return {
-        "CLAUDE_CONFIG_DIR": str(campaign.profile_dir),
-        "AI_RFC_WORKSPACE": str(ref.workspace),
-        **({"AI_RFC_TOOLCHAIN": campaign.toolchain} if campaign.toolchain else {}),
-        "PATH": f"{campaign.bin_dir}:{venv_bin}:/usr/bin:/bin",
-        "HOME": os.environ.get("HOME", ""),
-        # Measured on Claude Code 2.1.247 / macOS: drop USER and the CLI cannot
-        # reach its stored credentials, answering "Not logged in" however valid
-        # the profile. Spike S0 failed on exactly this before it was added.
-        "USER": os.environ.get("USER", ""),
-        "LANG": os.environ.get("LANG", "C.UTF-8"),
-    }
-
-
-def prepare_run_argv(
+def session_spec(
     campaign: Campaign,
     ref: RunRef,
+    *,
     task: str | None = None,
     budget_usd: float | None = None,
+    timeout_s: int | None = None,
     prompt_file: Path | None = None,
-) -> list[str]:
-    """The argument vector of a run; writes its MCP config and its guard.
+    append: bool = False,
+) -> SessionSpec:
+    """Describe one of this run's sessions in the driver's own terms.
 
-    The guard is what actually separates the arms: ``--allowedTools`` does not
-    confine a built-in tool, so each run mounts a ``PreToolUse`` hook holding
-    its own arm's command prefixes. It is written beside the run rather than
-    inside ``AI_RFC_WORKSPACE``, which arms B and C can write.
+    The campaign-shaped defaults live here rather than in
+    :mod:`ai_rfc.driver.session`: a driver that reached into a campaign's
+    directory layout for its task, its arm prompt or its budget would be
+    importing the experiment's shape without importing its code. Every session
+    of every mode is described through this one function, so what a run records
+    cannot depend on which call site launched it.
 
     Args:
         campaign: The frozen campaign.
@@ -135,52 +116,34 @@ def prepare_run_argv(
             ``campaign.budget_usd`` is the cap on a *run*; a run made of
             several sessions gives each what the run has left, so the total
             holds however many sessions there turn out to be.
+        timeout_s: The session's own wall-clock cap, when it is not the
+            campaign's; a sweep hands each session what the run has left.
         prompt_file: The file appended as the session's system prompt, when it
             is not this run's own arm file. SP7c's consolidation sessions pass
             their own.
+        append: Append to the run's transcript rather than truncating it, so a
+            run made of several sessions leaves one transcript.
 
     Returns:
-        The complete ``claude -p`` argument vector.
+        The spec :func:`~ai_rfc.driver.session.run_session` launches from.
     """
-    this_arm = arm_profile(ref.arm)
-    mcp_path = None
-    if this_arm.uses_mcp:
-        mcp_path = ref.run_dir / MCP_FILE
-        mcp_path.write_text(
-            json.dumps(
-                mcp_config(
-                    python=campaign.python,
-                    workspace=ref.workspace,
-                    toolchain=Path(campaign.toolchain) if campaign.toolchain else None,
-                ),
-                indent=2,
-            )
-            + "\n"
-        )
-    guard_path = ref.run_dir / GUARD_FILE
-    guard_path.write_text(
-        json.dumps(
-            render_settings(
-                python=campaign.python,
-                guard=GUARD,
-                prefixes=bash_prefixes(this_arm),
-            ),
-            indent=2,
-        )
-        + "\n"
-    )
-    return claude_argv(
-        claude_bin=campaign.claude_bin,
-        prompt=(
-            task if task is not None else (campaign.prompts_dir / "task.md").read_text()
-        ),
-        this_arm=this_arm,
-        mcp_config_path=mcp_path,
+    return SessionSpec(
+        claude=campaign.claude_bin,
         model=campaign.model,
         effort=campaign.effort,
         budget_usd=campaign.budget_usd if budget_usd is None else budget_usd,
+        timeout_s=campaign.timeout_s if timeout_s is None else timeout_s,
+        profile=campaign.profile_dir,
+        python=campaign.python,
+        workspace=ref.workspace,
+        toolchain=Path(campaign.toolchain) if campaign.toolchain else None,
         prompt_file=prompt_file or campaign.prompts_dir / f"arm-{ref.arm}.md",
-        guard_settings=guard_path,
+        task=(
+            task if task is not None else (campaign.prompts_dir / "task.md").read_text()
+        ),
+        surface=arm_profile(ref.arm),
+        append=append,
+        bin_dir=campaign.bin_dir,
     )
 
 
@@ -228,7 +191,7 @@ def launch(
     if campaign.toolchain is None:
         # `Campaign.toolchain` defaults to `None` so a campaign frozen before
         # the build gate existed still loads for `audit`; it must not also be
-        # launchable, since `build_env` would then silently omit
+        # launchable, since `session_env` would then silently omit
         # `AI_RFC_TOOLCHAIN` and the session would run with no build gate.
         raise ExperimentError(
             f"campaign {campaign.id} carries no toolchain; it was frozen "
@@ -246,11 +209,16 @@ def launch(
             f"a new campaign onto it: experiment workspace reseal "
             f"{ref.workspace} --as <name>, then campaign init --baseline <name>"
         )
-    argv = prepare_run_argv(campaign, ref)
+    spec = session_spec(campaign, ref)
+    # Built here rather than left to `run_session`, which writes the guard and
+    # spawns in one step: the run's audit record has to be laid down *before*
+    # the process that could edit it exists, and there is no point inside that
+    # one step at which a caller could take these three.
+    argv = prepare_argv(spec, ref.run_dir)
     # Digest the settings the guard is mounted from, before the process that
     # could edit them exists. The audit re-hashes the file and compares.
     guard_digest = hashlib.sha256((ref.run_dir / GUARD_FILE).read_bytes()).hexdigest()
-    env = build_env(campaign, ref)
+    env = session_env(spec)
     (ref.run_dir / ARGV_FILE).write_text(json.dumps(argv, indent=2) + "\n")
     (ref.run_dir / ENV_FILE).write_text(
         json.dumps(env, indent=2, sort_keys=True) + "\n"
@@ -276,21 +244,15 @@ def launch(
     )
     started = _now()
     if campaign.session_mode == "per-cluster":
-        # Imported here, not at module scope: per_cluster needs this
-        # module's env and argv builders, and importing it eagerly would make
+        # Imported here, not at module scope: per_cluster needs this module's
+        # `RunRef` and its `session_spec`, and importing it eagerly would make
         # that a cycle.
         from .per_cluster import run_per_cluster
 
         exit_code, timed_out, _ = run_per_cluster(campaign, ref, report=report)
     else:
-        exit_code, timed_out = spawn(
-            argv,
-            cwd=ref.workspace,
-            env=env,
-            events_path=ref.run_dir / EVENTS_FILE,
-            stderr_path=ref.run_dir / STDERR_FILE,
-            timeout_s=campaign.timeout_s,
-        )
+        result = run_session(spec, ref.run_dir)
+        exit_code, timed_out = result.exit_code, result.timed_out
     try:
         # Merged rather than taken from the tail: a run that spawns an agent
         # per cluster writes one result event per session, and the last one's
@@ -312,6 +274,13 @@ def launch(
         json.dumps(final, indent=2, sort_keys=True) + "\n" if final else "null\n"
     )
     subtype = str((final or {}).get("subtype", "")).lower()
+    # `exit_code=None if timed_out` is not a second normalisation of what
+    # `SessionResult` already carries, and reads like one only from the
+    # single-session branch. `run_per_cluster` folds a whole sweep into
+    # `exit_code or 1` beside `any_timeout=True`, so the value arriving here
+    # from a timed-out sweep is 1 and never None. This is campaign-level
+    # aggregation over many sessions; deleting it files a killed sweep as a run
+    # that ended on its own.
     status = RunStatus(
         run_id=ref.run_id,
         arm=ref.arm,

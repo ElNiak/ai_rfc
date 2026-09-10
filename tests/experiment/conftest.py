@@ -177,7 +177,7 @@ def scenario_workspace(write_scenario, tmp_path):
 
     The fake finds its scenario by the *parent directory name* of
     ``$AI_RFC_WORKSPACE``, and that cannot become an environment variable:
-    ``runner.build_env`` returns a closed environment, so a variable a test
+    ``session.session_env`` returns a closed environment, so a variable a test
     exported would never reach the child, and the test would pass while the
     real driver silently fell back to ``default.json``.
 

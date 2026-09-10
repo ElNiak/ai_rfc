@@ -5,6 +5,7 @@ import sys
 import pytest
 import yaml
 
+from ai_rfc.driver.session import EVENTS_FILE, SessionResult
 from ai_rfc.driver.stream import parse_stream, result_events
 from ai_rfc.experiment import ExperimentError, progress
 from ai_rfc.experiment.campaign_runs import launch_pending
@@ -12,7 +13,7 @@ from ai_rfc.experiment.config import CampaignConfig, init_campaign
 from ai_rfc.experiment.metrics import analyze_run
 from ai_rfc.experiment.per_cluster import surface_shortfall
 from ai_rfc.experiment.progress import window_progress
-from ai_rfc.experiment.runner import EVENTS_FILE, RESULT_FILE
+from ai_rfc.experiment.runner import RESULT_FILE
 
 from .conftest import COMPLETE_STEPS, FAKE_CLAUDE
 
@@ -76,8 +77,28 @@ def test_next_cluster_is_read_from_the_workspace_not_remembered(
     assert outstanding is not None and outstanding["ordinal"] == 1
 
 
-def _stub_spawn(per_cluster, monkeypatch, *, sessions_per_cluster: int):
-    """Drive the loop with a spawn that finishes clusters in ordinal order.
+def _result(*, seen: int, cost: float = 0.0, session_ids=(), **overrides):
+    """A ``SessionResult`` shaped like one ``run_session`` would return.
+
+    ``results_seen`` is the transcript's *new* total, so a stub that returned
+    ``seen`` unchanged would let a caller charge the same events twice.
+    """
+    base = SessionResult(
+        exit_code=0,
+        timed_out=False,
+        cost_usd=cost,
+        results_seen=seen + 1,
+        session_ids=tuple(session_ids),
+        wall_s=0.0,
+        argv=("fake",),
+        events=(),
+        damaged=0,
+    )
+    return dataclasses.replace(base, **overrides) if overrides else base
+
+
+def _stub_session(per_cluster, monkeypatch, *, sessions_per_cluster: int, cost=0.0):
+    """Drive the loop with a session that finishes clusters in ordinal order.
 
     The fake claude can work through a window — a scenario whose steps carry
     ``round`` gives one session per cluster — but it does so by really
@@ -91,23 +112,42 @@ def _stub_spawn(per_cluster, monkeypatch, *, sessions_per_cluster: int):
     cluster, so counting it would finish clusters no session ever worked on —
     and the sequence a consolidation sweep is supposed to produce would be
     unobservable.
+
+    ``run_session`` and not ``spawn``: the sweep launches through the one
+    shared session, so a stub patched onto the old name would silently stop
+    intercepting and run the real spawner while every other assertion still
+    passed.
+
+    Args:
+        per_cluster: The module under test.
+        monkeypatch: The fixture installing the stubs.
+        sessions_per_cluster: How many sessions a cluster takes to finish.
+        cost: What each session reports spending.
+
+    Returns:
+        A record with ``"n"``, the number of *cluster* sessions, and
+        ``"specs"``, every spec launched, in order. Which prompt file a session
+        got is what says whether it was a cluster round or a consolidation, and
+        the spec carries it — so the round is readable from the stub itself
+        rather than from a second wrapper around the argv builder.
     """
-    calls = {"n": 0}
+    calls: dict = {"n": 0, "specs": []}
 
     # The trailing hyphen is load-bearing: pytest sanitises this module's test
     # names into tmp_path, so a run directory can hold the substring
     # "consolidation_" and a needle relaxed to "consolidation" would classify
     # every cluster round as an editorial pass.
-    def fake_spawn(argv, **_kwargs):
-        if not any("consolidation-" in str(part) for part in argv):
+    def fake_session(spec, _run_dir, *, seen: int = 0):
+        calls["specs"].append(spec)
+        if "consolidation-" not in str(spec.prompt_file):
             calls["n"] += 1
-        return 0, False
+        return _result(seen=seen, cost=cost)
 
     def fake_artifacts(_workspace, cluster):
         needed = cluster["ordinal"] * sessions_per_cluster
         return {"artifacts": calls["n"] >= needed, "pre_seeded": False}
 
-    monkeypatch.setattr(per_cluster, "spawn", fake_spawn)
+    monkeypatch.setattr(per_cluster, "run_session", fake_session)
     monkeypatch.setattr(per_cluster, "cluster_artifacts", fake_artifacts)
     monkeypatch.setattr(progress, "cluster_artifacts", fake_artifacts)
     return calls
@@ -118,7 +158,7 @@ def test_one_session_is_spawned_per_outstanding_cluster(
 ):
     import ai_rfc.experiment.per_cluster as per_cluster
 
-    calls = _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
+    calls = _stub_session(per_cluster, monkeypatch, sessions_per_cluster=1)
     monkeypatch.setattr(
         progress,
         "window_clusters",
@@ -142,7 +182,7 @@ def test_a_cluster_that_will_not_finish_halts_rather_than_being_skipped(
     """
     import ai_rfc.experiment.per_cluster as per_cluster
 
-    calls = _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=99)
+    calls = _stub_session(per_cluster, monkeypatch, sessions_per_cluster=99)
     monkeypatch.setattr(
         progress,
         "window_clusters",
@@ -169,7 +209,7 @@ def test_a_half_finished_cluster_is_named_before_it_is_retried(
     """
     import ai_rfc.experiment.per_cluster as per_cluster
 
-    _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=99)
+    _stub_session(per_cluster, monkeypatch, sessions_per_cluster=99)
     monkeypatch.setattr(
         progress, "window_clusters", lambda _ws: [{"ordinal": 1, "id": "c1"}]
     )
@@ -198,7 +238,7 @@ def test_an_untouched_cluster_is_not_described_as_half_finished(
 ):
     import ai_rfc.experiment.per_cluster as per_cluster
 
-    _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
+    _stub_session(per_cluster, monkeypatch, sessions_per_cluster=1)
     monkeypatch.setattr(
         progress, "window_clusters", lambda _ws: [{"ordinal": 1, "id": "c1"}]
     )
@@ -251,7 +291,7 @@ def test_a_killed_session_is_not_charged_the_previous_ones_cost(tmp_path):
     figure into the per-session record, on exactly the path this design exists
     to tolerate.
     """
-    from ai_rfc.experiment.per_cluster import _read_events, _session_cost
+    from ai_rfc.driver.session import _read_events, _session_cost
 
     events = tmp_path / "events.jsonl"
 
@@ -275,7 +315,7 @@ def test_a_truncated_line_does_not_freeze_the_budget(tmp_path):
     reached again and only the wall clock would still bound the run — the
     budget failing open on precisely the interruption it exists for.
     """
-    from ai_rfc.experiment.per_cluster import _read_events, _session_cost
+    from ai_rfc.driver.session import _read_events, _session_cost
 
     events = tmp_path / "events.jsonl"
     events.write_text(
@@ -307,7 +347,7 @@ def test_a_truncated_line_does_not_freeze_the_budget(tmp_path):
 
 def test_an_unreadable_transcript_reads_as_empty(tmp_path):
     """The OSError path moved out of _session_cost and must still be covered."""
-    from ai_rfc.experiment.per_cluster import _read_events
+    from ai_rfc.driver.session import _read_events
 
     assert _read_events(tmp_path / "absent.jsonl") == ([], 0)
 
@@ -321,17 +361,64 @@ def test_the_budget_caps_the_run_not_each_session(per_cluster_campaign, monkeypa
     """
     import ai_rfc.experiment.per_cluster as per_cluster
 
-    calls = _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
-    monkeypatch.setattr(progress, "window_clusters", lambda _ws: _clusters(10))
     # Each session spends the whole $1.00 campaign budget.
-    monkeypatch.setattr(
-        per_cluster, "_session_cost", lambda _events, seen: (1.0, seen + 1)
-    )
+    calls = _stub_session(per_cluster, monkeypatch, sessions_per_cluster=1, cost=1.0)
+    monkeypatch.setattr(progress, "window_clusters", lambda _ws: _clusters(10))
 
     ref = _ref(per_cluster_campaign)
     exit_code, _, sessions = per_cluster.run_per_cluster(per_cluster_campaign, ref)
     assert sessions == 1 and calls["n"] == 1
     assert exit_code != 0
+
+
+def test_a_cluster_attempt_launches_through_the_shared_session(
+    per_cluster_campaign, monkeypatch
+):
+    """The campaign must spend through run_session, not a second launcher.
+
+    Asserting on argv cannot catch a surviving second launcher: both paths
+    bottom out in ``arms.claude_argv``, so the vector is identical either way
+    and the assertion would pass against the two-launcher code it is supposed
+    to refuse. What only the shared path can satisfy is that ``per_cluster``
+    binds the name ``run_session`` at all — and that it hands each session the
+    budget the run has *left* rather than the whole cap, which is the one
+    campaign-level fact a driver-level spec cannot supply for itself.
+    """
+    import ai_rfc.experiment.per_cluster as per_cluster
+    from ai_rfc.driver.session import SessionResult
+
+    specs: list = []
+    calls = {"n": 0}
+
+    def record(spec, _run_dir, *, seen: int = 0):
+        specs.append(spec)
+        calls["n"] += 1
+        return SessionResult(
+            exit_code=0,
+            timed_out=False,
+            cost_usd=0.25,
+            results_seen=seen + 1,
+            session_ids=(),
+            wall_s=0.1,
+            argv=("fake",),
+            events=(),
+            damaged=0,
+        )
+
+    def fake_artifacts(_workspace, cluster):
+        return {"artifacts": calls["n"] >= cluster["ordinal"], "pre_seeded": False}
+
+    monkeypatch.setattr(per_cluster, "run_session", record)
+    monkeypatch.setattr(per_cluster, "cluster_artifacts", fake_artifacts)
+    monkeypatch.setattr(progress, "cluster_artifacts", fake_artifacts)
+    monkeypatch.setattr(progress, "window_clusters", lambda _ws: _clusters(2))
+
+    per_cluster.run_per_cluster(
+        per_cluster_campaign, _ref(per_cluster_campaign), report=lambda _: None
+    )
+
+    # The remainder, not the campaign cap: one cluster, one $0.25 session.
+    assert [spec.budget_usd for spec in specs] == [1.0, 0.75]
 
 
 def test_each_session_is_given_only_what_the_run_has_left(
@@ -340,21 +427,11 @@ def test_each_session_is_given_only_what_the_run_has_left(
     """The cap holds by construction, not only by the loop's check."""
     import ai_rfc.experiment.per_cluster as per_cluster
 
-    given: list[float] = []
-
-    def capture(campaign, ref, task=None, budget_usd=None):
-        given.append(budget_usd)
-        return ["fake"]
-
-    _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
+    calls = _stub_session(per_cluster, monkeypatch, sessions_per_cluster=1, cost=0.25)
     monkeypatch.setattr(progress, "window_clusters", lambda _ws: _clusters(3))
-    monkeypatch.setattr(per_cluster, "prepare_run_argv", capture)
-    monkeypatch.setattr(
-        per_cluster, "_session_cost", lambda _events, seen: (0.25, seen + 1)
-    )
 
     per_cluster.run_per_cluster(per_cluster_campaign, _ref(per_cluster_campaign))
-    assert given == [1.0, 0.75, 0.5]
+    assert [spec.budget_usd for spec in calls["specs"]] == [1.0, 0.75, 0.5]
 
 
 def test_every_session_records_the_argv_it_actually_ran(
@@ -363,11 +440,8 @@ def test_every_session_records_the_argv_it_actually_ran(
     """argv.json holds the whole-window vector, which no session executed."""
     import ai_rfc.experiment.per_cluster as per_cluster
 
-    _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
+    _stub_session(per_cluster, monkeypatch, sessions_per_cluster=1, cost=0.1)
     monkeypatch.setattr(progress, "window_clusters", lambda _ws: _clusters(2))
-    monkeypatch.setattr(
-        per_cluster, "_session_cost", lambda _events, seen: (0.1, seen + 1)
-    )
 
     ref = _ref(per_cluster_campaign)
     per_cluster.run_per_cluster(per_cluster_campaign, ref)
@@ -388,21 +462,13 @@ def test_per_cluster_sessions_render_from_the_frozen_template(
 
     frozen = per_cluster_campaign.task_template
     frozen.write_text(frozen.read_text() + "\nFROZEN-MARKER $low\n")
-    seen: list[str] = []
 
-    def capture(campaign, ref, task=None, budget_usd=None, prompt_file=None):
-        seen.append(task)
-        return ["true"]
-
-    _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
+    calls = _stub_session(per_cluster, monkeypatch, sessions_per_cluster=1, cost=0.1)
     monkeypatch.setattr(progress, "window_clusters", lambda _ws: _clusters(2))
-    monkeypatch.setattr(per_cluster, "prepare_run_argv", capture)
-    monkeypatch.setattr(
-        per_cluster, "_session_cost", lambda _events, count: (0.1, count + 1)
-    )
 
     ref = _ref(per_cluster_campaign)
     per_cluster.run_per_cluster(per_cluster_campaign, ref, report=lambda _: None)
+    seen = [spec.task for spec in calls["specs"]]
     assert seen and all(
         f"FROZEN-MARKER {ordinal}" in task for ordinal, task in enumerate(seen, start=1)
     )
@@ -419,7 +485,7 @@ def test_run_per_cluster_refuses_a_campaign_whose_task_template_was_never_frozen
     import ai_rfc.experiment.per_cluster as per_cluster
 
     per_cluster_campaign.task_template.unlink()
-    calls = _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
+    calls = _stub_session(per_cluster, monkeypatch, sessions_per_cluster=1)
     monkeypatch.setattr(progress, "window_clusters", lambda _ws: _clusters(1))
 
     with pytest.raises(ExperimentError) as excinfo:
@@ -464,7 +530,7 @@ def _transcript(tmp_path, *servers):
         "mcp_servers": [{"name": n, "status": s} for n, s in servers],
     }
     path.write_text(json.dumps(init) + "\n")
-    from ai_rfc.experiment.per_cluster import _read_events
+    from ai_rfc.driver.session import _read_events
 
     return _read_events(path)[0]
 
@@ -515,7 +581,7 @@ def test_a_silent_first_session_does_not_forfeit_the_guard(
     """
     import ai_rfc.experiment.per_cluster as per_cluster
 
-    _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
+    _stub_session(per_cluster, monkeypatch, sessions_per_cluster=1)
     monkeypatch.setattr(
         progress,
         "window_clusters",
@@ -549,14 +615,16 @@ def test_a_per_cluster_run_reports_through_the_launcher(
 
     state = {"done": False}
 
-    def fake_spawn(*_args, events_path, **_kwargs):
-        events_path.write_text(
+    def fake_session(_spec, run_dir, *, seen: int = 0):
+        # Written, not only reported: launch() folds the run's result off this
+        # transcript after the sweep returns.
+        (run_dir / EVENTS_FILE).write_text(
             json.dumps({"type": "result", "subtype": "success"}) + "\n"
         )
         state["done"] = True
-        return 0, False
+        return _result(seen=seen)
 
-    monkeypatch.setattr(per_cluster, "spawn", fake_spawn)
+    monkeypatch.setattr(per_cluster, "run_session", fake_session)
     for module in (per_cluster, progress):
         monkeypatch.setattr(
             module,
@@ -582,7 +650,7 @@ def test_the_attempt_line_shows_the_window_and_the_budget(
     import ai_rfc.experiment.per_cluster as per_cluster
     import ai_rfc.experiment.progress as progress
 
-    _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
+    _stub_session(per_cluster, monkeypatch, sessions_per_cluster=1)
     monkeypatch.setattr(
         progress,
         "window_clusters",
@@ -616,7 +684,7 @@ def test_a_contradicting_timeline_is_reported_but_does_not_stop_the_run(
     import ai_rfc.experiment.per_cluster as per_cluster
     import ai_rfc.experiment.progress as progress
 
-    _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
+    _stub_session(per_cluster, monkeypatch, sessions_per_cluster=1)
     row = {
         "ordinal": 1,
         "id": "c1",
@@ -647,7 +715,7 @@ def test_a_contradicting_timeline_is_reported_but_does_not_stop_the_run(
 def test_each_finished_cluster_leaves_a_summary(per_cluster_campaign, monkeypatch):
     import ai_rfc.experiment.per_cluster as per_cluster
 
-    _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
+    _stub_session(per_cluster, monkeypatch, sessions_per_cluster=1)
     monkeypatch.setattr(
         progress, "window_clusters", lambda _ws: [{"ordinal": 1, "id": "c1"}]
     )
@@ -667,7 +735,7 @@ def test_a_cluster_that_never_finished_still_leaves_a_summary(
     """The failure is the thing worth reading hours later."""
     import ai_rfc.experiment.per_cluster as per_cluster
 
-    _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=99)
+    _stub_session(per_cluster, monkeypatch, sessions_per_cluster=99)
     monkeypatch.setattr(
         progress, "window_clusters", lambda _ws: [{"ordinal": 1, "id": "c1"}]
     )
@@ -684,7 +752,7 @@ def test_a_broken_summary_cannot_end_a_run(per_cluster_campaign, monkeypatch):
     """The load-bearing guarantee: this is reporting, not the work."""
     import ai_rfc.experiment.per_cluster as per_cluster
 
-    _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
+    _stub_session(per_cluster, monkeypatch, sessions_per_cluster=1)
     monkeypatch.setattr(
         progress, "window_clusters", lambda _ws: [{"ordinal": 1, "id": "c1"}]
     )
@@ -713,7 +781,7 @@ def test_a_malformed_questions_file_cannot_end_a_run(per_cluster_campaign, monke
     """
     import ai_rfc.experiment.per_cluster as per_cluster
 
-    _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
+    _stub_session(per_cluster, monkeypatch, sessions_per_cluster=1)
     monkeypatch.setattr(
         progress, "window_clusters", lambda _ws: [{"ordinal": 1, "id": "c1"}]
     )
@@ -734,7 +802,7 @@ def test_an_unreadable_questions_file_cannot_end_a_run(
     """The call-site guard, independent of how defensive question_ids is."""
     import ai_rfc.experiment.per_cluster as per_cluster
 
-    _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
+    _stub_session(per_cluster, monkeypatch, sessions_per_cluster=1)
     monkeypatch.setattr(
         progress, "window_clusters", lambda _ws: [{"ordinal": 1, "id": "c1"}]
     )
@@ -817,32 +885,25 @@ def _write_revisions(workspace, rows):
     (workspace / "revisions.yaml").write_text(yaml.safe_dump({"revisions": revisions}))
 
 
-def _record_prompts(per_cluster, monkeypatch):
-    """The system-prompt file each session was launched with, in order.
+def _round_kinds(specs):
+    """Which kind of round each launched session was, in order.
 
-    Which prompt a session got is what says whether it was a cluster round or a
-    consolidation: the round is otherwise invisible from outside, since both
-    reach the same stubbed spawn.
+    The system-prompt file the session was launched with is what says so: the
+    round is otherwise invisible from outside, since both kinds reach the same
+    stubbed session. The spec carries it, so nothing has to wrap the argv
+    builder to see it.
     """
-    prompts: list = []
-    original = per_cluster.prepare_run_argv
-
-    def record_argv(campaign, ref, **kwargs):
-        prompts.append(kwargs.get("prompt_file"))
-        return original(campaign, ref, **kwargs)
-
-    monkeypatch.setattr(per_cluster, "prepare_run_argv", record_argv)
-    return prompts
-
-
-def _round_kinds(prompts):
     return [
-        "consolidation" if prompt and "consolidation-" in str(prompt) else "cluster"
-        for prompt in prompts
+        (
+            "consolidation"
+            if spec.prompt_file and "consolidation-" in str(spec.prompt_file)
+            else "cluster"
+        )
+        for spec in specs
     ]
 
 
-def _record_revisions(per_cluster, monkeypatch, workspace, prompts, *, editorial=True):
+def _record_revisions(per_cluster, monkeypatch, workspace, *, editorial=True):
     """Let each stubbed session record the revision its round would.
 
     The sweep derives the cadence from ``revisions.yaml`` alone, so a stub that
@@ -853,18 +914,19 @@ def _record_revisions(per_cluster, monkeypatch, workspace, prompts, *, editorial
         per_cluster: The module under test.
         monkeypatch: The fixture installing the stub.
         workspace: Where ``revisions.yaml`` is written.
-        prompts: The recorded prompt files, newest last; the last one says
-            which kind of round is being run.
         editorial: False makes consolidation sessions record nothing, which is
             how a round that can never record is modelled. Cluster rounds still
             record, so the base cluster keeps moving underneath it.
+
+    Returns:
+        The rows written so far, extended as each session runs.
     """
-    counting = per_cluster.spawn
+    counting = per_cluster.run_session
     rows: list[tuple[str, str]] = []
 
-    def recording(*args, **kwargs):
-        result = counting(*args, **kwargs)
-        if "consolidation-" in str(prompts[-1]):
+    def recording(spec, *args, **kwargs):
+        result = counting(spec, *args, **kwargs)
+        if "consolidation-" in str(spec.prompt_file):
             if editorial:
                 rows.append(("consolidation", rows[-1][1]))
         else:
@@ -873,7 +935,7 @@ def _record_revisions(per_cluster, monkeypatch, workspace, prompts, *, editorial
         _write_revisions(workspace, rows)
         return result
 
-    monkeypatch.setattr(per_cluster, "spawn", recording)
+    monkeypatch.setattr(per_cluster, "run_session", recording)
     return rows
 
 
@@ -889,15 +951,14 @@ def test_a_consolidation_runs_after_every_k_clusters_and_at_the_end(
     import ai_rfc.experiment.per_cluster as per_cluster
 
     campaign = dataclasses.replace(per_cluster_campaign, consolidate_every=2)
-    calls = _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
+    calls = _stub_session(per_cluster, monkeypatch, sessions_per_cluster=1)
     monkeypatch.setattr(progress, "window_clusters", lambda _ws: _clusters(3))
-    prompts = _record_prompts(per_cluster, monkeypatch)
     ref = _ref(campaign)
-    _record_revisions(per_cluster, monkeypatch, ref.workspace, prompts)
+    _record_revisions(per_cluster, monkeypatch, ref.workspace)
 
     exit_code, timed_out, sessions = per_cluster.run_per_cluster(campaign, ref)
 
-    assert _round_kinds(prompts) == [
+    assert _round_kinds(calls["specs"]) == [
         "cluster",
         "cluster",
         "consolidation",
@@ -917,7 +978,7 @@ def test_arm_c_never_consolidates(per_cluster_campaign, monkeypatch):
     """
     import ai_rfc.experiment.per_cluster as per_cluster
 
-    _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
+    _stub_session(per_cluster, monkeypatch, sessions_per_cluster=1)
     monkeypatch.setattr(progress, "window_clusters", lambda _ws: _clusters(1))
 
     def refuse(*_args, **_kwargs):
@@ -949,7 +1010,7 @@ def test_a_mid_sweep_consolidation_failure_does_not_stop_the_sweep(
     from ai_rfc.driver.consolidation import Due
 
     campaign = dataclasses.replace(per_cluster_campaign, timeout_s=20)
-    calls = _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
+    calls = _stub_session(per_cluster, monkeypatch, sessions_per_cluster=1)
     monkeypatch.setattr(progress, "window_clusters", lambda _ws: _clusters(2))
     # Always still due: the round never recorded its revision.
     monkeypatch.setattr(
@@ -959,7 +1020,6 @@ def test_a_mid_sweep_consolidation_failure_does_not_stop_the_sweep(
             None if at_end else Due(1, "c1", 1, "1 cluster round")
         ),
     )
-    prompts = _record_prompts(per_cluster, monkeypatch)
     notes: list[str] = []
 
     exit_code, _, sessions = per_cluster.run_per_cluster(
@@ -967,7 +1027,7 @@ def test_a_mid_sweep_consolidation_failure_does_not_stop_the_sweep(
     )
 
     assert exit_code == 0
-    assert _round_kinds(prompts) == ["consolidation", "cluster", "cluster"]
+    assert _round_kinds(calls["specs"]) == ["consolidation", "cluster", "cluster"]
     assert sessions == 3 and calls["n"] == 2
     assert any(
         "consolidation" in note and "recorded no revision" in note for note in notes
@@ -979,7 +1039,7 @@ def test_a_failed_final_consolidation_exits_one(per_cluster_campaign, monkeypatc
     import ai_rfc.experiment.per_cluster as per_cluster
     from ai_rfc.driver.consolidation import Due
 
-    _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
+    _stub_session(per_cluster, monkeypatch, sessions_per_cluster=1)
     monkeypatch.setattr(progress, "window_clusters", lambda _ws: _clusters(1))
     monkeypatch.setattr(
         per_cluster,
@@ -1008,19 +1068,8 @@ def test_a_consolidations_cost_is_charged_to_the_run(per_cluster_campaign, monke
     import ai_rfc.experiment.per_cluster as per_cluster
     from ai_rfc.driver.consolidation import Due
 
-    given: list[float] = []
-    original = per_cluster.prepare_run_argv
-
-    def capture(campaign, ref, **kwargs):
-        given.append(kwargs.get("budget_usd"))
-        return original(campaign, ref, **kwargs)
-
-    _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
+    calls = _stub_session(per_cluster, monkeypatch, sessions_per_cluster=1, cost=0.25)
     monkeypatch.setattr(progress, "window_clusters", lambda _ws: _clusters(2))
-    monkeypatch.setattr(per_cluster, "prepare_run_argv", capture)
-    monkeypatch.setattr(
-        per_cluster, "_session_cost", lambda _events, seen: (0.25, seen + 1)
-    )
     dues = iter([Due(1, "c1", 1, "1 cluster round")])
     monkeypatch.setattr(
         per_cluster,
@@ -1032,7 +1081,7 @@ def test_a_consolidations_cost_is_charged_to_the_run(per_cluster_campaign, monke
         per_cluster_campaign, _ref(per_cluster_campaign), report=lambda _: None
     )
 
-    assert given == [1.0, 0.75, 0.5]
+    assert [spec.budget_usd for spec in calls["specs"]] == [1.0, 0.75, 0.5]
 
 
 def test_the_final_consolidation_is_not_launched_past_the_budget(
@@ -1046,11 +1095,8 @@ def test_the_final_consolidation_is_not_launched_past_the_budget(
     import ai_rfc.experiment.per_cluster as per_cluster
     from ai_rfc.driver.consolidation import Due
 
-    calls = _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
+    calls = _stub_session(per_cluster, monkeypatch, sessions_per_cluster=1, cost=1.0)
     monkeypatch.setattr(progress, "window_clusters", lambda _ws: _clusters(1))
-    monkeypatch.setattr(
-        per_cluster, "_session_cost", lambda _events, seen: (1.0, seen + 1)
-    )
     monkeypatch.setattr(
         per_cluster,
         "consolidation_due",
@@ -1090,7 +1136,7 @@ def test_a_cluster_id_that_names_no_cluster_is_refused_not_interpolated(
     def refuse(*_args, **_kwargs):
         raise AssertionError("the id must be refused before a session is launched")
 
-    monkeypatch.setattr(per_cluster, "spawn", refuse)
+    monkeypatch.setattr(per_cluster, "run_session", refuse)
     ref = _ref(per_cluster_campaign)
 
     for forged in (
@@ -1109,6 +1155,7 @@ def test_a_cluster_id_that_names_no_cluster_is_refused_not_interpolated(
                 Due(1, forged, 1, "sweep end"),
                 budget_usd=1.0,
                 timeout_s=60,
+                seen=0,
                 at_end=True,
                 report=lambda _: None,
             )
@@ -1129,15 +1176,14 @@ def test_the_consolidation_task_comes_from_the_frozen_template(
 
     frozen = per_cluster_campaign.consolidation_task_template
     frozen.write_text("FROZEN-MARKER round $ordinal from $base\n")
-    seen: list[str] = []
+    tasks: list[str] = []
 
-    def capture(campaign, ref, **kwargs):
-        seen.append(kwargs.get("task"))
-        return ["true"]
+    def capture(spec, _run_dir, *, seen: int = 0):
+        tasks.append(spec.task)
+        return _result(seen=seen)
 
     monkeypatch.setattr(progress, "window_clusters", lambda _ws: _clusters(1))
-    monkeypatch.setattr(per_cluster, "prepare_run_argv", capture)
-    monkeypatch.setattr(per_cluster, "spawn", lambda *_a, **_kw: (0, False))
+    monkeypatch.setattr(per_cluster, "run_session", capture)
     monkeypatch.setattr(per_cluster, "consolidation_due", lambda *_a, **_kw: None)
 
     per_cluster._run_consolidation(
@@ -1146,11 +1192,12 @@ def test_the_consolidation_task_comes_from_the_frozen_template(
         Due(4, "c1", 1, "sweep end"),
         budget_usd=1.0,
         timeout_s=60,
+        seen=0,
         at_end=True,
         report=lambda _: None,
     )
 
-    assert seen == ["FROZEN-MARKER round 4 from c1\n"]
+    assert tasks == ["FROZEN-MARKER round 4 from c1\n"]
 
 
 def test_a_failed_consolidation_still_narrows_what_the_cluster_round_is_given(
@@ -1166,19 +1213,8 @@ def test_a_failed_consolidation_still_narrows_what_the_cluster_round_is_given(
     import ai_rfc.experiment.per_cluster as per_cluster
     from ai_rfc.driver.consolidation import Due
 
-    given: list[float] = []
-    original = per_cluster.prepare_run_argv
-
-    def capture(campaign, ref, **kwargs):
-        given.append(kwargs.get("budget_usd"))
-        return original(campaign, ref, **kwargs)
-
-    _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
+    calls = _stub_session(per_cluster, monkeypatch, sessions_per_cluster=1, cost=0.6)
     monkeypatch.setattr(progress, "window_clusters", lambda _ws: _clusters(1))
-    monkeypatch.setattr(per_cluster, "prepare_run_argv", capture)
-    monkeypatch.setattr(
-        per_cluster, "_session_cost", lambda _events, seen: (0.6, seen + 1)
-    )
     # Never recorded, so the sweep falls through to the cluster round.
     monkeypatch.setattr(
         per_cluster,
@@ -1192,7 +1228,7 @@ def test_a_failed_consolidation_still_narrows_what_the_cluster_round_is_given(
         per_cluster_campaign, _ref(per_cluster_campaign), report=lambda _: None
     )
 
-    assert given == [1.0, 0.4]
+    assert [spec.budget_usd for spec in calls["specs"]] == [1.0, 0.4]
 
 
 def test_a_consolidations_session_id_is_not_recorded_as_the_next_clusters(
@@ -1208,19 +1244,21 @@ def test_a_consolidations_session_id_is_not_recorded_as_the_next_clusters(
     import ai_rfc.experiment.per_cluster as per_cluster
     from ai_rfc.driver.consolidation import Due
 
-    prompts = _record_prompts(per_cluster, monkeypatch)
-    _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
+    _stub_session(per_cluster, monkeypatch, sessions_per_cluster=1)
     monkeypatch.setattr(progress, "window_clusters", lambda _ws: _clusters(1))
-    counting = per_cluster.spawn
+    counting = per_cluster.run_session
+    announced: list[str] = []
 
-    def announcing(*args, **kwargs):
-        result = counting(*args, **kwargs)
-        launched = "cons" if "consolidation-" in str(prompts[-1]) else "cluster"
-        with kwargs["events_path"].open("a") as handle:
-            handle.write(json.dumps({"session_id": f"sid-{launched}"}) + "\n")
-        return result
+    def announcing(spec, run_dir, *, seen: int = 0):
+        result = counting(spec, run_dir, seen=seen)
+        launched = "cons" if "consolidation-" in str(spec.prompt_file) else "cluster"
+        # Cumulative, as the real one is: session_ids reports every id in the
+        # shared transcript, not this session's, so the loop is what filters
+        # out the ids it has already claimed.
+        announced.append(f"sid-{launched}")
+        return dataclasses.replace(result, session_ids=tuple(announced))
 
-    monkeypatch.setattr(per_cluster, "spawn", announcing)
+    monkeypatch.setattr(per_cluster, "run_session", announcing)
     dues = iter([Due(1, "c1", 1, "1 cluster round")])
     monkeypatch.setattr(
         per_cluster,
@@ -1250,7 +1288,7 @@ def test_a_refused_cluster_id_does_not_end_the_sweep(per_cluster_campaign, monke
     import ai_rfc.experiment.per_cluster as per_cluster
     from ai_rfc.driver.consolidation import Due
 
-    calls = _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
+    calls = _stub_session(per_cluster, monkeypatch, sessions_per_cluster=1)
     monkeypatch.setattr(progress, "window_clusters", lambda _ws: _clusters(2))
     monkeypatch.setattr(
         per_cluster,
@@ -1285,7 +1323,7 @@ def test_a_refused_final_cluster_id_exits_one_without_raising(
     import ai_rfc.experiment.per_cluster as per_cluster
     from ai_rfc.driver.consolidation import Due
 
-    _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
+    _stub_session(per_cluster, monkeypatch, sessions_per_cluster=1)
     monkeypatch.setattr(progress, "window_clusters", lambda _ws: _clusters(1))
     monkeypatch.setattr(
         per_cluster,
@@ -1316,17 +1354,16 @@ def test_a_timed_out_consolidation_is_reported_as_a_timeout(
     import ai_rfc.experiment.per_cluster as per_cluster
     from ai_rfc.driver.consolidation import Due
 
-    prompts = _record_prompts(per_cluster, monkeypatch)
-    _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
+    _stub_session(per_cluster, monkeypatch, sessions_per_cluster=1)
     monkeypatch.setattr(progress, "window_clusters", lambda _ws: _clusters(1))
-    counting = per_cluster.spawn
+    counting = per_cluster.run_session
 
-    def killing(*args, **kwargs):
-        if "consolidation-" in str(prompts[-1]):
-            return None, True
-        return counting(*args, **kwargs)
+    def killing(spec, run_dir, *, seen: int = 0):
+        if "consolidation-" in str(spec.prompt_file):
+            return _result(seen=seen, exit_code=None, timed_out=True)
+        return counting(spec, run_dir, seen=seen)
 
-    monkeypatch.setattr(per_cluster, "spawn", killing)
+    monkeypatch.setattr(per_cluster, "run_session", killing)
     monkeypatch.setattr(
         per_cluster,
         "consolidation_due",
@@ -1356,8 +1393,7 @@ def test_a_base_cluster_below_the_window_is_still_a_cluster_this_run_knows(
     import ai_rfc.experiment.per_cluster as per_cluster
     from ai_rfc.driver.consolidation import Due
 
-    prompts = _record_prompts(per_cluster, monkeypatch)
-    _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
+    calls = _stub_session(per_cluster, monkeypatch, sessions_per_cluster=1)
     # The window opens at ordinal 2; c1 is seeded work below it.
     monkeypatch.setattr(progress, "window_clusters", lambda _ws: [])
     monkeypatch.setattr(
@@ -1373,7 +1409,7 @@ def test_a_base_cluster_below_the_window_is_still_a_cluster_this_run_knows(
         per_cluster_campaign, _ref(per_cluster_campaign), report=notes.append
     )
 
-    assert _round_kinds(prompts) == ["consolidation"]
+    assert _round_kinds(calls["specs"]) == ["consolidation"]
     assert sessions == 1
     assert not any("not a cluster" in note for note in notes), notes
 
@@ -1396,18 +1432,17 @@ def test_a_consolidation_that_cannot_record_is_attempted_once_per_sweep(
     import ai_rfc.experiment.per_cluster as per_cluster
 
     campaign = dataclasses.replace(per_cluster_campaign, consolidate_every=1)
-    calls = _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
+    calls = _stub_session(per_cluster, monkeypatch, sessions_per_cluster=1)
     monkeypatch.setattr(progress, "window_clusters", lambda _ws: _clusters(3))
-    prompts = _record_prompts(per_cluster, monkeypatch)
     ref = _ref(campaign)
-    _record_revisions(per_cluster, monkeypatch, ref.workspace, prompts, editorial=False)
+    _record_revisions(per_cluster, monkeypatch, ref.workspace, editorial=False)
     notes: list[str] = []
 
     exit_code, _, sessions = per_cluster.run_per_cluster(
         campaign, ref, report=notes.append
     )
 
-    kinds = _round_kinds(prompts)
+    kinds = _round_kinds(calls["specs"])
     # One mid-sweep attempt, not one per cluster, and the final round regardless.
     assert kinds == [
         "cluster",
@@ -1439,24 +1474,25 @@ def test_a_round_that_broke_the_revision_map_is_not_credited_with_recording(
     ref = _ref(per_cluster_campaign)
     _write_revisions(ref.workspace, [("cluster", "c1")])
 
-    def mangling(*_args, **_kwargs):
+    def mangling(_spec, _run_dir, *, seen: int = 0):
         (ref.workspace / "revisions.yaml").write_text("revisions: [c1]\n")
-        return 0, False
+        return _result(seen=seen)
 
-    monkeypatch.setattr(per_cluster, "spawn", mangling)
+    monkeypatch.setattr(per_cluster, "run_session", mangling)
     notes: list[str] = []
 
-    recorded, timed_out = per_cluster._run_consolidation(
+    recorded, result = per_cluster._run_consolidation(
         per_cluster_campaign,
         ref,
         Due(1, "c1", 1, "sweep end"),
         budget_usd=1.0,
         timeout_s=60,
+        seen=0,
         at_end=True,
         report=notes.append,
     )
 
-    assert (recorded, timed_out) == (False, False)
+    assert (recorded, result.timed_out) == (False, False)
     assert any("recorded no revision" in note for note in notes), notes
 
 
@@ -1472,7 +1508,7 @@ def test_a_sweep_end_whose_revision_map_will_not_load_exits_one(
     """
     import ai_rfc.experiment.per_cluster as per_cluster
 
-    _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
+    _stub_session(per_cluster, monkeypatch, sessions_per_cluster=1)
     monkeypatch.setattr(progress, "window_clusters", lambda _ws: [])
     ref = _ref(per_cluster_campaign)
     (ref.workspace / "revisions.yaml").write_text("revisions: [c1]\n")

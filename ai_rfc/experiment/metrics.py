@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from ai_rfc.driver.arms import arm_profile
+from ai_rfc.driver.session import EVENTS_FILE
 from ai_rfc.driver.stream import (
     ai_rfc_connected,
     mcp_servers,
@@ -29,7 +30,7 @@ from ai_rfc.driver.stream import (
 from .. import ledger
 from . import ExperimentError
 from .config import Campaign
-from .runner import EVENTS_FILE, RESULT_FILE, load_status
+from .runner import RESULT_FILE, load_status
 
 DEFINITIONS = {
     "artifacts": "checkpoint exists without a harness marker AND a revisions.yaml entry names the cluster AND that entry's tag exists in draft/",

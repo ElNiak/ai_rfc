@@ -1,3 +1,5 @@
+import dataclasses
+
 import pytest
 
 from ai_rfc.experiment import ExperimentError
@@ -73,3 +75,43 @@ def test_execute_refuses_a_pristine_that_moved_since_the_campaign_froze(
 
     message = str(excinfo.value)
     assert "pristine" in message and "clusters.jsonl" in message
+
+
+@pytest.mark.parametrize(
+    "forged",
+    [
+        # `int("1\n")` is 1, so `split_run_id` parses this as repeat 1 and the
+        # newline survives into every progress line an operator watches.
+        "A1\n",
+        "A1\nB1: already ran (exit 0, timed_out=False); skipping",
+        "../../etc",
+        "/etc/passwd",
+        "A1/../../B1",
+    ],
+)
+def test_a_run_id_that_is_not_one_is_refused_before_it_is_used(campaign, forged):
+    """The frozen order is read back out of campaign.json, so it is not trusted.
+
+    The id reaches two sinks: it is joined into the run's directory, where a
+    ``..`` or a leading ``/`` leaves the campaign; and it is interpolated into
+    the progress lines of a sweep that runs for hours, where a newline forges
+    lines that read as the launcher's own. Membership cannot be the guard here,
+    because ``run_order`` is itself the untrusted value.
+    """
+    tampered = dataclasses.replace(campaign, run_order=(forged,))
+
+    with pytest.raises(ExperimentError) as excinfo:
+        pending_runs(tampered)
+    assert "not an arm letter" in str(excinfo.value)
+
+    with pytest.raises(ExperimentError) as excinfo:
+        launch_pending(tampered, report=lambda _: None)
+    message = str(excinfo.value)
+    assert "not an arm letter" in message
+    # repr keeps a forged newline from splitting the refusal itself in two.
+    assert "\n" not in message
+
+
+def test_the_frozen_order_this_campaign_actually_holds_is_accepted(campaign):
+    """The guard must not refuse the ids ``run_order`` really emits."""
+    assert pending_runs(campaign) == list(campaign.run_order)

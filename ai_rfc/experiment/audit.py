@@ -19,6 +19,7 @@ from typing import Any
 
 from ai_rfc.driver.arms import RAW_PREFIX, arm_profile
 from ai_rfc.driver.enforcement import FILTERS, bash_prefixes, command_groups, is_allowed
+from ai_rfc.driver.session import EVENTS_FILE, GUARD_FILE
 from ai_rfc.driver.stream import (
     is_denial,
     merge_results,
@@ -31,7 +32,7 @@ from ai_rfc.driver.stream import (
 
 from . import ExperimentError
 from .config import Campaign
-from .runner import EVENTS_FILE, GUARD_FILE, load_status
+from .runner import load_status
 
 STATE_FILES = ("manifest.yaml", "questions.yaml", "revisions.yaml")
 ALLOWED_SURFACES: dict[str, set[str]] = {

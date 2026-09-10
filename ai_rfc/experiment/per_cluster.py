@@ -28,15 +28,8 @@ from typing import Any, Callable
 from ai_rfc.driver import DriverError
 from ai_rfc.driver.arms import arm_profile
 from ai_rfc.driver.consolidation import Due, consolidation_due
-from ai_rfc.driver.spawn import spawn
-from ai_rfc.driver.stream import (
-    ai_rfc_connected,
-    init_event,
-    mcp_servers,
-    result_events,
-    salvage_stream,
-    session_ids,
-)
+from ai_rfc.driver.session import SessionResult, run_session
+from ai_rfc.driver.stream import ai_rfc_connected, init_event, mcp_servers
 
 from .. import ledger
 from ..draft.gate import _cluster_ordinals, load_revisions
@@ -44,7 +37,7 @@ from . import ExperimentError
 from .config import Campaign, render_task
 from .metrics import cluster_artifacts
 from .progress import _bar, _duration, cluster_span, describe, digest, window_progress
-from .runner import EVENTS_FILE, STDERR_FILE, RunRef, build_env, prepare_run_argv
+from .runner import RunRef, session_spec
 from .summary import (
     build_summary,
     held_claim_ids,
@@ -88,25 +81,6 @@ def partial_reason(artifacts: dict[str, Any]) -> str | None:
     )
 
 
-def _read_events(events_path: Path) -> tuple[list[dict[str, Any]], int]:
-    """The transcript so far, and how many of its lines could not be read.
-
-    Salvaged rather than parsed strictly: a kill can truncate a line mid-write
-    and the next session appends onto that tail, so one unparseable line is a
-    normal outcome of the interruptions this loop exists to survive.
-
-    Args:
-        events_path: The run's transcript.
-
-    Returns:
-        ``(events, damaged)``; ``([], 0)`` when the file cannot be read.
-    """
-    try:
-        return salvage_stream(events_path.read_text(errors="replace"))
-    except OSError:
-        return [], 0
-
-
 def surface_shortfall(
     arm: str, events: list[dict[str, Any]]
 ) -> tuple[bool, str | None]:
@@ -146,41 +120,6 @@ def surface_shortfall(
         True,
         ", ".join(f"{n}={s}" for n, s in sorted(mounted.items())) or "no server",
     )
-
-
-def _session_cost(events: list[dict[str, Any]], seen: int) -> tuple[float, int]:
-    """What was spent by the result events appended since ``seen``.
-
-    Read back off the transcript rather than tracked, for the same reason the
-    next cluster is: the transcript is what survives, and a figure carried in
-    memory would be lost by the kill it exists to tolerate.
-
-    Counting from ``seen`` rather than taking the last event matters on exactly
-    the path this design exists for. A session killed on its cap emits no result
-    event, so the tail of the transcript is still the *previous* session's — and
-    charging that a second time both overstates the run and writes the wrong
-    figure into the per-session record.
-
-    The transcript reaches here salvaged rather than parsed strictly, because
-    refusing a file with one truncated line would freeze ``spent``, and a frozen
-    ``spent`` is a budget ceiling that can never be reached again.
-
-    Args:
-        events: The run's transcript, already salvaged.
-        seen: How many result events the transcript held before this session.
-
-    Returns:
-        ``(cost, total)`` — what the new events report, and the transcript's new
-        result-event count. A session that produced none reports 0.0, because it
-        said nothing about its own spend.
-    """
-    results = result_events(events)
-    cost = 0.0
-    for result in results[seen:]:
-        value = result.get("total_cost_usd")
-        if isinstance(value, (int, float)):
-            cost += float(value)
-    return cost, len(results)
 
 
 def _finish_cluster(
@@ -254,29 +193,6 @@ def _finish_cluster(
         return seen_claim_ids | held
 
 
-def _account_for_consolidation(
-    events_path: Path, known_sessions: set[str], seen: int
-) -> tuple[float, int]:
-    """Fold a consolidation session into the run's spend and its session set.
-
-    Claiming the id is what keeps it out of the next cluster's record: a
-    cluster round attributes every transcript id it has not seen before to
-    itself, and until consolidations existed there was no other kind of session
-    for that rule to misattribute.
-
-    Args:
-        events_path: The run's transcript.
-        known_sessions: Ids already attributed; extended in place.
-        seen: How many result events the transcript held before this session.
-
-    Returns:
-        ``(cost, total)`` from :func:`_session_cost`.
-    """
-    events, _ = _read_events(events_path)
-    known_sessions.update(session_ids(events))
-    return _session_cost(events, seen)
-
-
 def _checked_cluster_id(workspace: Path, cluster_id: str) -> str:
     """The id, confirmed to name a cluster this run's timeline actually has.
 
@@ -346,9 +262,10 @@ def _run_consolidation(
     *,
     budget_usd: float,
     timeout_s: int,
+    seen: int,
     at_end: bool,
     report: Callable[[str], None],
-) -> tuple[bool, bool]:
+) -> tuple[bool, SessionResult]:
     """Run one consolidation round.
 
     Args:
@@ -357,15 +274,22 @@ def _run_consolidation(
         due: What :func:`consolidation.consolidation_due` decided.
         budget_usd: Budget remaining for this session.
         timeout_s: Seconds remaining.
+        seen: How many result events the run's transcript already held. A
+            consolidation appends to the same transcript every cluster round
+            does, so a round told nothing about what preceded it charges this
+            session for every session before it.
         at_end: True for the sweep's final consolidation.
         report: Progress sink.
 
     Returns:
-        ``(recorded, timed_out)``. ``recorded`` is True when the round recorded
+        ``(recorded, result)``. ``recorded`` is True when the round recorded
         its revision, re-derived from disk rather than from the session's exit
-        code — an agent can exit 0 having done nothing. ``timed_out`` is the
-        session's, and is returned rather than swallowed because the run's
-        status record reads it: a consolidation killed on the cap would
+        code — an agent can exit 0 having done nothing. The whole
+        :class:`~ai_rfc.driver.session.SessionResult` is returned rather than
+        only its ``timed_out`` because a consolidation spends and announces an
+        id like any round: the caller folds its cost into the run's, claims its
+        session id so the next cluster does not, and reads its ``timed_out``
+        into the run's status record — a consolidation killed on the cap would
         otherwise be filed as a run that finished on its own.
 
     Raises:
@@ -400,21 +324,18 @@ def _run_consolidation(
             profile="consolidation",
         )
     ).safe_substitute(ordinal=due.ordinal, base=base)
-    argv = prepare_run_argv(
-        campaign,
-        ref,
-        task=task,
-        budget_usd=budget_usd,
-        prompt_file=campaign.prompts_dir / f"consolidation-{ref.arm}.md",
-    )
-    _, timed_out = spawn(
-        argv,
-        cwd=ref.workspace,
-        env=build_env(campaign, ref),
-        events_path=ref.run_dir / EVENTS_FILE,
-        stderr_path=ref.run_dir / STDERR_FILE,
-        timeout_s=timeout_s,
-        append=True,
+    result = run_session(
+        session_spec(
+            campaign,
+            ref,
+            task=task,
+            budget_usd=budget_usd,
+            timeout_s=timeout_s,
+            prompt_file=campaign.prompts_dir / f"consolidation-{ref.arm}.md",
+            append=True,
+        ),
+        ref.run_dir,
+        seen=seen,
     )
     # Counted, not inferred from the schedule falling silent. consolidation_due
     # answers None for a revisions map its loader refuses as well as for one
@@ -424,12 +345,12 @@ def _run_consolidation(
     # evidence it recorded, and more is an agent recording generously.
     if _consolidations_recorded(ref.workspace) >= due.ordinal:
         report(f"{ref.run_id}: consolidation {due.ordinal:02d} recorded")
-        return True, timed_out
+        return True, result
     report(
         f"{ref.run_id}: consolidation {due.ordinal:02d} recorded no revision"
         + ("" if at_end else "; continuing the sweep")
     )
-    return False, timed_out
+    return False, result
 
 
 def run_per_cluster(
@@ -460,9 +381,6 @@ def run_per_cluster(
         reached with work outstanding; ``timed_out`` is true if any session hit
         its cap.
     """
-    env = build_env(campaign, ref)
-    events_path = ref.run_dir / EVENTS_FILE
-    stderr_path = ref.run_dir / STDERR_FILE
     sessions_path = ref.run_dir / SESSIONS_FILE
     sessions = 0
     spent = 0.0
@@ -518,12 +436,13 @@ def run_per_cluster(
                     # sweep's deliverable and its failure is what the exit code
                     # is for, so it is owed one attempt regardless.
                     try:
-                        recorded, round_timed_out = _run_consolidation(
+                        recorded, round_result = _run_consolidation(
                             campaign,
                             ref,
                             due,
                             budget_usd=budget_left,
                             timeout_s=int(time_left),
+                            seen=results_seen,
                             at_end=True,
                             report=report,
                         )
@@ -532,11 +451,13 @@ def run_per_cluster(
                         exit_code = 1
                     else:
                         sessions += 1
-                        any_timeout = any_timeout or round_timed_out
-                        cost, results_seen = _account_for_consolidation(
-                            events_path, known_sessions, results_seen
-                        )
-                        spent += cost
+                        any_timeout = any_timeout or round_result.timed_out
+                        # Claiming the id is what keeps it out of the next
+                        # cluster's record: a cluster round attributes every
+                        # transcript id it has not seen before to itself.
+                        known_sessions.update(round_result.session_ids)
+                        spent += round_result.cost_usd
+                        results_seen = round_result.results_seen
                         if not recorded:
                             exit_code = 1
             else:
@@ -572,12 +493,13 @@ def run_per_cluster(
             if due is not None and due.ordinal not in attempted:
                 attempted.add(due.ordinal)
                 try:
-                    recorded, round_timed_out = _run_consolidation(
+                    recorded, round_result = _run_consolidation(
                         campaign,
                         ref,
                         due,
                         budget_usd=budget_left,
                         timeout_s=int(time_left),
+                        seen=results_seen,
                         at_end=False,
                         report=report,
                     )
@@ -593,11 +515,15 @@ def run_per_cluster(
                     )
                 else:
                     sessions += 1
-                    any_timeout = any_timeout or round_timed_out
-                    cost, results_seen = _account_for_consolidation(
-                        events_path, known_sessions, results_seen
-                    )
-                    spent += cost
+                    any_timeout = any_timeout or round_result.timed_out
+                    # Claiming the id is what keeps it out of the next
+                    # cluster's record: a cluster round attributes every
+                    # transcript id it has not seen before to itself, and until
+                    # consolidations existed there was no other kind of session
+                    # for that rule to misattribute.
+                    known_sessions.update(round_result.session_ids)
+                    spent += round_result.cost_usd
+                    results_seen = round_result.results_seen
                     budget_left = campaign.budget_usd - spent
                     time_left = campaign.timeout_s - (time.monotonic() - started)
                     if recorded:
@@ -671,26 +597,30 @@ def run_per_cluster(
                 f"{_duration(campaign.timeout_s)} cap"
             )
             attempt_started = time.monotonic()
-            argv = prepare_run_argv(campaign, ref, task=task, budget_usd=budget_left)
-            exit_code, timed_out = spawn(
-                argv,
-                cwd=ref.workspace,
-                env=env,
-                events_path=events_path,
-                stderr_path=stderr_path,
-                timeout_s=int(time_left),
-                append=sessions > 0,
+            result = run_session(
+                session_spec(
+                    campaign,
+                    ref,
+                    task=task,
+                    budget_usd=budget_left,
+                    timeout_s=int(time_left),
+                    append=sessions > 0,
+                ),
+                ref.run_dir,
+                seen=results_seen,
             )
+            argv = list(result.argv)
+            exit_code, timed_out = result.exit_code, result.timed_out
             sessions += 1
             any_timeout = any_timeout or timed_out
-            events, damaged = _read_events(events_path)
+            events, damaged = list(result.events), result.damaged
             attempt_sessions = [
                 session
-                for session in session_ids(events)
+                for session in result.session_ids
                 if session not in known_sessions
             ]
             known_sessions.update(attempt_sessions)
-            cost, results_seen = _session_cost(events, results_seen)
+            cost, results_seen = result.cost_usd, result.results_seen
             cluster_attempts.append(
                 {
                     "attempt": attempt,

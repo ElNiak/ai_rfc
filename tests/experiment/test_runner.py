@@ -6,16 +6,14 @@ from pathlib import Path
 
 import pytest
 
+from ai_rfc.driver.session import EVENTS_FILE, GUARD_FILE, prepare_argv, session_env
 from ai_rfc.experiment import ExperimentError
 from ai_rfc.experiment.runner import (
-    EVENTS_FILE,
-    GUARD_FILE,
     RESULT_FILE,
-    build_env,
     launch,
     load_status,
-    prepare_run_argv,
     run_ref,
+    session_spec,
 )
 from ai_rfc.experiment.workspace import copy_workspace
 
@@ -103,7 +101,7 @@ def test_launch_refuses_a_campaign_whose_task_template_was_never_frozen(
 def test_launch_refuses_a_campaign_with_no_toolchain(campaign):
     """A campaign frozen before the build gate existed (`toolchain=None`, kept
     as `Campaign`'s default so old campaigns still load for `audit`) must not
-    be launched: `build_env` would silently omit `AI_RFC_TOOLCHAIN` and the
+    be launched: `session_env` would silently omit `AI_RFC_TOOLCHAIN` and the
     session would run with no build gate at all."""
     no_toolchain = dataclasses.replace(campaign, toolchain=None)
     ref = _ready(no_toolchain, "A1")
@@ -116,18 +114,18 @@ def test_launch_refuses_a_campaign_with_no_toolchain(campaign):
 
 def test_arm_a_mounts_mcp_and_has_no_bash(campaign):
     ref_a = _ready(campaign, "A1")
-    argv = prepare_run_argv(campaign, ref_a)
+    argv = prepare_argv(session_spec(campaign, ref_a), ref_a.run_dir)
     assert "--mcp-config" in argv and (ref_a.run_dir / "ai_rfc.json").exists()
     assert "Bash" not in argv[argv.index("--tools") + 1].split(",")
     ref_b = _ready(campaign, "B1")
-    argv_b = prepare_run_argv(campaign, ref_b)
+    argv_b = prepare_argv(session_spec(campaign, ref_b), ref_b.run_dir)
     assert "--mcp-config" not in argv_b
     assert "Bash(ai_rfc *)" in argv_b[argv_b.index("--allowedTools") + 1]
-    env_b = build_env(campaign, ref_b)
+    env_b = session_env(session_spec(campaign, ref_b))
     assert env_b["CLAUDE_CONFIG_DIR"] == str(campaign.profile_dir)
     assert env_b["AI_RFC_TOOLCHAIN"] == campaign.toolchain
     no_toolchain = dataclasses.replace(campaign, toolchain=None)
-    assert "AI_RFC_TOOLCHAIN" not in build_env(no_toolchain, ref_b)
+    assert "AI_RFC_TOOLCHAIN" not in session_env(session_spec(no_toolchain, ref_b))
 
 
 def test_every_run_mounts_its_arms_guard(campaign):
@@ -144,7 +142,7 @@ def test_every_run_mounts_its_arms_guard(campaign):
     }
     for run_id, families in expected.items():
         ref = _ready(campaign, run_id)
-        argv = prepare_run_argv(campaign, ref)
+        argv = prepare_argv(session_spec(campaign, ref), ref.run_dir)
         settings = Path(argv[argv.index("--settings") + 1])
         assert settings == ref.run_dir / GUARD_FILE
         hook = json.loads(settings.read_text())["hooks"]["PreToolUse"][0]
@@ -189,11 +187,12 @@ def test_launch_refuses_to_relaunch(campaign, write_scenario):
 def test_a_run_can_be_pointed_at_a_different_frozen_prompt(campaign):
     ref = _ready(campaign, "A1")
     other = campaign.prompts_dir / f"consolidation-{ref.arm}.md"
-    argv = prepare_run_argv(campaign, ref, prompt_file=other)
+    argv = prepare_argv(session_spec(campaign, ref, prompt_file=other), ref.run_dir)
     assert str(other) in argv
     assert f"arm-{ref.arm}.md" not in " ".join(argv)
 
 
 def test_the_default_prompt_is_still_the_arm_prompt(campaign):
     ref = _ready(campaign, "A1")
-    assert f"arm-{ref.arm}.md" in " ".join(prepare_run_argv(campaign, ref))
+    argv = prepare_argv(session_spec(campaign, ref), ref.run_dir)
+    assert f"arm-{ref.arm}.md" in " ".join(argv)

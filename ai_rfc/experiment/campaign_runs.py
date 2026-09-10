@@ -11,6 +11,7 @@ the :class:`~experiment.config.Campaign`. Do not confuse it with
 
 from __future__ import annotations
 
+import re
 from typing import Callable, Iterable
 
 from ai_rfc.driver.arms import arm_profile
@@ -19,6 +20,45 @@ from . import ExperimentError
 from .config import Campaign
 from .runner import RunStatus, launch, load_status, run_ref
 from .workspace import copy_workspace, verify_digest
+
+#: What :func:`config.run_order` emits and nothing else: an arm letter and a
+#: repeat number. ``fullmatch`` rather than a ``$``-anchored search, because
+#: ``$`` also matches before a trailing newline — which is precisely the
+#: character this guard exists to refuse.
+_RUN_ID = re.compile(r"[A-Z]\d+")
+
+
+def _checked_run_id(run_id: str) -> str:
+    """The id, confirmed to be shaped like one before it is used as one.
+
+    Membership of ``run_order`` cannot be the guard here: the order is itself
+    read back out of ``campaign.json``, so it is the untrusted source rather
+    than the closed set to check against. The value then reaches two sinks. It
+    is joined into ``campaign.runs_dir / run_id``, where a ``..`` or a leading
+    ``/`` leaves the campaign's directory; and it is interpolated into the
+    progress lines an operator watches for hours, where a newline forges extra
+    lines that read as the launcher's own. ``split_run_id`` does not cover
+    either: it checks membership, then ``int(run_id[1:])`` — and ``int``
+    accepts surrounding whitespace, so ``"A1\\n"`` parses as repeat 1.
+
+    Args:
+        run_id: The id as ``campaign.json`` recorded it.
+
+    Returns:
+        ``run_id`` unchanged.
+
+    Raises:
+        ExperimentError: If it is not an arm letter followed by digits.
+    """
+    if not _RUN_ID.fullmatch(run_id):
+        # Repr, not the bare value: this message is itself one of the lines a
+        # forged id would forge.
+        raise ExperimentError(
+            f"run id {run_id!r} is not an arm letter and a repeat number; it "
+            "would reach a run directory path and an operator's progress lines "
+            "unescaped"
+        )
+    return run_id
 
 
 def pending_runs(campaign: Campaign) -> list[str]:
@@ -29,11 +69,14 @@ def pending_runs(campaign: Campaign) -> list[str]:
 
     Returns:
         The ids still to launch, in frozen order.
+
+    Raises:
+        ExperimentError: If the frozen order holds an id that is not one.
     """
     return [
         run_id
         for run_id in campaign.run_order
-        if load_status(campaign.runs_dir / run_id) is None
+        if load_status(campaign.runs_dir / _checked_run_id(run_id)) is None
     ]
 
 
@@ -54,8 +97,9 @@ def launch_pending(
         One status per selected run, launched or loaded, in frozen order.
 
     Raises:
-        ExperimentError: If ``only`` names a run outside the campaign, or a
-            run directory exists without a status record.
+        ExperimentError: If ``only`` names a run outside the campaign, the
+            frozen order holds an id that is not one, or a run directory exists
+            without a status record.
     """
     wanted = set(only) if only is not None else set(campaign.run_order)
     unknown = wanted - set(campaign.run_order)
@@ -75,7 +119,9 @@ def launch_pending(
     for run_id in campaign.run_order:
         if run_id not in wanted:
             continue
-        ref = run_ref(campaign, run_id)
+        # Ahead of both sinks: the id is joined into this run's directory by
+        # `run_ref`, and printed into every progress line below.
+        ref = run_ref(campaign, _checked_run_id(run_id))
         existing = load_status(ref.run_dir)
         if existing is not None:
             report(

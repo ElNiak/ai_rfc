@@ -1,12 +1,35 @@
+import dataclasses
 import json
 import sys
 from pathlib import Path
 
 import pytest
 
+from ai_rfc.driver.session import SessionResult
 from ai_rfc.experiment import cli
 
 from .conftest import COMPLETE_STEPS, FAKE_CLAUDE
+
+
+def _session_result(**overrides):
+    """What a stubbed ``_run_consolidation`` hands back beside ``recorded``.
+
+    The round returns the whole session result, not only its ``timed_out``: the
+    sweep folds its cost and claims its session id, and a stub returning a bare
+    tuple would no longer type-check against what the caller reads.
+    """
+    base = SessionResult(
+        exit_code=0,
+        timed_out=False,
+        cost_usd=0.0,
+        results_seen=1,
+        session_ids=(),
+        wall_s=0.0,
+        argv=("fake",),
+        events=(),
+        damaged=0,
+    )
+    return dataclasses.replace(base, **overrides) if overrides else base
 
 
 def _init(
@@ -475,14 +498,22 @@ def test_one_consolidation_runs_against_a_finished_workspace(
         seen["ordinal"] = due.ordinal
         seen["base"] = due.base_cluster
         seen["run_id"] = ref.run_id
-        return True, False
+        # The whole cap, because no sweep surrounds a round run by hand.
+        seen["budget_usd"] = kwargs["budget_usd"]
+        return True, _session_result()
 
     monkeypatch.setattr(per_cluster, "_run_consolidation", fake_consolidation)
 
     code = _consolidate(campaign_dir, "A1")
 
     assert code == 0
-    assert seen == {"at_end": True, "ordinal": 1, "base": "c1", "run_id": "A1"}
+    assert seen == {
+        "at_end": True,
+        "ordinal": 1,
+        "base": "c1",
+        "run_id": "A1",
+        "budget_usd": 1.0,
+    }
 
 
 def test_a_manual_consolidation_that_recorded_nothing_exits_nonzero(
@@ -495,11 +526,18 @@ def test_a_manual_consolidation_that_recorded_nothing_exits_nonzero(
         tmp_path, pristine, panther_repo, capsys, toolchain_record
     )
     _finished_run(campaign_dir, "A1", ONE_UNCONSOLIDATED_CLUSTER)
-    monkeypatch.setattr(
-        per_cluster, "_run_consolidation", lambda *_a, **_k: (False, False)
-    )
+    launched: list[int] = []
+
+    def unrecorded(*_a, **_k):
+        launched.append(1)
+        return False, _session_result()
+
+    monkeypatch.setattr(per_cluster, "_run_consolidation", unrecorded)
 
     assert _consolidate(campaign_dir, "A1") == 1
+    # A patch that no longer intercepts is the failure this re-target exists to
+    # catch, and it is invisible from the exit code alone.
+    assert launched == [1]
 
 
 def test_a_manual_consolidation_launches_nothing_when_none_is_due(
@@ -646,11 +684,16 @@ def test_a_manual_consolidation_records_that_it_extended_the_transcript(
     )
     workspace = _finished_run(campaign_dir, "A1", ONE_UNCONSOLIDATED_CLUSTER)
     (workspace.parent / "events.jsonl").write_text('{"a": 1}\n{"b": 2}\n')
-    monkeypatch.setattr(
-        per_cluster, "_run_consolidation", lambda *_a, **_k: (True, False)
-    )
+    launched: list[int] = []
+
+    def recording(*_a, **_k):
+        launched.append(1)
+        return True, _session_result()
+
+    monkeypatch.setattr(per_cluster, "_run_consolidation", recording)
 
     assert _consolidate(campaign_dir, "A1") == 0
+    assert launched == [1], "the stub must still be the thing that ran"
 
     appended = [
         json.loads(line)

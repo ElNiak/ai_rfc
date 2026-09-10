@@ -621,9 +621,11 @@ def _run_one_consolidation(
             workspace.
     """
     from ai_rfc.driver.consolidation import consolidation_due
+    from ai_rfc.driver.session import EVENTS_FILE
+    from ai_rfc.driver.stream import result_events, salvage_stream
 
     from . import per_cluster
-    from .runner import EVENTS_FILE, run_ref
+    from .runner import run_ref
 
     if only is None or len(only) != 1:
         raise ExperimentError(
@@ -673,21 +675,27 @@ def _run_one_consolidation(
         )
         return 1
     events_path = ref.run_dir / EVENTS_FILE
-    # Counted before the round, because the round appends to this same file.
-    lines_before = (
-        len(events_path.read_text(errors="replace").splitlines())
-        if events_path.exists()
-        else 0
-    )
-    recorded, timed_out = per_cluster._run_consolidation(
+    # Both counted before the round, because the round appends to this same
+    # file. The result-event count is what the session is told to skip: charged
+    # from zero it would report the whole finished run's cost as its own.
+    before = events_path.read_text(errors="replace") if events_path.exists() else ""
+    lines_before = len(before.splitlines())
+    seen_before = len(result_events(salvage_stream(before)[0]))
+    recorded, result = per_cluster._run_consolidation(
         campaign,
         ref,
         due,
+        # The whole cap, not a remainder: no sweep surrounds this round, so
+        # there is no earlier session of this invocation to have spent any of
+        # it. A run made of several sessions is the case that needs a
+        # remainder, and it has one.
         budget_usd=campaign.budget_usd,
         timeout_s=campaign.timeout_s,
+        seen=seen_before,
         at_end=True,
         report=_report,
     )
+    timed_out = result.timed_out
     _record_append(ref.run_dir, due, lines_before, recorded, timed_out)
     print(
         f"{ref.run_id}: consolidation {due.ordinal:02d} "
