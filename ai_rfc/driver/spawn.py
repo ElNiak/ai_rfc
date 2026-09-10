@@ -19,6 +19,20 @@ from pathlib import Path
 KILL_GRACE_S = 30
 
 
+def _kill_group(process: subprocess.Popen) -> None:
+    """Terminate the process group, then reap it, escalating if it lingers.
+
+    Args:
+        process: The group leader, started with ``start_new_session=True``.
+    """
+    os.killpg(process.pid, signal.SIGTERM)
+    try:
+        process.wait(timeout=KILL_GRACE_S)
+    except subprocess.TimeoutExpired:
+        os.killpg(process.pid, signal.SIGKILL)
+        process.wait()
+
+
 def spawn(
     argv: list[str],
     *,
@@ -62,10 +76,12 @@ def spawn(
             exit_code = process.wait(timeout=timeout_s)
         except subprocess.TimeoutExpired:
             timed_out = True
-            os.killpg(process.pid, signal.SIGTERM)
-            try:
-                process.wait(timeout=KILL_GRACE_S)
-            except subprocess.TimeoutExpired:
-                os.killpg(process.pid, signal.SIGKILL)
-                process.wait()
+            _kill_group(process)
+        except KeyboardInterrupt:
+            # The terminal's SIGINT reached this process only: the session is in
+            # its own group. Kill it here or it outlives the driver and keeps
+            # spending, and nothing downstream can notice -- from this side an
+            # orphaned group looks exactly like a finished one.
+            _kill_group(process)
+            raise
     return exit_code, timed_out
