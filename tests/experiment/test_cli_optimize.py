@@ -15,9 +15,9 @@ from types import SimpleNamespace
 
 import pytest
 
+from ai_rfc.driver.render import TEMPLATE
 from ai_rfc.experiment import cli
 from ai_rfc.experiment.optimize.codec import encode, seed_from_plugin
-from ai_rfc.experiment.render import TEMPLATE
 
 without_gepa = pytest.mark.skipif(
     importlib.util.find_spec("gepa") is not None,

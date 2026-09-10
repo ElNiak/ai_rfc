@@ -35,7 +35,8 @@ ai_rfc = "ai_rfc.server.cli:main"
 include = ["ai_rfc*"]
 
 [tool.setuptools.package-data]
-"ai_rfc.experiment" = ["prompts/*.md"]
+"ai_rfc.driver" = ["prompts/*.md"]
+"ai_rfc.lifecycle" = ["prompts/*.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -21,8 +21,9 @@ from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
+from ai_rfc.driver.render import SLOT_RE, SLOT_TABLES, TEMPLATE, write_plugin_skill
+
 from .. import ExperimentError
-from ..render import SLOT_RE, SLOT_TABLES, TEMPLATE, write_plugin_skill
 
 SECTION_NAMES = ("loop", "evidence-hygiene", "interviewing", "rfc-style")
 SECTION_HEADER = "<<<AI_RFC_SECTION {name}>>>"

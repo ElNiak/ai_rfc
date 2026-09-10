@@ -26,8 +26,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
+from ai_rfc.driver.render import TEMPLATE, write_plugin_skill
+
 from .. import ExperimentError
-from ..render import TEMPLATE, write_plugin_skill
 from .codec import SKILL_DIRS, decode, frontmatters_from_plugin, seed_from_plugin
 
 #: The directory holding the generated loop skill. ``write_plugin_skill`` owns

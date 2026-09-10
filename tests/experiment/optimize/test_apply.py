@@ -10,6 +10,7 @@ import shutil
 
 import pytest
 
+from ai_rfc.driver.render import SKILL_FRONTMATTER, TEMPLATE, render_loop
 from ai_rfc.experiment import ExperimentError
 from ai_rfc.experiment.optimize.apply import (
     apply,
@@ -27,7 +28,6 @@ from ai_rfc.experiment.optimize.codec import (
     frontmatters_from_plugin,
     seed_from_plugin,
 )
-from ai_rfc.experiment.render import SKILL_FRONTMATTER, TEMPLATE, render_loop
 from ai_rfc.server.testing import git
 
 LOOP_SKILL = "skills/ai-rfc-reconstruction-loop/SKILL.md"
@@ -143,7 +143,7 @@ def test_a_changed_body_and_loop_land_and_the_skill_is_re_rendered(
 
     The loop skill is generated rather than written, so what proves the
     template landed is the rendering: the committed file is pinned to
-    exactly this expression by ``tests/experiment/test_render.py``.
+    exactly this expression by ``tests/driver/test_render.py``.
     """
     seed = seed_from_plugin(plugin_copy)
     loop = seed.loop + "\nHold the window open until the cluster is tagged.\n"

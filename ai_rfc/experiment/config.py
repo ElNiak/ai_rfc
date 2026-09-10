@@ -20,13 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from ai_rfc.driver.arms import ARMS
-
-from .. import toolchain as toolchain_module
-from ..config import field_default
-from ..config import profile_dir as default_profile_dir
-from ..lifecycle.workspace import DIGEST_FILE, RECORD_FILE
-from . import ExperimentError
-from .render import (
+from ai_rfc.driver.render import (
     TASK_TEMPLATE,
     arm_prompt,
     consolidation_prompt,
@@ -35,6 +29,12 @@ from .render import (
     task_template_path,
     unified_diff,
 )
+
+from .. import toolchain as toolchain_module
+from ..config import field_default
+from ..config import profile_dir as default_profile_dir
+from ..lifecycle.workspace import DIGEST_FILE, RECORD_FILE
+from . import ExperimentError
 
 #: Cluster rounds between consolidation rounds, taken from the schema's
 #: declared default for ``sessions.consolidate_every`` — shared with
@@ -91,7 +91,7 @@ class CampaignConfig:
     #: campaign freezes it beside the prompts it produced.
     loop_template: str | None = None
     #: Which task the runs perform: a key of
-    #: :data:`~ai_rfc.experiment.render.TASK_PROFILES`.
+    #: :data:`~ai_rfc.driver.render.TASK_PROFILES`.
     task_profile: str = "loop"
     #: ``CLAUDE_CONFIG_DIR`` for every run; ``None`` uses ``<root>/profile``.
     #: A campaign that borrows an authenticated profile from elsewhere names

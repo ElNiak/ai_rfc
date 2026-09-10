@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from ai_rfc.experiment.consolidation import consolidation_due
+from ai_rfc.driver.consolidation import consolidation_due
 
 pytestmark = pytest.mark.unit
 

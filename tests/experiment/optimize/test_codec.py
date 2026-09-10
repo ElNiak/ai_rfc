@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from ai_rfc.driver.render import TEMPLATE, arm_prompt
 from ai_rfc.experiment.optimize.codec import (
     SECTION_HEADER,
     SECTION_NAMES,
@@ -23,7 +24,6 @@ from ai_rfc.experiment.optimize.codec import (
     seed_from_plugin,
     split_frontmatter,
 )
-from ai_rfc.experiment.render import TEMPLATE, arm_prompt
 
 
 def _rejects(candidate: str, seed: Bundle) -> list[str]:

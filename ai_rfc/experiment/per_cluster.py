@@ -27,6 +27,7 @@ from typing import Any, Callable
 
 from ai_rfc.driver import DriverError
 from ai_rfc.driver.arms import arm_profile
+from ai_rfc.driver.consolidation import Due, consolidation_due
 from ai_rfc.driver.spawn import spawn
 from ai_rfc.driver.stream import (
     ai_rfc_connected,
@@ -41,7 +42,6 @@ from .. import ledger
 from ..draft.gate import _cluster_ordinals, load_revisions
 from . import ExperimentError
 from .config import Campaign, render_task
-from .consolidation import Due, consolidation_due
 from .metrics import cluster_artifacts
 from .progress import _bar, _duration, cluster_span, describe, digest, window_progress
 from .runner import EVENTS_FILE, STDERR_FILE, RunRef, build_env, prepare_run_argv

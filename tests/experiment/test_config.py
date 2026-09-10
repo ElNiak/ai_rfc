@@ -4,6 +4,8 @@ from pathlib import Path
 
 import pytest
 
+from ai_rfc.driver import DriverError
+from ai_rfc.driver.render import SLOT_TABLES, arm_prompt, task_template_path
 from ai_rfc.experiment import ExperimentError
 from ai_rfc.experiment.config import (
     CampaignConfig,
@@ -13,7 +15,6 @@ from ai_rfc.experiment.config import (
     render_task,
     run_order,
 )
-from ai_rfc.experiment.render import SLOT_TABLES, arm_prompt, task_template_path
 
 
 def test_run_order_is_seeded_and_covers_every_block():
@@ -388,8 +389,12 @@ def test_the_interview_profile_is_one_arm_and_one_session(
 def test_a_template_that_leaves_a_slot_unfilled_freezes_nothing(
     tmp_path, pristine, panther_repo, plugin_root
 ):
-    """A campaign is frozen once, so a bad proposal must not half-build one."""
-    with pytest.raises(ExperimentError):
+    """A campaign is frozen once, so a bad proposal must not half-build one.
+
+    Both refusals are the renderer's, so both carry its error: the campaign
+    hands the proposal to :mod:`ai_rfc.driver.render` and lets it judge.
+    """
+    with pytest.raises(DriverError):
         _init(
             tmp_path,
             pristine,
@@ -398,7 +403,7 @@ def test_a_template_that_leaves_a_slot_unfilled_freezes_nothing(
             loop_template="{{nonesuch}}\n",
         )
     assert not (tmp_path / "root" / "campaigns" / "pilot-test").exists()
-    with pytest.raises(ExperimentError):
+    with pytest.raises(DriverError):
         _init(tmp_path, pristine, panther_repo, plugin_root, task_profile="nope")
     assert not (tmp_path / "root" / "campaigns" / "pilot-test").exists()
 

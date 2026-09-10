@@ -127,7 +127,7 @@ From the aioquic pilot, `pilot-aioquic-w02-11-20260831`; full report at
 - **Prompt digests** (sha256): the pilot froze `arm-A.md` `15dd983b…2552ba`, `arm-B.md`
   `a3128ee4…9d3aa`, `arm-C.md` `967a434b…8ead33`, `task.md` `05e731d3…f84539` — *from the
   pilot*, **superseded**. Those files are campaign artefacts that `campaign init` renders
-  from `ai_rfc/experiment/prompts/loop.tmpl.md` and the two arm-neutral skill texts; the
+  from `ai_rfc/driver/prompts/loop.tmpl.md` and the two arm-neutral skill texts; the
   MCP tools were renamed `arfc_*` → `ai_rfc_*` after the pilot (visible in the pilot's
   `diff-A-C.patch`, kept unedited as the record), so today's rendering cannot reproduce
   the pilot digests. Re-freeze before the main run from a fresh `campaign init`, whose
@@ -266,7 +266,7 @@ plan's, as it is for the two draft-quality entries above.
 - **A consolidation round runs every K cluster rounds, and once at the
   sweep's end.** It is launched with its own frozen `consolidation-<arm>.md`
   system prompt and its own frozen, hashed task template
-  (`task-consolidation.tmpl.md`), both digested into the campaign's
+  (`ai_rfc/driver/prompts/task-consolidation.md`), both digested into the campaign's
   `prompt_sha256` like every other session prompt, and it appends to the
   run's single transcript.
 - **It changes no claim, and the strongest guard is a digest, not a flag.**

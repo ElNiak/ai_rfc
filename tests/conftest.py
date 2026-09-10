@@ -4,6 +4,14 @@ from pathlib import Path
 
 import pytest
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+@pytest.fixture
+def plugin_root() -> Path:
+    """The shipped plugin whose skill texts the renderer bundles and pins."""
+    return REPO_ROOT / "plugins" / "ai-rfc"
+
 
 def pytest_addoption(parser):
     parser.addoption(

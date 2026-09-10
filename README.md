@@ -133,7 +133,7 @@ Skills: `ai-rfc-reconstruction-loop` (the driver), `ai-rfc-evidence-hygiene`
 (claims and anchors), `ai-rfc-rfc-style` with `references/claim-citation.md`
 (prose), and `ai-rfc-interviewing` (author feedback). The loop skill is
 **generated**: `python -m ai_rfc.experiment render` writes it from
-`ai_rfc/experiment/prompts/loop.tmpl.md`, and a test pins the committed file
+`ai_rfc/driver/prompts/loop.tmpl.md`, and a test pins the committed file
 to that rendering — edit the template, not the skill. The evidence-hygiene and
 RFC-style texts are hand-written and are also inlined verbatim into every
 experiment arm's system prompt, so one edit reaches both the plugin and the
@@ -195,7 +195,7 @@ carries those two entries.
 `python -m ai_rfc.experiment optimize` searches for better skill texts by
 measuring them: a backend proposes a rewrite, the harness freezes a campaign
 on it, drives one real agent session, and hands back a score. Four texts
-travel as one delimited candidate — `ai_rfc/experiment/prompts/loop.tmpl.md`
+travel as one delimited candidate — `ai_rfc/driver/prompts/loop.tmpl.md`
 and the bodies of the `ai-rfc-evidence-hygiene`, `ai-rfc-interviewing` and
 `ai-rfc-rfc-style` skills. Everything else is fixed: each skill's frontmatter,
 the `references/` files, and the task prompt every session is given. A
@@ -324,7 +324,7 @@ regenerates the loop SKILL.md from that file. It refuses first if any of those
 files holds work nobody committed — overwritten, it would be indistinguishable
 from the candidate in the diff — unless `--force` says otherwise. It prints
 `git diff --stat` and commits nothing: the result is a working tree for a
-person to read, reject or keep. Re-run `pytest tests/experiment/test_render.py`
+person to read, reject or keep. Re-run `pytest tests/driver/test_render.py`
 afterwards — it pins the committed skill to the template.
 
 ## Tests

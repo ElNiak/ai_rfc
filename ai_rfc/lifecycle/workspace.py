@@ -28,11 +28,12 @@ from ..pipeline.stages import BY_NAME
 from ..pipeline.workspace import Workspace
 from . import LifecycleError
 
-#: The draft skeleton still lives beside the harness's other prompts. Reading
-#: it from here is a layering inversion the substrate cannot fix on its own:
-#: the file is prose the harness owns, and moving it would move a prompt out of
-#: the directory every other prompt is rendered from.
-PROMPTS = Path(__file__).resolve().parents[1] / "experiment" / "prompts"
+#: The draft skeleton is the substrate's own prose, and lives beside the module
+#: that seeds drafts from it. It was once read out of the harness's prompt
+#: directory, which inverted the layering: no prompt here is rendered — the
+#: skeleton carries ``string.Template`` slots this module substitutes, not the
+#: ``{{slot}}`` tables :mod:`ai_rfc.driver.render` fills.
+PROMPTS = Path(__file__).resolve().parent / "prompts"
 DRAFT_SKELETON = PROMPTS / "draft-skeleton.md"
 #: What the skeleton cites without declaring: its ``{::boilerplate
 #: bcp14-tagged}`` expands to the BCP 14 paragraph, which references both of

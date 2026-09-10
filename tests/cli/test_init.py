@@ -258,3 +258,42 @@ def test_init_with_references_needs_a_toolchain_and_seals_them(
     ws = Layout(tmp_path / "ws")
     assert (ws.refcache / "reference.RFC.9000.xml").exists()
     assert json.loads(ws.init_record.read_text())["references"] == ["RFC9000"]
+
+
+def test_init_seeds_the_draft_from_the_substituted_skeleton(
+    tmp_path, source_repo, template_repo
+):
+    """The scaffolded draft is the skeleton with this config's values in it.
+
+    Every other assertion here stops at the file existing, which says nothing
+    about where the skeleton was read from: the substrate reads it by a path
+    built from its own module location, so moving the file leaves the constant
+    resolvable and the read failing. Naming what the substitution had to put
+    in the body is what makes that break visible.
+    """
+    template, commit = template_repo
+    config_path = _config(tmp_path, source_repo)
+    assert (
+        cli.main(
+            [
+                "init",
+                "--config",
+                str(config_path),
+                "--template",
+                template,
+                "--template-commit",
+                commit,
+            ]
+        )
+        == 0
+    )
+    body = (Layout(tmp_path / "ws").draft / "draft-test-fixture.md").read_text()
+    assert 'title: "fixture: A Reconstructed Specification"' in body
+    assert 'abbrev: "fixture Reconstructed"' in body
+    assert "docname: draft-test-fixture-latest" in body
+    assert "The fixture implementation, as pinned" in body
+    assert "reconstructs the specification of fixture" in body
+    # No placeholder survives: string.Template leaves a `$` behind only for a
+    # `$$` escape, and the skeleton has none, so one here is an unsubstituted
+    # slot that would reach a draft build as literal text.
+    assert "$" not in body

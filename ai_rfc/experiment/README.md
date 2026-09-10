@@ -38,7 +38,7 @@ Everything is kept under `AI_RFC_EXPERIMENTS_ROOT` (default
 |---|---|
 | `profile init` | Create the isolated `CLAUDE_CONFIG_DIR` under `<root>/profile` |
 | `preflight` | S0: fourteen real `claude -p` calls, one dollar each, proving the profile is hermetic and that the `PreToolUse` guard actually blocks. Re-run whenever the CLI version moves |
-| `render` | Regenerate `plugins/ai-rfc/skills/ai-rfc-reconstruction-loop/SKILL.md` from `prompts/loop.tmpl.md` (see "Prompts") |
+| `render` | Regenerate `plugins/ai-rfc/skills/ai-rfc-reconstruction-loop/SKILL.md` from `ai_rfc/driver/prompts/loop.tmpl.md` (see "Prompts") |
 | `workspace prepare --config recon.yaml` | Build a pristine workspace: initialise it exactly as `ai-rfc init` does (clone at the pin, fetch the forge, scaffold the draft, write the empty manifest and registers, seal the declared references and the config), run `history`, `timeline` and `views` and re-verify that the views reproduce, mark every cluster outside the window as processed by harness-authored checkpoints, and write `pristine.sha256` and `pristine.json` |
 | `workspace reseal WORKSPACE --as NAME` | Turn a stopped run's workspace into a new pristine baseline, by copy; the run directory is evidence and is never modified |
 | `campaign init [--consolidate-every N]` | Freeze a run matrix: arms, repeats, seeded interleaved order, model, effort, budget, timeout, the resolved `claude` binary and version, the rendered prompts and their digests, the pristine digest, git describes of both checkouts. Runs the parity suite first unless `--skip-parity`. `--consolidate-every` is the cluster rounds a per-cluster sweep leaves between consolidation rounds, frozen into the campaign; 0 disables the mid-sweep ones and a negative value is refused. It defaults from the schema, never from an operator's `recon.yaml` |
@@ -116,12 +116,14 @@ tell which mode produced a run.
 
 ## Prompts
 
-`prompts/loop.tmpl.md` is the single source of the reconstruction loop. Its
-`{{slot}}` placeholders name operations (`cluster_next`, `claim_upsert`,
-`gate`, …); `render.py` fills them from one of four invocation tables:
+The prompts and the renderer are the driver's, not this package's:
+`ai_rfc/driver/prompts/loop.tmpl.md` is the single source of the
+reconstruction loop. Its `{{slot}}` placeholders name operations
+(`cluster_next`, `claim_upsert`, `gate`, …); `ai_rfc/driver/render.py` fills
+them from one of four invocation tables:
 
 - `interactive` → the plugin's `ai-rfc-reconstruction-loop/SKILL.md`, written
-  by `render` and pinned by `tests/experiment/test_render.py`;
+  by `render` and pinned by `tests/driver/test_render.py`;
 - `A`, `B`, `C` → each arm's system prompt, which is the rendered loop followed
   verbatim by the arm-neutral `ai-rfc-rfc-style/SKILL.md`, its
   `references/claim-citation.md`, and `ai-rfc-evidence-hygiene/SKILL.md`,
@@ -129,8 +131,10 @@ tell which mode produced a run.
 
 So the arms differ only where a slot names the arm's surface, and
 `campaign init` writes the pairwise `diff-*.patch` files that prove it.
-`prompts/task.md` is the task prompt, identical across arms with the window
-substituted; `prompts/draft-skeleton.md` seeds the draft repository.
+`ai_rfc/driver/prompts/task.md` is the task prompt, identical across arms with
+the window substituted; `ai_rfc/lifecycle/prompts/draft-skeleton.md` seeds the
+draft repository, and belongs to the substrate that scaffolds it rather than
+to the prompts rendered here.
 
 ## Measurement
 

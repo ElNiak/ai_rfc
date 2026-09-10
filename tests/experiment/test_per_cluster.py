@@ -966,7 +966,7 @@ def test_a_mid_sweep_consolidation_failure_does_not_stop_the_sweep(
     of the process — in memory, so a resumed sweep still tries once.
     """
     import ai_rfc.experiment.per_cluster as per_cluster
-    from ai_rfc.experiment.consolidation import Due
+    from ai_rfc.driver.consolidation import Due
 
     campaign = dataclasses.replace(per_cluster_campaign, timeout_s=20)
     calls = _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
@@ -997,7 +997,7 @@ def test_a_mid_sweep_consolidation_failure_does_not_stop_the_sweep(
 def test_a_failed_final_consolidation_exits_one(per_cluster_campaign, monkeypatch):
     """At the sweep's end the consolidation is the deliverable, so it is fatal."""
     import ai_rfc.experiment.per_cluster as per_cluster
-    from ai_rfc.experiment.consolidation import Due
+    from ai_rfc.driver.consolidation import Due
 
     _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
     monkeypatch.setattr(progress, "window_clusters", lambda _ws: _clusters(1))
@@ -1026,7 +1026,7 @@ def test_a_consolidations_cost_is_charged_to_the_run(per_cluster_campaign, monke
     everything the editorial passes cost.
     """
     import ai_rfc.experiment.per_cluster as per_cluster
-    from ai_rfc.experiment.consolidation import Due
+    from ai_rfc.driver.consolidation import Due
 
     given: list[float] = []
     original = per_cluster.prepare_run_argv
@@ -1064,7 +1064,7 @@ def test_the_final_consolidation_is_not_launched_past_the_budget(
     zero or negative — a session handed a budget the flag exists to forbid.
     """
     import ai_rfc.experiment.per_cluster as per_cluster
-    from ai_rfc.experiment.consolidation import Due
+    from ai_rfc.driver.consolidation import Due
 
     calls = _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
     monkeypatch.setattr(progress, "window_clusters", lambda _ws: _clusters(1))
@@ -1103,7 +1103,7 @@ def test_a_cluster_id_that_names_no_cluster_is_refused_not_interpolated(
     one of them, the newline, and a traversal, in one test.
     """
     import ai_rfc.experiment.per_cluster as per_cluster
-    from ai_rfc.experiment.consolidation import Due
+    from ai_rfc.driver.consolidation import Due
 
     monkeypatch.setattr(progress, "window_clusters", lambda _ws: _clusters(1))
 
@@ -1145,7 +1145,7 @@ def test_the_consolidation_task_comes_from_the_frozen_template(
     consolidation sessions was asked to do.
     """
     import ai_rfc.experiment.per_cluster as per_cluster
-    from ai_rfc.experiment.consolidation import Due
+    from ai_rfc.driver.consolidation import Due
 
     frozen = per_cluster_campaign.consolidation_task_template
     frozen.write_text("FROZEN-MARKER round $ordinal from $base\n")
@@ -1184,7 +1184,7 @@ def test_a_failed_consolidation_still_narrows_what_the_cluster_round_is_given(
     start a round past the cap would never see the new total.
     """
     import ai_rfc.experiment.per_cluster as per_cluster
-    from ai_rfc.experiment.consolidation import Due
+    from ai_rfc.driver.consolidation import Due
 
     given: list[float] = []
     original = per_cluster.prepare_run_argv
@@ -1226,7 +1226,7 @@ def test_a_consolidations_session_id_is_not_recorded_as_the_next_clusters(
     session that did no part of that cluster's work.
     """
     import ai_rfc.experiment.per_cluster as per_cluster
-    from ai_rfc.experiment.consolidation import Due
+    from ai_rfc.driver.consolidation import Due
 
     prompts = _record_prompts(per_cluster, monkeypatch)
     _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
@@ -1268,7 +1268,7 @@ def test_a_refused_cluster_id_does_not_end_the_sweep(per_cluster_campaign, monke
     it was guarding against.
     """
     import ai_rfc.experiment.per_cluster as per_cluster
-    from ai_rfc.experiment.consolidation import Due
+    from ai_rfc.driver.consolidation import Due
 
     calls = _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
     monkeypatch.setattr(progress, "window_clusters", lambda _ws: _clusters(2))
@@ -1303,7 +1303,7 @@ def test_a_refused_final_cluster_id_exits_one_without_raising(
     cannot catch.
     """
     import ai_rfc.experiment.per_cluster as per_cluster
-    from ai_rfc.experiment.consolidation import Due
+    from ai_rfc.driver.consolidation import Due
 
     _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
     monkeypatch.setattr(progress, "window_clusters", lambda _ws: _clusters(1))
@@ -1334,7 +1334,7 @@ def test_a_timed_out_consolidation_is_reported_as_a_timeout(
     caller would be recorded as a run that finished on its own.
     """
     import ai_rfc.experiment.per_cluster as per_cluster
-    from ai_rfc.experiment.consolidation import Due
+    from ai_rfc.driver.consolidation import Due
 
     prompts = _record_prompts(per_cluster, monkeypatch)
     _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
@@ -1374,7 +1374,7 @@ def test_a_base_cluster_below_the_window_is_still_a_cluster_this_run_knows(
     would drop the consolidation the sweep exists to produce.
     """
     import ai_rfc.experiment.per_cluster as per_cluster
-    from ai_rfc.experiment.consolidation import Due
+    from ai_rfc.driver.consolidation import Due
 
     prompts = _record_prompts(per_cluster, monkeypatch)
     _stub_spawn(per_cluster, monkeypatch, sessions_per_cluster=1)
@@ -1454,7 +1454,7 @@ def test_a_round_that_broke_the_revision_map_is_not_credited_with_recording(
     append marker files a round that recorded nothing as one that did.
     """
     import ai_rfc.experiment.per_cluster as per_cluster
-    from ai_rfc.experiment.consolidation import Due
+    from ai_rfc.driver.consolidation import Due
 
     ref = _ref(per_cluster_campaign)
     _write_revisions(ref.workspace, [("cluster", "c1")])

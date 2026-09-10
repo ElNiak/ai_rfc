@@ -1,8 +1,10 @@
 """Fixtures shared by the experiment tests.
 
 The package is installed, so nothing here touches ``sys.path``; the paths are
-derived from this file's location only to reach the plugin directory and the
-fake ``claude``.
+derived from this file's location only to reach the repository root and the
+fake ``claude``. ``plugin_root`` is in ``tests/conftest.py``: the renderer that
+reads the plugin's skill texts moved under ``tests/driver``, and both trees
+need it.
 """
 
 import json
@@ -25,11 +27,6 @@ def panther_repo() -> Path:
     """
     assert (REPO_ROOT / ".git").exists(), REPO_ROOT
     return REPO_ROOT
-
-
-@pytest.fixture
-def plugin_root() -> Path:
-    return REPO_ROOT / "plugins" / "ai-rfc"
 
 
 @pytest.fixture

@@ -50,8 +50,7 @@ APPENDED_FILE = "appended.jsonl"
 #: and stops there, and a diff nobody was told to read is a diff that gets
 #: committed unread.
 NOT_COMMITTED = (
-    "Nothing was committed; review the diff, then run "
-    "tests/experiment/test_render.py."
+    "Nothing was committed; review the diff, then run tests/driver/test_render.py."
 )
 
 #: The only model id a rehearsal records. The fake agent answers to anything,
@@ -621,8 +620,9 @@ def _run_one_consolidation(
             campaign, the append went unacknowledged, or that run has no
             workspace.
     """
+    from ai_rfc.driver.consolidation import consolidation_due
+
     from . import per_cluster
-    from .consolidation import consolidation_due
     from .runner import EVENTS_FILE, run_ref
 
     if only is None or len(only) != 1:
@@ -1236,7 +1236,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"report: {root / 'spike-report.json'}")
             return 0 if report["go"] else 3
         elif args.command == "render":
-            from .render import write_plugin_skill
+            from ai_rfc.driver.render import write_plugin_skill
 
             plugin_dir = args.plugin_dir or _default_plugin_dir()
             print(f"wrote {write_plugin_skill(plugin_dir.resolve())}")
@@ -1428,6 +1428,8 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "optimize" and args.verb == "run":
             return _optimize_run(args, root)
         elif args.command == "optimize" and args.verb == "apply":
+            from ai_rfc.driver.render import TEMPLATE
+
             from .optimize.apply import apply as apply_candidate
             from .optimize.apply import (
                 by_repository,
@@ -1435,7 +1437,6 @@ def main(argv: list[str] | None = None) -> int:
                 targets,
                 uncommitted_work,
             )
-            from .render import TEMPLATE
 
             plugin_root = args.plugin_root.resolve()
             template_path = args.template.resolve() if args.template else TEMPLATE

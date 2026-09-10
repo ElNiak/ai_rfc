@@ -4,8 +4,8 @@ import shutil
 
 import pytest
 
-from ai_rfc.experiment import ExperimentError
-from ai_rfc.experiment.render import (
+from ai_rfc.driver import DriverError
+from ai_rfc.driver.render import (
     INTERVIEW_PREAMBLE,
     SKILL_FRONTMATTER,
     SLOT_TABLES,
@@ -26,7 +26,7 @@ def test_every_table_fills_every_slot():
 
 
 def test_unknown_arm_is_refused():
-    with pytest.raises(ExperimentError):
+    with pytest.raises(DriverError):
         render_loop("Z")
 
 
@@ -118,7 +118,7 @@ def test_render_loop_renders_an_overriding_template():
 
 
 def test_an_overriding_template_naming_an_unknown_slot_is_refused():
-    with pytest.raises(ExperimentError) as excinfo:
+    with pytest.raises(DriverError) as excinfo:
         render_loop("A", template="{{nonesuch}}\n")
     assert "nonesuch" in str(excinfo.value)
 
@@ -151,9 +151,9 @@ def test_the_interview_preamble_names_only_mcp_tools():
 
 
 def test_the_interview_profile_is_arm_A_only(plugin_root):
-    with pytest.raises(ExperimentError):
+    with pytest.raises(DriverError):
         arm_prompt("B", plugin_root, profile="interview")
-    with pytest.raises(ExperimentError):
+    with pytest.raises(DriverError):
         arm_prompt("A", plugin_root, profile="no-such-profile")
 
 
@@ -206,7 +206,7 @@ def test_the_editorial_skill_states_the_move_never_drop_rule():
 
 
 def test_the_consolidation_template_renders_for_every_arm():
-    from ai_rfc.experiment.render import render_consolidation
+    from ai_rfc.driver.render import render_consolidation
 
     for arm in SLOT_TABLES:
         text = render_consolidation(arm)
@@ -214,13 +214,13 @@ def test_the_consolidation_template_renders_for_every_arm():
 
 
 def test_arm_c_is_told_the_new_commands_are_unavailable():
-    from ai_rfc.experiment.render import render_consolidation
+    from ai_rfc.driver.render import render_consolidation
 
     assert "not available in arm C" in render_consolidation("C")
 
 
 def test_the_consolidation_prompt_bundles_the_editorial_skills(plugin_root):
-    from ai_rfc.experiment.render import consolidation_prompt
+    from ai_rfc.driver.render import consolidation_prompt
 
     prompt = consolidation_prompt("A", plugin_root)
     assert "# Editorial" in prompt
@@ -235,7 +235,7 @@ def test_the_consolidation_prompt_never_states_the_equality_rule(plugin_root):
     # Step 4 of this very prompt orders the agent to add references and a
     # figure caption. A bundled skill saying the citation set may not change
     # would refuse the step above it, inside one prompt.
-    from ai_rfc.experiment.render import consolidation_prompt
+    from ai_rfc.driver.render import consolidation_prompt
 
     prompt = consolidation_prompt("A", plugin_root)
     assert "must equal" not in prompt
@@ -244,12 +244,12 @@ def test_the_consolidation_prompt_never_states_the_equality_rule(plugin_root):
 
 
 def test_the_loop_and_the_consolidation_share_one_slot_validator():
-    from ai_rfc.experiment.render import render_consolidation
+    from ai_rfc.driver.render import render_consolidation
 
     for render in (render_loop, render_consolidation):
-        with pytest.raises(ExperimentError):
+        with pytest.raises(DriverError):
             render("no-such-arm")
-        with pytest.raises(ExperimentError) as excinfo:
+        with pytest.raises(DriverError) as excinfo:
             render("A", template="{{nonesuch}}\n")
         assert "nonesuch" in str(excinfo.value)
 
@@ -267,7 +267,7 @@ def test_a_slot_in_a_bundled_skill_body_is_refused(plugin_root, tmp_path):
     root = _plugin_copy(plugin_root, tmp_path)
     body = root / "skills" / "ai-rfc-figures" / "SKILL.md"
     body.write_text(body.read_text() + "\nSee {{cluster_next}} for the rule.\n")
-    with pytest.raises(ExperimentError) as excinfo:
+    with pytest.raises(DriverError) as excinfo:
         arm_prompt("A", root)
     assert "cluster_next" in str(excinfo.value)
     assert "ai-rfc-figures" in str(excinfo.value)
@@ -279,7 +279,7 @@ def test_a_slot_in_a_bundle_that_opens_on_a_preamble_is_refused(plugin_root, tmp
     root = _plugin_copy(plugin_root, tmp_path)
     body = root / "skills" / "ai-rfc-interviewing" / "SKILL.md"
     body.write_text(body.read_text() + "\nSee {{cluster_next}} for the rule.\n")
-    with pytest.raises(ExperimentError) as excinfo:
+    with pytest.raises(DriverError) as excinfo:
         arm_prompt("A", root, profile="interview")
     assert "cluster_next" in str(excinfo.value)
 
@@ -290,7 +290,7 @@ def test_a_slot_text_that_names_a_slot_is_refused(plugin_root, monkeypatch):
     monkeypatch.setitem(
         SLOT_TABLES, "A", dict(SLOT_TABLES["A"], guidance="See {{gate}}.")
     )
-    with pytest.raises(ExperimentError) as excinfo:
+    with pytest.raises(DriverError) as excinfo:
         arm_prompt("A", plugin_root)
     assert "gate" in str(excinfo.value)
 
@@ -307,7 +307,7 @@ def test_every_arm_states_the_strict_done_rule_for_the_next_cluster():
 def test_a_slot_in_a_fixed_preamble_is_refused(plugin_root, monkeypatch):
     # The preamble path renders no template, so its own text is the only part
     # of that bundle nothing else would ever look at.
-    from ai_rfc.experiment.render import TASK_PROFILES
+    from ai_rfc.driver.render import TASK_PROFILES
 
     spec = TASK_PROFILES["interview"]
     monkeypatch.setitem(
@@ -315,7 +315,7 @@ def test_a_slot_in_a_fixed_preamble_is_refused(plugin_root, monkeypatch):
         "interview",
         dataclasses.replace(spec, preamble=f"{spec.preamble}\nSee {{{{gate}}}}.\n"),
     )
-    with pytest.raises(ExperimentError) as excinfo:
+    with pytest.raises(DriverError) as excinfo:
         arm_prompt("A", plugin_root, profile="interview")
     assert "gate" in str(excinfo.value) and "preamble" in str(excinfo.value)
 
@@ -330,7 +330,7 @@ def test_the_shipped_skill_cannot_carry_a_slot_a_slot_text_named(tmp_path, monke
     )
     root = tmp_path / "plugin"
     (root / "skills" / "ai-rfc-reconstruction-loop").mkdir(parents=True)
-    with pytest.raises(ExperimentError) as excinfo:
+    with pytest.raises(DriverError) as excinfo:
         write_plugin_skill(root)
     assert "gate" in str(excinfo.value)
 
