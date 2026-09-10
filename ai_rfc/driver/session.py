@@ -73,7 +73,13 @@ class SessionSpec:
             however many sessions there turn out to be; a one-shot round
             passes the whole cap.
         timeout_s: Wall-clock cap on the session's process group.
-        profile: ``CLAUDE_CONFIG_DIR``; see :func:`resolve_profile`.
+        profile: ``CLAUDE_CONFIG_DIR``, or None to take the default. It is
+            optional because the configured value is: ``sessions.profile`` is
+            declared with no default and the loader passes the raw ``None``
+            through, so a spec that could not carry one would force every
+            production caller to resolve the fallback itself — and a fallback
+            resolved by each caller is a fallback that drifts. See
+            :func:`resolve_profile`.
         python: The interpreter the MCP server and the guard run under.
         workspace: The session's working directory and ``AI_RFC_WORKSPACE``.
         toolchain: The build-gate toolchain record, or None.
@@ -96,7 +102,7 @@ class SessionSpec:
     effort: str
     budget_usd: float
     timeout_s: int
-    profile: Path
+    profile: Path | None
     python: str
     workspace: Path
     toolchain: Path | None

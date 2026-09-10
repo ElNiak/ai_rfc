@@ -222,3 +222,46 @@ def test_the_environment_is_closed_and_keeps_user(
     session.run_session(_spec(tmp_path, toolchain=None), _run_dir(tmp_path))
 
     assert "AI_RFC_TOOLCHAIN" not in calls[0]["env"]
+
+
+def test_the_shim_directory_leads_the_path_when_the_spec_names_one(
+    tmp_path: Path,
+) -> None:
+    """``bin_dir`` goes first, or the campaign's own shim is not what resolves.
+
+    The campaign writes an ``ai_rfc`` shim pinning its frozen interpreter and
+    puts that directory ahead of everything else. A venv that installed the
+    console script of the same name would answer the arm too, so this is not
+    the difference between a working arm and a broken one on the default
+    configuration — but it is the difference between the two launchers writing
+    the same ``env.json`` and writing different ones, and only the value, not
+    the key, can show that. The key set is pinned above; nothing pinned the
+    order until here.
+    """
+    venv_bin = Path(_spec(tmp_path).python).parent
+
+    with_shim = session.session_env(_spec(tmp_path, bin_dir=tmp_path / "bin"))["PATH"]
+    without = session.session_env(_spec(tmp_path))["PATH"]
+
+    assert with_shim.startswith(f"{tmp_path / 'bin'}:")
+    assert with_shim == f"{tmp_path / 'bin'}:{venv_bin}:/usr/bin:/bin"
+    assert without == f"{venv_bin}:/usr/bin:/bin"
+
+
+def test_a_spec_that_names_no_profile_falls_back_to_the_experiments_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A configuration that never named a profile must still launch.
+
+    ``sessions.profile`` is declared with no default and the loader passes the
+    raw ``None`` through, so the spec has to be able to carry one — and the
+    environment it produces must name the directory the doctor reports rather
+    than the string ``None``.
+    """
+    monkeypatch.setenv("AI_RFC_EXPERIMENTS_ROOT", str(tmp_path / "root"))
+
+    assert session.resolve_profile(None) == tmp_path / "root" / "profile"
+
+    env = session.session_env(_spec(tmp_path, profile=None))
+
+    assert env["CLAUDE_CONFIG_DIR"] == str(tmp_path / "root" / "profile")
