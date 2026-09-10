@@ -198,6 +198,36 @@ def _write_adopter_files(dest: Path, files: dict[str, str]) -> None:
     (dest / ".gitignore").write_text("\n".join([*ignored, *EXTRA_IGNORES]) + "\n")
 
 
+def _yaml_scalar(value: str) -> str:
+    """Emit one string as a YAML scalar, quoting included.
+
+    The skeleton's front matter is YAML, and its values come from a
+    ``recon.yaml`` nobody validates for YAML metacharacters. Substituted raw
+    into a hand-written ``title: "$title"``, a double quote closes the scalar
+    early and a newline ends the line — after which every following line of
+    the value is read as another front-matter key, so a title decides what the
+    Internet-Draft is published as. Escaping by hand, or filtering characters,
+    would only be right until the next metacharacter; asking the grammar's own
+    emitter is right for all of them.
+
+    Double-quoted style, not the default: PyYAML's block style would fold a
+    newline across lines and indent the continuation, which then depends on
+    the column the value is substituted at. Double-quoted keeps every value on
+    one line as ``\\n`` escapes, so the same scalar is correct wherever the
+    template puts it.
+
+    Args:
+        value: The string to emit.
+
+    Returns:
+        The scalar, with its own quoting — substitute it where the template
+        expects a whole value, never inside quotes of its own.
+    """
+    return yaml.safe_dump(
+        value, default_style='"', width=10**9, allow_unicode=True
+    ).rstrip("\n")
+
+
 def scaffold(
     config: ReconConfig, layout: Layout, *, template: str, template_commit: str
 ) -> str:
@@ -221,10 +251,18 @@ def scaffold(
         raise LifecycleError(f"{dest} exists; a draft is scaffolded once")
     dest.mkdir(parents=True)
     _write_adopter_files(dest, files)
+    # Every slot inside the front matter is emitted as a YAML scalar; only the
+    # prose slots below `--- abstract` take the value verbatim. Substitution is
+    # single-pass, so a `$` inside a value reaches the draft as itself.
     skeleton = string.Template(DRAFT_SKELETON.read_text()).substitute(
-        title=config.draft.title,
-        abbrev=config.draft.abbrev,
-        draft_name=config.draft.name,
+        title=_yaml_scalar(config.draft.title),
+        abbrev=_yaml_scalar(config.draft.abbrev),
+        docname=_yaml_scalar(f"{config.draft.name}-latest"),
+        source_title=_yaml_scalar(
+            f"The {config.name} implementation, as pinned in the "
+            f"reconstruction workspace"
+        ),
+        source_org=_yaml_scalar(f"The {config.name} developers"),
         target=config.name,
     )
     (dest / f"{config.draft.name}.md").write_text(skeleton)

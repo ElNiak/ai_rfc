@@ -9,11 +9,32 @@ import json
 from pathlib import Path
 
 import pytest
+import yaml
 
 from ai_rfc import cli
 from ai_rfc.config import load_config
 from ai_rfc.lifecycle.workspace import Layout, verify_digest
 from ai_rfc.server.testing import git
+
+#: Every key the skeleton's frontmatter declares. A scaffold that produced a
+#: key outside this set would be writing Internet-Draft metadata nobody
+#: configured, which is what the substitution tests below are guarding.
+SKELETON_FRONTMATTER_KEYS = {
+    "abbrev",
+    "area",
+    "author",
+    "category",
+    "docname",
+    "informative",
+    "ipr",
+    "keyword",
+    "normative",
+    "pi",
+    "smart_quotes",
+    "stand_alone",
+    "title",
+    "workgroup",
+}
 
 
 @pytest.fixture(autouse=True)
@@ -35,6 +56,56 @@ def _config(tmp_path: Path, source_repo: Path, extra: str = "") -> Path:
         "  name: draft-test-fixture\n" + extra
     )
     return path
+
+
+def _frontmatter(body: str) -> dict:
+    """The scaffolded draft's YAML frontmatter, parsed as the build parses it.
+
+    kramdown-rfc opens the document with ``---`` and closes the frontmatter at
+    the first section marker, so this reads exactly the region the toolchain
+    hands to a YAML parser. Asserting against ``yaml.safe_load`` rather than
+    against substrings is the point: a value that merely *looks* right in the
+    text can still have restructured the document.
+
+    Args:
+        body: The scaffolded draft's full text.
+
+    Returns:
+        The frontmatter mapping.
+    """
+    assert body.startswith("---\n"), body[:40]
+    return yaml.safe_load(body[len("---\n") : body.index("\n--- abstract")])
+
+
+def _scaffold_with(tmp_path, source_repo, template_repo, extra):
+    """Run ``ai-rfc init`` with extra ``draft:`` keys and return the draft body.
+
+    Args:
+        tmp_path: The test's tree.
+        source_repo: The stand-in implementation repository.
+        template_repo: The ``(url, commit)`` of the draft template.
+        extra: Lines appended inside the config's ``draft:`` block.
+
+    Returns:
+        The scaffolded draft's text.
+    """
+    template, commit = template_repo
+    config_path = _config(tmp_path, source_repo, extra=extra)
+    assert (
+        cli.main(
+            [
+                "init",
+                "--config",
+                str(config_path),
+                "--template",
+                template,
+                "--template-commit",
+                commit,
+            ]
+        )
+        == 0
+    )
+    return (Layout(tmp_path / "ws").draft / "draft-test-fixture.md").read_text()
 
 
 def test_init_builds_the_workspace_and_seals_the_config(
@@ -288,12 +359,121 @@ def test_init_seeds_the_draft_from_the_substituted_skeleton(
         == 0
     )
     body = (Layout(tmp_path / "ws").draft / "draft-test-fixture.md").read_text()
-    assert 'title: "fixture: A Reconstructed Specification"' in body
-    assert 'abbrev: "fixture Reconstructed"' in body
-    assert "docname: draft-test-fixture-latest" in body
-    assert "The fixture implementation, as pinned" in body
+    front = _frontmatter(body)
+    assert front["title"] == "fixture: A Reconstructed Specification"
+    assert front["abbrev"] == "fixture Reconstructed"
+    assert front["docname"] == "draft-test-fixture-latest"
+    assert front["informative"]["SOURCE"]["title"].startswith(
+        "The fixture implementation, as pinned"
+    )
     assert "reconstructs the specification of fixture" in body
     # No placeholder survives: string.Template leaves a `$` behind only for a
     # `$$` escape, and the skeleton has none, so one here is an unsubstituted
-    # slot that would reach a draft build as literal text.
+    # slot that would reach a draft build as literal text. This fixture's own
+    # values carry no `$`; that a `$` *inside a value* also survives is what
+    # test_a_title_holding_a_dollar_is_not_re_substituted covers.
     assert "$" not in body
+
+
+def test_a_title_holding_a_quote_round_trips_through_the_frontmatter(
+    tmp_path, source_repo, template_repo
+):
+    """A title is a string, and the frontmatter must carry it back as one.
+
+    A double quote is ordinary in a protocol name and needs no attacker: left
+    unescaped inside the skeleton's ``title: "$title"`` it closes the scalar
+    early, and the draft build then fails pointing at the generated file
+    rather than at the config the operator actually wrote.
+    """
+    title = 'The "Foo" Protocol'
+    body = _scaffold_with(
+        tmp_path, source_repo, template_repo, "  title: 'The \"Foo\" Protocol'\n"
+    )
+
+    assert _frontmatter(body)["title"] == title
+
+
+@pytest.mark.parametrize(
+    ("line", "title"),
+    [
+        # Closes the skeleton's own quote first, so every following line is
+        # read as another frontmatter key: this is the forging payload. The
+        # skeleton declares `category` and `ipr` further down and PyYAML takes
+        # the last of a duplicate, so these two are overridden right back —
+        # ordering, not escaping, is all that stops them.
+        (
+            '  title: "ok\\"\\ncategory: std\\nipr: none"\n',
+            'ok"\ncategory: std\nipr: none',
+        ),
+        # A key the skeleton never declares has no later duplicate to undo it,
+        # so it lands in full. `obsoletes` and `submissiontype` are what an
+        # Internet-Draft is filed as.
+        (
+            '  title: "ok\\"\\nobsoletes: 9999\\nsubmissiontype: IETF"\n',
+            'ok"\nobsoletes: 9999\nsubmissiontype: IETF',
+        ),
+        # Without the quote the newline stays inside the scalar and YAML folds
+        # it, so the title silently loses its line breaks instead.
+        (
+            '  title: "ok\\ncategory: std\\nipr: none"\n',
+            "ok\ncategory: std\nipr: none",
+        ),
+    ],
+    ids=["forges-duplicate-keys", "forges-novel-keys", "folds-value"],
+)
+def test_a_title_holding_a_newline_forges_no_frontmatter(
+    tmp_path, source_repo, template_repo, line, title
+):
+    """A title is one value; it may not become three.
+
+    Substituted raw, a newline inside the value ends the ``title:`` line and
+    every following line is read as another frontmatter key — so the config's
+    title field silently decides the draft's ``category`` and ``ipr``, which
+    are what an Internet-Draft is published as.
+    """
+    front = _frontmatter(_scaffold_with(tmp_path, source_repo, template_repo, line))
+
+    assert front["title"] == title
+    assert set(front) == SKELETON_FRONTMATTER_KEYS
+    # Key-set equality alone would pass a value the title overrode, and these
+    # two are the ones worth overriding.
+    assert front["category"] == "info" and front["ipr"] == "trust200902"
+
+
+def test_an_abbrev_cannot_rewrite_the_title(tmp_path, source_repo, template_repo):
+    """Ordering is not a defence, and ``abbrev`` is the proof.
+
+    ``abbrev:`` sits below ``title:`` in the skeleton, so a key forged from it
+    is the *last* of its duplicates and PyYAML takes it — the draft's title
+    then comes from the abbrev field. Every substituted value has to be
+    emitted as a scalar; escaping only the first one moves the hole.
+    """
+    abbrev = 'ok"\ntitle: FORGED\ncategory: std'
+    front = _frontmatter(
+        _scaffold_with(
+            tmp_path,
+            source_repo,
+            template_repo,
+            '  abbrev: "ok\\"\\ntitle: FORGED\\ncategory: std"\n',
+        )
+    )
+
+    assert front["abbrev"] == abbrev
+    assert front["title"] == "fixture: A Reconstructed Specification"
+    assert front["category"] == "info"
+    assert set(front) == SKELETON_FRONTMATTER_KEYS
+
+
+def test_a_title_holding_a_dollar_is_not_re_substituted(
+    tmp_path, source_repo, template_repo
+):
+    """Substitution is single-pass, and the frontmatter must prove it.
+
+    A value naming a placeholder must reach the draft as itself; a second pass
+    would expand it and a stray ``$`` would raise instead.
+    """
+    body = _scaffold_with(
+        tmp_path, source_repo, template_repo, "  title: 'Costs $target and $5'\n"
+    )
+
+    assert _frontmatter(body)["title"] == "Costs $target and $5"

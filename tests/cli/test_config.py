@@ -104,6 +104,53 @@ def test_unknown_keys_and_bad_choices_are_refused(tmp_path):
         load_config(_write(tmp_path, MINIMAL.replace("draft-elniak", "elniak")))
 
 
+@pytest.mark.parametrize(
+    "scalar",
+    [
+        "draft-../../escape",
+        "draft-a/b",
+        "draft-Upper",
+        "draft-",
+        "draft-has space",
+        # Written as a quoted scalar on purpose: a bare `draft-trailing` with a
+        # newline after it is just how YAML ends the line, and the loader hands
+        # over a clean string. Only the escape puts the newline *in the value*,
+        # which is what a `$`-anchored pattern would wave through.
+        '"draft-trailing\\n"',
+    ],
+    ids=[
+        "traversal",
+        "separator",
+        "uppercase",
+        "prefix-only",
+        "space",
+        "trailing-newline",
+    ],
+)
+def test_a_draft_name_that_is_not_a_draft_name_is_refused(tmp_path, scalar):
+    """The prefix is not the shape.
+
+    ``draft.name`` is both a path segment — the scaffold writes
+    ``<draft>/<name>.md`` — and the draft's ``docname``, so a prefix check
+    alone lets ``draft-../../escape`` name a file outside the workspace. The
+    check has to name the whole string.
+    """
+    with pytest.raises(ConfigError, match="draft.name"):
+        load_config(
+            _write(tmp_path, MINIMAL.replace("draft-elniak-mark-reconstructed", scalar))
+        )
+
+
+def test_the_draft_names_the_harness_actually_uses_stay_legal(tmp_path, monkeypatch):
+    """The shape check must not be stricter than the drafts in this repo."""
+    monkeypatch.setenv("AI_RFC_EXPERIMENTS_ROOT", str(tmp_path / "root"))
+    for name in ("draft-test-fixture", "draft-elniak-mark-reconstructed", "draft-t-01"):
+        config = load_config(
+            _write(tmp_path, MINIMAL.replace("draft-elniak-mark-reconstructed", name))
+        )
+        assert config.draft.name == name
+
+
 def test_sessions_block_requires_a_budget(tmp_path):
     with pytest.raises(ConfigError, match="sessions.budget_usd"):
         load_config(_write(tmp_path, MINIMAL + "sessions:\n  model: claude-opus-5\n"))

@@ -1,7 +1,7 @@
 ---
-title: "$title"
-abbrev: "$abbrev"
-docname: $draft_name-latest
+title: $title
+abbrev: $abbrev
+docname: $docname
 category: info
 
 ipr: trust200902
@@ -24,10 +24,10 @@ normative:
 
 informative:
   SOURCE:
-    title: "The $target implementation, as pinned in the reconstruction workspace"
+    title: $source_title
     author:
       -
-        org: "The $target developers"
+        org: $source_org
 
 
 --- abstract

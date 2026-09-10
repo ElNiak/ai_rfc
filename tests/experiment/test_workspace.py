@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
+import yaml
 
 from ai_rfc.experiment import ExperimentError
 from ai_rfc.experiment.workspace import (
@@ -59,8 +60,12 @@ def test_scaffold_writes_the_adopter_layout_and_seeds_the_draft(
     assert "lib" in ignored and ".venv" in ignored
     assert not (dest / "main.mk").exists() and not (dest / "CLAUDE.md").exists()
     assert not (dest / "template").exists() and not (dest / "example").exists()
-    assert "docname: draft-test-fixture-latest" in body
-    assert 'title: "Fixture"' in body and "specification of fixture" in body
+    # Parsed, not matched: every front-matter value is emitted as a YAML
+    # scalar carrying its own quoting, so the exact spelling on the line is
+    # the emitter's business and only the parsed value is the contract.
+    front = yaml.safe_load(body[len("---\n") : body.index("\n--- abstract")])
+    assert front["docname"] == "draft-test-fixture-latest"
+    assert front["title"] == "Fixture" and "specification of fixture" in body
     assert "`ai_rfc:" not in body
     assert sorted(p.name for p in dest.iterdir() if p.name != ".git") == [
         ".editorconfig",

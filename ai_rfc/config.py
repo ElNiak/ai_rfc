@@ -19,7 +19,15 @@ import yaml
 
 DEFAULT_ROOT = "~/ai-rfc-experiments"
 IDENTITY_FIELDS = ("source.pin", "window", "draft.name")
-_NAME = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+#: ``\Z``, never ``$``: Python's ``$`` also matches just before a trailing
+#: newline, so a value ending in one would pass a check meant to bound it.
+#: Both of these reach a filesystem path and a YAML document.
+_NAME = re.compile(r"^[a-z0-9][a-z0-9-]*\Z")
+#: ``draft.name`` is a path segment — the scaffold writes ``<draft>/<name>.md``
+#: — as well as the draft's ``docname``. The ``draft-`` prefix alone let
+#: ``draft-../../escape`` name a file outside the workspace, so the check
+#: names the whole string, as ``_STRUCTURE_ID`` does in the substrate.
+_DRAFT_NAME = re.compile(r"^draft-[a-z0-9][a-z0-9-]*\Z")
 _KEY_LINE = re.compile(r"^( *)([A-Za-z_][A-Za-z0-9_]*):")
 _KINDS = (
     "str",
@@ -550,9 +558,9 @@ def load_config(path: Path) -> ReconConfig:
     if (
         "draft.name" in values
         and values["draft.name"]
-        and not values["draft.name"].startswith("draft-")
+        and not _DRAFT_NAME.match(values["draft.name"])
     ):
-        problems.append("draft.name: must start with `draft-`")
+        problems.append(f"draft.name: must match {_DRAFT_NAME.pattern}")
     if "name" in values and values["name"] and not _NAME.match(values["name"]):
         problems.append("name: must match [a-z0-9][a-z0-9-]*")
     if problems:
