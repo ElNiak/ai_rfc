@@ -617,8 +617,8 @@ def _run_one_consolidation(
 
     Raises:
         ExperimentError: If ``--only`` does not name exactly one run of this
-            campaign, the append went unacknowledged, or that run has no
-            workspace.
+            campaign, names one that is not shaped like a run id at all, the
+            append went unacknowledged, or that run has no workspace.
     """
     from ai_rfc.driver.consolidation import consolidation_due
     from ai_rfc.driver.session import EVENTS_FILE
