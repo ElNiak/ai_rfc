@@ -144,6 +144,40 @@ def write_scenario():
     return write
 
 
+@pytest.fixture
+def scenario_workspace(write_scenario, tmp_path):
+    """Name a scenario once: write it, and say where its workspace must live.
+
+    The fake finds its scenario by the *parent directory name* of
+    ``$AI_RFC_WORKSPACE``, and that cannot become an environment variable:
+    ``runner.build_env`` returns a closed environment, so a variable a test
+    exported would never reach the child, and the test would pass while the
+    real driver silently fell back to ``default.json``.
+
+    A campaign workspace is ``runs/<run id>/workspace``, so the run id names
+    it. Production's is ``<experiments root>/reconstructions/<name>``, whose
+    parent is the literal ``reconstructions`` for *every* reconstruction — a
+    test copying that shape would answer every scenario with one file. So a
+    test's workspace goes under a directory named for its own scenario, and
+    this fixture is the single place that name is spelled.
+
+    Args:
+        profile_dir: The run's ``CLAUDE_CONFIG_DIR``.
+        scenario: The scenario's name, which names its directory too.
+        payload: The scenario, as :func:`write_scenario` writes it.
+
+    Returns:
+        Where the workspace must be created; it does not exist yet, which is
+        what ``copy_workspace`` requires.
+    """
+
+    def make(profile_dir: Path, scenario: str, payload: dict) -> Path:
+        write_scenario(profile_dir, scenario, payload)
+        return tmp_path / scenario / "workspace"
+
+    return make
+
+
 COMPLETE_STEPS = [
     {"kind": "claim", "id": "t:3.1", "section": "3.1"},
     {"kind": "record_status"},

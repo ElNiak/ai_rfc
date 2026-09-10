@@ -8,6 +8,11 @@ records how it was called under ``fake-calls/``; emits an init event shaped
 by its argv; replays the scenario's steps as tool calls that really mutate
 the workspace through the server core; and ends with a result event. Never
 used outside the tests.
+
+A step's optional ``ordinal`` names the cluster round it belongs to. A
+scenario naming several rounds is a multi-cluster sweep, and one invocation
+replays only the round of the cluster the workspace reports as next, the way
+a real session works one cluster. See :func:`steps_for_session`.
 """
 
 from __future__ import annotations
@@ -41,6 +46,68 @@ def _usage(step: dict) -> dict:
         "cache_creation_input_tokens": int(step.get("cache_creation", 0)),
         "cache_read_input_tokens": int(step.get("cache_read", 0)),
     }
+
+
+def steps_for_session(scenario: dict, workspace: Path) -> list[dict]:
+    """The steps this invocation replays: one cluster's round, or all of them.
+
+    A scenario naming at most one round is replayed whole — what every
+    campaign scenario was written against, where the session's cluster and the
+    scenario's single ordinal need not be the same one. A scenario naming
+    several rounds is a sweep, and an invocation may only replay the round of
+    the cluster ``ledger.next_cluster`` reports outstanding: the predicate the
+    per-cluster loop dispatches on, so the two cannot disagree about which
+    round this session is for. Replaying every round instead would finish a
+    two-cluster sweep in its first session, and a driver that never spawned
+    the second would still look like it had worked.
+
+    Args:
+        scenario: The loaded scenario.
+        workspace: ``$AI_RFC_WORKSPACE``, read for the outstanding cluster.
+
+    Returns:
+        The steps to replay, in scenario order. A step without an ``ordinal``
+        belongs to no round and is replayed by every session.
+
+    Raises:
+        SystemExit: If the workspace's progress cannot be read.
+    """
+    steps = list(scenario.get("steps", []))
+    rounds = {step["ordinal"] for step in steps if "ordinal" in step}
+    if len(rounds) < 2:
+        return steps
+    from ai_rfc.ledger import LedgerError, next_cluster
+
+    try:
+        state = next_cluster(workspace)
+    except LedgerError as error:
+        raise SystemExit(f"fake claude: {error}") from None
+    if state is None:
+        return [step for step in steps if "ordinal" not in step]
+    return [
+        step for step in steps if step.get("ordinal", state.ordinal) == state.ordinal
+    ]
+
+
+def session_id(config_dir: Path, run_id: str) -> str:
+    """A distinct id per invocation, as every real session has.
+
+    A constant made the per-cluster loop's "sessions it has not seen" filter
+    yield nothing from the second session onward, so every ``sessions.jsonl``
+    row after the first recorded a null session id.
+
+    Args:
+        config_dir: ``$CLAUDE_CONFIG_DIR``, which holds the counter.
+        run_id: The run whose sessions are being counted.
+
+    Returns:
+        ``fake-<run id>-<n>``, counting this run's invocations from one.
+    """
+    counter = config_dir / "fake-sessions" / f"{run_id}.txt"
+    counter.parent.mkdir(parents=True, exist_ok=True)
+    number = int(counter.read_text()) + 1 if counter.exists() else 1
+    counter.write_text(str(number))
+    return f"fake-{run_id}-{number}"
 
 
 class Session:
@@ -492,11 +559,12 @@ def main() -> int:
     servers = (
         [{"name": "ai_rfc", "status": "connected"}] if _flag("--mcp-config") else []
     )
+    sid = session_id(config_dir, run_id)
     _emit(
         {
             "type": "system",
             "subtype": "init",
-            "session_id": f"fake-{run_id}",
+            "session_id": sid,
             "model": _flag("--model", "fake"),
             "tools": tools,
             "mcp_servers": servers,
@@ -507,7 +575,7 @@ def main() -> int:
     if scenario.get("sleep"):
         time.sleep(float(scenario["sleep"]))
     session = Session(scenario.get("arm", "A"), workspace)
-    for step in scenario.get("steps", []):
+    for step in steps_for_session(scenario, workspace):
         session.run(step)
     _emit(
         {
@@ -521,7 +589,7 @@ def main() -> int:
             "num_turns": session.turn,
             "duration_ms": 1000 * session.turn,
             "duration_api_ms": 800 * session.turn,
-            "session_id": f"fake-{run_id}",
+            "session_id": sid,
             "permission_denials": session.denials,
         }
     )

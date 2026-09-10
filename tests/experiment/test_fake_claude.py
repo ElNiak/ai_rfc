@@ -12,16 +12,19 @@ from ai_rfc.driver.stream import (
     denials,
     parse_stream,
     result_event,
+    session_ids,
     tool_results,
     tool_uses,
 )
 from ai_rfc.experiment.workspace import copy_workspace
+from ai_rfc.ledger import clusters
 
 from .conftest import (
     FAKE_CLAUDE,
     FAKE_CLAUDE_LM,
     INTERVIEW_AUTHOR,
     INTERVIEW_TRANSCRIPT,
+    fixture_config,
     interview_good_steps,
     interview_trap_steps,
 )
@@ -118,6 +121,124 @@ def test_fake_replays_a_complete_loop_in_every_arm(
             )
         calls = json.loads((profile / "fake-calls" / f"{arm}1.json").read_text())
         assert calls["cwd"] == str(workspace)
+
+
+@pytest.fixture
+def two_cluster_pristine(fixture_workspace, template_repo, tmp_path):
+    """A pristine workspace whose window holds both fixture clusters.
+
+    The shared ``pristine`` windows one cluster, which cannot tell a session
+    that replayed one round from one that replayed the whole scenario — the
+    very thing the tests below exist to check.
+    """
+    from ai_rfc.experiment.workspace import prepare
+
+    template, commit = template_repo
+    config, config_path = fixture_config(tmp_path, fixture_workspace, window=(1, 2))
+    return prepare(
+        config,
+        root=tmp_path / "root",
+        config_path=config_path,
+        template=template,
+        template_commit=commit,
+    )
+
+
+def _round(ordinal: int, tag: str, claim_id: str) -> list[dict]:
+    """One cluster round: every step the ledger needs to call it done.
+
+    The shape is ``COMPLETE_STEPS``', claim and status included, and each
+    round mines a claim of its own. Both are load-bearing: the tag is gated on
+    the strict manifest gate, and the strict citation gate then refuses a
+    normative revision whose checkpoint manifest repeats the previous one — so
+    a round that recorded no new claim would roll its own tag back and leave
+    the cluster unfinished.
+
+    Args:
+        ordinal: The cluster's ordinal, which is also the round's marker.
+        tag: The revision tag this round records and annotates.
+        claim_id: The claim this round mines and cites; its section is the
+            half after the colon.
+
+    Returns:
+        The round's steps, in the order a session performs them.
+    """
+    section = claim_id.split(":", 1)[1]
+    return [
+        {"kind": "claim", "id": claim_id, "section": section, "ordinal": ordinal},
+        {"kind": "record_status", "ordinal": ordinal},
+        {"kind": "checkpoint", "ordinal": ordinal},
+        {
+            "kind": "prose",
+            "ordinal": ordinal,
+            "line": f"Round {ordinal}: a thing MAY hold. `ai_rfc:{claim_id}`",
+        },
+        {"kind": "revision", "ordinal": ordinal, "tag": tag, "normative": True},
+        {"kind": "tag", "ordinal": ordinal, "tag": tag},
+    ]
+
+
+def test_a_scenario_of_two_rounds_completes_one_cluster_per_session(
+    two_cluster_pristine, panther_repo, tmp_path, scenario_workspace
+):
+    """A session is one cluster's work, whatever the scenario holds.
+
+    Replaying every round on every invocation would finish a two-cluster
+    sweep in its first session, so a driver that never spawned the second
+    would still look like it had worked — the gate criterion passing for the
+    wrong reason. Which round this is comes off the workspace, as it does for
+    a real agent, so the fake and the loop dispatching it read the same disk.
+    """
+    profile = tmp_path / "profile"
+    workspace = scenario_workspace(
+        profile,
+        "two-rounds",
+        {
+            "arm": "A",
+            "steps": [
+                *_round(1, "draft-test-fixture-00", "t:3.1"),
+                *_round(2, "draft-test-fixture-01", "t:4.1"),
+            ],
+        },
+    )
+    copy_workspace(two_cluster_pristine, workspace)
+
+    _launch(profile, workspace, panther_repo)
+    assert {state.ordinal: state.done for state in clusters(workspace)} == {
+        1: True,
+        2: False,
+    }
+
+    _launch(profile, workspace, panther_repo)
+    assert {state.ordinal: state.done for state in clusters(workspace)} == {
+        1: True,
+        2: True,
+    }
+
+
+def test_every_session_of_a_run_reports_its_own_id(
+    pristine, panther_repo, tmp_path, scenario_workspace
+):
+    """Two sessions of one run are two sessions, and say so.
+
+    The id was a constant per run, so the per-cluster loop's filter for
+    sessions it had not seen yielded nothing from the second session onward
+    and every ``sessions.jsonl`` row after the first recorded a null id.
+    """
+    profile = tmp_path / "profile"
+    workspace = scenario_workspace(
+        profile, "two-sessions", {"arm": "A", "steps": [{"kind": "text"}]}
+    )
+    copy_workspace(pristine, workspace)
+
+    first = _launch(profile, workspace, panther_repo)
+    second = _launch(profile, workspace, panther_repo)
+
+    for events in (first, second):
+        init = next(event for event in events if event.get("subtype") == "init")
+        assert session_ids(events) == [init["session_id"]]
+        assert result_event(events)["session_id"] == init["session_id"]
+    assert session_ids(first) != session_ids(second)
 
 
 def test_fake_records_denials_and_exit_codes(
