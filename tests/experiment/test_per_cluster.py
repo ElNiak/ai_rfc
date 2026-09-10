@@ -5,6 +5,7 @@ import sys
 import pytest
 import yaml
 
+from ai_rfc.driver.stream import parse_stream, result_events
 from ai_rfc.experiment import ExperimentError, progress
 from ai_rfc.experiment.config import CampaignConfig, init_campaign
 from ai_rfc.experiment.driver import launch_pending
@@ -12,7 +13,6 @@ from ai_rfc.experiment.metrics import analyze_run
 from ai_rfc.experiment.per_cluster import surface_shortfall
 from ai_rfc.experiment.progress import window_progress
 from ai_rfc.experiment.runner import EVENTS_FILE, RESULT_FILE
-from ai_rfc.experiment.stream import parse_stream, result_events
 
 from .conftest import COMPLETE_STEPS, FAKE_CLAUDE, fixture_config
 

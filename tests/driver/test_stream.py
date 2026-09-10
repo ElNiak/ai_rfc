@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from ai_rfc.experiment import ExperimentError
-from ai_rfc.experiment.stream import (
+from ai_rfc.driver import DriverError
+from ai_rfc.driver.stream import (
     assistant_text,
     denials,
     init_event,
@@ -20,7 +20,7 @@ from ai_rfc.experiment.stream import (
 )
 
 FIXTURES = Path(__file__).parent / "fixtures" / "stream"
-GUARD = Path(__file__).resolve().parents[2] / "ai_rfc" / "experiment" / "guard.py"
+GUARD = Path(__file__).resolve().parents[2] / "ai_rfc" / "driver" / "guard.py"
 
 
 @pytest.fixture
@@ -29,7 +29,7 @@ def denied():
 
 
 def test_parse_stream_rejects_malformed_lines():
-    with pytest.raises(ExperimentError) as excinfo:
+    with pytest.raises(DriverError) as excinfo:
         parse_stream('{"type":"result"}\nnot json\n')
     assert "line 2" in str(excinfo.value)
     assert parse_stream("\n\n") == []
@@ -194,7 +194,7 @@ def test_one_failed_session_makes_the_run_a_failure():
 
 def test_sessions_are_listed_in_first_appearance_order():
     """A per-cluster transcript is N sessions appended to one file."""
-    from ai_rfc.experiment.stream import session_ids
+    from ai_rfc.driver.stream import session_ids
 
     events = [
         {"type": "system", "subtype": "init", "session_id": "s1"},
@@ -207,13 +207,13 @@ def test_sessions_are_listed_in_first_appearance_order():
 
 def test_events_without_a_session_id_are_not_a_session():
     """Absence is skipped rather than collected under a None key."""
-    from ai_rfc.experiment.stream import session_ids
+    from ai_rfc.driver.stream import session_ids
 
     assert session_ids([{"type": "assistant"}, {"session_id": ""}]) == []
 
 
 def test_one_session_is_selected_whole():
-    from ai_rfc.experiment.stream import session_events
+    from ai_rfc.driver.stream import session_events
 
     events = [
         {"type": "assistant", "session_id": "s1", "n": 1},

@@ -17,14 +17,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from ai_rfc.server.testing import build_workspace
-
-from ..config import profile_dir
-from ..lifecycle.profile import profile_env
-from . import DEFAULT_MODEL, ExperimentError
-from .arms import ARMS, MCP_FILE, arm_flags, arm_profile, mcp_config
-from .enforcement import bash_prefixes, render_settings
-from .stream import (
+from ai_rfc.driver import DriverError
+from ai_rfc.driver.arms import ARMS, MCP_FILE, arm_flags, arm_profile, mcp_config
+from ai_rfc.driver.enforcement import bash_prefixes, render_settings
+from ai_rfc.driver.stream import (
     assistant_text,
     denials,
     hook_events,
@@ -34,6 +30,11 @@ from .stream import (
     tool_results,
     usage_series,
 )
+from ai_rfc.server.testing import build_workspace
+
+from ..config import profile_dir
+from ..lifecycle.profile import profile_env
+from . import DEFAULT_MODEL, ExperimentError
 
 CHECKS = (
     "auth",
@@ -214,7 +215,7 @@ def prepare_scratch(*, root: Path, python: str) -> Path:
     (scratch / APPEND_PROMPT).write_text(
         f"When asked for the passphrase, answer {APPEND_PROMPT_CANARY}.\n"
     )
-    guard = Path(__file__).resolve().parent / "guard.py"
+    guard = Path(__file__).resolve().parents[1] / "driver" / "guard.py"
     _write_json(
         scratch / GUARD_SETTINGS,
         render_settings(
@@ -242,7 +243,7 @@ def _decoded(value: str | bytes | None) -> str:
 def _parsed(stdout: str) -> list[dict[str, Any]]:
     try:
         return parse_stream(stdout)
-    except ExperimentError:
+    except (ExperimentError, DriverError):
         return []
 
 

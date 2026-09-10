@@ -5,15 +5,15 @@ from pathlib import Path
 
 import pytest
 
-from ai_rfc.experiment.arms import arm_profile
-from ai_rfc.experiment.enforcement import (
+from ai_rfc.driver.arms import arm_profile
+from ai_rfc.driver.enforcement import (
     bash_prefixes,
     command_groups,
     is_allowed,
     render_settings,
 )
 
-GUARD = Path(__file__).resolve().parents[2] / "ai_rfc" / "experiment" / "guard.py"
+GUARD = Path(__file__).resolve().parents[2] / "ai_rfc" / "driver" / "guard.py"
 
 
 def test_prefixes_come_from_each_arm_allowlist():

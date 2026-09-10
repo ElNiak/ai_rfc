@@ -22,9 +22,9 @@ from pathlib import Path
 
 import pytest
 
-from ai_rfc.experiment.arms import ARMS, arm_profile
+from ai_rfc.driver.arms import ARMS, arm_profile
+from ai_rfc.driver.enforcement import bash_prefixes, is_allowed
 from ai_rfc.experiment.audit import bash_surface, in_arm
-from ai_rfc.experiment.enforcement import bash_prefixes, is_allowed
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "enforcement"
 ARM_B = ("ai_rfc ",)

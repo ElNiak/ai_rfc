@@ -19,12 +19,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from ai_rfc.driver.arms import ARMS
+
 from .. import toolchain as toolchain_module
 from ..config import field_default
 from ..config import profile_dir as default_profile_dir
 from ..lifecycle.workspace import DIGEST_FILE, RECORD_FILE
 from . import ExperimentError
-from .arms import ARMS
 from .render import (
     TASK_TEMPLATE,
     arm_prompt,

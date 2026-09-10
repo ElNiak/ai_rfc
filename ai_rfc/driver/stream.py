@@ -11,7 +11,7 @@ import json
 import re
 from typing import Any
 
-from . import ExperimentError
+from . import DriverError
 
 _DENIAL = re.compile(
     r"permission|not allowed|denied|not in the allowed|requires approval",
@@ -29,7 +29,7 @@ def parse_stream(text: str) -> list[dict[str, Any]]:
     """Parse a stream-json transcript into its events.
 
     Raises:
-        ExperimentError: If a non-blank line is not a JSON object.
+        DriverError: If a non-blank line is not a JSON object.
     """
     events: list[dict[str, Any]] = []
     for lineno, line in enumerate(text.splitlines(), 1):
@@ -38,11 +38,9 @@ def parse_stream(text: str) -> list[dict[str, Any]]:
         try:
             event = json.loads(line)
         except json.JSONDecodeError as error:
-            raise ExperimentError(
-                f"stream line {lineno} is not JSON: {error}"
-            ) from None
+            raise DriverError(f"stream line {lineno} is not JSON: {error}") from None
         if not isinstance(event, dict):
-            raise ExperimentError(f"stream line {lineno} is not a JSON object")
+            raise DriverError(f"stream line {lineno} is not a JSON object")
         events.append(event)
     return events
 

@@ -13,6 +13,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
+from ai_rfc.driver import DriverError
+from ai_rfc.driver.arms import ARMS
+
 from ..config import (
     ConfigError,
     experiments_root,
@@ -23,7 +26,6 @@ from ..config import (
 from ..lifecycle.profile import init_profile, login_command
 from ..lifecycle.workspace import TEMPLATE_COMMIT, TEMPLATE_URL
 from . import DEFAULT_MODEL, EFFORTS, ExperimentError
-from .arms import ARMS
 from .workspace import migrate_draft as migrate_draft_workspace
 from .workspace import prepare as prepare_workspace
 from .workspace import reseal as reseal_workspace
@@ -1459,7 +1461,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(diff_stat(repo, owned), end="")
             print(f"rendered: {applied.rendered_skill}")
             print(NOT_COMMITTED)
-    except (ExperimentError, OSError) as error:
+    except (ExperimentError, DriverError, OSError) as error:
         _report(f"error: {error}")
         return 1
     return 0

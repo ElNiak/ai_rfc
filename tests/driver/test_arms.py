@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from ai_rfc.experiment import ExperimentError
-from ai_rfc.experiment.arms import (
+from ai_rfc.driver import DriverError
+from ai_rfc.driver.arms import (
     ARMS,
     PROFILES,
     RAW_PREFIX,
@@ -145,11 +145,11 @@ def test_arms_b_and_c_allow_exactly_their_command_family():
 
 
 def test_mcp_mount_is_required_and_refused_per_arm(tmp_path):
-    with pytest.raises(ExperimentError):
+    with pytest.raises(DriverError):
         arm_flags(arm_profile("A"), None)
-    with pytest.raises(ExperimentError):
+    with pytest.raises(DriverError):
         arm_flags(arm_profile("B"), tmp_path / "x.json")
-    with pytest.raises(ExperimentError):
+    with pytest.raises(DriverError):
         arm_profile("D")
     assert ARMS == ("A", "B", "C")
     assert set(PROFILES) == set(ARMS)

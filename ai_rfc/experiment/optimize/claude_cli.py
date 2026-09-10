@@ -16,9 +16,11 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from ai_rfc.driver import DriverError
+from ai_rfc.driver.stream import assistant_text, parse_stream, result_event
+
 from ...lifecycle.profile import profile_env
 from .. import ExperimentError
-from ..stream import assistant_text, parse_stream, result_event
 
 #: The id form the CLI accepts for a proposer or judge that runs through
 #: ``claude -p``; also what :class:`ClaudeCliCall` reports as its ``repr``,
@@ -223,7 +225,7 @@ class ClaudeCliCall:
             # failure here is not itself the error worth reporting.
             try:
                 events = parse_stream(completed.stdout)
-            except ExperimentError:
+            except (ExperimentError, DriverError):
                 events = []
             raise ClaudeCliError(
                 f"{self!r} exited {completed.returncode}: {tail}"
@@ -233,7 +235,7 @@ class ClaudeCliCall:
             )
         try:
             events = parse_stream(completed.stdout)
-        except ExperimentError as error:
+        except (ExperimentError, DriverError) as error:
             raise ClaudeCliError(
                 f"{self!r} wrote something that is not stream-json: {error}",
                 exit_code=completed.returncode,

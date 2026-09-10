@@ -16,7 +16,7 @@ from pathlib import Path
 # Claude Code spawns.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from ai_rfc.experiment.enforcement import is_allowed  # noqa: E402
+from ai_rfc.driver.enforcement import is_allowed  # noqa: E402
 
 
 def main(argv: list[str]) -> int:

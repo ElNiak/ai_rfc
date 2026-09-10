@@ -3,7 +3,7 @@
 Enforcement is by removal (arm A has no Bash tool at all) or, for arms B and C,
 by a ``PreToolUse`` guard confining Bash to the command families their
 ``allowed_tools`` declares. The allowlist alone does not confine a built-in on
-CLI 2.1.247, which is why the guard exists; see :mod:`experiment.enforcement`.
+CLI 2.1.247, which is why the guard exists; see :mod:`driver.enforcement`.
 A blocked call is counted by the audit as a bypass attempt.
 The MCP server is mounted only in arm A, through a rendered config with
 absolute paths, and ``--strict-mcp-config`` keeps every other server out.
@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from . import ExperimentError
+from . import DriverError
 
 ARMS = ("A", "B", "C")
 READ_TOOLS = ("Read", "Edit", "Write", "Grep", "Glob")
@@ -68,14 +68,12 @@ def arm_profile(arm: str) -> ArmProfile:
     """Return the enforcement profile of ``arm``.
 
     Raises:
-        ExperimentError: If ``arm`` is not one of :data:`ARMS`.
+        DriverError: If ``arm`` is not one of :data:`ARMS`.
     """
     try:
         return PROFILES[arm]
     except KeyError:
-        raise ExperimentError(
-            f"unknown arm {arm!r}; arms are {', '.join(ARMS)}"
-        ) from None
+        raise DriverError(f"unknown arm {arm!r}; arms are {', '.join(ARMS)}") from None
 
 
 def shared_flags(
@@ -113,18 +111,18 @@ def arm_flags(
     Tool lists are passed comma-joined as one argument so a following flag
     can never be swallowed as a tool name. The allowlist is normative for MCP
     tools only; a built-in enabled by ``--tools`` is confined by the guard
-    mounted through ``guard_settings`` (see :mod:`experiment.enforcement`).
+    mounted through ``guard_settings`` (see :mod:`driver.enforcement`).
 
     Raises:
-        ExperimentError: If an MCP config is missing for arm A or given for
+        DriverError: If an MCP config is missing for arm A or given for
             an arm that must not mount one.
     """
     if this_arm.uses_mcp and mcp_config_path is None:
-        raise ExperimentError(
+        raise DriverError(
             f"arm {this_arm.arm} mounts the MCP server; a config path is required"
         )
     if not this_arm.uses_mcp and mcp_config_path is not None:
-        raise ExperimentError(f"arm {this_arm.arm} must not mount an MCP server")
+        raise DriverError(f"arm {this_arm.arm} must not mount an MCP server")
     flags = [
         "--tools",
         ",".join(this_arm.tools),

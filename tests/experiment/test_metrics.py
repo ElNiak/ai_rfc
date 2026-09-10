@@ -1,5 +1,6 @@
 import json
 
+from ai_rfc.driver.stream import parse_stream
 from ai_rfc.experiment.audit import audit_campaign
 from ai_rfc.experiment.driver import launch_pending
 from ai_rfc.experiment.metrics import (
@@ -10,7 +11,6 @@ from ai_rfc.experiment.metrics import (
     surface,
     trajectory,
 )
-from ai_rfc.experiment.stream import parse_stream
 from ai_rfc.server.testing import git as _vcs
 
 from .conftest import COMPLETE_STEPS

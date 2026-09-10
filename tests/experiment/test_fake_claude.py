@@ -8,7 +8,7 @@ import pytest
 import yaml
 
 from ai_rfc.draft.questions import load_questions
-from ai_rfc.experiment.stream import (
+from ai_rfc.driver.stream import (
     denials,
     parse_stream,
     result_event,

@@ -25,17 +25,10 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
-from .. import ledger
-from ..draft.gate import _cluster_ordinals, load_revisions
-from . import ExperimentError
-from .arms import arm_profile
-from .config import Campaign, render_task
-from .consolidation import Due, consolidation_due
-from .metrics import cluster_artifacts
-from .progress import _bar, _duration, cluster_span, describe, digest, window_progress
-from .runner import EVENTS_FILE, STDERR_FILE, RunRef, build_env, prepare_run_argv
-from .spawn import spawn
-from .stream import (
+from ai_rfc.driver import DriverError
+from ai_rfc.driver.arms import arm_profile
+from ai_rfc.driver.spawn import spawn
+from ai_rfc.driver.stream import (
     ai_rfc_connected,
     init_event,
     mcp_servers,
@@ -43,6 +36,15 @@ from .stream import (
     salvage_stream,
     session_ids,
 )
+
+from .. import ledger
+from ..draft.gate import _cluster_ordinals, load_revisions
+from . import ExperimentError
+from .config import Campaign, render_task
+from .consolidation import Due, consolidation_due
+from .metrics import cluster_artifacts
+from .progress import _bar, _duration, cluster_span, describe, digest, window_progress
+from .runner import EVENTS_FILE, STDERR_FILE, RunRef, build_env, prepare_run_argv
 from .summary import (
     build_summary,
     held_claim_ids,
@@ -525,7 +527,7 @@ def run_per_cluster(
                             at_end=True,
                             report=report,
                         )
-                    except ExperimentError as error:
+                    except (ExperimentError, DriverError) as error:
                         report(f"{ref.run_id}: final consolidation not run: {error}")
                         exit_code = 1
                     else:
@@ -579,7 +581,7 @@ def run_per_cluster(
                         at_end=False,
                         report=report,
                     )
-                except ExperimentError as error:
+                except (ExperimentError, DriverError) as error:
                     # Reported, never raised. launch_pending puts no guard
                     # around launch() and refuses to resume a run directory
                     # holding no status record, so an escape here would abort

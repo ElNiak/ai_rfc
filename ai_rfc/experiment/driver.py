@@ -12,8 +12,9 @@ from __future__ import annotations
 
 from typing import Callable, Iterable
 
+from ai_rfc.driver.arms import arm_profile
+
 from . import ExperimentError
-from .arms import arm_profile
 from .config import Campaign
 from .runner import RunStatus, launch, load_status, run_ref
 from .workspace import copy_workspace, verify_digest

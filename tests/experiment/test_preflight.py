@@ -3,6 +3,7 @@ import os
 import sys
 from pathlib import Path
 
+from ai_rfc.driver.stream import parse_stream
 from ai_rfc.experiment.preflight import (
     CHECKS,
     CLAUDE_MD_CANARY,
@@ -11,9 +12,8 @@ from ai_rfc.experiment.preflight import (
     evaluate,
     run_invocation,
 )
-from ai_rfc.experiment.stream import parse_stream
 
-FIXTURES = Path(__file__).parent / "fixtures" / "stream"
+FIXTURES = Path(__file__).resolve().parents[1] / "driver" / "fixtures" / "stream"
 
 
 def _outcome(events, exit_code=0):

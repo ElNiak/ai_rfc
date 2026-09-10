@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+from ai_rfc.driver.stream import parse_stream
 from ai_rfc.experiment.audit import (
     audit_campaign,
     audit_events,
@@ -10,7 +11,6 @@ from ai_rfc.experiment.audit import (
     guard_stats,
 )
 from ai_rfc.experiment.driver import launch_pending
-from ai_rfc.experiment.stream import parse_stream
 
 from .conftest import COMPLETE_STEPS
 

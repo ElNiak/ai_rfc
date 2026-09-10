@@ -16,12 +16,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
+from ai_rfc.driver.arms import MCP_FILE, arm_profile, claude_argv, mcp_config
+from ai_rfc.driver.enforcement import bash_prefixes, render_settings
+from ai_rfc.driver.spawn import spawn
+from ai_rfc.driver.stream import merge_results, result_events, salvage_stream
+
 from . import ExperimentError
-from .arms import MCP_FILE, arm_profile, claude_argv, mcp_config
 from .config import TASK_TEMPLATE_FILE, Campaign
-from .enforcement import bash_prefixes, render_settings
-from .spawn import spawn
-from .stream import merge_results, result_events, salvage_stream
 
 EVENTS_FILE = "events.jsonl"
 RESULT_FILE = "result.json"
@@ -31,7 +32,7 @@ ARGV_FILE = "argv.json"
 ENV_FILE = "env.json"
 PROMPT_FILE = "prompt.md"
 GUARD_FILE = "guard.json"
-GUARD = Path(__file__).parent / "guard.py"
+GUARD = Path(__file__).resolve().parents[1] / "driver" / "guard.py"
 
 
 @dataclass(frozen=True)
