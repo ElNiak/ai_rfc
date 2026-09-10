@@ -23,8 +23,11 @@ def _kill_group(process: subprocess.Popen) -> None:
     """Terminate the process group, then reap it, escalating if it lingers.
 
     Args:
-        process: The group leader, started with ``start_new_session=True``,
-            and known not to have exited yet.
+        process: The group leader, started with ``start_new_session=True``, and
+            still running *on entry* -- the first signal is sent unguarded, and
+            both callers establish that much: the cap path has just seen
+            ``TimeoutExpired``, and the abnormal-exit path checks ``returncode``.
+            Liveness after the grace wait is re-checked here, not assumed.
     """
     os.killpg(process.pid, signal.SIGTERM)
     try:
@@ -37,9 +40,13 @@ def _kill_group(process: subprocess.Popen) -> None:
         # bought nothing: a healthy session is gone in under a second, so the
         # operator taps again precisely while a SIGTERM-ignoring child holds
         # the grace open. Escalate now or abandon the one case SIGKILL exists
-        # for.
-        os.killpg(process.pid, signal.SIGKILL)
-        process.wait()
+        # for -- but only if the grace wait had not already reaped the child,
+        # since signalling a dead group would replace the operator's stop with
+        # a ProcessLookupError. The cap branch above needs no such check:
+        # TimeoutExpired is itself proof the child outlived the grace.
+        if process.returncode is None:
+            os.killpg(process.pid, signal.SIGKILL)
+            process.wait()
         raise
 
 

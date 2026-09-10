@@ -1,4 +1,5 @@
 import signal
+import subprocess
 
 import pytest
 
@@ -136,6 +137,49 @@ def test_an_interrupt_after_a_clean_exit_does_not_signal_a_dead_group(
         _spawn(spawn_module, tmp_path)
 
     assert killed == []
+
+
+def test_an_interrupt_as_the_grace_wait_returns_skips_the_escalation(
+    tmp_path, monkeypatch
+):
+    """The escalation must not fire at a child SIGTERM had already finished off.
+
+    Unlike the double-tap this needs only a *single* Ctrl-C: the timeout path
+    enters the cleanup on its own, SIGTERM works, the grace wait reaps the
+    child -- and the interrupt lands as that wait returns. Escalating then sends
+    SIGKILL to a pid that no longer exists, and the ``ProcessLookupError``
+    replaces the operator's stop exactly as it did one frame up.
+    """
+    killed: list[tuple[int, int]] = []
+
+    class _ReapedByTheGraceWait:
+        """Time out first, then reap on the grace wait and interrupt at once."""
+
+        pid = 4242
+        calls = 0
+        returncode = None
+
+        def wait(self, timeout=None):
+            type(self).calls += 1
+            if type(self).calls == 1:
+                raise subprocess.TimeoutExpired(cmd="true", timeout=timeout)
+            type(self).returncode = 0
+            raise KeyboardInterrupt
+
+    def _killpg_of_a_dead_pid(pid, sig):
+        killed.append((pid, sig))
+        if _ReapedByTheGraceWait.returncode is not None:
+            raise ProcessLookupError(pid)
+
+    monkeypatch.setattr(
+        spawn_module.subprocess, "Popen", lambda *a, **k: _ReapedByTheGraceWait()
+    )
+    monkeypatch.setattr(spawn_module.os, "killpg", _killpg_of_a_dead_pid)
+
+    with pytest.raises(KeyboardInterrupt):
+        _spawn(spawn_module, tmp_path)
+
+    assert killed == [(4242, signal.SIGTERM)]
 
 
 def test_a_systemexit_kills_the_group_too(tmp_path, monkeypatch):
