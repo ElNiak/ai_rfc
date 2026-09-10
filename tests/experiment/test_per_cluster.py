@@ -14,28 +14,7 @@ from ai_rfc.experiment.per_cluster import surface_shortfall
 from ai_rfc.experiment.progress import window_progress
 from ai_rfc.experiment.runner import EVENTS_FILE, RESULT_FILE
 
-from .conftest import COMPLETE_STEPS, FAKE_CLAUDE, fixture_config
-
-
-@pytest.fixture
-def wide_pristine(fixture_workspace, template_repo, tmp_path):
-    """A pristine workspace whose window holds both fixture clusters.
-
-    The shared fixture windows one cluster, which cannot distinguish a run of
-    one session per cluster from a run of one session — the very thing these
-    tests exist to check.
-    """
-    from ai_rfc.experiment.workspace import prepare
-
-    template, commit = template_repo
-    config, config_path = fixture_config(tmp_path, fixture_workspace, window=(1, 2))
-    return prepare(
-        config,
-        root=tmp_path / "root",
-        config_path=config_path,
-        template=template,
-        template_commit=commit,
-    )
+from .conftest import COMPLETE_STEPS, FAKE_CLAUDE
 
 
 @pytest.fixture
@@ -100,12 +79,13 @@ def test_next_cluster_is_read_from_the_workspace_not_remembered(
 def _stub_spawn(per_cluster, monkeypatch, *, sessions_per_cluster: int):
     """Drive the loop with a spawn that finishes clusters in ordinal order.
 
-    The fake claude replays a scenario pinned to one hardcoded cluster, so it
-    cannot stand in for an agent working through a window. The loop's control
-    flow is what these tests are about, so it is driven directly: after N
-    cluster sessions, clusters up to ordinal N // sessions_per_cluster are
-    finished. Setting that unreachably high models a cluster that never
-    finishes.
+    The fake claude can work through a window — a scenario whose steps carry
+    ``round`` gives one session per cluster — but it does so by really
+    finishing each cluster, which cannot model a cluster that stalls or one
+    needing several sessions. The loop's control flow is what these tests are
+    about, so it is driven directly: after N cluster sessions, clusters up to
+    ordinal N // sessions_per_cluster are finished. Setting that unreachably
+    high models a cluster that never finishes.
 
     Only cluster rounds are counted. A consolidation session advances no
     cluster, so counting it would finish clusters no session ever worked on —

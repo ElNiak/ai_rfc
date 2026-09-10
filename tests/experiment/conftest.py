@@ -107,6 +107,27 @@ def pristine(fixture_workspace, template_repo, tmp_path) -> Path:
     )
 
 
+@pytest.fixture
+def wide_pristine(fixture_workspace, template_repo, tmp_path) -> Path:
+    """A prepared pristine workspace whose window holds both fixture clusters.
+
+    The shared ``pristine`` windows one cluster, which cannot distinguish a
+    run of one session per cluster from a run of one session, nor a session
+    that replayed one round from one that replayed a whole scenario.
+    """
+    from ai_rfc.experiment.workspace import prepare
+
+    template, commit = template_repo
+    config, config_path = fixture_config(tmp_path, fixture_workspace, window=(1, 2))
+    return prepare(
+        config,
+        root=tmp_path / "root",
+        config_path=config_path,
+        template=template,
+        template_commit=commit,
+    )
+
+
 @pytest.fixture(autouse=True)
 def _toolchain_always_verifies(monkeypatch: pytest.MonkeyPatch) -> None:
     """Every campaign fixture's toolchain passes verify without a real build.
@@ -132,7 +153,13 @@ def _toolchain_always_verifies(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture
 def write_scenario():
-    """Write one fake-claude scenario into an isolated profile directory."""
+    """Write one fake-claude scenario into an isolated profile directory.
+
+    Two keys on a step do different jobs: ``round`` selects which session
+    replays the step, and ``ordinal`` is payload naming the cluster a
+    ``checkpoint`` or a ``revision`` acts on. A scenario using ``round``
+    nowhere is replayed whole by every session.
+    """
 
     def write(profile_dir: Path, run_id: str, payload: dict) -> Path:
         scenarios = profile_dir / "fake-scenarios"
@@ -178,6 +205,9 @@ def scenario_workspace(write_scenario, tmp_path):
     return make
 
 
+#: One cluster's complete loop. Its ``ordinal`` is payload — the cluster the
+#: checkpoint and the revision act on — so these steps carry no ``round`` and
+#: every session replays them, whichever cluster it was dispatched for.
 COMPLETE_STEPS = [
     {"kind": "claim", "id": "t:3.1", "section": "3.1"},
     {"kind": "record_status"},

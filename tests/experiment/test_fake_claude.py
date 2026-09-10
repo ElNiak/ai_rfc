@@ -24,7 +24,6 @@ from .conftest import (
     FAKE_CLAUDE_LM,
     INTERVIEW_AUTHOR,
     INTERVIEW_TRANSCRIPT,
-    fixture_config,
     interview_good_steps,
     interview_trap_steps,
 )
@@ -123,63 +122,58 @@ def test_fake_replays_a_complete_loop_in_every_arm(
         assert calls["cwd"] == str(workspace)
 
 
-@pytest.fixture
-def two_cluster_pristine(fixture_workspace, template_repo, tmp_path):
-    """A pristine workspace whose window holds both fixture clusters.
-
-    The shared ``pristine`` windows one cluster, which cannot tell a session
-    that replayed one round from one that replayed the whole scenario — the
-    very thing the tests below exist to check.
-    """
-    from ai_rfc.experiment.workspace import prepare
-
-    template, commit = template_repo
-    config, config_path = fixture_config(tmp_path, fixture_workspace, window=(1, 2))
-    return prepare(
-        config,
-        root=tmp_path / "root",
-        config_path=config_path,
-        template=template,
-        template_commit=commit,
-    )
-
-
-def _round(ordinal: int, tag: str, claim_id: str) -> list[dict]:
-    """One cluster round: every step the ledger needs to call it done.
+def _cluster_steps(ordinal: int, tag: str, claim_id: str) -> list[dict]:
+    """Every step the ledger needs before it calls one cluster done.
 
     The shape is ``COMPLETE_STEPS``', claim and status included, and each
-    round mines a claim of its own. Both are load-bearing: the tag is gated on
-    the strict manifest gate, and the strict citation gate then refuses a
+    cluster mines a claim of its own. Both are load-bearing: the tag is gated
+    on the strict manifest gate, and the strict citation gate then refuses a
     normative revision whose checkpoint manifest repeats the previous one — so
-    a round that recorded no new claim would roll its own tag back and leave
+    steps that recorded no new claim would roll their own tag back and leave
     the cluster unfinished.
 
+    The ``ordinal`` here is payload: the cluster ``checkpoint`` and
+    ``revision`` act on. What makes these steps a session's own round is the
+    separate ``round`` key :func:`_one_round` adds.
+
     Args:
-        ordinal: The cluster's ordinal, which is also the round's marker.
-        tag: The revision tag this round records and annotates.
-        claim_id: The claim this round mines and cites; its section is the
-            half after the colon.
+        ordinal: The cluster these steps act on.
+        tag: The revision tag they record and annotate.
+        claim_id: The claim they mine and cite; its section is the half after
+            the colon.
 
     Returns:
-        The round's steps, in the order a session performs them.
+        The steps, in the order a session performs them.
     """
     section = claim_id.split(":", 1)[1]
     return [
-        {"kind": "claim", "id": claim_id, "section": section, "ordinal": ordinal},
-        {"kind": "record_status", "ordinal": ordinal},
+        {"kind": "claim", "id": claim_id, "section": section},
+        {"kind": "record_status"},
         {"kind": "checkpoint", "ordinal": ordinal},
         {
             "kind": "prose",
-            "ordinal": ordinal,
-            "line": f"Round {ordinal}: a thing MAY hold. `ai_rfc:{claim_id}`",
+            "line": f"Cluster {ordinal}: a thing MAY hold. `ai_rfc:{claim_id}`",
         },
         {"kind": "revision", "ordinal": ordinal, "tag": tag, "normative": True},
-        {"kind": "tag", "ordinal": ordinal, "tag": tag},
+        {"kind": "tag", "tag": tag},
     ]
 
 
+def _one_round(steps: list[dict], round_number: int) -> list[dict]:
+    """The same steps, marked as the round one session replays.
+
+    Args:
+        steps: The steps of one cluster's work.
+        round_number: The ordinal of the cluster whose session replays them.
+
+    Returns:
+        Copies carrying ``round``; the originals are left alone.
+    """
+    return [{**step, "round": round_number} for step in steps]
+
+
 def test_a_scenario_of_two_rounds_completes_one_cluster_per_session(
-    two_cluster_pristine, panther_repo, tmp_path, scenario_workspace
+    wide_pristine, panther_repo, tmp_path, scenario_workspace
 ):
     """A session is one cluster's work, whatever the scenario holds.
 
@@ -196,12 +190,12 @@ def test_a_scenario_of_two_rounds_completes_one_cluster_per_session(
         {
             "arm": "A",
             "steps": [
-                *_round(1, "draft-test-fixture-00", "t:3.1"),
-                *_round(2, "draft-test-fixture-01", "t:4.1"),
+                *_one_round(_cluster_steps(1, "draft-test-fixture-00", "t:3.1"), 1),
+                *_one_round(_cluster_steps(2, "draft-test-fixture-01", "t:4.1"), 2),
             ],
         },
     )
-    copy_workspace(two_cluster_pristine, workspace)
+    copy_workspace(wide_pristine, workspace)
 
     _launch(profile, workspace, panther_repo)
     assert {state.ordinal: state.done for state in clusters(workspace)} == {
@@ -210,6 +204,41 @@ def test_a_scenario_of_two_rounds_completes_one_cluster_per_session(
     }
 
     _launch(profile, workspace, panther_repo)
+    assert {state.ordinal: state.done for state in clusters(workspace)} == {
+        1: True,
+        2: True,
+    }
+
+
+def test_a_scenario_with_no_round_marks_is_replayed_whole(
+    wide_pristine, panther_repo, tmp_path, scenario_workspace
+):
+    """Naming two clusters is not the same as declaring two rounds.
+
+    ``ordinal`` says which cluster a step acts on; only ``round`` says which
+    session replays it. Were the ordinals themselves to select, adding one
+    step for cluster 1 to a scenario written for cluster 2 would silently stop
+    cluster 2's steps from running — the session would complete nothing, the
+    run would burn its attempts on it, and nothing would say why. It also
+    costs the one-session-many-clusters scenario, which is a shape a test is
+    entitled to write.
+    """
+    profile = tmp_path / "profile"
+    workspace = scenario_workspace(
+        profile,
+        "no-rounds",
+        {
+            "arm": "A",
+            "steps": [
+                *_cluster_steps(1, "draft-test-fixture-00", "t:3.1"),
+                *_cluster_steps(2, "draft-test-fixture-01", "t:4.1"),
+            ],
+        },
+    )
+    copy_workspace(wide_pristine, workspace)
+
+    _launch(profile, workspace, panther_repo)
+
     assert {state.ordinal: state.done for state in clusters(workspace)} == {
         1: True,
         2: True,

@@ -21,10 +21,11 @@ from ai_rfc.experiment.workspace import copy_workspace
 
 from .conftest import COMPLETE_STEPS, FAKE_CLAUDE
 
-# Re-exported so pytest can resolve them as fixtures here: per_cluster_campaign
-# depends on wide_pristine by name, and pytest looks up a fixture's own
-# dependencies in the requesting module's namespace, not the defining one.
-from .test_per_cluster import per_cluster_campaign, wide_pristine  # noqa: F401
+# Re-exported so pytest can resolve it as a fixture here: pytest looks up a
+# fixture's own dependencies in the requesting module's namespace, not the
+# defining one. Its dependency ``wide_pristine`` needs no re-export — it lives
+# in this directory's conftest, which every module here sees.
+from .test_per_cluster import per_cluster_campaign  # noqa: F401
 
 
 def _ready(campaign, run_id):
