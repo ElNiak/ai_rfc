@@ -24,8 +24,11 @@ from .workspace import copy_workspace, verify_digest
 #: What :func:`config.run_order` emits and nothing else: an arm letter and a
 #: repeat number. ``fullmatch`` rather than a ``$``-anchored search, because
 #: ``$`` also matches before a trailing newline — which is precisely the
-#: character this guard exists to refuse.
-_RUN_ID = re.compile(r"[A-Z]\d+")
+#: character this guard exists to refuse. ``[0-9]`` rather than ``\d``, because
+#: on a ``str`` pattern ``\d`` also matches every Unicode decimal digit and
+#: ``int()`` accepts those too — so ``A\N{ARABIC-INDIC DIGIT ONE}`` would pass
+#: both this guard and ``split_run_id`` while naming a directory no run has.
+_RUN_ID = re.compile(r"[A-Z][0-9]+")
 
 
 def _checked_run_id(run_id: str) -> str:

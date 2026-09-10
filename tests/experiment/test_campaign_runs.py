@@ -87,6 +87,10 @@ def test_execute_refuses_a_pristine_that_moved_since_the_campaign_froze(
         "../../etc",
         "/etc/passwd",
         "A1/../../B1",
+        # `\d` on a str pattern matches every Unicode decimal digit, and
+        # `int()` accepts them, so this passes a `[A-Z]\d+` guard *and*
+        # `split_run_id` while naming a directory no run of this campaign has.
+        "A\N{ARABIC-INDIC DIGIT ONE}",
     ],
 )
 def test_a_run_id_that_is_not_one_is_refused_before_it_is_used(campaign, forged):
