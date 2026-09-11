@@ -93,12 +93,16 @@ STRICT_FINDINGS_EXIT = 3
 
 
 class StopReason(Enum):
-    """Why a sweep stopped: spec §5's nine rows, and two events they imply.
+    """Why a sweep stopped: spec §5's nine rows, and three it does not spell.
 
-    ``session_failed`` and ``consolidation_failed`` are the two. Spec §5 says
-    an *errored* session "stops with the resume line" and D59 says a failing
-    sweep-end consolidation exits 1, but neither is a row of the table, so
-    reporting them meant either a new name or a borrowed one.
+    ``session_failed`` and ``consolidation_failed`` are two of the three. Spec
+    §5 says an *errored* session "stops with the resume line" and D59 says a
+    failing sweep-end consolidation exits 1, but neither is a row of the table,
+    so reporting them meant either a new name or a borrowed one.
+
+    ``bound_reached`` is the third, added by Task 11 when ``--until`` was wired
+    into ``ai-rfc run``: a bound is a place the operator asked the sweep to
+    stop at, which no row describes and which ``done`` would misreport.
 
     What borrowing would have cost differs by candidate, and only one of them
     is repair-level. ``cluster_halted`` would print ``--retry <id>``, telling

@@ -56,16 +56,20 @@ $EDITOR recon.yaml
 ai-rfc doctor                         # claude, profile, toolchain, forge token, deps, workspace
 ai-rfc init   --config recon.yaml     # networked once: clone at the pin, fetch the forge,
                                       # scaffold the draft, seal the config
-ai-rfc run    --config recon.yaml     # history, timeline, views; stop at the agent boundary
+ai-rfc run    --config recon.yaml     # history, timeline, views; then drive sessions, or stop
+                                      # at the agent boundary when no sessions: block is set
 ai-rfc status --config recon.yaml     # stage states, the cluster ledger, the pin, config drift
 ai-rfc verify --config recon.yaml --strict   # every gate the workspace can pass, one exit code
 ```
 
-`run` performs every deterministic stage that is next and then **stops** at the
-agent boundary, printing the ledger and whose turn it is: mining a cluster's
-claims needs a model session, and nothing in the substrate calls one. Driving
-those sessions from `run` is CLI-2's work; until it lands they are driven by
-the plugin's loop skill or by the experiment instrument below. `verify` skips a
+`run` performs every deterministic stage that is next, and what happens then
+depends on the configuration. With a `sessions:` block it **drives the model
+sessions itself**, through mining and prose to the build gate, bounded by
+`--until <stage>`, `--until cluster:<id>` or `--until ordinal:<n>`. Without one
+it **stops** at the agent boundary, printing the ledger and whose turn it is:
+mining a cluster's claims needs a model session, and nothing in the substrate
+calls one — so a hand-mined workspace stays possible, driven by the plugin's
+loop skill or by the experiment instrument below. `verify` skips a
 check whose inputs do not exist yet, so 0 means nothing that ran failed rather
 than that everything ran — its last line tallies what ran and names every skip.
 

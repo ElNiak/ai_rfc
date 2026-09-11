@@ -81,7 +81,7 @@ class Layout(Workspace):
 
     @property
     def runs(self) -> Path:
-        """One directory per ``run`` invocation (CLI-2)."""
+        """One directory per ``run`` invocation that launched a session."""
         return self.root / "runs"
 
     @property

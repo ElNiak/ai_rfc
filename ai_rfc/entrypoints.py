@@ -101,8 +101,8 @@ ENTRY_POINTS: tuple[EntryPoint, ...] = (
         "run",
         "ai-rfc run",
         f"{PACKAGE}.lifecycle.run.cli",
-        "Perform every deterministic stage that is next, then stop at the "
-        "agent boundary",
+        "Perform every deterministic stage that is next, then drive model "
+        "sessions when a sessions: block is configured",
         LIFECYCLE,
     ),
     EntryPoint(
