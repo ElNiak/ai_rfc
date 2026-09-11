@@ -343,6 +343,23 @@ def test_the_refusal_quotes_the_bound_in_its_own_message(initialised):
     assert "\\n" in str(raised.value)
 
 
+def test_the_parser_and_the_sweep_accept_the_same_stage_bounds():
+    """One grammar, two enforcement points, and they must not drift apart.
+
+    ``--until``'s stage spelling is a closed set in **two** places: the parser
+    offers ``_walkable()`` and ``sweep._bound_reached`` matches
+    ``SWEPT_STAGES``. They agreed by coincidence until the sweep accepted every
+    name in ``obs.stages`` — nine more — and an API caller could then get a
+    bound that resolved and a resume line the root parser refuses.
+
+    Asserted as equality of the two lists rather than of their contents, since
+    order is what ``--until``'s help text prints.
+    """
+    from ai_rfc.driver.sweep import SWEPT_STAGES
+
+    assert run_cli._walkable() == list(SWEPT_STAGES)
+
+
 # --- --retry: the line cluster_halted tells the operator to type ------------
 
 

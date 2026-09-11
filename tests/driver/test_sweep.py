@@ -1286,7 +1286,7 @@ def test_one_action_prints_the_ledger_and_a_resume_line(
     assert "resume: ai-rfc next --config /w/recon.yaml" in printed
 
 
-def test_a_bound_reached_while_stepping_resumes_with_next_and_the_bound(
+def test_a_bound_reached_while_stepping_resumes_with_next_and_no_bound(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """``next --until X`` with X satisfied must not hand back a full sweep.
@@ -1297,8 +1297,9 @@ def test_a_bound_reached_while_stepping_resumes_with_next_and_the_bound(
     row says ``run``. Only the caller knows the cadence, so the sweep tells
     ``resume_line`` it was stepping.
 
-    Both halves are asserted in one line because both were wrong at once: the
-    verb and the dropped bound.
+    The bound is **not** re-issued, for the reason the unstepped case gives:
+    it is already satisfied, so the line would perform nothing. The verb still
+    is, so the operator keeps stepping.
     """
     ws = _workspace(
         tmp_path, clusters=({"id": "c1", "ordinal": 1}, {"id": "c2", "ordinal": 2})
@@ -1323,7 +1324,7 @@ def test_a_bound_reached_while_stepping_resumes_with_next_and_the_bound(
     assert launched == []
     printed = capsys.readouterr().err
     assert "bound_reached: cluster:c1" in printed
-    assert "resume: ai-rfc next --config /w/recon.yaml --until cluster:c1" in printed
+    assert "resume: ai-rfc next --config /w/recon.yaml\n" in printed
 
 
 def test_a_stop_while_stepping_resumes_with_next(
@@ -1635,10 +1636,12 @@ def test_a_bound_reached_prints_the_ledger_and_a_resume_line(
     printed = capsys.readouterr().err
     assert "bound_reached: cluster:c1" in printed
     assert "clusters: " in printed and "outstanding" in printed
-    # The whole line, and it **carries the bound**. A prefix assertion passed
-    # just as happily while the bound was dropped, and a copied unbounded line
-    # sweeps straight past the place the operator asked it to stop.
-    assert "resume: ai-rfc run --config /w/recon.yaml --until cluster:c1" in printed
+    # The whole line, terminated, and it carries **no** bound. The bound is
+    # already satisfied at this stop, so re-issuing it would hand back a line
+    # that performs nothing — measured as byte-identical output on a second
+    # run. `\n` rather than a bare substring, so a line that grew a `--until`
+    # back fails here.
+    assert "resume: ai-rfc run --config /w/recon.yaml\n" in printed
 
 
 @pytest.mark.parametrize("until", ["ordinal:99", "ordinal:0"])
@@ -1687,6 +1690,58 @@ def test_until_refuses_a_bound_that_names_nothing(
 
     with pytest.raises(DriverError, match="not one of this workspace"):
         sweep.run(_cfg(), ws, until="cluster:c9")
+
+
+@pytest.mark.parametrize("until", ["forge", "pin"])
+def test_until_refuses_a_stage_the_sweep_never_performs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, until: str
+) -> None:
+    """The sink's closed set must be the parser's, or its line is unrunnable argv.
+
+    ``_bound_reached`` used to accept **every** name in ``obs.stages`` — nine
+    more than ``--until`` does — so an API caller reaching ``sweep.run``
+    directly got a bound that resolved and then a line reading
+    ``ai-rfc run … --until forge``, which the root parser refuses at exit 2.
+    That is the previous round's uncopyable-instruction defect, reached
+    through the API rather than the CLI.
+
+    ``pin`` and ``forge`` are the two that were most plausible: both are
+    ``State.DONE`` on any initialised workspace, so both stopped the sweep at
+    once while printing a line that cannot be typed back.
+    """
+    ws = _workspace(tmp_path, clusters=({"id": "c1", "ordinal": 1},))
+    _drive(monkeypatch, ws, [_obs()])
+
+    with pytest.raises(DriverError, match="names no stage"):
+        sweep.run(_cfg(), ws, until=until)
+
+
+def test_one_action_under_an_unreached_bound_re_issues_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The other half of the pair, end to end through the sweep.
+
+    One action does not satisfy ``ordinal:3``, so the line that steps again
+    must carry the bound — otherwise the second step runs past the place the
+    operator asked it to stop, which is the defect fix round 1 closed.
+    """
+    ws = _workspace(tmp_path, clusters=({"id": "c1", "ordinal": 1},))
+    _drive(monkeypatch, ws, [_obs(cluster=_cluster("c1", 1), ordinals=_ordinals())])
+
+    assert (
+        sweep.run(
+            _cfg(),
+            ws,
+            mode="one",
+            until="ordinal:3",
+            config_path=Path("/w/recon.yaml"),
+        )
+        == 0
+    )
+
+    printed = capsys.readouterr().err
+    assert "action_performed: session for cluster c1" in printed
+    assert "resume: ai-rfc next --config /w/recon.yaml --until ordinal:3\n" in printed
 
 
 def test_next_round_reads_the_interval_off_the_configuration(

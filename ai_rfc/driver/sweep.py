@@ -935,11 +935,20 @@ def _bound_reached(until: str | None, obs: Observation) -> bool:
 
     Raises:
         DriverError: If the bound names no stage, no integer, or neither a
-            cluster of this timeline nor an ordinal one carries. **Both
+            cluster of this timeline nor an ordinal one carries. **All three
             spellings are closed sets**, and for a reason the positional fix
             sharpened rather than removed: an unmatchable bound used to stop
             the sweep at once, and now sits after every cluster instead — so
             it spends the whole window and still reports itself honoured.
+
+            The stage set is :data:`SWEPT_STAGES` — the stages this sweep
+            performs — and **not** every name in ``obs.stages``, which is the
+            whole pipeline. Those two differed by nine names, all of them
+            refused by ``--until``'s parser, so a caller reaching this
+            function directly got a bound that resolved here and then a resume
+            line reading ``ai-rfc run … --until forge``, which the root parser
+            refuses at exit 2. ``tests/cli/test_run.py`` asserts the two closed
+            sets are equal so they cannot drift apart again.
     """
     if until is None:
         return False
@@ -964,11 +973,11 @@ def _bound_reached(until: str | None, obs: Observation) -> bool:
                 f"{', '.join(str(o) for o in sorted(set(obs.ordinals.values())))}"
             )
         return _passed(obs.cluster, ordinal)
-    if until in obs.stages:
+    if until in SWEPT_STAGES:
         return obs.stages[until] in (State.DONE, State.RECOMPUTED)
     raise DriverError(
-        f"{until!r} names no stage, cluster or ordinal; use a stage name, "
-        "cluster:<id> or ordinal:<n>"
+        f"{until!r} names no stage, cluster or ordinal; use "
+        f"{', '.join(SWEPT_STAGES)}, cluster:<id> or ordinal:<n>"
     )
 
 

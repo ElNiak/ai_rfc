@@ -237,6 +237,24 @@ _VERB: dict[StopReason, str] = {
 #: it with one the operator has to re-bound by hand.
 _BOUNDABLE: frozenset[str] = frozenset({"run", "next"})
 
+#: The reasons whose bound is **already satisfied** at the stop, so carrying it
+#: onto the resume line would hand back a line that performs nothing.
+#:
+#: Measured: with the bound carried, the same workspace run twice with
+#: ``--until cluster:c1`` printed byte-identical output, launched nothing and
+#: exited 0 both times — the resume line was a *fixed point*. That is exactly
+#: what :func:`resume_line` refuses to print for ``done`` ("a line telling the
+#: operator to run it again is worse than none"), so for this reason the exact
+#: resume is the sweep **without** the bound: the operator asked to stop at a
+#: place, got there, and what they want next is to continue from it.
+#:
+#: ``action_performed`` is deliberately **not** here, and the distinction is
+#: the whole point: one action does not reach a bound, so its line must
+#: re-issue one or the next step runs past the place the operator named.
+#:
+#: A line is still printed for these — only ``done`` is exempt from D59.
+_BOUND_SATISFIED: frozenset[StopReason] = frozenset({StopReason.bound_reached})
+
 #: The reasons that are not a failure. ``done`` is a finished reconstruction;
 #: ``bound_reached`` is a sweep that did exactly what ``--until`` asked of it;
 #: ``action_performed`` is a sweep that did exactly the one thing ``next``
@@ -474,9 +492,12 @@ def resume_line(
 
     **D59 asks for the *exact* resume line, so a bound the stop was carrying is
     carried too.** Dropping it made the line silently do more than the operator
-    asked: ``run --until cluster:c3`` that stopped printed a line which, copied,
-    swept straight past c3. The bound only appears for a verb that takes one
-    (:data:`_BOUNDABLE`).
+    asked: ``run --until cluster:c3`` that stopped on the budget printed a line
+    which, copied, swept straight past c3. The bound only appears for a verb
+    that takes one (:data:`_BOUNDABLE`), and only for a stop that has **not**
+    already reached it (:data:`_BOUND_SATISFIED`) — re-issuing a satisfied
+    bound makes the line a fixed point that performs nothing, which is the
+    thing ``done`` is refused a line for.
 
     Args:
         reason: Why the sweep stopped.
@@ -488,8 +509,9 @@ def resume_line(
         known_clusters: Every cluster id this workspace's timeline holds.
             Required whenever ``cluster_id`` is given.
         until: The ``--until`` bound this invocation was given, if any. Carried
-            onto the line for the verbs that accept one and dropped for the
-            three that do not; see :data:`_BOUNDABLE`.
+            onto the line for the verbs that accept one (:data:`_BOUNDABLE`)
+            and dropped both for the three verbs that do not and for the stop
+            that has already satisfied it (:data:`_BOUND_SATISFIED`).
         stepping: Whether the caller was performing one action at a time
             (``ai-rfc next``). A reason knows the *stop*; only its caller knows
             the cadence, so this is the caller's to say. It rewrites ``run``
@@ -541,11 +563,16 @@ def resume_line(
         # the guard, but it can only be as clean as the set it was given, and
         # the timeline those ids come from is agent-written too.
         line += ["--retry", _quoted(checked, "the cluster id")]
-    if until is not None and verb in _BOUNDABLE:
+    if until is not None and verb in _BOUNDABLE and reason not in _BOUND_SATISFIED:
         # Quoted for the reason the cluster id is: `--until cluster:<id>`
         # carries an id that may hold a space, which unquoted becomes two argv
         # words. There is no membership check to pair it with here — the
-        # timeline is the sweep's, and it has already resolved this bound once
-        # to have stopped on it.
+        # timeline is the sweep's, and `sweep._bound_reached` has already
+        # resolved this bound against it, over closed sets that are the
+        # parser's own for all three spellings (`tests/cli/test_run.py`
+        # asserts the stage halves are equal). The earlier form of this
+        # comment claimed that guarantee while the sweep accepted nine stage
+        # names the parser refuses; it is true now because the sets were
+        # aligned, not because it always was.
         line += ["--until", _quoted(until, "the bound")]
     return " ".join(line)

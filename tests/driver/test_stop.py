@@ -361,12 +361,15 @@ def test_a_halted_cluster_resumes_with_retry() -> None:
 def test_a_stop_that_had_a_bound_resumes_with_it(until: str) -> None:
     """D59 says the **exact** resume line, and a dropped bound is not exact.
 
-    ``run --until cluster:c3`` that stops prints a line which, copied, sweeps
-    past c3 — it silently does more than the operator asked for. Written out
-    as whole lines rather than assembled from the same pieces the
-    implementation uses.
+    ``run --until cluster:c3`` that stops on the budget prints a line which,
+    copied, sweeps past c3 — it silently does more than the operator asked
+    for. Written out as whole lines rather than assembled from the same pieces
+    the implementation uses.
+
+    ``budget`` rather than ``bound_reached``, which is the one reason that
+    must *not* carry its bound: see the pair of tests below.
     """
-    line = stop.resume_line(stop.StopReason.bound_reached, CONFIG, until=until)
+    line = stop.resume_line(stop.StopReason.budget, CONFIG, until=until)
 
     assert line == f"ai-rfc run --config /w/recon.yaml --until {until}"
 
@@ -381,10 +384,67 @@ def test_the_bound_on_a_resume_line_parses_back_to_the_same_bound() -> None:
     """
     from ai_rfc.cli import build_parser
 
-    line = stop.resume_line(stop.StopReason.bound_reached, CONFIG, until="cluster:c 3")
+    line = stop.resume_line(stop.StopReason.budget, CONFIG, until="cluster:c 3")
 
     args = build_parser().parse_args(shlex.split(line)[1:])
     assert args.until == "cluster:c 3"
+
+
+def test_a_reached_bound_is_dropped_because_the_line_would_re_achieve_it() -> None:
+    """``bound_reached`` is the one stop whose bound is **already satisfied**.
+
+    Carrying it made the resume line a *fixed point*: the same workspace run
+    twice with ``--until cluster:c1`` printed byte-identical output, launched
+    nothing and exited 0 both times. That is the very thing ``resume_line``
+    refuses to print for ``done`` — "a line telling the operator to run it
+    again is worse than none" — so for this reason the exact resume is the
+    sweep **without** the bound, which is what "continue from here" means.
+
+    A line is still printed: D59 requires one from every stop, and only
+    ``done`` is exempt.
+    """
+    line = stop.resume_line(stop.StopReason.bound_reached, CONFIG, until="cluster:c3")
+
+    assert line == "ai-rfc run --config /w/recon.yaml"
+
+
+def test_one_action_keeps_its_bound_because_it_did_not_satisfy_it() -> None:
+    """The distinction the two members now turn on, asserted as a pair.
+
+    A single action does not reach a bound — ``next --until ordinal:9`` that
+    performed one session is nowhere near ordinal 9 — so re-issuing the bound
+    is exactly right here, and dropping it would let the *next* step run past
+    the place the operator asked it to stop.
+    """
+    line = stop.resume_line(stop.StopReason.action_performed, CONFIG, until="ordinal:9")
+
+    assert line == "ai-rfc next --config /w/recon.yaml --until ordinal:9"
+
+
+def test_the_two_operator_asked_stops_differ_only_in_whether_they_re_issue() -> None:
+    """Round-tripped as argv, because the difference is what the line *does*.
+
+    Both stops are the operator's own; only one of them has already got where
+    it was going. Parsed back rather than compared as strings, so what is
+    pinned is the bound the copied command would impose.
+    """
+    from ai_rfc.cli import build_parser
+
+    reached = build_parser().parse_args(
+        shlex.split(
+            stop.resume_line(stop.StopReason.bound_reached, CONFIG, until="ordinal:9")
+        )[1:]
+    )
+    performed = build_parser().parse_args(
+        shlex.split(
+            stop.resume_line(
+                stop.StopReason.action_performed, CONFIG, until="ordinal:9"
+            )
+        )[1:]
+    )
+
+    assert reached.until is None
+    assert performed.until == "ordinal:9"
 
 
 def test_a_bound_is_dropped_for_a_verb_that_cannot_take_one() -> None:
