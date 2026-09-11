@@ -10,6 +10,7 @@ boundary is how they disagree about what a workspace without sessions means.
 from __future__ import annotations
 
 import argparse
+import shlex
 from pathlib import Path
 from typing import Any
 
@@ -148,6 +149,40 @@ def test_next_without_sessions_is_refused_rather_than_reaching_the_sweep(
     assert "sessions" in err
     assert f"ai-rfc run --config {config_path}" in err
     assert len(err.splitlines()) == 1
+
+
+def test_the_sessionless_refusal_prints_a_line_the_root_parser_accepts(
+    initialised, capsys
+):
+    """The one line printed to unblock an operator must actually run.
+
+    A path holding a space is not adversarial — it is a Documents folder — and
+    unquoted it splits into two argv words, so the root parser answers the
+    instruction it was handed with ``unrecognized arguments: con.yaml`` and
+    exit 2. ``stop._quoted`` has guarded this exact value inside
+    ``resume_line`` since Task 9; this line is the eighth place in the row
+    where the same shape appeared, and the first outside the driver.
+
+    Fed back as **argv** rather than matched as a substring: a substring
+    assertion passes on a line that cannot be run, which is the whole defect.
+    The config file is copied to a spaced name rather than the workspace being
+    rebuilt at one, because what the line interpolates is the path the
+    operator typed.
+    """
+    config_path, _ = initialised
+    spaced = config_path.parent / "re con.yaml"
+    spaced.write_text(config_path.read_text())
+
+    assert cli.main(["next", "--config", str(spaced)]) == 1
+
+    err = capsys.readouterr().err
+    assert len(err.splitlines()) == 1
+    instruction = err.split("with: ", 1)[1].strip()
+    argv = shlex.split(instruction)
+    assert argv[0] == "ai-rfc"
+    parsed = cli.build_parser().parse_args(argv[1:])
+    assert parsed.verb == "run"
+    assert parsed.config == spaced
 
 
 # --- --until and --retry: one grammar, shared with run ----------------------

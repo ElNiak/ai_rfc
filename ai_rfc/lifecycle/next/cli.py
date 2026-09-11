@@ -16,6 +16,7 @@ is how they drift.
 from __future__ import annotations
 
 import argparse
+import shlex
 from pathlib import Path
 
 from ... import __version__, ledger
@@ -77,7 +78,15 @@ def run_one(
             "workspace's config declares no sessions, so there is no sweep. "
             "Add a sessions: block, or perform the deterministic stages up "
             f"to the {BOUNDARY} boundary with: ai-rfc run --config "
-            f"{config_path}"
+            # Quoted, because this is an instruction meant to be *run* and not
+            # only read. A workspace under a Documents folder has a space in
+            # its path, and unquoted that splits into two argv words: the root
+            # parser answers the line with `unrecognized arguments:` and exit
+            # 2. `stop._quoted` has guarded this same value inside
+            # `resume_line` since Task 9; `shlex.quote` alone is enough here
+            # because `--config` is a `type=Path` argparse argument, so the
+            # printability half is `report`'s job at the stream.
+            f"{shlex.quote(str(config_path))}"
         )
     # The configuration **as given**, not the sealed copy, for `run`'s reason:
     # a `sessions:` block added after `init` is noted drift rather than

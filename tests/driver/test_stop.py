@@ -354,6 +354,79 @@ def test_a_halted_cluster_resumes_with_retry() -> None:
     assert line == "ai-rfc run --config /w/recon.yaml --retry 38"
 
 
+# --- the bound a stop was carrying ------------------------------------------
+
+
+@pytest.mark.parametrize("until", ["views", "cluster:c3", "ordinal:4"])
+def test_a_stop_that_had_a_bound_resumes_with_it(until: str) -> None:
+    """D59 says the **exact** resume line, and a dropped bound is not exact.
+
+    ``run --until cluster:c3`` that stops prints a line which, copied, sweeps
+    past c3 — it silently does more than the operator asked for. Written out
+    as whole lines rather than assembled from the same pieces the
+    implementation uses.
+    """
+    line = stop.resume_line(stop.StopReason.bound_reached, CONFIG, until=until)
+
+    assert line == f"ai-rfc run --config /w/recon.yaml --until {until}"
+
+
+def test_the_bound_on_a_resume_line_parses_back_to_the_same_bound() -> None:
+    """The line is argv, so the test is a round trip rather than a substring.
+
+    A cluster id may hold a space — ``_bound`` refuses only what is
+    unprintable — and unquoted such a bound becomes two argv words. Only
+    feeding the emitted string back through the root parser proves the line
+    an operator copies reconstructs the bound they gave.
+    """
+    from ai_rfc.cli import build_parser
+
+    line = stop.resume_line(stop.StopReason.bound_reached, CONFIG, until="cluster:c 3")
+
+    args = build_parser().parse_args(shlex.split(line)[1:])
+    assert args.until == "cluster:c 3"
+
+
+def test_a_bound_is_dropped_for_a_verb_that_cannot_take_one() -> None:
+    """``init``, ``status`` and ``doctor`` have no ``--until``.
+
+    So a bound on their line would be an argument the verb refuses — the very
+    defect the spaced path was. Dropped rather than refused: a
+    ``run --until cluster:c1`` against an unpinned workspace is a real state,
+    and answering it with "no resume line could be rendered" would replace a
+    working instruction with none.
+    """
+    for reason in (
+        stop.StopReason.needs_init,
+        stop.StopReason.stale_substrate,
+        stop.StopReason.surface_shortfall,
+    ):
+        line = stop.resume_line(reason, CONFIG, until="cluster:c3")
+        assert "--until" not in line
+
+
+def test_stepping_resumes_with_next_rather_than_run() -> None:
+    """``ai-rfc next`` must not hand a one-step operator a full sweep.
+
+    The reason knows the *stop*; only the caller knows the cadence. ``run`` is
+    the one verb rewritten: ``init``, ``status`` and ``doctor`` are places
+    ``next`` would stop again exactly as ``run`` would, so rewriting them
+    would send the operator somewhere that cannot help.
+    """
+    assert (
+        stop.resume_line(stop.StopReason.budget, CONFIG, stepping=True)
+        == "ai-rfc next --config /w/recon.yaml"
+    )
+    assert (
+        stop.resume_line(stop.StopReason.needs_init, CONFIG, stepping=True)
+        == "ai-rfc init --config /w/recon.yaml"
+    )
+    assert (
+        stop.resume_line(stop.StopReason.surface_shortfall, CONFIG, stepping=True)
+        == "ai-rfc doctor --config /w/recon.yaml"
+    )
+
+
 def test_nothing_is_resumed_after_a_finished_sweep() -> None:
     """``done`` has no next line; printing one would say to run it again."""
     with pytest.raises(DriverError, match="done"):

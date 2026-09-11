@@ -566,7 +566,14 @@ def exit_code_for(reason: StopReason, *, strict_findings: bool = False) -> int:
     return exit_code(reason, strict_findings=strict_findings)
 
 
-def resume_for(action: Action, config_path: Path, known_clusters: Iterable[str]) -> str:
+def resume_for(
+    action: Action,
+    config_path: Path,
+    known_clusters: Iterable[str],
+    *,
+    until: str | None = None,
+    mode: str = "all",
+) -> str:
     """The one line an operator types after this stop.
 
     Args:
@@ -574,6 +581,13 @@ def resume_for(action: Action, config_path: Path, known_clusters: Iterable[str])
         config_path: The operator's ``recon.yaml``, as they named it.
         known_clusters: Every cluster id the timeline holds, for the
             membership guard a line naming one goes through.
+        until: The bound this invocation was given, carried onto the line so a
+            copied resume stops where the operator asked rather than sweeping
+            past it (D59's "exact").
+        mode: The sweep's mode. ``"one"`` means the operator was stepping, and
+            the line keeps that cadence instead of sending them into a full
+            sweep — the fact :func:`~ai_rfc.driver.stop.resume_line` cannot
+            derive from the reason alone.
 
     Returns:
         The line, beginning with ``ai-rfc``.
@@ -593,6 +607,8 @@ def resume_for(action: Action, config_path: Path, known_clusters: Iterable[str])
         config_path,
         cluster_id=cluster_id,
         known_clusters=tuple(known_clusters) if cluster_id is not None else None,
+        until=until,
+        stepping=mode == "one",
     )
 
 
@@ -1165,6 +1181,8 @@ def _finish(
     config_path: Path,
     known_clusters: tuple[str, ...],
     strict_findings: bool = False,
+    until: str | None = None,
+    mode: str = "all",
 ) -> int:
     """Write the status record, print the ledger and the resume line, exit.
 
@@ -1186,6 +1204,8 @@ def _finish(
             the real set: checking a halted cluster's id against a set built
             from that same id would certify nothing.
         strict_findings: Whether ``check --strict`` reported the findings.
+        until: The bound this invocation was given, for the resume line.
+        mode: The sweep's mode, for the resume line's verb.
 
     Returns:
         The process exit code.
@@ -1213,7 +1233,12 @@ def _finish(
     _report_ledger(workspace, cfg)
     if reason is not StopReason.done:
         try:
-            report(f"resume: {resume_for(action, config_path, known_clusters)}")
+            report(
+                "resume: "
+                + resume_for(
+                    action, config_path, known_clusters, until=until, mode=mode
+                )
+            )
         except DriverError as error:
             # A resume line that cannot be rendered must not replace the stop
             # it was describing. The reason and the ledger are already printed.
@@ -1309,6 +1334,8 @@ def run(
                 swept,
                 config_path=resume_path,
                 known_clusters=obs.known_clusters,
+                until=until,
+                mode=mode,
             )
         action = plan_next(obs, cfg)
         if action.kind == "stop":
@@ -1320,6 +1347,8 @@ def run(
                 swept,
                 config_path=resume_path,
                 known_clusters=obs.known_clusters,
+                until=until,
+                mode=mode,
             )
         if action.kind == "gate":
             reason, strict = _build_gate(cfg, workspace)
@@ -1332,6 +1361,8 @@ def run(
                 config_path=resume_path,
                 known_clusters=obs.known_clusters,
                 strict_findings=strict,
+                until=until,
+                mode=mode,
             )
         if action.kind == "stage":
             assert action.stage is not None  # noqa: S101 - plan_next names one
@@ -1349,6 +1380,8 @@ def run(
                     swept,
                     config_path=resume_path,
                     known_clusters=obs.known_clusters,
+                    until=until,
+                    mode=mode,
                 )
             report(f"performed: {action.stage}")
         else:
@@ -1375,6 +1408,8 @@ def run(
                         swept,
                         config_path=resume_path,
                         known_clusters=obs.known_clusters,
+                        until=until,
+                        mode=mode,
                     )
             else:
                 assert action.cluster is not None  # noqa: S101 - a session's row
@@ -1418,4 +1453,6 @@ def run(
                 swept,
                 config_path=resume_path,
                 known_clusters=obs.known_clusters,
+                until=until,
+                mode=mode,
             )

@@ -227,6 +227,16 @@ _VERB: dict[StopReason, str] = {
     StopReason.action_performed: "next",
 }
 
+#: The verbs that accept a ``--until`` bound, so a resume line for a stop that
+#: was carrying one can carry it too. ``init``, ``status`` and ``doctor`` do
+#: not take the argument, and a line naming an argument its verb refuses is
+#: exactly the defect an unquoted path was: an instruction that cannot be run.
+#: A bound is therefore *dropped* for those three rather than refused — a
+#: ``run --until cluster:c1`` against an unpinned workspace is a real state,
+#: and answering it with no resume line at all would be worse than answering
+#: it with one the operator has to re-bound by hand.
+_BOUNDABLE: frozenset[str] = frozenset({"run", "next"})
+
 #: The reasons that are not a failure. ``done`` is a finished reconstruction;
 #: ``bound_reached`` is a sweep that did exactly what ``--until`` asked of it;
 #: ``action_performed`` is a sweep that did exactly the one thing ``next``
@@ -451,14 +461,22 @@ def resume_line(
     *,
     cluster_id: str | None = None,
     known_clusters: Collection[str] | None = None,
+    until: str | None = None,
+    stepping: bool = False,
 ) -> str:
     """The one line an operator types after this stop.
 
     It is copied into a terminal, and the optimize track renders an equivalent
     progress line into a prompt a model reads, so every value interpolated into
-    it is guarded: the cluster id by membership, and both it and the
-    configuration path by :func:`_quoted`, which keeps a path holding a space
+    it is guarded: the cluster id by membership, and it, the bound and the
+    configuration path by :func:`_quoted`, which keeps a value holding a space
     as one argument and refuses one that could not be printed on a single line.
+
+    **D59 asks for the *exact* resume line, so a bound the stop was carrying is
+    carried too.** Dropping it made the line silently do more than the operator
+    asked: ``run --until cluster:c3`` that stopped printed a line which, copied,
+    swept straight past c3. The bound only appears for a verb that takes one
+    (:data:`_BOUNDABLE`).
 
     Args:
         reason: Why the sweep stopped.
@@ -469,6 +487,15 @@ def resume_line(
             work.
         known_clusters: Every cluster id this workspace's timeline holds.
             Required whenever ``cluster_id`` is given.
+        until: The ``--until`` bound this invocation was given, if any. Carried
+            onto the line for the verbs that accept one and dropped for the
+            three that do not; see :data:`_BOUNDABLE`.
+        stepping: Whether the caller was performing one action at a time
+            (``ai-rfc next``). A reason knows the *stop*; only its caller knows
+            the cadence, so this is the caller's to say. It rewrites ``run``
+            and nothing else: ``init``, ``status`` and ``doctor`` are places
+            ``next`` would stop again exactly as ``run`` would, so sending a
+            stepping operator to ``next`` there would send them nowhere.
 
     Returns:
         A single line, beginning with :data:`PROG`.
@@ -504,11 +531,21 @@ def resume_line(
             "known_clusters was given without a cluster id; nothing would be "
             f"checked against it, and {reason.value} resumes the whole sweep"
         )
-    line = [PROG, _VERB[reason], "--config", _quoted(str(config_path), "the config")]
+    verb = _VERB[reason]
+    if stepping and verb == "run":
+        verb = "next"
+    line = [PROG, verb, "--config", _quoted(str(config_path), "the config")]
     if cluster_id is not None:
         checked = _checked_cluster_id(cluster_id, known_clusters)
         # Quoted after the membership check, not instead of it: membership is
         # the guard, but it can only be as clean as the set it was given, and
         # the timeline those ids come from is agent-written too.
         line += ["--retry", _quoted(checked, "the cluster id")]
+    if until is not None and verb in _BOUNDABLE:
+        # Quoted for the reason the cluster id is: `--until cluster:<id>`
+        # carries an id that may hold a space, which unquoted becomes two argv
+        # words. There is no membership check to pair it with here — the
+        # timeline is the sweep's, and it has already resolved this bound once
+        # to have stopped on it.
+        line += ["--until", _quoted(until, "the bound")]
     return " ".join(line)

@@ -1286,6 +1286,64 @@ def test_one_action_prints_the_ledger_and_a_resume_line(
     assert "resume: ai-rfc next --config /w/recon.yaml" in printed
 
 
+def test_a_bound_reached_while_stepping_resumes_with_next_and_the_bound(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """``next --until X`` with X satisfied must not hand back a full sweep.
+
+    This is the state ``action_performed``'s ``next`` verb was minted to
+    avoid, reached by the *other* return: the bound is tested before the
+    action, so a satisfied bound stops as ``bound_reached`` — whose ``_VERB``
+    row says ``run``. Only the caller knows the cadence, so the sweep tells
+    ``resume_line`` it was stepping.
+
+    Both halves are asserted in one line because both were wrong at once: the
+    verb and the dropped bound.
+    """
+    ws = _workspace(
+        tmp_path, clusters=({"id": "c1", "ordinal": 1}, {"id": "c2", "ordinal": 2})
+    )
+    launched = _drive(
+        monkeypatch,
+        ws,
+        [_obs(cluster=_cluster("c2", 2), ordinals=_ordinals())],
+    )
+
+    assert (
+        sweep.run(
+            _cfg(),
+            ws,
+            mode="one",
+            until="cluster:c1",
+            config_path=Path("/w/recon.yaml"),
+        )
+        == 0
+    )
+
+    assert launched == []
+    printed = capsys.readouterr().err
+    assert "bound_reached: cluster:c1" in printed
+    assert "resume: ai-rfc next --config /w/recon.yaml --until cluster:c1" in printed
+
+
+def test_a_stop_while_stepping_resumes_with_next(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Not only the bounded stop: every ``run``-verbed reason steps too.
+
+    An operator who stepped into a halted cluster has chosen a cadence, and
+    the line they are handed keeps it — with ``--retry`` intact, since that is
+    what repairs the halt.
+    """
+    ws = _workspace(tmp_path, clusters=({"id": "c1", "ordinal": 1},))
+    _drive(monkeypatch, ws, [_obs(cluster=_cluster("c1", 1), attempts=2)])
+
+    assert sweep.run(_cfg(), ws, mode="one", config_path=Path("/w/recon.yaml")) == 1
+
+    printed = capsys.readouterr().err
+    assert "resume: ai-rfc next --config /w/recon.yaml --retry c1" in printed
+
+
 def test_one_action_that_is_a_stage_names_the_stage_it_performed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -1577,7 +1635,10 @@ def test_a_bound_reached_prints_the_ledger_and_a_resume_line(
     printed = capsys.readouterr().err
     assert "bound_reached: cluster:c1" in printed
     assert "clusters: " in printed and "outstanding" in printed
-    assert "resume: ai-rfc run --config /w/recon.yaml" in printed
+    # The whole line, and it **carries the bound**. A prefix assertion passed
+    # just as happily while the bound was dropped, and a copied unbounded line
+    # sweeps straight past the place the operator asked it to stop.
+    assert "resume: ai-rfc run --config /w/recon.yaml --until cluster:c1" in printed
 
 
 @pytest.mark.parametrize("until", ["ordinal:99", "ordinal:0"])
