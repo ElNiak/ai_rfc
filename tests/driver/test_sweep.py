@@ -731,13 +731,14 @@ def _result(
     seen: int = 1,
     timed_out: bool = False,
     events: tuple[dict[str, Any], ...] = (),
+    session_ids: tuple[str, ...] = ("s1",),
 ) -> SessionResult:
     return SessionResult(
         exit_code=0,
         timed_out=timed_out,
         cost_usd=cost,
         results_seen=seen,
-        session_ids=("s1",),
+        session_ids=session_ids,
         wall_s=1.0,
         argv=("claude", "-p"),
         events=events or ({"type": "result", "subtype": "success", "num_turns": 9},),
@@ -902,6 +903,82 @@ def test_run_appends_a_session_row_carrying_its_classification(
     assert rows[0]["classification"] == "refused"
     assert rows[0]["cluster_id"] == "c1"
     assert rows[0]["kind"] == "cluster"
+
+
+def test_every_session_row_names_the_session_that_wrote_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``session_ids`` is the whole transcript's, so ``[0]`` is never filtering.
+
+    :attr:`~ai_rfc.driver.session.SessionResult.session_ids` is documented as
+    *every distinct id in the transcript, in first-appearance order — not only
+    this session's*, because a run appends every session to one file. Taken
+    unfiltered, the first element is the **first** session's id forever, so
+    every row after the first attributes its work to session one.
+
+    The sibling consumer, ``experiment.per_cluster``, filters against the ids
+    it already knew; this loop re-implemented the row writer and dropped the
+    filter. The stand-in results below grow cumulatively, which is the shape a
+    shared transcript really has — a fixed ``session_ids`` could not tell the
+    two implementations apart.
+    """
+    ws = _workspace(
+        tmp_path, clusters=({"id": "c1", "ordinal": 1}, {"id": "c2", "ordinal": 2})
+    )
+    _drive(
+        monkeypatch,
+        ws,
+        [_obs(), _obs(cluster=_cluster("c2", 2)), _obs(cluster=None)],
+        results=[
+            _result(seen=1, session_ids=("s1",)),
+            _result(seen=2, session_ids=("s1", "s2")),
+        ],
+    )
+    monkeypatch.setattr(sweep, "_build_gate", lambda *a, **k: (StopReason.done, False))
+
+    sweep.run(_cfg(), ws)
+
+    latest = sorted((ws / record.RUNS_DIR).iterdir())[-1]
+    rows = [
+        json.loads(line)
+        for line in (latest / record.SESSIONS_FILE).read_text().splitlines()
+    ]
+    assert [row["session_id"] for row in rows] == ["s1", "s2"]
+
+
+def test_a_session_that_announced_no_id_records_none_rather_than_an_earlier_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A silent session must not borrow the previous session's identity.
+
+    This is the half a naive fix gets wrong. Filtering is not the same as
+    taking the last element: a session killed before its init event adds no id
+    at all, so the transcript still ends on the *previous* session's — and
+    ``session_ids[-1]`` would attribute the silent session's row to it, which
+    is the same false attribution in the other direction.
+    """
+    ws = _workspace(
+        tmp_path, clusters=({"id": "c1", "ordinal": 1}, {"id": "c2", "ordinal": 2})
+    )
+    _drive(
+        monkeypatch,
+        ws,
+        [_obs(), _obs(cluster=_cluster("c2", 2)), _obs(cluster=None)],
+        results=[
+            _result(seen=1, session_ids=("s1",)),
+            _result(seen=2, session_ids=("s1",)),
+        ],
+    )
+    monkeypatch.setattr(sweep, "_build_gate", lambda *a, **k: (StopReason.done, False))
+
+    sweep.run(_cfg(), ws)
+
+    latest = sorted((ws / record.RUNS_DIR).iterdir())[-1]
+    rows = [
+        json.loads(line)
+        for line in (latest / record.SESSIONS_FILE).read_text().splitlines()
+    ]
+    assert [row["session_id"] for row in rows] == ["s1", None]
 
 
 def test_run_hands_classify_the_same_seen_it_hands_run_session(

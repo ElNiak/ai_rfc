@@ -120,7 +120,13 @@ def _toolchain(config: ReconConfig | None) -> Check:
             "toolchain",
             False,
             "warning",
-            f"no record at {record}; draft builds will be skipped",
+            # Not "draft builds will be skipped", which this said until the
+            # skip was shown to be unreachable: `config.py` defaults
+            # `toolchain` to a path, so a loaded configuration always names
+            # one and `sweep._build_gate`'s skip branch never fires. What
+            # actually happens is worse than a skip and worth saying plainly.
+            f"no record at {record}; ai-rfc run refuses to sweep without one, "
+            "and every ai_rfc tool call in a session would be refused",
             "ai-rfc toolchain provision",
         )
     ok, reasons = toolchain.verify(record)

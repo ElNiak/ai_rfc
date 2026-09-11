@@ -717,6 +717,51 @@ def _report_ledger(workspace: Path, cfg: Any) -> None:
     )
 
 
+def _require_toolchain(cfg: Any) -> None:
+    """Refuse a sweep whose configured toolchain record is not on disk.
+
+    This closes a failure that fails **open**, and it is invisible from every
+    single vantage point along the way. ``config.py`` defaults ``toolchain`` to
+    ``<experiments root>/tools/toolchain.json`` rather than to None, so a
+    loaded configuration always names one — which is why
+    :func:`_build_gate`'s "build skipped (no toolchain configured)" branch
+    cannot be reached from a ``recon.yaml`` at all, and why
+    ``session_env`` always exports ``AI_RFC_TOOLCHAIN``.
+
+    What follows is not a launch failure, which is what makes it expensive.
+    The MCP server starts and advertises its tools; only each individual
+    *call* comes back ``AI_RFC_TOOLCHAIN=… is not a file``, resolved per call
+    rather than at startup. So the session announces a whole surface,
+    :func:`~ai_rfc.driver.session.surface_shortfall` has nothing to report,
+    and the session exits 0 having finished nothing — which classifies as
+    ``refused`` and **consumes an attempt**. The sweep then spends
+    ``attempts_per_cluster`` sessions per cluster discovering it, and halts
+    with ``cluster_halted``, whose resume line says ``--retry`` — a remedy
+    that cannot work.
+
+    ``init`` does not cover this. ``lifecycle.workspace.require_toolchain``
+    returns early when the configuration declares no ``references``, which is
+    the default, and a record can be removed after ``init`` in any case.
+
+    None is left alone deliberately: it means *no toolchain configured*, which
+    is the documented skip, and only an API caller building a ``ReconConfig``
+    by hand can produce it.
+
+    Args:
+        cfg: The validated configuration.
+
+    Raises:
+        DriverError: If ``toolchain`` names a path that is not a file.
+    """
+    if cfg.toolchain is None or cfg.toolchain.is_file():
+        return
+    raise DriverError(
+        f"no toolchain record at {cfg.toolchain}; a session would launch, "
+        "mount every tool and then be refused by each one, spending an "
+        "attempt per cluster to learn it. Run: ai-rfc toolchain provision"
+    )
+
+
 def _build_gate(cfg: Any, workspace: Path) -> tuple[StopReason, bool]:
     """Run ``check --strict``, ``lint`` and ``build``; report what they found.
 
@@ -887,6 +932,11 @@ class _Sweep:
     attempted_rounds: set[int] = field(default_factory=set)
     shortfall: str | None = None
     last_error: str | None = None
+    #: Every session id this run has already attributed to a row.
+    #: :attr:`~ai_rfc.driver.session.SessionResult.session_ids` is the whole
+    #: shared transcript's, so without this the row writer cannot tell which
+    #: of them belongs to the session it is recording.
+    known_sessions: set[str] = field(default_factory=set)
 
 
 def _passed(cluster: ledger.ClusterState | None, target: int) -> bool:
@@ -1032,6 +1082,18 @@ def _run_one_session(
     swept.results_seen = result.results_seen
     swept.any_timeout = swept.any_timeout or result.timed_out
     classification = classify(result, seen=seen)
+    # The ids this session added, not the transcript's first. `session_ids` is
+    # documented as every distinct id in the **shared** transcript in
+    # first-appearance order, so `[0]` is the first session's forever and every
+    # row after the first attributed its work to session one. Filtered against
+    # what the run has already claimed, exactly as `experiment.per_cluster`
+    # does — the contract's other consumer, which never dropped it.
+    #
+    # Not `[-1]` either: a session killed before its init event adds no id at
+    # all, and the tail is then the *previous* session's. A row that names no
+    # session is the truth about a session that never named itself.
+    announced = [sid for sid in result.session_ids if sid not in swept.known_sessions]
+    swept.known_sessions.update(announced)
     if cluster is not None:
         swept.launches[cluster.id] = swept.launches.get(cluster.id, 0) + 1
     record.append_session(
@@ -1048,7 +1110,7 @@ def _run_one_session(
             "cost_usd": result.cost_usd,
             "lifetime_cost_usd": obs.spent_usd + result.cost_usd,
             "budget_given_usd": budget_left,
-            "session_id": result.session_ids[0] if result.session_ids else None,
+            "session_id": announced[0] if announced else None,
             "wall_s": round(result.wall_s, 1),
             "damaged": result.damaged,
             "argv": list(result.argv),
@@ -1395,6 +1457,13 @@ def run(
             report(f"performed: {action.stage}")
         else:
             if run_dir is None:
+                # The last moment before anything is spent, and deliberately
+                # not the top of this function: a malformed `--until` or
+                # `--retry` is the operator's own typo and is refused by
+                # `observe` above, so checking the environment first would
+                # answer a typo with "provision a toolchain". Everything
+                # between here and there is free and idempotent.
+                _require_toolchain(cfg)
                 run_dir, prompt_path = _open_run(workspace, cfg, obs)
             assert prompt_path is not None  # noqa: S101 - written beside run_dir
             if action.kind == "consolidation":

@@ -415,20 +415,58 @@ def test_the_sweep_spent_one_session_on_each_cluster(reconstruction) -> None:
         ("cluster", 2),
         ("consolidation", None),
     ]
-    # Read off the transcript rather than off the rows, because the rows
-    # cannot answer it: `_run_one_session` records `session_ids[0]`, which is
-    # the first id in the **shared** transcript, so every row after the first
-    # carries the first session's id. That is a defect in the record, reported
-    # rather than fixed here; what this asserts is the fact underneath it —
-    # three distinct sessions really launched.
+    # Asserted twice from two sources, because a row that merely *has* an id
+    # is not a row that names its own session: `session_ids` is the whole
+    # shared transcript's, in first-appearance order, so an unfiltered `[0]`
+    # gives every row the first session's id and still reads as populated.
     transcript, _ = salvage_stream(
         (recon.live_run() / "events.jsonl").read_text(errors="replace")
     )
-    assert session_ids(transcript) == [f"fake-{recon.scenario}-{n}" for n in (1, 2, 3)]
+    launched = [f"fake-{recon.scenario}-{n}" for n in (1, 2, 3)]
+    assert session_ids(transcript) == launched
+    assert [row["session_id"] for row in rows] == launched
     status = json.loads((recon.live_run() / "status.json").read_text())
     assert status["reason"] == StopReason.done.value
     assert status["sessions"] == 3 and status["timed_out"] is False
     assert status["spent_usd"] == pytest.approx(3 * SESSION_COST)
+
+
+def test_a_configured_toolchain_that_is_missing_is_refused_before_any_session(
+    reconstruction, toolchain_record, capsys
+) -> None:
+    """A record that is not there must stop the sweep, not be discovered per call.
+
+    The failure this closes is a fail-open one, and it does not look like a
+    failure from any single vantage point. ``config.py:642`` defaults
+    ``toolchain`` to a path, so it is never None and ``AI_RFC_TOOLCHAIN`` is
+    always exported — which makes ``_build_gate``'s "build skipped (no
+    toolchain configured)" branch unreachable from a loaded configuration. The
+    session then launches perfectly: the MCP server starts and advertises its
+    tools, and only each individual *call* comes back
+    ``AI_RFC_TOOLCHAIN=… is not a file``. So ``surface_shortfall`` cannot fire,
+    the session exits 0 having finished nothing, and the sweep spends an
+    attempt per cluster learning it.
+
+    Refused before the first launch instead, naming the command that fixes it.
+    The bar is *no run directory at all*: a run directory is minted when the
+    first session is about to launch, so its absence is the only evidence that
+    nothing was spent.
+    """
+    recon = reconstruction("no-toolchain", SWEEP_STEPS)
+    toolchain_record.unlink()
+
+    assert cli.main(["run", "--config", str(recon.config)]) == 1
+
+    assert recon.runs() == []
+    # The deterministic stages run first and are free, idempotent and already
+    # reported; what must not have happened is a launch, which is what the
+    # absent run directory above says. The refusal itself is asserted as
+    # exactly one record: it interpolates a configured path, so it is a
+    # line-per-record artifact like every other report line here.
+    err = capsys.readouterr().err
+    (refusal,) = [line for line in err.splitlines() if line.startswith("error:")]
+    assert "ai-rfc toolchain provision" in refusal
+    assert str(toolchain_record) in refusal
 
 
 # --- criterion 2: resume after a kill ----------------------------------------
