@@ -37,9 +37,10 @@ if TYPE_CHECKING:
 #: default for ``sessions.consolidate_every`` rather than restated here. The
 #: same number configures a reconstruction and freezes into a campaign, and two
 #: literals would let the operator-facing value and the campaign's drift apart
-#: without anything saying so. What is shared is the *declared default*: this
-#: verb reads no value an operator wrote into a ``recon.yaml``, so
-#: ``--consolidate-every`` is the only way to change what a campaign freezes.
+#: without anything saying so. It is the last of the three tiers
+#: :func:`_consolidation_interval` resolves: ``--consolidate-every`` outranks
+#: the ``sessions.consolidate_every`` of the ``recon.yaml`` given to
+#: ``--config``, which outranks this declared default.
 DEFAULT_CONSOLIDATE_EVERY: int = field_default("sessions.consolidate_every")
 
 #: Where a run records the sessions appended to it after it finished. One JSON
@@ -181,6 +182,41 @@ def _interval(value: str) -> int:
             f"rounds, and a negative interval would buy one after every cluster"
         )
     return interval
+
+
+def _consolidation_interval(flag: int | None, config_path: Path | None) -> int:
+    """Resolve the consolidation cadence a campaign freezes.
+
+    Three tiers, most specific first: the flag, then the
+    ``sessions.consolidate_every`` of the ``recon.yaml`` the campaign
+    initialises from, then the schema's declared default. A config that
+    declares no ``sessions`` block configures no cadence, so it falls through
+    to the default rather than to a zero that would consolidate after every
+    cluster.
+
+    Args:
+        flag: ``--consolidate-every``, or None when it was not given. 0 is a
+            value rather than an absence — it disables mid-sweep rounds — so
+            the tiers are separated by ``is None``, not by truthiness.
+        config_path: ``--config``, or None when it was not given.
+
+    Returns:
+        The interval to freeze into the campaign.
+
+    Raises:
+        ExperimentError: If the config cannot be read or does not validate.
+    """
+    if flag is not None:
+        return flag
+    if config_path is None:
+        return DEFAULT_CONSOLIDATE_EVERY
+    try:
+        config = load_config(config_path.resolve())
+    except ConfigError as error:
+        raise ExperimentError(str(error)) from None
+    if config.sessions is None:
+        return DEFAULT_CONSOLIDATE_EVERY
+    return config.sessions.consolidate_every
 
 
 def _repo_root() -> Path:
@@ -953,14 +989,24 @@ def _parser() -> argparse.ArgumentParser:
         help="Skip the parity suite. It is the protocol's stop-ship check.",
     )
     init.add_argument(
+        "--config",
+        type=Path,
+        default=None,
+        help=(
+            "recon.yaml the campaign initialises from. Only its "
+            "sessions.consolidate_every is read here, and only when "
+            "--consolidate-every is not given."
+        ),
+    )
+    init.add_argument(
         "--consolidate-every",
         type=_interval,
-        default=DEFAULT_CONSOLIDATE_EVERY,
+        default=None,
         help=(
             "Cluster rounds between consolidation rounds; 0 disables mid-sweep "
-            "ones (default: %(default)s, the schema default this shares with "
-            "recon.yaml's sessions.consolidate_every; a value configured there "
-            "is not read)."
+            "ones. This outranks --config's sessions.consolidate_every, which "
+            "outranks the schema default of "
+            f"{DEFAULT_CONSOLIDATE_EVERY} used when neither is given."
         ),
     )
 
@@ -1308,6 +1354,11 @@ def main(argv: list[str] | None = None) -> int:
                     toolchain = default_toolchain
             if toolchain is not None:
                 toolchain = toolchain.resolve()
+            # Before the parity suite: an unreadable config is a refusal the
+            # operator should get in a second, not after a minutes-long run.
+            consolidate_every = _consolidation_interval(
+                args.consolidate_every, args.config
+            )
             parity = None if args.skip_parity else _run_parity(args.python)
             campaign = init_campaign(
                 CampaignConfig(
@@ -1328,7 +1379,7 @@ def main(argv: list[str] | None = None) -> int:
                     parity=parity,
                     session_mode=args.session_mode,
                     toolchain=toolchain,
-                    consolidate_every=args.consolidate_every,
+                    consolidate_every=consolidate_every,
                 )
             )
             print(f"campaign: {campaign.dir}")

@@ -40,9 +40,9 @@ from . import ExperimentError
 
 #: Cluster rounds between consolidation rounds, taken from the schema's
 #: declared default for ``sessions.consolidate_every`` — shared with
-#: ``recon.yaml`` so the two cannot drift, but never a value an operator
-#: configured there, which nothing reads. Only what a caller leaves unset is
-#: defaulted here;
+#: ``recon.yaml`` so the two cannot drift. It is what a caller who passes no
+#: interval gets; ``campaign init`` resolves an operator's configured value
+#: before it reaches here, so this default is only ever the last resort.
 #: :attr:`Campaign.consolidate_every` keeps a literal on purpose, because
 #: ``load_campaign`` applies it to campaigns frozen before the field existed
 #: and re-reading this table would retroactively reinterpret them.

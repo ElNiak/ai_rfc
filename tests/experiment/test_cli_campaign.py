@@ -419,6 +419,80 @@ def test_campaign_init_takes_a_consolidation_interval(
     assert frozen["consolidate_every"] == 3
 
 
+def _recon_with_interval(tmp_path: Path, interval: int) -> Path:
+    """A loadable recon.yaml whose sessions block configures the interval.
+
+    ``budget_usd`` is what makes the block legal: the loader requires it once
+    ``sessions`` exists at all.
+
+    Args:
+        tmp_path: The test's own directory; the ``recon.yaml`` lands in it.
+        interval: What to write as ``sessions.consolidate_every``.
+
+    Returns:
+        The config file's path.
+    """
+    recon = _recon(tmp_path)
+    recon.write_text(
+        recon.read_text()
+        + "sessions:\n"
+        + "  budget_usd: 1.0\n"
+        + f"  consolidate_every: {interval}\n"
+    )
+    return recon
+
+
+def test_the_interval_an_operator_configured_is_what_freezes(
+    tmp_path, pristine, panther_repo, capsys, toolchain_record
+):
+    """An operator who configured a cadence gets that cadence, not the default.
+
+    The value is read from the ``recon.yaml`` the campaign initialises from,
+    rather than only from the schema: a campaign frozen at 10 while the config
+    says 3 consolidates a third as often as the operator asked, and nothing in
+    the record says the number was ignored.
+
+    3 is not the schema default, so the assertion cannot pass by two literals
+    happening to agree — the mistake SP7c's Task 8 shipped for this field.
+    """
+    _, _, campaign_dir = _init(
+        tmp_path,
+        pristine,
+        panther_repo,
+        capsys,
+        toolchain_record,
+        "--config",
+        str(_recon_with_interval(tmp_path, 3)),
+    )
+
+    frozen = json.loads((campaign_dir / "campaign.json").read_text())
+    assert frozen["consolidate_every"] == 3
+
+
+def test_the_flag_outranks_the_interval_the_config_carries(
+    tmp_path, pristine, panther_repo, capsys, toolchain_record
+):
+    """The flag is the more specific instruction, so it wins.
+
+    Three distinct numbers are in play — the config's 3, the flag's 5, the
+    schema's 10 — so no pair agreeing by accident can satisfy this.
+    """
+    _, _, campaign_dir = _init(
+        tmp_path,
+        pristine,
+        panther_repo,
+        capsys,
+        toolchain_record,
+        "--config",
+        str(_recon_with_interval(tmp_path, 3)),
+        "--consolidate-every",
+        "5",
+    )
+
+    frozen = json.loads((campaign_dir / "campaign.json").read_text())
+    assert frozen["consolidate_every"] == 5
+
+
 def test_the_consolidation_interval_defaults_to_recon_yamls_own(
     tmp_path, pristine, panther_repo, capsys, toolchain_record, monkeypatch
 ):
