@@ -316,6 +316,13 @@ def _quoted(value: str, what: str) -> str:
     the plain space, which is exactly what may not appear here and exactly what
     ``shlex.quote`` then handles.
 
+    :func:`ai_rfc.driver.sweep.printable` applies the same predicate and
+    **escapes** instead of refusing. Do not unify the two toward escaping: a
+    resume line is copied into a terminal and executed, so a mangled-but-
+    printed one is worse than none, while a progress line *is* the diagnosis
+    and refusing it would lose the stop it describes. Same predicate, opposite
+    remedy, because the artifacts differ in what a bad line does.
+
     Args:
         value: The value to interpolate.
         what: What it is, for the message.

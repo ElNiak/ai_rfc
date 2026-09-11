@@ -642,6 +642,65 @@ def test_observe_sees_a_checkpoint_but_not_one_already_moved_aside(
     assert sweep.observe(ws, _cfg()).any_checkpoint is True
 
 
+def test_observe_refuses_a_timeline_carrying_a_duplicate_cluster_id(
+    tmp_path: Path,
+) -> None:
+    """Two rows claiming one id is a broken timeline, and it must say so.
+
+    ``ledger._rows`` validates only that ``id`` and ``ordinal`` are *present*,
+    so a duplicate is permitted on disk, and cluster ids come from
+    agent-written YAML — a duplicate is not hypothetical. Keying the
+    observation's ordinals by id collapses them, and the **window** derives
+    from what survives: with ``a@1, b@3, a@5`` the deduped mapping reports a
+    window of ``(3, 5)`` where the rows say ``(1, 5)``.
+
+    That is not cosmetic. The window is what ``task_sha256`` is rendered over,
+    so a duplicate would silently narrow what the reconstruction covers, and
+    nothing would warn. Refused rather than worked around: every other
+    agent-written value in this row is checked before it is used, and a
+    timeline this broken cannot be reconstructed from correctly under any
+    reading of it.
+
+    The rows are written **out of ordinal order** so that "the first row" and
+    "the lowest ordinal" are different answers, as ``M9``'s test does.
+    """
+    ws = _workspace(
+        tmp_path,
+        clusters=(
+            {"id": "a", "ordinal": 5},
+            {"id": "b", "ordinal": 3},
+            {"id": "a", "ordinal": 1},
+        ),
+    )
+
+    with pytest.raises(DriverError, match="twice"):
+        sweep.observe(ws, _cfg())
+
+
+def test_observe_keeps_the_whole_window_when_ids_are_distinct(
+    tmp_path: Path,
+) -> None:
+    """The companion figure the refusal protects, pinned by value.
+
+    Same three ordinals, distinct ids, written out of ordinal order: the
+    window is ``(1, 5)``. A deduping bug that survived the refusal would
+    report ``(3, 5)`` here.
+    """
+    ws = _workspace(
+        tmp_path,
+        clusters=(
+            {"id": "a", "ordinal": 5},
+            {"id": "b", "ordinal": 3},
+            {"id": "c", "ordinal": 1},
+        ),
+    )
+
+    obs = sweep.observe(ws, _cfg())
+
+    assert obs.window == (1, 5)
+    assert obs.known_clusters == ("c", "b", "a")
+
+
 def test_observe_reads_no_wall_clock_when_no_deadline_was_given(
     tmp_path: Path,
 ) -> None:
@@ -1296,6 +1355,40 @@ def test_until_stops_once_the_sweep_is_past_its_bound(
     )
 
     assert sweep.run(_cfg(), ws, until=until) == 0
+    assert launched == []
+
+
+@pytest.mark.parametrize("until", ["ordinal:99", "ordinal:0"])
+def test_until_refuses_an_ordinal_no_cluster_carries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, until: str
+) -> None:
+    """An ordinal bound is a closed set too, exactly as a cluster bound is.
+
+    Making the bound positional changed what an unmatchable one *costs*. Under
+    the old name-matching predicate ``ordinal:99`` stopped at once; under a
+    positional one every cluster is before it, so the sweep runs to the end
+    and prints ``stopped at ordinal:99`` — it spends the whole window and
+    reports the bound as honoured. ``ordinal:0`` is the mirror: below every
+    cluster, so it stops before any work and also reports success.
+
+    Both are the operator mistyping a bound, and both must be refused rather
+    than answered.
+    """
+    ws = _workspace(
+        tmp_path,
+        clusters=(
+            {"id": "c1", "ordinal": 1},
+            {"id": "c2", "ordinal": 2},
+            {"id": "c3", "ordinal": 3},
+        ),
+    )
+    launched = _drive(
+        monkeypatch, ws, [_obs(cluster=_cluster("c1", 1), ordinals=_ordinals())]
+    )
+
+    with pytest.raises(DriverError, match="no cluster"):
+        sweep.run(_cfg(), ws, until=until)
+
     assert launched == []
 
 

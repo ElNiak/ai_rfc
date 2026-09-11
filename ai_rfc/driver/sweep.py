@@ -308,6 +308,39 @@ def plugin_root() -> Path:
     return Path(render.__file__).resolve().parents[2] / "plugins" / "ai-rfc"
 
 
+def _refuse_duplicate_ids(states: tuple[ledger.ClusterState, ...]) -> None:
+    """Refuse a timeline where two rows claim one cluster id.
+
+    Failing loudly beats reconstructing something narrower than the operator
+    asked for. A duplicate id has no correct reading: the checkpoints, the
+    revision entries and the attempt counts of the two rows are the same
+    records, so whichever row survives a lookup, the other one's work is
+    attributed to it. Every other agent-written value in this package is
+    checked before it is used, and this is that check for the timeline itself.
+
+    Args:
+        states: The ledger's rows, in ordinal order.
+
+    Raises:
+        DriverError: If any id appears more than once.
+    """
+    seen: set[str] = set()
+    repeated: set[str] = set()
+    for cluster in states:
+        if cluster.id in seen:
+            repeated.add(cluster.id)
+        seen.add(cluster.id)
+    duplicated = sorted(repeated)
+    if duplicated:
+        raise DriverError(
+            "this workspace's timeline names "
+            f"{', '.join(repr(name) for name in duplicated)} twice; a cluster "
+            "id is what a checkpoint, a revision entry and an attempt count "
+            "are all looked up by, so two rows claiming one id have no "
+            "correct reading. Re-cluster the timeline"
+        )
+
+
 def _any_checkpoint(workspace: Path) -> bool:
     """Whether a live checkpoint pins the current cluster numbering.
 
@@ -393,7 +426,9 @@ def observe(
     Raises:
         DriverError: If ``forgiven`` names a cluster the timeline does not
             hold — a ``--retry`` value that silently forgave nothing would
-            leave the operator watching the same halt repeat.
+            leave the operator watching the same halt repeat — or if the
+            timeline names one cluster id twice, which has no correct reading
+            and would narrow the window this run is rendered over.
         ledger.LedgerError: If a timeline exists but cannot be read.
         OSError: If a stage artifact exists but cannot be read.
     """
@@ -403,6 +438,15 @@ def observe(
     states: tuple[ledger.ClusterState, ...] = ()
     if layout.clusters_jsonl.exists():
         states = ledger.clusters(workspace, bounds)
+    # Refused before the mapping is built, because building it is what hides
+    # the problem: keying by id collapses two rows into one, and the window
+    # then derives from whichever survived. Measured on `a@1, b@3, a@5`: the
+    # deduped window is (3, 5) where the rows say (1, 5) — and the window is
+    # what `task_sha256` is rendered over, so a duplicate silently narrows what
+    # the reconstruction covers. `ledger._rows` validates only that `id` and
+    # `ordinal` are *present*, and cluster ids come from agent-written YAML, so
+    # this is a shape the substrate permits rather than a hypothetical.
+    _refuse_duplicate_ids(states)
     # Insertion order is ordinal order: `ledger._rows` sorts by ordinal, so
     # `known_clusters` reads back in the order `next_cluster` walks.
     ordinals = {cluster.id: cluster.ordinal for cluster in states}
@@ -899,8 +943,12 @@ def _bound_reached(until: str | None, obs: Observation) -> bool:
         True when the bound is reached.
 
     Raises:
-        DriverError: If the bound names no stage, no cluster, or no integer.
-            A bound nothing can match would silently run the whole sweep.
+        DriverError: If the bound names no stage, no integer, or neither a
+            cluster of this timeline nor an ordinal one carries. **Both
+            spellings are closed sets**, and for a reason the positional fix
+            sharpened rather than removed: an unmatchable bound used to stop
+            the sweep at once, and now sits after every cluster instead — so
+            it spends the whole window and still reports itself honoured.
     """
     if until is None:
         return False
@@ -913,6 +961,17 @@ def _bound_reached(until: str | None, obs: Observation) -> bool:
             ordinal = int(raw)
         except ValueError:
             raise DriverError(f"{raw!r} is not an ordinal") from None
+        if ordinal not in set(obs.ordinals.values()):
+            # The closed set `cluster:<id>` is checked against, in the other
+            # spelling of the same bound. Making the bound positional changed
+            # what an unmatched one costs: an ordinal above every cluster now
+            # sits after the whole sweep rather than matching nothing, so the
+            # window is spent and the bound still reports as honoured.
+            raise DriverError(
+                f"ordinal {ordinal} names no cluster of this workspace's "
+                f"timeline; its ordinals are "
+                f"{', '.join(str(o) for o in sorted(set(obs.ordinals.values())))}"
+            )
         return _passed(obs.cluster, ordinal)
     if until in obs.stages:
         return obs.stages[until] in (State.DONE, State.RECOMPUTED)
