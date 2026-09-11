@@ -255,14 +255,20 @@ plan's, as it is for the two draft-quality entries above.
   `consolidate_every`, so a run says how it was scheduled. The flag `campaign
   init --consolidate-every N` and the `recon.yaml` field
   `sessions.consolidate_every` now share one schema default (10), so the two
-  numbers cannot drift apart — but **`campaign init` does not read an
-  operator's `recon.yaml` value.** It reads the schema's default and nothing
-  else, so a `sessions.consolidate_every: 3` written into a config file is
-  loaded and then consumed by nobody: the campaign freezes 10 regardless.
-  Pass `--consolidate-every` to change it. Wiring the config field through to
-  `campaign init` is open work for a later row. The frozen campaign record
-  keeps a literal of its own on purpose, so that campaigns frozen before the
-  field existed are not retroactively reinterpreted.
+  numbers cannot drift apart. SP7c shared that default only: a
+  `sessions.consolidate_every: 3` written into a config file was loaded and
+  then consumed by nobody, and the campaign froze 10 regardless. **CLI-2
+  closed that (2026-09-11): the value is threaded, and this entry's former
+  claim that `campaign init` ignores a configured interval no longer holds —
+  it is not open work for a later row.** `campaign init --config <recon.yaml>`
+  freezes that config's `sessions.consolidate_every`; `--consolidate-every`
+  outranks it, because a flag is the more specific instruction; with neither
+  given the schema default stands. A config declaring no `sessions` block
+  configures no cadence and falls through to that default rather than to 0.
+  The interval is read before the parity suite, so an unreadable config
+  refuses in a second rather than after a minutes-long run. The frozen
+  campaign record keeps a literal of its own on purpose, so that campaigns
+  frozen before the field existed are not retroactively reinterpreted.
 - **A consolidation round runs every K cluster rounds, and once at the
   sweep's end.** It is launched with its own frozen `consolidation-<arm>.md`
   system prompt and its own frozen, hashed task template

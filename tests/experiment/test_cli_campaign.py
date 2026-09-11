@@ -493,24 +493,72 @@ def test_the_flag_outranks_the_interval_the_config_carries(
     assert frozen["consolidate_every"] == 5
 
 
+def test_a_config_with_no_sessions_block_configures_no_cadence(
+    tmp_path, pristine, panther_repo, capsys, toolchain_record, monkeypatch
+):
+    """The ordinary shape of a baseline's config, not an edge case.
+
+    ``sessions`` is optional, and the config a pristine workspace is sealed
+    from carries no such block at all, so this is what the common case reaches:
+    the loader leaves ``sessions`` as None and the campaign falls back to the
+    schema default. Without the guard the attribute lookup raises
+    ``AttributeError``, which is not one of the errors ``main`` reports, so the
+    verb would traceback instead of freezing anything.
+
+    The default is moved to 7 rather than compared against its own declaration,
+    so a campaign that froze the schema's 10 by some other route fails here.
+    """
+    monkeypatch.setattr(cli, "DEFAULT_CONSOLIDATE_EVERY", 7)
+    _, _, campaign_dir = _init(
+        tmp_path,
+        pristine,
+        panther_repo,
+        capsys,
+        toolchain_record,
+        "--config",
+        str(_recon(tmp_path)),
+    )
+
+    frozen = json.loads((campaign_dir / "campaign.json").read_text())
+    assert frozen["consolidate_every"] == 7
+
+
+def test_a_zero_the_config_carries_disables_mid_sweep_rounds(
+    tmp_path, pristine, panther_repo, capsys, toolchain_record
+):
+    """0 is a configured value, so the config tier must not read it as absent.
+
+    The flag tier is covered further down; this is the config tier, where a
+    ``value or DEFAULT`` would silently restore 10 and buy an editorial pass
+    every ten clusters against an operator who asked for none.
+    """
+    _, _, campaign_dir = _init(
+        tmp_path,
+        pristine,
+        panther_repo,
+        capsys,
+        toolchain_record,
+        "--config",
+        str(_recon_with_interval(tmp_path, 0)),
+    )
+
+    frozen = json.loads((campaign_dir / "campaign.json").read_text())
+    assert frozen["consolidate_every"] == 0
+
+
 def test_the_consolidation_interval_defaults_to_recon_yamls_own(
     tmp_path, pristine, panther_repo, capsys, toolchain_record, monkeypatch
 ):
     """One default for the interval, so an operator's and a campaign's agree.
 
-    Two halves, because comparing the two numbers while they happen to agree
-    would pass against a parser that restated the literal. The first reaches
-    the operator-facing value through the config loader; the second moves the
-    source and requires a campaign frozen with no flag to follow it.
+    Moving the source is the whole of the test: a campaign frozen with neither
+    ``--config`` nor ``--consolidate-every`` has to follow the schema's
+    declared default wherever that default moves to. This test used to open by
+    comparing the loader's value against ``DEFAULT_CONSOLIDATE_EVERY``, which
+    is the same ``field_default`` call on both sides — two literals agreeing,
+    the shape the ruling forbids, and now covered for real by the two tests
+    above that assert a configured 3 and a flagged 5.
     """
-    from ai_rfc.config import load_config
-
-    recon = _recon(tmp_path)
-    recon.write_text(recon.read_text() + "sessions:\n  budget_usd: 1.0\n")
-    assert (
-        load_config(recon).sessions.consolidate_every == cli.DEFAULT_CONSOLIDATE_EVERY
-    )
-
     monkeypatch.setattr(cli, "DEFAULT_CONSOLIDATE_EVERY", 7)
     _, _, campaign_dir = _init(
         tmp_path, pristine, panther_repo, capsys, toolchain_record

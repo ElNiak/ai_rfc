@@ -165,8 +165,9 @@ A pristine workspace is built from the same `recon.yaml` the lifecycle verbs
 read; the closed target table `{aioquic, mark}` it used to be selected from is
 gone. The rest of the instrument runs from any directory: `profile init`,
 `preflight`, `render`, `workspace prepare|reseal|migrate-draft`, `campaign
-init [--consolidate-every N]`, `run [--task consolidation]`, `audit`,
-`questions`, `analyze`, `optimize`. Provisioning the Internet-Draft toolchain
+init [--config RECON] [--consolidate-every N]`, `run [--task
+consolidation]`, `audit`, `questions`, `analyze`, `optimize`. Provisioning
+the Internet-Draft toolchain
 is no longer one of them — that is `ai-rfc toolchain provision|verify`. State
 lives under `AI_RFC_EXPERIMENTS_ROOT` (default `~/ai-rfc-experiments`), never
 inside a repository. The first full campaign is reported in
@@ -178,7 +179,9 @@ a campaign initialised with `--session-mode per-cluster`; see
 `ai_rfc/experiment/per_cluster.py`. Such a sweep interleaves consolidation
 rounds with the cluster rounds — a consolidation round reorganises the draft
 into a specification without changing what it claims. `campaign init
---consolidate-every N` sets how many cluster rounds pass between them (0
+--consolidate-every N` sets how many cluster rounds pass between them,
+outranking the `sessions.consolidate_every` of a `recon.yaml` passed to
+`campaign init --config`, which in turn outranks the schema default (0
 disables the mid-sweep ones, leaving the round at the sweep's end, which runs
 unless the arm is C, the budget or wall clock is exhausted, or nothing is
 outstanding), and `run CAMPAIGN --only RUN --task consolidation

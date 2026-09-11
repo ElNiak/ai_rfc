@@ -993,9 +993,12 @@ def _parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help=(
-            "recon.yaml the campaign initialises from. Only its "
-            "sessions.consolidate_every is read here, and only when "
-            "--consolidate-every is not given."
+            "recon.yaml to take the consolidation cadence from. Only its "
+            "sessions.consolidate_every is read, and only when "
+            "--consolidate-every is not given. The campaign itself is built "
+            "from --baseline; nothing checks that this config is the one that "
+            "baseline was prepared from, and the record keeps the interval "
+            "without naming where it came from."
         ),
     )
     init.add_argument(
