@@ -210,6 +210,88 @@ def test_a_scenario_of_two_rounds_completes_one_cluster_per_session(
     }
 
 
+def _consolidation_steps(base_ordinal: int, ordinal: int, tag: str) -> list[dict]:
+    """The sweep-end round, in the spelling the driver credits.
+
+    A consolidation freezes the same manifest under ``consolidations/<NN>``
+    and records a ``kind: consolidation`` revision pinned to it.
+    ``normative: False`` is both what the round is and what lets it past the
+    citation gate, which refuses a normative revision over a manifest that
+    repeats its base.
+
+    Args:
+        base_ordinal: The cluster whose checkpoint it follows.
+        ordinal: The consolidation's own number.
+        tag: The revision tag it records and annotates.
+
+    Returns:
+        The steps, in the order the round performs them.
+    """
+    return [
+        {"kind": "prose", "line": "Editorial pass.", "message": "consolidate"},
+        {"kind": "checkpoint", "ordinal": base_ordinal, "consolidation": ordinal},
+        {
+            "kind": "revision",
+            "ordinal": base_ordinal,
+            "tag": tag,
+            "normative": False,
+            "kind_of": "consolidation",
+            "checkpoint": f"consolidations/{ordinal:02d}",
+        },
+        {"kind": "tag", "tag": tag},
+    ]
+
+
+def test_the_sweep_end_round_waits_until_no_cluster_is_outstanding(
+    wide_pristine, panther_repo, tmp_path, scenario_workspace
+):
+    """A consolidation belongs to no cluster, so it needs a selector of its own.
+
+    The driver schedules the round only once every cluster is done, and an
+    ordinal cannot name that session. Left unmarked instead, the round's steps
+    would replay inside *both* cluster sessions — and the second attempt to
+    record one revision raises, so the sweep the gate drives could not be
+    expressed at all.
+
+    Asserted on ``consolidations_recorded`` rather than on the transcript: it
+    is the same function the driver credits the round by, so a selector that
+    fired in the wrong session would be visible here exactly as the driver
+    would see it.
+    """
+    from ai_rfc.driver.consolidation import consolidations_recorded
+
+    profile = tmp_path / "profile"
+    workspace = scenario_workspace(
+        profile,
+        "sweep-end",
+        {
+            "arm": "A",
+            "steps": [
+                *_one_round(_cluster_steps(1, "draft-test-fixture-00", "t:3.1"), 1),
+                *_one_round(_cluster_steps(2, "draft-test-fixture-01", "t:4.1"), 2),
+                *[
+                    {**step, "round": "end"}
+                    for step in _consolidation_steps(2, 1, "draft-test-fixture-02")
+                ],
+            ],
+        },
+    )
+    copy_workspace(wide_pristine, workspace)
+
+    _launch(profile, workspace, panther_repo)
+    assert consolidations_recorded(workspace) == 0
+
+    _launch(profile, workspace, panther_repo)
+    assert {state.ordinal: state.done for state in clusters(workspace)} == {
+        1: True,
+        2: True,
+    }
+    assert consolidations_recorded(workspace) == 0
+
+    _launch(profile, workspace, panther_repo)
+    assert consolidations_recorded(workspace) == 1
+
+
 def test_a_scenario_with_no_round_marks_is_replayed_whole(
     wide_pristine, panther_repo, tmp_path, scenario_workspace
 ):

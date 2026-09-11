@@ -158,7 +158,9 @@ def write_scenario():
     Two keys on a step do different jobs: ``round`` selects which session
     replays the step, and ``ordinal`` is payload naming the cluster a
     ``checkpoint`` or a ``revision`` acts on. A scenario using ``round``
-    nowhere is replayed whole by every session.
+    nowhere is replayed whole by every session, and ``round: "end"`` names
+    the sweep-end session — the consolidation round, which belongs to no
+    cluster and so cannot be selected by an ordinal.
     """
 
     def write(profile_dir: Path, run_id: str, payload: dict) -> Path:

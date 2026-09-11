@@ -13,7 +13,8 @@ Two keys on a step are easy to confuse. ``ordinal`` is payload: the cluster
 a ``checkpoint`` or a ``revision`` acts on. ``round`` is the selector: it
 names the session that replays the step, so a scenario using it is a sweep
 and one invocation replays only the round of the cluster the workspace
-reports as next. See :func:`steps_for_session`.
+reports as next. Its one non-ordinal value is :data:`END_ROUND`, the session
+a driver runs when no cluster is outstanding. See :func:`steps_for_session`.
 """
 
 from __future__ import annotations
@@ -29,6 +30,13 @@ HERE = Path(__file__).resolve()
 
 ARGS = sys.argv[1:]
 RAW = "python -m ai_rfc"
+
+#: The ``round`` of a step the **sweep-end** session replays. A consolidation
+#: round belongs to no cluster — the driver schedules it once every cluster is
+#: done — so it cannot be selected by an ordinal, and leaving its steps
+#: unmarked would replay them inside every cluster session as well, where the
+#: revision they record is already on disk and the second one raises.
+END_ROUND = "end"
 
 
 def _flag(name: str, default: str | None = None) -> str | None:
@@ -66,6 +74,13 @@ def steps_for_session(scenario: dict, workspace: Path) -> list[dict]:
     acts on, and reading it as a selector too meant one added step for another
     cluster silently stripped the steps the session was written to run.
 
+    One round is not an ordinal: :data:`END_ROUND` names the session the
+    driver runs once no cluster is outstanding, which is the consolidation
+    round. It is a selector of its own because a consolidation belongs to no
+    cluster, and because an unmarked step is replayed by *every* session — so
+    a consolidation left unmarked would try to record its revision inside each
+    cluster's session too, and the second attempt raises.
+
     Args:
         scenario: The loaded scenario.
         workspace: ``$AI_RFC_WORKSPACE``, read for the outstanding cluster.
@@ -87,8 +102,34 @@ def steps_for_session(scenario: dict, workspace: Path) -> list[dict]:
     except LedgerError as error:
         raise SystemExit(f"fake claude: {error}") from None
     if state is None:
-        return [step for step in steps if "round" not in step]
+        return [step for step in steps if step.get("round", END_ROUND) == END_ROUND]
     return [step for step in steps if step.get("round", state.ordinal) == state.ordinal]
+
+
+def _rewrite_abstract(text: str, abstract: str) -> str:
+    """Replace a draft's abstract block, as a session that wrote one does.
+
+    The skeleton's abstract carries the sentence
+    ``draft.lint.STUB_ABSTRACT_MARKER`` matches, so a draft that still holds
+    it fails ``lint --strict`` — which is the build gate a finished sweep
+    runs. Appending prose cannot clear it; the block has to be replaced.
+
+    Args:
+        text: The draft source.
+        abstract: The abstract to put in place of the skeleton's.
+
+    Returns:
+        The draft with its abstract block replaced.
+
+    Raises:
+        SystemExit: If the draft carries neither marker, which means the
+            scenario is acting on a draft the skeleton did not produce.
+    """
+    head, marker, rest = text.partition("\n--- abstract\n")
+    body, middle, tail = rest.partition("\n--- middle\n")
+    if not marker or not middle:
+        raise SystemExit("fake claude: the draft has no abstract block to rewrite")
+    return f"{head}{marker}\n{abstract}\n{middle}{tail}"
 
 
 def session_id(config_dir: Path, run_id: str) -> str:
@@ -368,12 +409,29 @@ class Session:
             from ai_rfc.server.core.gates import write_checkpoint
 
             cluster = self.cluster_id(step["ordinal"])
-            result = write_checkpoint(self.ctx, cluster)
+            # A consolidation freezes the same manifest under
+            # `consolidations/<NN>`, pinned to the cluster checkpoint it
+            # follows. The base is derived from the ordinal rather than
+            # carried in the scenario: the two must name the same cluster,
+            # and a scenario free to disagree with itself would write a
+            # checkpoint the revision it is recorded for cannot pin.
+            consolidation = step.get("consolidation")
+            base = f"checkpoints/{cluster}" if consolidation else None
+            result = write_checkpoint(self.ctx, cluster, consolidation, base)
+            extra = (
+                f" --consolidation {consolidation} --base {ws}/{base}"
+                if consolidation
+                else ""
+            )
+            out = "consolidations" if consolidation else "checkpoints"
             self.surface(
                 "checkpoint",
-                {"cluster_id": cluster},
-                f"ai_rfc checkpoint {cluster}",
-                f"{RAW} draft checkpoint {ws}/manifest.yaml --timeline {ws}/timeline --cluster {cluster} --out {ws}/checkpoints",
+                {
+                    "cluster_id": cluster,
+                    **({"consolidation": consolidation, "base": base} if base else {}),
+                },
+                f"ai_rfc checkpoint {cluster}{extra}",
+                f"{RAW} draft checkpoint {ws}/manifest.yaml --timeline {ws}/timeline --cluster {cluster} --out {ws}/{out}{extra}",
                 json.dumps(result),
                 step,
             )
@@ -381,9 +439,12 @@ class Session:
             from ai_rfc.server.core.draft import commit_draft
 
             draft = next(self.workspace.glob("draft/draft-*.md"))
-            draft.write_text(
-                draft.read_text() + "\n" + step.get("line", "More prose.") + "\n"
-            )
+            if "abstract" in step:
+                draft.write_text(_rewrite_abstract(draft.read_text(), step["abstract"]))
+            else:
+                draft.write_text(
+                    draft.read_text() + "\n" + step.get("line", "More prose.") + "\n"
+                )
             self.edit(f"draft/{draft.name}", step)
             result = commit_draft(self.ctx, step.get("message", "prose"))
             self.surface(
@@ -398,25 +459,41 @@ class Session:
             from ai_rfc.server.core.revisions import record_revision
 
             cluster = self.cluster_id(step["ordinal"])
+            normative = bool(step.get("normative", True))
+            revision_kind = step.get("kind_of", "cluster")
+            checkpoint = step.get("checkpoint")
             entry = record_revision(
                 self.ctx,
                 step["tag"],
                 cluster,
-                bool(step.get("normative", True)),
+                normative,
                 step.get("note", "n"),
+                revision_kind,
+                checkpoint,
             )
             if self.arm == "C":
                 self.edit("revisions.yaml", step)
             else:
+                flag = "--normative" if normative else "--no-normative"
+                extra = (
+                    f" --kind {revision_kind} --checkpoint {checkpoint}"
+                    if checkpoint
+                    else ""
+                )
                 self.surface(
                     "revision_record",
                     {
                         "tag": step["tag"],
                         "cluster_id": cluster,
-                        "normative_change": True,
+                        "normative_change": normative,
                         "note": "n",
+                        **(
+                            {"kind": revision_kind, "checkpoint": checkpoint}
+                            if checkpoint
+                            else {}
+                        ),
                     },
-                    f"ai_rfc revision-record {step['tag']} --cluster {cluster} --normative --note n",
+                    f"ai_rfc revision-record {step['tag']} --cluster {cluster} {flag} --note n{extra}",
                     None,
                     json.dumps(entry),
                     step,
