@@ -151,6 +151,14 @@ ENTRY_POINTS: tuple[EntryPoint, ...] = (
         DRIVEN,
     ),
     EntryPoint(
+        "experiment",
+        "ai-rfc experiment",
+        f"{PACKAGE}.experiment.cli",
+        "Drive the three-arm AI+MCP vs AI+CLI experiment (profile, preflight, "
+        "render, workspace, campaign, run, audit, questions, analyze, optimize)",
+        DRIVEN,
+    ),
+    EntryPoint(
         "check",
         "ai-rfc check",
         f"{PACKAGE}.check.cli",

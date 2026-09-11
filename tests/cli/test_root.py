@@ -5,6 +5,8 @@ Every verb mounts under ``ai-rfc``, forwards untouched, and shares one help.
 
 import argparse
 import importlib
+import subprocess
+import sys
 
 import pytest
 
@@ -57,6 +59,65 @@ def test_a_verb_forwards_to_its_module_run(tmp_path, capsys):
     root_out = capsys.readouterr().out
     via_module = pipeline_cli.main(["status", str(empty)])
     assert via_root == via_module and capsys.readouterr().out == root_out
+
+
+def test_the_instrument_help_reaches_a_nested_verb(capsys):
+    """``ai-rfc experiment preflight --help`` is the mount's own smoke test.
+
+    The instrument nests a second level of subparsers under every command, so
+    reaching one of them is what proves ``configure`` was handed the door's
+    subparser rather than building a parser of its own: a leaf that named
+    ``experiment`` alone, or ``usage: preflight``, would mean the tree below
+    the verb never inherited the door's ``prog``.
+    """
+    with pytest.raises(SystemExit) as excinfo:
+        cli.main(["experiment", "preflight", "--help"])
+    assert excinfo.value.code == 0
+    assert "usage: ai-rfc experiment preflight" in capsys.readouterr().out
+
+
+def test_the_experiment_verb_forwards_to_the_instruments_run(tmp_path, capsys):
+    """``ai-rfc experiment profile init`` and the module door agree.
+
+    Namespaces are the wrong thing to compare: the door injects ``_run`` and
+    sets ``verb="experiment"``, which the instrument's own ``dest="verb"``
+    then overwrites for its nested commands. What must agree is what the
+    operator sees — the exit code and the output — which is also what spec §3
+    promises the module door keeps until CLI-3 retires it.
+    """
+    from ai_rfc.experiment import cli as experiment_cli
+
+    argv = ["profile", "init", "--root", str(tmp_path)]
+    via_root = cli.main(["experiment", *argv])
+    root_out = capsys.readouterr().out
+    via_module = experiment_cli.main(argv)
+    assert via_root == via_module and capsys.readouterr().out == root_out
+
+
+def test_the_module_door_onto_the_instrument_still_runs(tmp_path):
+    """Spec §3: the server core and the raw arm invoke ``python -m`` until CLI-3.
+
+    A subprocess rather than ``cli.main``, because what those callers depend on
+    is ``__main__.py`` over an importable package, and an in-process call
+    exercises neither. It runs a verb rather than ``--help`` deliberately:
+    ``--help`` exits inside argparse before dispatch, so it cannot tell a
+    wired ``main`` from a wired ``main`` over a dispatch that reaches nothing.
+    """
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "ai_rfc.experiment",
+            "profile",
+            "init",
+            "--root",
+            str(tmp_path),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "claude auth login" in result.stdout
 
 
 def test_pipeline_from_choices_follow_pipeline_order(capsys):

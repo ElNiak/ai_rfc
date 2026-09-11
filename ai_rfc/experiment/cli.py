@@ -13,7 +13,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
-from ai_rfc.driver import DriverError
+from ai_rfc import __version__
+from ai_rfc.driver import DriverError, printable
 from ai_rfc.driver.arms import ARMS
 
 from ..config import (
@@ -125,8 +126,17 @@ def _arms(value: str) -> tuple[str, ...]:
         raise argparse.ArgumentTypeError("no arms given")
     unknown = [arm for arm in arms if arm not in ARMS]
     if unknown:
+        # Escaped, not merely echoed: argparse prints an ArgumentTypeError to
+        # stderr through its own formatting, which routes through neither
+        # ``lifecycle.common.report`` nor anything else that escapes, and a
+        # newline inside an arm name forged a second line under the usage line
+        # argparse prints above it. The value is already refused here, so the
+        # message is the only thing left to make safe — which is why this
+        # escapes where ``lifecycle/run/cli.py``'s ``_bound``, whose value
+        # cannot be checked for membership at all, refuses outright.
         raise argparse.ArgumentTypeError(
-            f"unknown arm(s) {', '.join(unknown)}; known arms are " f"{', '.join(ARMS)}"
+            f"unknown arm(s) {', '.join(printable(arm) for arm in unknown)}; "
+            f"known arms are {', '.join(ARMS)}"
         )
     if len(set(arms)) != len(arms):
         raise argparse.ArgumentTypeError(f"repeated arm in {value!r}")
@@ -757,11 +767,18 @@ def _add_root(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="experiment",
-        description="AI+MCP vs AI+CLI experiment harness over the ai_rfc plugin.",
-    )
+def configure(parser: argparse.ArgumentParser) -> None:
+    """Add the instrument's arguments to ``parser``.
+
+    Args:
+        parser: Either the root door's subparser for ``experiment`` or the
+            standalone parser :func:`build_standalone_parser` builds; both must
+            carry the same arguments, so both are configured here. The
+            instrument's own second level of subparsers derives its ``prog``
+            from this one, so a leaf's usage line names the whole path the
+            operator typed through whichever door they used.
+    """
+    parser.description = "AI+MCP vs AI+CLI experiment harness over the ai_rfc plugin."
     commands = parser.add_subparsers(dest="command", required=True)
 
     profile_cmd = commands.add_parser("profile", help="Isolated Claude Code profile.")
@@ -1013,10 +1030,15 @@ def _parser() -> argparse.ArgumentParser:
         ),
     )
 
-    run = commands.add_parser("run", help="Launch pending runs in the frozen order.")
-    run.add_argument("campaign", type=Path, help="Campaign directory.")
-    run.add_argument("--only", default=None, help="Comma-separated run ids.")
-    run.add_argument(
+    # ``run_cmd``, not ``run``: this module now has a module-level ``run``,
+    # which the door calls, and a local of that name inside the function that
+    # builds the parser would shadow it for anything added here later.
+    run_cmd = commands.add_parser(
+        "run", help="Launch pending runs in the frozen order."
+    )
+    run_cmd.add_argument("campaign", type=Path, help="Campaign directory.")
+    run_cmd.add_argument("--only", default=None, help="Comma-separated run ids.")
+    run_cmd.add_argument(
         "--task",
         choices=("sweep", "consolidation"),
         default="sweep",
@@ -1025,7 +1047,7 @@ def _parser() -> argparse.ArgumentParser:
             "of the single run named by --only, as it stands."
         ),
     )
-    run.add_argument(
+    run_cmd.add_argument(
         "--append-to-finished-run",
         action="store_true",
         help=(
@@ -1259,14 +1281,27 @@ def _parser() -> argparse.ArgumentParser:
         help="Write even over uncommitted changes to the files it replaces.",
     )
 
+
+def build_standalone_parser() -> argparse.ArgumentParser:
+    """Build the parser ``python -m ai_rfc.experiment`` uses.
+
+    Returns:
+        A parser carrying the instrument's own ``prog`` and ``--version``, over
+        the arguments the root door mounts through :func:`configure`.
+    """
+    parser = argparse.ArgumentParser(prog="ai-rfc experiment")
+    parser.add_argument(
+        "--version", action="version", version=f"ai-rfc experiment {__version__}"
+    )
+    configure(parser)
     return parser
 
 
-def main(argv: list[str] | None = None) -> int:
+def run(args: argparse.Namespace) -> int:
     """Run one harness command.
 
     Args:
-        argv: Argument vector; ``None`` reads ``sys.argv``.
+        args: The parsed arguments, from either door.
 
     Returns:
         0 on success, 1 when the harness refused or an input was unusable, and
@@ -1275,7 +1310,6 @@ def main(argv: list[str] | None = None) -> int:
         package: a caller must be able to tell a mistyped flag from a gate that
         must stop a campaign, and the two call for opposite responses.
     """
-    args = _parser().parse_args(argv)
     root = args.root if getattr(args, "root", None) else experiments_root()
     try:
         if args.command == "profile" and args.verb == "init":
@@ -1535,3 +1569,19 @@ def main(argv: list[str] | None = None) -> int:
         _report(f"error: {error}")
         return 1
     return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run the command from the command line (``python -m ai_rfc.experiment``).
+
+    Kept alongside the mount rather than replaced by it: the server core's
+    stage runs and the raw arm both invoke ``python -m ai_rfc.experiment``, and
+    they keep doing so until CLI-3 moves them onto the door.
+
+    Args:
+        argv: Argument vector; ``None`` reads ``sys.argv``.
+
+    Returns:
+        The command's exit code, per :func:`run`.
+    """
+    return run(build_standalone_parser().parse_args(argv))

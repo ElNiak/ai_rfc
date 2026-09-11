@@ -139,6 +139,21 @@ def test_every_cli_module_on_disk_is_registered():
     Single-sourcing the list only removes the second copy; it does not notice a
     ninth sub-package that never reached the first. This counts them, the way
     ``test_the_duplication_table_names_every_copy`` counts helper copies.
+
+    **``experiment`` was exempt and no longer is.** It was exempt while it was
+    a program of its own, reachable only as ``python -m ai_rfc.experiment``;
+    spec D56 mounted it as ``ai-rfc experiment``, so it is now a verb the
+    registry owes a row like any other, and counting it is what makes a future
+    sub-package under ``experiment/`` — an ``experiment/report/cli.py``, say —
+    fail here rather than ship unreachable. Narrowing the exemption *adds* what
+    this assertion covers; it is not the weakening the exemption would be if
+    ``experiment`` were still unregistered.
+
+    ``server`` stays exempt for the structural reason, not an unexamined one:
+    it is not a verb anybody types. It is launched as a stdio MCP server by the
+    client that speaks to it — see the ``["-m", "ai_rfc.server"]`` argv in
+    :mod:`ai_rfc.driver.arms` — so mounting it under ``ai-rfc`` would offer an
+    operator a command whose stdout is a wire protocol.
     """
     on_disk = {
         PACKAGE + "." + ".".join(path.relative_to(PACKAGE_ROOT).with_suffix("").parts)
@@ -146,7 +161,7 @@ def test_every_cli_module_on_disk_is_registered():
         # The package-root cli.py is the door that dispatches to these, not one
         # of them; the door has its own test module.
         if path != PACKAGE_ROOT / "cli.py"
-        and not {"server", "experiment"} & set(path.relative_to(PACKAGE_ROOT).parts)
+        and not {"server"} & set(path.relative_to(PACKAGE_ROOT).parts)
     }
     assert on_disk == {entry.module for entry in ENTRY_POINTS}
 

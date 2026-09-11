@@ -222,7 +222,7 @@ def test_without_the_override_the_configs_own_window_is_used(tmp_path, monkeypat
 
 
 def test_a_malformed_window_is_refused_at_parse_time(capsys):
-    parser = cli._parser()
+    parser = cli.build_standalone_parser()
     with pytest.raises(SystemExit):
         parser.parse_args(
             ["workspace", "prepare", "--config", "recon.yaml", "--window", "5"]
@@ -236,6 +236,35 @@ def test_unknown_arm_is_refused_at_parse_time(capsys):
         cli.main(["campaign", "init", "--arms", "A,Z"])
     assert exit_info.value.code == 2
     assert "unknown arm(s) Z" in capsys.readouterr().err
+
+
+def test_an_unknown_arm_cannot_forge_a_line_in_the_refusal(capsys):
+    """The refusal echoes the value, and argparse escapes nothing it prints.
+
+    Membership already refuses the arm, so the value never reaches the harness;
+    what reaches the *operator* is the message. Two of this parser's three
+    refusals interpolate through ``!r``, and
+    :func:`ai_rfc.driver.arms.arm_profile` — the sibling raising the same
+    sentence — does too; this branch joined the names raw, so an interior
+    newline in an arm name forged a second stderr line, in the shape of the
+    usage line argparse prints above it. Mounting the instrument under
+    ``ai-rfc`` made
+    that the same stream on which every lifecycle verb escapes its
+    diagnostics through :func:`ai_rfc.lifecycle.common.report`, which
+    argparse's own error formatting does not route through.
+
+    Escaped rather than refused, because the *value* is already refused: what
+    :func:`ai_rfc.driver.printable` leaves is a visible ``\\n`` inside one
+    line, so the damage shows in the message instead of acting on it.
+    """
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main(["campaign", "init", "--arms", "A,B\nusage: ai-rfc experiment"])
+
+    assert exit_info.value.code == 2
+    err = capsys.readouterr().err
+    assert "unknown arm(s)" in err
+    assert "\\nusage:" in err
+    assert sum(1 for line in err.splitlines() if line.startswith("usage:")) == 1
 
 
 def test_repeated_arm_is_refused_at_parse_time(capsys):
@@ -255,7 +284,7 @@ def test_empty_model_is_refused_but_an_unknown_one_is_not(capsys):
     with pytest.raises(SystemExit):
         cli.main(["campaign", "init", "--model", "  "])
     assert "cannot be empty" in capsys.readouterr().err
-    parsed = cli._parser().parse_args(
+    parsed = cli.build_standalone_parser().parse_args(
         [
             "campaign",
             "init",
