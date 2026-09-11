@@ -16,6 +16,7 @@ import sys
 from pathlib import Path
 
 from ..config import ReconConfig, drift, load_config
+from ..driver import printable
 from . import LifecycleError
 from .workspace import Layout
 
@@ -23,8 +24,29 @@ CONFIG_ENV = "AI_RFC_CONFIG"
 
 
 def report(message: str) -> None:
-    """Diagnostics to stderr — the ``panther.*`` loggers swallow warnings."""
-    print(message, file=sys.stderr)
+    """Diagnostics to stderr, as one printable line.
+
+    The ``panther.*`` loggers swallow warnings, so these go straight to the
+    stream the operator is watching.
+
+    **Escaped here rather than at each of the twenty-six call sites**, for the
+    reason :func:`ai_rfc.driver.sweep.report` gives for the other stderr
+    boundary: it is a boundary rather than a rule each caller remembers. Every
+    lifecycle verb interpolates operator- or agent-controlled values into
+    these lines — a config path, a cluster id, a ``--until`` bound, the text
+    of a caught error — and a value carrying a newline forges a second line
+    beneath the first. That matters most where the real artifact is itself a
+    line an operator copies: a forged ``resume: ai-rfc …`` is a fabricated
+    instruction, which is exactly what a ``--until cluster:<id>`` refusal
+    produced before this became a boundary.
+
+    No caller loses anything: no lifecycle diagnostic is deliberately
+    multi-line, and each is one record by construction.
+
+    Args:
+        message: The line to print.
+    """
+    print(printable(message), file=sys.stderr)
 
 
 def add_config_argument(parser: argparse.ArgumentParser) -> None:

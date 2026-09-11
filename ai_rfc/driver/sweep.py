@@ -47,7 +47,7 @@ from ai_rfc.pipeline.run import perform, workspace_from
 from ai_rfc.pipeline.stages import BY_NAME
 from ai_rfc.pipeline.state import State, state
 
-from . import DriverError, record, render
+from . import DriverError, printable, record, render
 from .arms import arm_profile
 from .consolidation import Due, consolidation_due, consolidations_recorded
 from .session import SessionSpec, claude_version, run_session, surface_shortfall
@@ -101,37 +101,6 @@ INTERRUPT_CAUSE = "interrupt"
 #: ``write_run_record``, and refusing a legitimate second run would be worse
 #: than the collision it guards against.
 RUN_ID_FORMAT = "%Y%m%dT%H%M%S.%fZ"
-
-
-def printable(text: str) -> str:
-    """One line's worth of text, with anything that is not printable escaped.
-
-    :meth:`str.isprintable` is the whole class in one test — False for every
-    Cc, Cf, Cs, Co and Cn and for every separator but the plain space — and it
-    is a predicate over the *category* rather than a list of characters
-    somebody thought of. That distinction is this row's most repeated lesson:
-    :func:`ai_rfc.driver.stop._quoted` shipped ``shlex.quote`` first and then
-    C0+DEL, and both were necessary and insufficient.
-
-    Escaped rather than refused. This runs on the stop path, where the line
-    being printed *is* the diagnosis; raising here would replace the answer
-    with a second failure. Each offending character becomes its own escape, so
-    the damage is visible in the line instead of acting on it.
-
-    Args:
-        text: The line.
-
-    Returns:
-        ``text`` when it is already printable, else the same line with every
-        unprintable character escaped. A legitimate accented path is
-        printable and is returned untouched.
-    """
-    if text.isprintable():
-        return text
-    return "".join(
-        character if character.isprintable() else repr(character)[1:-1]
-        for character in text
-    )
 
 
 def report(message: str) -> None:

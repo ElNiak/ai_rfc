@@ -78,8 +78,21 @@ def _bound(value: str) -> str:
         argparse.ArgumentTypeError: If it is none of the three spellings.
     """
     if value.startswith(CLUSTER_BOUND):
-        if not value.removeprefix(CLUSTER_BOUND):
+        cluster_id = value.removeprefix(CLUSTER_BOUND)
+        if not cluster_id:
             raise argparse.ArgumentTypeError(f"{value!r} names no cluster")
+        if not cluster_id.isprintable():
+            # Membership is the real guard on a cluster id, and it lives in
+            # the sweep because it needs a timeline. What is left here is the
+            # character class, and it is needed: this bound is interpolated
+            # into the refusal below, which is a line-per-record artifact an
+            # operator copies from — a newline there forges a whole second
+            # instruction under the first. Refused rather than escaped,
+            # because at the parser there is still somewhere to say no.
+            raise argparse.ArgumentTypeError(
+                f"cluster id {cluster_id!r} is not printable; it would reach "
+                "a copied command line unescaped"
+            )
         return value
     if value.startswith(ORDINAL_BOUND):
         raw = value.removeprefix(ORDINAL_BOUND)
@@ -123,7 +136,11 @@ def run_stages(config_path: Path, *, until: str | None = None) -> int:
             drifted, the clone is not pinned, or a positional bound was given
             for a configuration that has no sessions to resolve it with.
         ledger.LedgerError: If the workspace's progress cannot be read.
-        DriverError: If the sweep refuses the bound, the retry or the mode.
+        DriverError: If the sweep refuses the bound — the only one of its three
+            refusals ``run`` can provoke, since it passes neither ``retry`` nor
+            ``mode``. It can also surface a duplicate cluster id, which
+            ``observe`` re-checks on every iteration rather than only the
+            first.
     """
     given, _sealed, layout, noted = load_sealed(config_path)
     for line in noted:
@@ -134,11 +151,16 @@ def run_stages(config_path: Path, *, until: str | None = None) -> int:
         # an ordinal, and without sessions there is no sweep — so this bound
         # would let the walk run to the boundary and report success.
         raise LifecycleError(
-            f"--until {until} names a place in the timeline, and only a sweep "
-            "resolves one; this workspace's config declares no sessions, so "
-            f"run stops at the {BOUNDARY} boundary and the bound could never "
-            "fire. Add a sessions: block, or bound the walk with a stage name: "
-            f"{', '.join(_walkable())}"
+            # Repr, not the bare value, following `stop._checked_cluster_id`'s
+            # message for the same reason: this line is itself a
+            # line-per-record artifact, and `run_stages` is reachable without
+            # `_bound` — from `run` given any namespace. A guard that lives
+            # only in the parser is a rule callers follow, not a boundary.
+            f"--until {until!r} names a place in the timeline, and only a "
+            "sweep resolves one; this workspace's config declares no "
+            f"sessions, so run stops at the {BOUNDARY} boundary and the bound "
+            "could never fire. Add a sessions: block, or bound the walk with "
+            f"a stage name: {', '.join(_walkable())}"
         )
     by_name = {entry.stage.name: entry for entry in state(layout)}
     if by_name["pin"].state is not State.DONE:

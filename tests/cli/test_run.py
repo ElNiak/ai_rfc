@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,12 @@ from ai_rfc.lifecycle.run import cli as run_cli
 from ai_rfc.lifecycle.workspace import Layout
 
 SESSIONS_BLOCK = "sessions:\n  budget_usd: 5\n"
+
+#: A cluster bound whose id carries a newline and a whole second instruction.
+#: The payload is the shape that matters: ``resume:`` is the prefix an operator
+#: copies from, so a forged one is a fabricated command in the artifact the
+#: real resume line lives in.
+FORGED_BOUND = "cluster:c1\nresume: ai-rfc run --config /tmp/evil.yaml"
 
 
 def _record_sweep(
@@ -217,9 +224,27 @@ def test_a_cluster_bound_without_sessions_is_refused(initialised, capsys):
     assert not Layout(root).commits.exists()
     err = capsys.readouterr().err
     assert "cluster:c1" in err and "sessions" in err
+    # The refusal interpolates the operator's bound, so it is itself a
+    # line-per-record artifact. Asserting substrings alone passes just as
+    # happily when the bound has forged a second line beneath them.
+    assert len(err.splitlines()) == 1
 
 
-@pytest.mark.parametrize("bound", ["forge", "mining", "ordinal:x", "cluster:"])
+@pytest.mark.parametrize(
+    "bound",
+    [
+        "forge",
+        "mining",
+        "ordinal:x",
+        "cluster:",
+        # `int` accepts surrounding whitespace, so an ordinal that merely
+        # "survives int()" survives a newline too — and the bound is echoed
+        # back on a report line. Without these two the guard is `int(raw)` in
+        # everything but spelling.
+        "ordinal:7\n",
+        "ordinal: 7",
+    ],
+)
 def test_a_bound_that_names_nothing_is_refused_by_the_parser(initialised, bound):
     """The syntax is a closed set of three spellings, checked before any work.
 
@@ -233,6 +258,59 @@ def test_a_bound_that_names_nothing_is_refused_by_the_parser(initialised, bound)
         cli.main(["run", "--config", str(config_path), "--until", bound])
 
     assert raised.value.code == 2
+
+
+@pytest.mark.parametrize(
+    "bound",
+    [FORGED_BOUND, "cluster:c1\x07", "cluster:c1 evil", "cluster:c1‮"],
+)
+def test_a_cluster_bound_that_could_forge_a_line_is_refused_by_the_parser(
+    initialised, bound
+):
+    """The first of the two ends: refuse it, as ``ordinal:`` already did.
+
+    A cluster id cannot be checked for *membership* here — that needs a
+    timeline, which the sweep holds and a parser does not — so the guard at
+    this end is the character class, exactly as
+    :func:`ai_rfc.driver.printable` defines it: ``str.isprintable`` is
+    False for every Cc, Cf, Cs, Co and Cn and for every separator but the
+    plain space. The four cases are four different ways past a hand-written
+    list: a newline, a C0 bell, LINE SEPARATOR (which ``str.splitlines``
+    already treats as a break) and RIGHT-TO-LEFT OVERRIDE.
+    """
+    config_path, _ = initialised
+
+    with pytest.raises(SystemExit) as raised:
+        cli.main(["run", "--config", str(config_path), "--until", bound])
+
+    assert raised.value.code == 2
+
+
+def test_the_refusal_cannot_be_forged_by_a_bound_that_bypassed_the_parser(
+    initialised, capsys
+):
+    """The second end, pinned on its own so the parser fix cannot mask it.
+
+    ``run_stages`` is reachable without ``_bound`` — from
+    :func:`ai_rfc.lifecycle.run.cli.run` given any namespace, and from any
+    future caller that builds one. A guard that lives only in the parser is a
+    rule callers follow rather than a boundary, which is the distinction
+    :func:`ai_rfc.driver.sweep.report` was written around. So the message
+    interpolates the bound through ``repr`` and the stream escapes it again.
+    """
+    config_path, _ = initialised
+
+    code = run_cli.run(argparse.Namespace(config=config_path, until=FORGED_BOUND))
+
+    assert code == 1
+    err = capsys.readouterr().err
+    assert len(err.splitlines()) == 1
+    # The payload is still *visible*, quoted inside the message — that is the
+    # point of `repr` rather than deletion: the operator sees what they typed.
+    # What must not exist is a **line** that an operator's eye, or a log
+    # reader splitting on newlines, takes for a record of its own.
+    assert not any(line.startswith("resume:") for line in err.splitlines())
+    assert "\\n" in err  # the newline survives as an escape, not as a break
 
 
 def test_a_bound_the_sweep_refuses_is_reported_rather_than_raised(

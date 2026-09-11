@@ -82,10 +82,12 @@ CLASSIFICATIONS: tuple[str, ...] = (REFUSED, ERRORED, KILLED, BUDGET_HIT)
 #: cluster ever failed. That punishes the wrong thing.
 CONSUMES_ATTEMPT: frozenset[str] = frozenset({REFUSED})
 
-#: Exit code of a sweep that finished everything.
+#: Exit code of a sweep that did what it was asked: ``done`` finished
+#: everything, ``bound_reached`` stopped where ``--until`` told it to. See
+#: :data:`_ZERO_EXIT`.
 DONE_EXIT = 0
-#: Exit code of a sweep that stopped with work outstanding — every stop but
-#: ``done``, and the code the operator's resume line answers.
+#: Exit code of a sweep that stopped with work outstanding — every stop
+#: outside :data:`_ZERO_EXIT`, and the code the operator's resume line answers.
 STOPPED_EXIT = 1
 #: Exit code when the build gate's ``check --strict`` reported findings, which
 #: is what ``ai-rfc check --strict`` itself returns (``check/cli.py:126``).
@@ -339,7 +341,7 @@ def _quoted(value: str, what: str) -> str:
     the plain space, which is exactly what may not appear here and exactly what
     ``shlex.quote`` then handles.
 
-    :func:`ai_rfc.driver.sweep.printable` applies the same predicate and
+    :func:`ai_rfc.driver.printable` applies the same predicate and
     **escapes** instead of refusing. Do not unify the two toward escaping: a
     resume line is copied into a terminal and executed, so a mangled-but-
     printed one is worse than none, while a progress line *is* the diagnosis
