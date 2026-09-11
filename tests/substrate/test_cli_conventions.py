@@ -70,9 +70,19 @@ TRACKED_HELPERS = ("_report", "_git", "_digest", "_digest_bytes")
 def _package_sources() -> list[Path]:
     """Every module the table speaks for: the substrate, minus the frontends.
 
-    ``server`` and ``experiment`` are separate programs that share no helper
-    with the substrate; their own ``_report`` copies are not what the register
-    tracks.
+    ``server`` is a separate program. **``experiment`` is no longer one** — it
+    mounts as ``ai-rfc experiment`` — and it stays excluded here anyway, for a
+    reason that belongs to this test rather than to the registry: the register
+    being counted against is the README's, whose ``_report`` row (``README.md``
+    line 516) names eight copies and not ``experiment/cli.py``'s. Counting a
+    copy the register does not claim would fail
+    ``test_the_duplication_table_names_every_copy`` against a README this
+    exclusion has no standing to rewrite.
+
+    So the two exclusions in this file no longer share a reason, and must not
+    be changed together: ``test_every_cli_module_on_disk_is_registered`` asks
+    which modules are *verbs*, and this one asks which copies the *register*
+    speaks for.
     """
     return [
         path

@@ -154,8 +154,11 @@ ENTRY_POINTS: tuple[EntryPoint, ...] = (
         "experiment",
         "ai-rfc experiment",
         f"{PACKAGE}.experiment.cli",
-        "Drive the three-arm AI+MCP vs AI+CLI experiment (profile, preflight, "
-        "render, workspace, campaign, run, audit, questions, analyze, optimize)",
+        # Ten verbs, so no parenthesised list: the complete one runs to 139
+        # characters, 22 past the longest other row, and _epilog() emits it
+        # unwrapped. The verbs are one `ai-rfc experiment --help` away.
+        "Drive the three-arm AI+MCP vs AI+CLI experiment over this plugin, "
+        "from profile to analysis",
         DRIVEN,
     ),
     EntryPoint(
