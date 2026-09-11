@@ -47,6 +47,24 @@ class ConfigError(ValueError):
     """Raised when ``recon.yaml`` cannot be interpreted as written."""
 
 
+class ConfigParseError(ConfigError):
+    """A :class:`ConfigError` carrying a **parser's own** multi-line diagnostic.
+
+    Separate from its base for one reason: what a verb may do with the text.
+    Every other ``ConfigError`` is a sentence this module composed, with a
+    key or a value interpolated into it — and a mapping key read out of a
+    ``recon.yaml`` can carry a newline, so such a message must reach the
+    operator as one line. A :class:`yaml.YAMLError` is the opposite: the
+    breaks are the parser's, and its closing ``^`` marks a column, so
+    collapsing it points the caret at nothing.
+
+    It subclasses ``ConfigError`` so that every existing ``except
+    ConfigError`` still catches it; a verb that wants to keep the parser's
+    lines names this type explicitly and routes it through
+    :func:`ai_rfc.lifecycle.common.report_structured`.
+    """
+
+
 @dataclass(frozen=True)
 class Field:
     """One key of ``recon.yaml``."""
@@ -532,8 +550,13 @@ def load_config(path: Path) -> ReconConfig:
     """
     try:
         document = yaml.safe_load(path.read_text())
-    except (OSError, yaml.YAMLError) as error:
+    except OSError as error:
         raise ConfigError(f"{path}: {error}") from None
+    except yaml.YAMLError as error:
+        # The parser's block verbatim, under its own type: its lines and its
+        # closing caret are the diagnosis, and a verb that collapses them
+        # leaves the caret pointing at nothing.
+        raise ConfigParseError(f"{path}: {error}") from None
     if not isinstance(document, dict):
         raise ConfigError(f"{path}: expected a mapping at the top level")
     flat = _flatten(document)

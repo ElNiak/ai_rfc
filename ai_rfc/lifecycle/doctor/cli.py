@@ -14,13 +14,14 @@ from typing import Callable
 from ... import __version__, toolchain
 from ...config import (
     ConfigError,
+    ConfigParseError,
     ReconConfig,
     experiments_root,
     load_config,
     profile_dir,
 )
 from ...toolchain import RECORD_FILE, TOOLS_DIR
-from ..common import CONFIG_ENV, report
+from ..common import CONFIG_ENV, report, report_structured
 from ..profile import login_command
 
 
@@ -293,6 +294,9 @@ def run(args: argparse.Namespace) -> int:
     if config_path is not None:
         try:
             config = load_config(config_path)
+        except ConfigParseError as error:
+            report_structured(f"error: {error}")
+            return 1
         except ConfigError as error:
             report(f"error: {error}")
             return 1

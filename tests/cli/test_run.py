@@ -313,6 +313,51 @@ def test_the_refusal_cannot_be_forged_by_a_bound_that_bypassed_the_parser(
     assert "\\n" in err  # the newline survives as an escape, not as a break
 
 
+def test_the_refusal_quotes_the_bound_in_its_own_message(initialised):
+    """The repr, pinned where the stderr boundary cannot stand in for it.
+
+    Both layers make the printed line safe, so a test that reads stderr passes
+    with either one alone — the two mask each other, which is the same defect
+    shape as an unpinned guard. Asserted on ``str(error)`` instead: the
+    exception's own text, before any stream has touched it.
+
+    It matters on its own because the message travels further than the
+    terminal — a caller that logs it, or wraps it in a JSON field, gets the
+    exception, not what ``report`` printed.
+    """
+    from ai_rfc.lifecycle import LifecycleError
+
+    config_path, _ = initialised
+
+    with pytest.raises(LifecycleError) as raised:
+        run_cli.run_stages(config_path, until=FORGED_BOUND)
+
+    assert len(str(raised.value).splitlines()) == 1
+    assert "\\n" in str(raised.value)
+
+
+def test_a_yaml_syntax_error_keeps_the_parser_s_own_lines(initialised, capsys):
+    """PyYAML's diagnostic is a block, and its caret line points at a column.
+
+    ``config.py`` wraps ``yaml.YAMLError`` verbatim, so the text that reaches
+    the operator is the parser's own multi-line report: the problem, the
+    context, the offending line and a ``^`` under the character. Collapsed to
+    one line, the caret points at nothing — it is the one part of the message
+    whose meaning is purely positional.
+
+    Asserted as structure, not substrings: more than one line, and a line that
+    is *only* whitespace and a caret.
+    """
+    config_path, _ = initialised
+    config_path.write_text("name: fixture\n  bad: [unclosed\n")
+
+    assert cli.main(["run", "--config", str(config_path)]) == 1
+
+    lines = capsys.readouterr().err.splitlines()
+    assert len(lines) > 1
+    assert any(line.strip() == "^" for line in lines)
+
+
 def test_a_bound_the_sweep_refuses_is_reported_rather_than_raised(
     initialised, capsys, monkeypatch
 ):

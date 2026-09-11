@@ -13,13 +13,19 @@ import argparse
 from pathlib import Path
 
 from ... import __version__, ledger
-from ...config import ConfigError
+from ...config import ConfigError, ConfigParseError
 from ...driver import DriverError, sweep
 from ...pipeline.run import perform
 from ...pipeline.stages import BY_NAME, STAGES, Performer, is_optional
 from ...pipeline.state import State, state
 from .. import LifecycleError
-from ..common import add_config_argument, config_path_from, load_sealed, report
+from ..common import (
+    add_config_argument,
+    config_path_from,
+    load_sealed,
+    report,
+    report_structured,
+)
 
 BOUNDARY = "mining"
 
@@ -136,11 +142,14 @@ def run_stages(config_path: Path, *, until: str | None = None) -> int:
             drifted, the clone is not pinned, or a positional bound was given
             for a configuration that has no sessions to resolve it with.
         ledger.LedgerError: If the workspace's progress cannot be read.
-        DriverError: If the sweep refuses the bound — the only one of its three
-            refusals ``run`` can provoke, since it passes neither ``retry`` nor
-            ``mode``. It can also surface a duplicate cluster id, which
-            ``observe`` re-checks on every iteration rather than only the
-            first.
+        DriverError: From anywhere below. ``sweep.run``'s own three refusals
+            narrow to one — the bound — since ``run`` passes neither ``retry``
+            nor ``mode``; but the sweep does not catch what it calls, so a
+            duplicate cluster id (re-checked by ``observe`` on *every*
+            iteration, not only the first), an unlaunchable binary
+            (``session.py:97``), an unparseable transcript line
+            (``stream.py:41``) and the renderer's refusals all surface here
+            too.
     """
     given, _sealed, layout, noted = load_sealed(config_path)
     for line in noted:
@@ -279,6 +288,13 @@ def run(args: argparse.Namespace) -> int:
     """
     try:
         return run_stages(config_path_from(args), until=args.until)
+    except ConfigParseError as error:
+        # Named before its base: the parser's block is the one diagnostic here
+        # whose line breaks are its own, and whose closing caret marks a
+        # column. Every other refusal below composes one record around a value
+        # — a `--until` bound, a path, a cluster id — and must stay one line.
+        report_structured(f"error: {error}")
+        return 1
     except (
         LifecycleError,
         ConfigError,

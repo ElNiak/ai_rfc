@@ -23,10 +23,13 @@ def printable(text: str) -> str:
     :func:`ai_rfc.driver.stop._quoted` shipped ``shlex.quote`` first and then
     C0+DEL, and both were necessary and insufficient.
 
-    Escaped rather than refused. This runs on the stop path, where the line
-    being printed *is* the diagnosis; raising here would replace the answer
-    with a second failure. Each offending character becomes its own escape, so
-    the damage is visible in the line instead of acting on it.
+    Escaped rather than refused. Both its callers are reporting paths, where
+    the line being printed *is* the diagnosis — the sweep's stop path and the
+    lifecycle verbs' stderr — so raising here would replace the answer with a
+    second failure. Each offending character becomes its own escape, so the
+    damage is visible in the line instead of acting on it. A *parser* has
+    somewhere to say no and does: ``lifecycle/run/cli.py``'s ``_bound``
+    refuses an unprintable cluster id outright.
 
     It lives at the package root rather than in :mod:`~ai_rfc.driver.sweep`,
     where it was written, because :func:`ai_rfc.lifecycle.common.report` is

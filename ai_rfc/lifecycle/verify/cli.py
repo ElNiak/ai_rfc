@@ -6,12 +6,18 @@ import argparse
 from pathlib import Path
 
 from ... import __version__, ledger
-from ...config import ConfigError
+from ...config import ConfigError, ConfigParseError
 from ...draft import cli as draft_cli
 from ...pipeline.run import perform
 from ...pipeline.stages import BY_NAME
 from .. import LifecycleError
-from ..common import add_config_argument, config_path_from, load_pair, report
+from ..common import (
+    add_config_argument,
+    config_path_from,
+    load_pair,
+    report,
+    report_structured,
+)
 
 NO_TIMELINE = "skipped (no timeline yet; run ai-rfc run first)"
 NO_TOOLCHAIN = "skipped (no toolchain record; see ai-rfc doctor)"
@@ -146,6 +152,9 @@ def run(args: argparse.Namespace) -> int:
     """
     try:
         return verify(config_path_from(args), strict=args.strict)
+    except ConfigParseError as error:
+        report_structured(f"error: {error}")
+        return 1
     except (LifecycleError, ConfigError, OSError) as error:
         report(f"error: {error}")
         return 1

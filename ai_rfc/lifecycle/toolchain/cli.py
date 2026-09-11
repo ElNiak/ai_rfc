@@ -8,7 +8,7 @@ from pathlib import Path
 from ... import __version__
 from ...config import experiments_root
 from ...toolchain import RECORD_FILE, TOOLS_DIR, ToolchainError, provision, verify
-from ..common import report
+from ..common import report, report_structured
 from ..workspace import TEMPLATE_COMMIT, TEMPLATE_URL
 
 
@@ -88,7 +88,9 @@ def run(args: argparse.Namespace) -> int:
                 root, template=args.template, template_commit=args.template_commit
             )
         except (ToolchainError, OSError) as error:
-            report(f"error: {error}")
+            # The stderr tail this carries is the only account of a failed
+            # build, and toolchain.py spells its newline itself.
+            report_structured(f"error: {error}")
             return 1
         print(f"toolchain: {record}")
         return 0

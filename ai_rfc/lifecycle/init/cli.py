@@ -11,10 +11,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from ... import __version__
-from ...config import ConfigError, ReconConfig, dump_config, load_config
+from ...config import (
+    ConfigError,
+    ConfigParseError,
+    ReconConfig,
+    dump_config,
+    load_config,
+)
 from ...draft.build import Toolchain
 from .. import LifecycleError
-from ..common import add_config_argument, config_path_from, report
+from ..common import add_config_argument, config_path_from, report, report_structured
 from ..workspace import (
     TEMPLATE_COMMIT,
     TEMPLATE_URL,
@@ -184,6 +190,9 @@ def run(args: argparse.Namespace) -> int:
             template=args.template,
             template_commit=args.template_commit,
         )
+    except ConfigParseError as error:
+        report_structured(f"error: {error}")
+        return 1
     except (LifecycleError, ConfigError, OSError) as error:
         report(f"error: {error}")
         return 1

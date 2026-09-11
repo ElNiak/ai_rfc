@@ -10,10 +10,16 @@ import json
 from pathlib import Path
 
 from ... import __version__, ledger
-from ...config import ConfigError
+from ...config import ConfigError, ConfigParseError
 from ...pipeline.cli import print_status, status_payload
 from .. import LifecycleError
-from ..common import add_config_argument, config_path_from, load_pair, report
+from ..common import (
+    add_config_argument,
+    config_path_from,
+    load_pair,
+    report,
+    report_structured,
+)
 
 
 def payload(config_path: Path) -> dict:
@@ -100,6 +106,9 @@ def run(args: argparse.Namespace) -> int:
     """
     try:
         body = payload(config_path_from(args))
+    except ConfigParseError as error:
+        report_structured(f"error: {error}")
+        return 1
     except (LifecycleError, ConfigError, ledger.LedgerError, OSError) as error:
         report(f"error: {error}")
         return 1

@@ -49,6 +49,38 @@ def report(message: str) -> None:
     print(printable(message), file=sys.stderr)
 
 
+def report_structured(message: str) -> None:
+    """A diagnostic whose **line structure is its own**, printed with it intact.
+
+    :func:`report` collapses every line break, which is right for a line an
+    verb *composed* — one record, with values interpolated into it — and wrong
+    for text a tool or a parser *emitted*. Two diagnostics are the second kind
+    and nothing else is:
+
+    * ``toolchain.py`` spells the break itself (``f"…failed:\\n{stderr[-2000:]}"``)
+      and that tail is the only account of a failed build;
+    * ``config.py`` wraps :class:`yaml.YAMLError`, whose block ends in a ``^``
+      under the offending column — a caret on a collapsed line points at
+      nothing, and position is the whole of its meaning.
+
+    **Calling this is an assertion by the caller**: that the breaks in this
+    text are the producer's structure rather than a value that arrived from a
+    ``recon.yaml``, a timeline or a model. Every other unprintable character
+    is still escaped, line by line, and only ``\\n`` survives — so a ``\\r``,
+    a NEL, a LINE SEPARATOR, an ANSI introducer or a RIGHT-TO-LEFT OVERRIDE
+    smuggled into a tool's output cannot rewrite what the terminal shows. The
+    exemption is exactly one character wide.
+
+    A single-line message prints identically to :func:`report`, so the
+    difference only ever appears where a break already exists.
+
+    Args:
+        message: The diagnostic, whose ``\\n`` breaks are kept.
+    """
+    for line in message.split("\n"):
+        print(printable(line), file=sys.stderr)
+
+
 def add_config_argument(parser: argparse.ArgumentParser) -> None:
     """The one argument every lifecycle verb shares."""
     parser.add_argument(

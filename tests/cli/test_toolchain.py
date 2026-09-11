@@ -230,6 +230,46 @@ def test_cli_toolchain_verify_reads_a_record_named_elsewhere(tmp_path, capsys):
     assert str(elsewhere) in capsys.readouterr().err
 
 
+def test_cli_provision_keeps_the_lines_of_a_build_failure(
+    tmp_path, capsys, monkeypatch
+):
+    """The stderr tail is the **only** diagnosis a failed provision gives.
+
+    ``toolchain.py`` spells the newline itself
+    (``f"make deps failed:\\n{deps.stderr[-2000:]}"``), so this text is
+    deliberately multi-line by any reading. Collapsing it to one line with
+    ``\\n`` escapes — which is what the stderr boundary did until a caller
+    could opt out — turns a readable compiler trace into an unreadable one at
+    exactly the moment the operator needs it.
+
+    What is asserted is the **structure**: five lines, in order, each one
+    whole. A substring assertion passes just as happily on the collapsed form.
+    """
+    from ai_rfc.cli import main
+    from ai_rfc.lifecycle.toolchain import cli as toolchain_cli
+
+    tail = (
+        "make: *** [deps] Error 2\n  gem install failed\n  bundler: 2.5.3\n  see above"
+    )
+
+    def _fail(*_args, **_kwargs):
+        raise ToolchainError(f"make deps failed:\n{tail}")
+
+    monkeypatch.setattr(toolchain_cli, "provision", _fail)
+
+    code = main(["toolchain", "provision", "--root", str(tmp_path)])
+
+    assert code == 1
+    printed = capsys.readouterr().err.splitlines()
+    assert printed == [
+        "error: make deps failed:",
+        "make: *** [deps] Error 2",
+        "  gem install failed",
+        "  bundler: 2.5.3",
+        "  see above",
+    ]
+
+
 def test_cli_toolchain_help_is_wired_for_both_verbs(capsys):
     from ai_rfc.cli import main
 
