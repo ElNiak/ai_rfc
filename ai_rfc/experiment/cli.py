@@ -1,4 +1,11 @@
-"""The ``python -m ai_rfc.experiment`` command-line surface."""
+"""The experiment instrument's command-line surface, behind both its doors.
+
+``ai-rfc experiment`` mounts :func:`configure` and calls :func:`run`;
+``python -m ai_rfc.experiment`` reaches the same two through :func:`main` over
+:func:`build_standalone_parser`. The module door is not a legacy alias — the
+server core's stage runs and the raw arm both invoke it, and they keep doing so
+until CLI-3 moves them across.
+"""
 
 from __future__ import annotations
 
