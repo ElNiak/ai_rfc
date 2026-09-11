@@ -930,10 +930,15 @@ def _bound_reached(until: str | None, obs: Observation) -> bool:
     defines ``--until`` as a place to run *up to*, so the question is whether
     the outstanding cluster has passed the target — not whether it *is* the
     target. Asking the latter answered True for every cluster that was not the
-    named one, so ``run --until cluster:c3`` with ``c1`` outstanding printed
-    "stopped at cluster:c3", launched nothing and returned **0**: a success an
+    named one, so ``run --until cluster:c3`` with ``c1`` outstanding reported
+    the bound honoured, launched nothing and returned **0**: a success an
     operator cannot tell from a finished sweep. This is why the ordinal is
     carried on the observation at all.
+
+    Reaching a bound is a stop like any other, carrying
+    :attr:`~ai_rfc.driver.stop.StopReason.bound_reached` through
+    :func:`_finish` — it is not ``done``, because the operator asked to stop
+    somewhere and got there, which is not the same as finishing.
 
     Args:
         until: ``<stage>``, ``cluster:<id>``, ``ordinal:<n>``, or None.
@@ -1277,8 +1282,27 @@ def run(
             forgiven=forgiven,
         )
         if _bound_reached(until, obs):
-            report(f"stopped at {until}")
-            return exit_code_for(StopReason.done)
+            # Through `_finish` like every other stop, and for the reason
+            # `_finish` exists: it is the only writer of `status.json`, and the
+            # absence of that file is what `move_leftovers_aside` reads as
+            # *this run was killed*. Returning early here meant a bounded
+            # `run --until cluster:c1` that had launched real sessions left a
+            # run directory the **next** invocation renamed
+            # `.interrupted-interrupt`, and said nothing about what it did.
+            assert until is not None  # noqa: S101 - a None bound is never reached
+            return _finish(
+                cfg,
+                workspace,
+                run_dir,
+                Action(
+                    "stop",
+                    reason=StopReason.bound_reached,
+                    detail=printable(until),
+                ),
+                swept,
+                config_path=resume_path,
+                known_clusters=obs.known_clusters,
+            )
         action = plan_next(obs, cfg)
         if action.kind == "stop":
             return _finish(

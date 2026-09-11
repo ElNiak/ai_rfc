@@ -53,6 +53,7 @@ REASONS = (
     "session_failed",
     "consolidation_failed",
     "build_failed",
+    "bound_reached",
     "done",
 )
 
@@ -268,11 +269,17 @@ def test_consumes_attempt_refuses_a_label_outside_the_vocabulary() -> None:
 # --- exit codes -------------------------------------------------------------
 
 
-def test_done_is_the_only_reason_that_exits_zero() -> None:
-    """done 0, stopped with work outstanding 1."""
+def test_done_and_bound_reached_are_the_reasons_that_exit_zero() -> None:
+    """done 0, a bound honoured 0, stopped with work outstanding 1.
+
+    The two zeroes are written out rather than read off a set in the
+    implementation, and every other member is asserted 1 by exclusion: a third
+    reason quietly joining the zero set fails the loop below.
+    """
     assert stop.exit_code(stop.StopReason.done) == 0
+    assert stop.exit_code(stop.StopReason.bound_reached) == 0
     for reason in stop.StopReason:
-        if reason is not stop.StopReason.done:
+        if reason not in (stop.StopReason.done, stop.StopReason.bound_reached):
             assert stop.exit_code(reason) == 1
 
 
@@ -302,6 +309,7 @@ def test_strict_findings_is_refused_on_a_reason_that_never_ran_the_gate() -> Non
         ("session_failed", "ai-rfc run --config /w/recon.yaml"),
         ("consolidation_failed", "ai-rfc run --config /w/recon.yaml"),
         ("build_failed", "ai-rfc run --config /w/recon.yaml"),
+        ("bound_reached", "ai-rfc run --config /w/recon.yaml"),
     ],
 )
 def test_resume_line_reproduces_exactly(reason: str, expected: str) -> None:

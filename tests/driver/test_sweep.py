@@ -1314,7 +1314,7 @@ def test_until_does_not_stop_before_it_reaches_its_bound(
 
     ``c1`` is outstanding and the bound names ``c3``, so there is work between
     here and there. A predicate that only asked "is the outstanding cluster
-    the named one?" answers True at once, prints ``stopped at cluster:c3``,
+    the named one?" answers True at once, reports the bound honoured,
     launches nothing and returns **0** — a success an operator cannot tell
     from a finished sweep.
     """
@@ -1358,6 +1358,105 @@ def test_until_stops_once_the_sweep_is_past_its_bound(
     assert launched == []
 
 
+def test_a_bound_reached_writes_its_own_status_record(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A bounded stop is a stop, so it goes through ``_finish`` like the rest.
+
+    ``status.json`` is written **only** by ``_finish``, and its absence is
+    what :func:`~ai_rfc.driver.sweep.move_leftovers_aside` reads as *this run
+    was killed*. A bound that returned early wrote none, so a
+    ``run --until cluster:c1`` that launched a real session left a run
+    directory the **next** invocation renamed ``.interrupted-interrupt`` — and
+    reported nothing about what it had done.
+
+    The reason is ``bound_reached`` rather than ``done``: the operator asked
+    to stop somewhere, got there, and still has clusters outstanding.
+    """
+    ws = _workspace(
+        tmp_path, clusters=({"id": "c1", "ordinal": 1}, {"id": "c2", "ordinal": 2})
+    )
+    launched = _drive(
+        monkeypatch,
+        ws,
+        [
+            _obs(cluster=_cluster("c1", 1), ordinals=_ordinals()),
+            _obs(cluster=_cluster("c2", 2), ordinals=_ordinals()),
+        ],
+    )
+
+    assert sweep.run(_cfg(), ws, until="cluster:c1") == 0
+    assert len(launched) == 1
+    runs = sorted((ws / record.RUNS_DIR).iterdir())
+    assert len(runs) == 1
+    status = json.loads((runs[0] / record.STATUS_FILE).read_text())
+    assert status["reason"] == "bound_reached"
+    assert status["exit_code"] == 0
+    assert status["sessions"] == 1
+
+
+def test_a_bound_reached_is_not_read_as_an_interrupted_run_afterwards(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The payoff of writing the status: the next sweep leaves the run alone.
+
+    The name is asserted unchanged rather than ``INTERRUPTED not in`` it: the
+    suffix is what a rename appends, so pinning the whole name also catches a
+    rename under some other cause.
+    """
+    ws = _workspace(
+        tmp_path, clusters=({"id": "c1", "ordinal": 1}, {"id": "c2", "ordinal": 2})
+    )
+    _drive(
+        monkeypatch,
+        ws,
+        [
+            _obs(cluster=_cluster("c1", 1), ordinals=_ordinals()),
+            _obs(cluster=_cluster("c2", 2), ordinals=_ordinals()),
+        ],
+    )
+    assert sweep.run(_cfg(), ws, until="cluster:c1") == 0
+    before = [path.name for path in sorted((ws / record.RUNS_DIR).iterdir())]
+
+    _drive(monkeypatch, ws, [_obs(cluster=_cluster("c2", 2), ordinals=_ordinals())])
+    assert sweep.run(_cfg(), ws, until="cluster:c1") == 0
+
+    assert [path.name for path in sorted((ws / record.RUNS_DIR).iterdir())] == before
+
+
+def test_a_bound_reached_prints_the_ledger_and_a_resume_line(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An early return said ``stopped at <bound>`` and nothing else.
+
+    ``_finish`` is the only place the ledger and the resume line print, so a
+    bound that bypassed it told the operator neither how far the window had
+    got nor what to type next. ``bound_reached`` is not ``done``, so the
+    resume line is rendered — the whole sweep, without the bound.
+    """
+    ws = _workspace(
+        tmp_path, clusters=({"id": "c1", "ordinal": 1}, {"id": "c2", "ordinal": 2})
+    )
+    _drive(
+        monkeypatch,
+        ws,
+        [
+            _obs(cluster=_cluster("c1", 1), ordinals=_ordinals()),
+            _obs(cluster=_cluster("c2", 2), ordinals=_ordinals()),
+        ],
+    )
+
+    assert (
+        sweep.run(_cfg(), ws, until="cluster:c1", config_path=Path("/w/recon.yaml"))
+        == 0
+    )
+
+    printed = capsys.readouterr().err
+    assert "bound_reached: cluster:c1" in printed
+    assert "clusters: " in printed and "outstanding" in printed
+    assert "resume: ai-rfc run --config /w/recon.yaml" in printed
+
+
 @pytest.mark.parametrize("until", ["ordinal:99", "ordinal:0"])
 def test_until_refuses_an_ordinal_no_cluster_carries(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, until: str
@@ -1367,7 +1466,7 @@ def test_until_refuses_an_ordinal_no_cluster_carries(
     Making the bound positional changed what an unmatchable one *costs*. Under
     the old name-matching predicate ``ordinal:99`` stopped at once; under a
     positional one every cluster is before it, so the sweep runs to the end
-    and prints ``stopped at ordinal:99`` — it spends the whole window and
+    and reports ``bound_reached: ordinal:99`` — it spends the whole window and
     reports the bound as honoured. ``ordinal:0`` is the mirror: below every
     cluster, so it stops before any work and also reports success.
 

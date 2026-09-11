@@ -146,8 +146,17 @@ class StopReason(Enum):
     consolidation_failed = "consolidation_failed"
     #: The build gate (``check --strict``, ``lint``, ``build``) had findings.
     build_failed = "build_failed"
-    #: Nothing outstanding and no round due. The only reason that is not a
-    #: failure, and the only one with no resume line.
+    #: A ``--until`` bound was reached. Not a failure, and **not** ``done``:
+    #: the operator asked the sweep to stop somewhere and it got there, which
+    #: says nothing about whether the reconstruction is finished — a bounded
+    #: stop normally leaves clusters outstanding and never runs the build
+    #: gate. So it exits 0 like ``done`` and carries a resume line unlike it.
+    #: Added by Task 11, which wired ``--until`` into ``ai-rfc run``: before
+    #: that the bound returned early, wrote no ``status.json``, and left a run
+    #: directory the next invocation renamed as interrupted.
+    bound_reached = "bound_reached"
+    #: Nothing outstanding and no round due. The only reason with no resume
+    #: line: a finished reconstruction has nothing to resume.
     done = "done"
 
 
@@ -175,7 +184,16 @@ _VERB: dict[StopReason, str] = {
     StopReason.session_failed: "run",
     StopReason.consolidation_failed: "run",
     StopReason.build_failed: "run",
+    StopReason.bound_reached: "run",
 }
+
+#: The reasons that are not a failure. ``done`` is a finished reconstruction;
+#: ``bound_reached`` is a sweep that did exactly what ``--until`` asked of it.
+#: Written as a set rather than tested against ``done`` alone so that adding a
+#: third means saying so here, where the meaning of the exit code lives.
+_ZERO_EXIT: frozenset[StopReason] = frozenset(
+    {StopReason.done, StopReason.bound_reached}
+)
 
 
 def classify(result: SessionResult, *, seen: int = 0) -> str:
@@ -277,9 +295,10 @@ def exit_code(reason: StopReason, *, strict_findings: bool = False) -> int:
             gate knows which fired.
 
     Returns:
-        :data:`DONE_EXIT` for ``done``, :data:`STRICT_FINDINGS_EXIT` for a
-        build gate that reported strict findings, :data:`STOPPED_EXIT`
-        otherwise.
+        :data:`DONE_EXIT` for the reasons that are not a failure
+        (:data:`_ZERO_EXIT`: ``done`` and ``bound_reached``),
+        :data:`STRICT_FINDINGS_EXIT` for a build gate that reported strict
+        findings, :data:`STOPPED_EXIT` otherwise.
 
     Raises:
         DriverError: If ``strict_findings`` is given for anything but
@@ -293,7 +312,7 @@ def exit_code(reason: StopReason, *, strict_findings: bool = False) -> int:
         )
     if strict_findings:
         return STRICT_FINDINGS_EXIT
-    return DONE_EXIT if reason is StopReason.done else STOPPED_EXIT
+    return DONE_EXIT if reason in _ZERO_EXIT else STOPPED_EXIT
 
 
 def _quoted(value: str, what: str) -> str:

@@ -657,7 +657,9 @@ def test_move_aside_accepts_the_stop_reason_vocabulary(tmp_path: Path) -> None:
     They are written out rather than read off the enum, and
     ``tests/driver/test_stop.py`` asserts the same literals equal its members:
     a name added or dropped there fails one of the two, while a test that
-    derived them from the enum could not notice it shrinking.
+    derived them from the enum could not notice it shrinking. Task 11 added
+    ``bound_reached`` — a ``--until`` bound that is reached, which is neither
+    a failure nor the ``done`` of a finished reconstruction.
 
     Nothing here claims a run is moved aside *under* a stop reason. By the
     plan's Ruling D a stop-classified exit writes ``status.json``, so what gets
@@ -677,6 +679,7 @@ def test_move_aside_accepts_the_stop_reason_vocabulary(tmp_path: Path) -> None:
         "session_failed",
         "consolidation_failed",
         "build_failed",
+        "bound_reached",
         "done",
     ):
         run_dir = tmp_path / record.RUNS_DIR / cause
