@@ -1202,6 +1202,129 @@ def test_run_one_performs_exactly_one_action(
     assert len(launched) == 1
 
 
+def test_one_action_writes_its_own_status_record(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``mode="one"`` is a stop, so it goes through ``_finish`` like the rest.
+
+    The inherited defect: the bottom of the loop returned
+    ``exit_code_for(StopReason.done)`` directly, and ``_finish`` is the
+    **only** writer of ``status.json``. So every ``next`` that launched a
+    session left a run directory with no status record at all.
+
+    The reason is ``action_performed`` rather than ``done``: ``done`` means
+    nothing outstanding and no round due, and its resume line is refused
+    outright — a ``next`` that performed one of a window's twenty actions has
+    a great deal to resume. Nor is it ``bound_reached``: no bound was given
+    here, and a status record claiming one would be a false account of the
+    run. Every field is asserted as a literal rather than read back through
+    ``StopReason`` or ``exit_code_for``.
+    """
+    ws = _workspace(tmp_path, clusters=({"id": "c1", "ordinal": 1},))
+    launched = _drive(monkeypatch, ws, [_obs(cluster=_cluster("c1", 1))])
+
+    assert sweep.run(_cfg(), ws, mode="one") == 0
+
+    assert len(launched) == 1
+    runs = sorted((ws / record.RUNS_DIR).iterdir())
+    assert len(runs) == 1
+    status = json.loads((runs[0] / record.STATUS_FILE).read_text())
+    assert status["reason"] == "action_performed"
+    assert status["exit_code"] == 0
+    assert status["sessions"] == 1
+    assert status["detail"] == "session for cluster c1"
+
+
+def test_one_action_is_not_read_as_an_interrupted_run_afterwards(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The payoff, and the defect an operator would actually have met.
+
+    ``move_leftovers_aside`` is keyed on the *absence* of ``status.json``, so
+    without one every ``next`` that launched a session left a directory the
+    **following** ``next`` renamed ``.interrupted-interrupt`` — a loop of
+    ``ai-rfc next`` filing each of its own completed runs as a crash.
+
+    The names are asserted unchanged rather than ``INTERRUPTED not in`` them:
+    the suffix is what a rename appends, so pinning the whole list also
+    catches a rename under some other cause.
+    """
+    ws = _workspace(tmp_path, clusters=({"id": "c1", "ordinal": 1},))
+    _drive(monkeypatch, ws, [_obs(cluster=_cluster("c1", 1))])
+    assert sweep.run(_cfg(), ws, mode="one") == 0
+    before = [path.name for path in sorted((ws / record.RUNS_DIR).iterdir())]
+
+    _drive(monkeypatch, ws, [_obs(cluster=_cluster("c1", 1))])
+    assert sweep.run(_cfg(), ws, mode="one") == 0
+
+    names = [path.name for path in sorted((ws / record.RUNS_DIR).iterdir())]
+    assert names[: len(before)] == before
+    assert not any(record.INTERRUPTED in name for name in names)
+
+
+def test_one_action_prints_the_ledger_and_a_resume_line(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The other half of the inherited defect: ``next`` said nothing.
+
+    ``_finish`` is the only place the ledger and the resume line print, so a
+    bare ``return exit_code_for(...)`` told the operator neither how far the
+    window had got nor what to type next — which is D59's whole requirement
+    ("every stop prints the ledger and the exact resume line") unmet.
+
+    The resume line names ``next``, not ``run``: the operator who asked for
+    one action resumes by asking for the next one.
+    """
+    ws = _workspace(tmp_path, clusters=({"id": "c1", "ordinal": 1},))
+    _drive(monkeypatch, ws, [_obs(cluster=_cluster("c1", 1))])
+
+    assert sweep.run(_cfg(), ws, mode="one", config_path=Path("/w/recon.yaml")) == 0
+
+    printed = capsys.readouterr().err
+    assert "action_performed: session for cluster c1" in printed
+    assert "clusters: " in printed and "outstanding" in printed
+    assert "resume: ai-rfc next --config /w/recon.yaml" in printed
+
+
+def test_one_action_that_is_a_stage_names_the_stage_it_performed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A ``next`` that performs a *stage* opens no run directory, and must not.
+
+    ``run.json``'s ``task_sha256`` is a digest over a known window, which is
+    why the run directory is opened lazily beside the first session. So this
+    stop writes no ``status.json`` — ``_finish`` guards on ``run_dir`` — and
+    the report line is the whole of what it says. That makes the line worth
+    pinning on its own: it is the only account of what this invocation did.
+    """
+    ws = _workspace(tmp_path, clusters=({"id": "c1", "ordinal": 1},))
+    _drive(monkeypatch, ws, [_obs(stages=_stages(views=State.PENDING))])
+    monkeypatch.setattr(
+        sweep, "perform", lambda stage, layout, **kwargs: StageResult(stage, 0, ())
+    )
+
+    assert sweep.run(_cfg(), ws, mode="one") == 0
+
+    printed = capsys.readouterr().err
+    assert "action_performed: stage views" in printed
+    assert not (ws / record.RUNS_DIR).exists()
+
+
+def test_one_action_that_stops_carries_the_stops_own_reason(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``action_performed`` must not swallow the row that could not be performed.
+
+    ``next`` on a halted cluster performs nothing, so the reason belongs to
+    the halt and the exit code is 1 — the mirror of the zero above, and what
+    stops ``action_performed`` from being an unconditional success.
+    """
+    ws = _workspace(tmp_path, clusters=({"id": "c1", "ordinal": 1},))
+    _drive(monkeypatch, ws, [_obs(cluster=_cluster("c1", 1), attempts=2)])
+
+    assert sweep.run(_cfg(), ws, mode="one") == 1
+
+
 def test_run_refuses_a_config_that_declares_no_sessions(tmp_path: Path) -> None:
     """A hand-mined workspace stays possible; the boundary is the caller's to keep."""
     ws = _workspace(tmp_path, clusters=({"id": "c1", "ordinal": 1},))

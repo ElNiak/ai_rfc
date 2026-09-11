@@ -106,6 +106,14 @@ ENTRY_POINTS: tuple[EntryPoint, ...] = (
         LIFECYCLE,
     ),
     EntryPoint(
+        "next",
+        "ai-rfc next",
+        f"{PACKAGE}.lifecycle.next.cli",
+        "Perform exactly one action — run's one-step form — then print the "
+        "ledger and the line to type next",
+        LIFECYCLE,
+    ),
+    EntryPoint(
         "status",
         "ai-rfc status",
         f"{PACKAGE}.lifecycle.status.cli",

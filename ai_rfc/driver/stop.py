@@ -4,8 +4,10 @@ Three vocabularies meet here, and keeping them apart is the point of the
 module.
 
 :class:`StopReason` names why a *sweep* stopped — one member per stopping row
-of spec §5's state machine, plus the two events its rows name in prose but
-cannot spell (``session_failed``, ``consolidation_failed``; see their members).
+of spec §5's state machine, plus four events its rows cannot spell:
+``session_failed`` and ``consolidation_failed`` (named in §5's prose),
+``bound_reached`` and ``action_performed`` (the two stops the *operator*
+asked for, through ``--until`` and ``ai-rfc next``); see their members.
 Its members are the only stop names production
 uses; before this module there were two unrelated ones (``budget`` as a
 ``budget_hit`` substring test in the campaign runner, ``surface_shortfall`` as
@@ -83,7 +85,8 @@ CLASSIFICATIONS: tuple[str, ...] = (REFUSED, ERRORED, KILLED, BUDGET_HIT)
 CONSUMES_ATTEMPT: frozenset[str] = frozenset({REFUSED})
 
 #: Exit code of a sweep that did what it was asked: ``done`` finished
-#: everything, ``bound_reached`` stopped where ``--until`` told it to. See
+#: everything, ``bound_reached`` stopped where ``--until`` told it to, and
+#: ``action_performed`` performed the one action ``next`` asked for. See
 #: :data:`_ZERO_EXIT`.
 DONE_EXIT = 0
 #: Exit code of a sweep that stopped with work outstanding — every stop
@@ -95,9 +98,9 @@ STRICT_FINDINGS_EXIT = 3
 
 
 class StopReason(Enum):
-    """Why a sweep stopped: spec §5's nine rows, and three it does not spell.
+    """Why a sweep stopped: spec §5's nine rows, and four it does not spell.
 
-    ``session_failed`` and ``consolidation_failed`` are two of the three. Spec
+    ``session_failed`` and ``consolidation_failed`` are two of the four. Spec
     §5 says an *errored* session "stops with the resume line" and D59 says a
     failing sweep-end consolidation exits 1, but neither is a row of the table,
     so reporting them meant either a new name or a borrowed one.
@@ -105,6 +108,12 @@ class StopReason(Enum):
     ``bound_reached`` is the third, added by Task 11 when ``--until`` was wired
     into ``ai-rfc run``: a bound is a place the operator asked the sweep to
     stop at, which no row describes and which ``done`` would misreport.
+
+    ``action_performed`` is the fourth, added by Task 12 for ``ai-rfc next``.
+    Spec §5 licenses it in one sentence — "``next`` performs one row" — and
+    that is a stop the table cannot spell either, since the table says why a
+    sweep *cannot go on* and this one stops because it was asked for one
+    thing and did it.
 
     What borrowing would have cost differs by candidate, and only one of them
     is repair-level. ``cluster_halted`` would print ``--retry <id>``, telling
@@ -161,6 +170,25 @@ class StopReason(Enum):
     #: that the bound returned early, wrote no ``status.json``, and left a run
     #: directory the next invocation renamed as interrupted.
     bound_reached = "bound_reached"
+    #: ``mode="one"`` performed its one action. Minted only by ``ai-rfc
+    #: next``, and **not** ``done``: ``done`` means nothing outstanding and no
+    #: round due, while one action out of a window's twenty normally leaves
+    #: everything else to do — and ``done`` is refused a resume line, which is
+    #: the one thing an operator stepping through a reconstruction needs
+    #: most. Nor ``bound_reached``: no bound need have been given, and a
+    #: status record claiming one would be a false account of the run.
+    #:
+    #: Exits 0 for the reading D59 and the settled table already fixed:
+    #: "stopped with work outstanding 1" means the sweep *could not go on*,
+    #: not that work exists. The no-sessions boundary stop returns 0 with
+    #: every cluster outstanding, and so does ``--until <stage>``.
+    #:
+    #: Added by Task 12. Before it, ``mode="one"`` returned
+    #: ``exit_code_for(done)`` directly, bypassing ``_finish`` — so a ``next``
+    #: that launched a session wrote no ``status.json``, said neither what it
+    #: had done nor what to type next, and left a run directory the following
+    #: ``next`` renamed ``.interrupted-interrupt``.
+    action_performed = "action_performed"
     #: Nothing outstanding and no round due. The only reason with no resume
     #: line: a finished reconstruction has nothing to resume.
     done = "done"
@@ -179,6 +207,11 @@ class StopReason(Enum):
 #: ``surface_shortfall``
 #:     Spec §5 asks for a doctor hint: what failed is the environment the
 #:     session was launched into, which is what ``doctor`` reports on.
+#: ``action_performed``
+#:     Only ``ai-rfc next`` mints this, so the operator who asked for one
+#:     action is told how to ask for the next one. ``run`` would also carry
+#:     the reconstruction forward, but it would carry it *all* the way, which
+#:     is not what this operator asked for even once.
 _VERB: dict[StopReason, str] = {
     StopReason.needs_init: "init",
     StopReason.stage_failed: "run",
@@ -191,14 +224,21 @@ _VERB: dict[StopReason, str] = {
     StopReason.consolidation_failed: "run",
     StopReason.build_failed: "run",
     StopReason.bound_reached: "run",
+    StopReason.action_performed: "next",
 }
 
 #: The reasons that are not a failure. ``done`` is a finished reconstruction;
-#: ``bound_reached`` is a sweep that did exactly what ``--until`` asked of it.
+#: ``bound_reached`` is a sweep that did exactly what ``--until`` asked of it;
+#: ``action_performed`` is a sweep that did exactly the one thing ``next``
+#: asked of it. The last two leave work outstanding and still exit 0, because
+#: spec §5's "stopped with work outstanding 1" is about a sweep that *could
+#: not go on* — the no-sessions boundary stop has always returned 0 with every
+#: cluster outstanding.
+#:
 #: Written as a set rather than tested against ``done`` alone so that adding a
-#: third means saying so here, where the meaning of the exit code lives.
+#: member means saying so here, where the meaning of the exit code lives.
 _ZERO_EXIT: frozenset[StopReason] = frozenset(
-    {StopReason.done, StopReason.bound_reached}
+    {StopReason.done, StopReason.bound_reached, StopReason.action_performed}
 )
 
 
@@ -302,9 +342,9 @@ def exit_code(reason: StopReason, *, strict_findings: bool = False) -> int:
 
     Returns:
         :data:`DONE_EXIT` for the reasons that are not a failure
-        (:data:`_ZERO_EXIT`: ``done`` and ``bound_reached``),
-        :data:`STRICT_FINDINGS_EXIT` for a build gate that reported strict
-        findings, :data:`STOPPED_EXIT` otherwise.
+        (:data:`_ZERO_EXIT`: ``done``, ``bound_reached`` and
+        ``action_performed``), :data:`STRICT_FINDINGS_EXIT` for a build gate
+        that reported strict findings, :data:`STOPPED_EXIT` otherwise.
 
     Raises:
         DriverError: If ``strict_findings`` is given for anything but

@@ -114,7 +114,88 @@ def _bound(value: str) -> str:
     )
 
 
-def run_stages(config_path: Path, *, until: str | None = None) -> int:
+def _cluster(value: str) -> str:
+    """``--retry``'s cluster id, checked for shape before any work runs.
+
+    The split is ``_bound``'s, for the same reason: membership is the real
+    guard on a cluster id and it needs a timeline, which
+    :func:`ai_rfc.driver.sweep.observe` has and an argument parser does not.
+    So the *character class* is what is left here, and it is worth having —
+    this value is interpolated into :func:`run_stages`' sessionless refusal,
+    which is a line-per-record artifact an operator copies commands out of, so
+    a newline in it forges a whole second instruction. Refused rather than
+    escaped, because at the parser there is still somewhere to say no.
+
+    Args:
+        value: What the operator typed after ``--retry``.
+
+    Returns:
+        The cluster id, unchanged.
+
+    Raises:
+        argparse.ArgumentTypeError: If it is empty or not printable.
+    """
+    if not value:
+        # `record.attempts` refuses this downstream for a sharper reason — an
+        # empty id matches the session rows that deliberately name no cluster
+        # — but that refusal arrives as a `DriverError` after the workspace
+        # has been read, where this one costs nothing.
+        raise argparse.ArgumentTypeError("--retry names no cluster")
+    if not value.isprintable():
+        raise argparse.ArgumentTypeError(
+            f"cluster id {value!r} is not printable; it would reach a copied "
+            "command line unescaped"
+        )
+    return value
+
+
+def add_sweep_arguments(parser: argparse.ArgumentParser) -> None:
+    """``--until`` and ``--retry``, shared by ``run`` and ``next``.
+
+    Both verbs drive the same sweep over the same timeline, so both take the
+    same two arguments with the same grammar. Declared once here rather than
+    once per verb: two parsers for one grammar is how they drift, and the
+    grammar is the whole guard at this end, since neither a cluster id nor an
+    ordinal can be checked for membership until the sweep has a timeline.
+
+    It lives in this module rather than in ``lifecycle/common.py`` because
+    ``_bound``'s stage set comes from :func:`_walkable`, which reads the
+    pipeline's stage table. Putting it in ``common`` would make ``config``,
+    ``doctor`` and every other lifecycle verb import the pipeline to declare
+    one argument they do not have.
+
+    Args:
+        parser: The verb's parser, or the root's sub-parser for it.
+    """
+    parser.add_argument(
+        "--until",
+        type=_bound,
+        metavar="BOUND",
+        default=None,
+        help=(
+            "Stop at this bound: a stage ("
+            + ", ".join(_walkable())
+            + f"), {CLUSTER_BOUND}<id> or {ORDINAL_BOUND}<n>. The two "
+            "positional spellings are resolved against the timeline by the "
+            "sweep, so they need a sessions: block."
+        ),
+    )
+    parser.add_argument(
+        "--retry",
+        type=_cluster,
+        metavar="ID",
+        default=None,
+        help=(
+            "Forgive this cluster's already-spent attempts, so a halted "
+            "cluster gets its cap again. The session rows stay on disk; only "
+            "the cap changes. This is the line a cluster_halted stop prints."
+        ),
+    )
+
+
+def run_stages(
+    config_path: Path, *, until: str | None = None, retry: str | None = None
+) -> int:
     """Walk the pipeline from what state says is pending, then drive the sweep.
 
     The deterministic stages before the agent boundary are performed here. What
@@ -130,6 +211,10 @@ def run_stages(config_path: Path, *, until: str | None = None) -> int:
             or ``ordinal:<n>``. Only a stage bound is honoured here; the two
             positional spellings pass through to the sweep, which has the
             timeline to resolve them against.
+        retry: A cluster whose already-spent attempts this invocation
+            forgives. Passed straight through to the sweep, which is the only
+            layer that spends them — so, like a positional bound, it is
+            refused here when there is no sweep to reach.
 
     Returns:
         0 when the boundary or a stage bound was reached, the failing stage's
@@ -139,12 +224,14 @@ def run_stages(config_path: Path, *, until: str | None = None) -> int:
 
     Raises:
         LifecycleError: If the workspace is not initialised, an identity field
-            drifted, the clone is not pinned, or a positional bound was given
-            for a configuration that has no sessions to resolve it with.
+            drifted, the clone is not pinned, or a positional bound or a
+            ``--retry`` was given for a configuration that has no sessions to
+            resolve it with.
         ledger.LedgerError: If the workspace's progress cannot be read.
         DriverError: From anywhere below. ``sweep.run``'s own three refusals
-            narrow to one — the bound — since ``run`` passes neither ``retry``
-            nor ``mode``; but the sweep does not catch what it calls, so a
+            narrow to two — the bound and the ``--retry``, both of which name
+            a cluster this timeline must hold — since ``run`` never passes
+            ``mode``; but the sweep does not catch what it calls, so a
             duplicate cluster id (re-checked by ``observe`` on *every*
             iteration, not only the first), an unlaunchable binary
             (``session.py:97``), an unparseable transcript line
@@ -170,6 +257,20 @@ def run_stages(config_path: Path, *, until: str | None = None) -> int:
             f"sessions, so run stops at the {BOUNDARY} boundary and the bound "
             "could never fire. Add a sessions: block, or bound the walk with "
             f"a stage name: {', '.join(_walkable())}"
+        )
+    if given.sessions is None and retry is not None:
+        # D16's rule a third time. Only a sweep spends a cluster's attempts,
+        # so only a sweep can forgive them; without sessions this walks to the
+        # boundary, reports 0 and forgives nothing, and the operator meets the
+        # same halt again. Repr for the same reason as above: `run_stages` is
+        # reachable from `run` given any namespace, so the parser's
+        # printability refusal is not the only thing between this value and a
+        # line an operator copies.
+        raise LifecycleError(
+            f"--retry {retry!r} forgives a cluster's already-spent attempts, "
+            "and only a sweep spends them; this workspace's config declares "
+            f"no sessions, so run stops at the {BOUNDARY} boundary and the "
+            "retry could never fire. Add a sessions: block"
         )
     by_name = {entry.stage.name: entry for entry in state(layout)}
     if by_name["pin"].state is not State.DONE:
@@ -216,7 +317,9 @@ def run_stages(config_path: Path, *, until: str | None = None) -> int:
         # so the seal does not carry it and sweeping the sealed copy would
         # refuse the very block the operator just wrote. `config_path` is the
         # path they typed, which is what the sweep's resume line prints back.
-        return sweep.run(given, layout.root, until=until, config_path=config_path)
+        return sweep.run(
+            given, layout.root, until=until, retry=retry, config_path=config_path
+        )
     # The ledger is read unguarded here, unlike in `status` and `verify`:
     # reaching this line means the walk ran to the boundary, so `views` is
     # current, so the timeline it was built from is on disk. The two reporting
@@ -247,18 +350,7 @@ def configure(parser: argparse.ArgumentParser) -> None:
         "a recon.yaml validates is not wired into the stage builders yet."
     )
     add_config_argument(parser)
-    parser.add_argument(
-        "--until",
-        type=_bound,
-        metavar="BOUND",
-        default=None,
-        help=(
-            "Stop at this bound: a stage ("
-            + ", ".join(_walkable())
-            + f"), {CLUSTER_BOUND}<id> or {ORDINAL_BOUND}<n>. The two "
-            "positional spellings need a sessions: block."
-        ),
-    )
+    add_sweep_arguments(parser)
 
 
 def build_standalone_parser() -> argparse.ArgumentParser:
@@ -287,7 +379,7 @@ def run(args: argparse.Namespace) -> int:
         the sweep's own code once it is driving, 1 on a refusal.
     """
     try:
-        return run_stages(config_path_from(args), until=args.until)
+        return run_stages(config_path_from(args), until=args.until, retry=args.retry)
     except (ConfigParseError, ledger.LedgerParseError) as error:
         # Named before their bases: a parser's block is the one kind of
         # diagnostic here whose line breaks are its own, and whose closing

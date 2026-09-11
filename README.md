@@ -58,6 +58,7 @@ ai-rfc init   --config recon.yaml     # networked once: clone at the pin, fetch 
                                       # scaffold the draft, seal the config
 ai-rfc run    --config recon.yaml     # history, timeline, views; then drive sessions, or stop
                                       # at the agent boundary when no sessions: block is set
+ai-rfc next   --config recon.yaml     # the same, one action at a time (needs a sessions: block)
 ai-rfc status --config recon.yaml     # stage states, the cluster ledger, the pin, config drift
 ai-rfc verify --config recon.yaml --strict   # every gate the workspace can pass, one exit code
 ```
@@ -69,9 +70,17 @@ sessions itself**, through mining and prose to the build gate, bounded by
 it **stops** at the agent boundary, printing the ledger and whose turn it is:
 mining a cluster's claims needs a model session, and nothing in the substrate
 calls one — so a hand-mined workspace stays possible, driven by the plugin's
-loop skill or by the experiment instrument below. `verify` skips a
-check whose inputs do not exist yet, so 0 means nothing that ran failed rather
-than that everything ran — its last line tallies what ran and names every skip.
+loop skill or by the experiment instrument below.
+
+`next` is that same drive, one action at a time: one row of the same state
+machine, then the ledger and the exact line to type after it. It takes the
+same `--until` and the same `--retry`, and it needs a `sessions:` block —
+a row of that table is what it performs, so without one there is nothing it
+could do and `run` is the verb that walks the deterministic stages.
+
+`verify` skips a check whose inputs do not exist yet, so 0 means nothing that
+ran failed rather than that everything ran — its last line tallies what ran and
+names every skip.
 
 Two more lifecycle verbs stand outside that flow: `ai-rfc toolchain provision`
 installs the Internet-Draft toolchain once over the network and `ai-rfc

@@ -659,7 +659,8 @@ def test_move_aside_accepts_the_stop_reason_vocabulary(tmp_path: Path) -> None:
     a name added or dropped there fails one of the two, while a test that
     derived them from the enum could not notice it shrinking. Task 11 added
     ``bound_reached`` — a ``--until`` bound that is reached, which is neither
-    a failure nor the ``done`` of a finished reconstruction.
+    a failure nor the ``done`` of a finished reconstruction. Task 12 added
+    ``action_performed``, which ``ai-rfc next`` mints after its one action.
 
     Nothing here claims a run is moved aside *under* a stop reason. By the
     plan's Ruling D a stop-classified exit writes ``status.json``, so what gets
@@ -680,6 +681,7 @@ def test_move_aside_accepts_the_stop_reason_vocabulary(tmp_path: Path) -> None:
         "consolidation_failed",
         "build_failed",
         "bound_reached",
+        "action_performed",
         "done",
     ):
         run_dir = tmp_path / record.RUNS_DIR / cause

@@ -41,7 +41,9 @@ CONFIG = Path("/w/recon.yaml")
 #: sweep-end consolidation exits 1. Neither is a cluster reaching its attempt
 #: cap, a deterministic stage exiting non-zero, or a build gate finding, so
 #: mapping either onto an existing member would have printed a resume line
-#: that fixes something else.
+#: that fixes something else. Task 11 added ``bound_reached`` and Task 12
+#: ``action_performed`` — the two ways a sweep stops because the *operator*
+#: asked it to stop there rather than because anything went wrong.
 REASONS = (
     "needs_init",
     "stage_failed",
@@ -54,6 +56,7 @@ REASONS = (
     "consolidation_failed",
     "build_failed",
     "bound_reached",
+    "action_performed",
     "done",
 )
 
@@ -269,17 +272,35 @@ def test_consumes_attempt_refuses_a_label_outside_the_vocabulary() -> None:
 # --- exit codes -------------------------------------------------------------
 
 
-def test_done_and_bound_reached_are_the_reasons_that_exit_zero() -> None:
-    """done 0, a bound honoured 0, stopped with work outstanding 1.
+def test_the_three_reasons_that_exit_zero_are_done_bound_and_one_action() -> None:
+    """done 0, a bound honoured 0, one action performed 0; anything else 1.
 
-    The two zeroes are written out rather than read off a set in the
-    implementation, and every other member is asserted 1 by exclusion: a third
-    reason quietly joining the zero set fails the loop below.
+    The three zeroes are written out rather than read off a set in the
+    implementation, and every other member is asserted 1 by exclusion: a
+    fourth reason quietly joining the zero set fails the loop below.
+
+    Renamed rather than patched when ``action_performed`` joined, for the
+    reason Task 11 renamed it when ``bound_reached`` did: a test whose *name*
+    asserts a membership it no longer checks is worse than a stale comment,
+    because the name is what a reader trusts without opening the body.
+
+    ``action_performed`` exits 0 on the same reading of spec §5 that put
+    ``bound_reached`` there: "stopped with work outstanding 1" means *could
+    not continue*, not *work exists*. A ``next`` that performed its one action
+    leaves the rest of the window outstanding by design, exactly as a bounded
+    ``run`` does, and exactly as the no-sessions boundary stop — which returns
+    0 with every cluster outstanding — already did.
     """
+    zero = (
+        stop.StopReason.done,
+        stop.StopReason.bound_reached,
+        stop.StopReason.action_performed,
+    )
     assert stop.exit_code(stop.StopReason.done) == 0
     assert stop.exit_code(stop.StopReason.bound_reached) == 0
+    assert stop.exit_code(stop.StopReason.action_performed) == 0
     for reason in stop.StopReason:
-        if reason not in (stop.StopReason.done, stop.StopReason.bound_reached):
+        if reason not in zero:
             assert stop.exit_code(reason) == 1
 
 
@@ -310,6 +331,10 @@ def test_strict_findings_is_refused_on_a_reason_that_never_ran_the_gate() -> Non
         ("consolidation_failed", "ai-rfc run --config /w/recon.yaml"),
         ("build_failed", "ai-rfc run --config /w/recon.yaml"),
         ("bound_reached", "ai-rfc run --config /w/recon.yaml"),
+        # The one line in this table that does not say ``run``: only
+        # ``mode="one"`` mints this reason, and the operator who asked for one
+        # action resumes by asking for the next one.
+        ("action_performed", "ai-rfc next --config /w/recon.yaml"),
     ],
 )
 def test_resume_line_reproduces_exactly(reason: str, expected: str) -> None:

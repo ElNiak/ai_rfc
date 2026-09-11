@@ -225,8 +225,9 @@ class Action:
         """Refuse a kind outside :data:`ACTIONS`.
 
         The loop dispatches on this string, and an unrecognised one would fall
-        through every branch to ``mode``'s check and return 0 — a sweep that
-        did nothing and reported success.
+        through every branch to ``mode``'s check: ``"one"`` would then report
+        ``action_performed`` for work nobody did — a sweep reporting success
+        for nothing — and ``"all"`` would spin on the same observation.
 
         Raises:
             DriverError: If ``kind`` is not one of :data:`ACTIONS`.
@@ -1122,6 +1123,38 @@ def _run_consolidation(
     return False
 
 
+def _performed(action: Action) -> str:
+    """What one action did, for the stop line and the status record.
+
+    ``mode="one"`` reports :attr:`~ai_rfc.driver.stop.StopReason
+    .action_performed`, which names the *kind* of stop and not the work — so
+    without this the only durable account of what an ``ai-rfc next`` did would
+    be the progress lines in a terminal an operator has since closed.
+
+    Three kinds reach here and no others: a ``stop`` returns from ``_finish``
+    above and a ``gate`` from the branch before it, so the only actions that
+    fall through to the bottom of the loop are the three this covers. That is
+    why there is no defensive fallback — one would fabricate a description
+    rather than report an impossible state.
+
+    Args:
+        action: The action the loop just performed.
+
+    Returns:
+        One line, with no line break of its own. A cluster id is
+        agent-written, so it is escaped where it is printed
+        (:func:`report` → :func:`~ai_rfc.driver.printable`) and JSON-encoded
+        where it is recorded; this function does not escape it a third time.
+    """
+    if action.kind == "stage":
+        return f"stage {action.stage}"
+    if action.kind == "consolidation":
+        assert action.round_due is not None  # noqa: S101 - plan_next names one
+        return f"consolidation round {action.round_due.ordinal:02d}"
+    assert action.cluster is not None  # noqa: S101 - a session names its cluster
+    return f"session for cluster {action.cluster.id}"
+
+
 def _finish(
     cfg: Any,
     workspace: Path,
@@ -1206,7 +1239,11 @@ def run(
             hand-mined workspace stays possible.
         workspace: The workspace root.
         mode: ``"all"`` to sweep, ``"one"`` to perform exactly one action —
-            which is what ``ai-rfc next`` is.
+            which is what ``ai-rfc next`` is. A ``"one"`` that performed its
+            action stops with
+            :attr:`~ai_rfc.driver.stop.StopReason.action_performed`; a
+            ``"one"`` whose row was a *stop* carries that stop's own reason,
+            so the verb never reports success for work it could not do.
         until: A bound: a stage name, ``cluster:<id>`` or ``ordinal:<n>``.
         retry: A cluster whose already-spent attempts this invocation forgives
             (D59). The rows stay on disk; only the cap changes.
@@ -1217,8 +1254,9 @@ def run(
             in a ``recon.yaml`` supplies one today.
 
     Returns:
-        0 when the sweep finished or its bound was reached, 1 when it stopped
-        with work outstanding, 3 when ``check --strict`` reported findings.
+        0 when the sweep finished, its bound was reached, or ``mode="one"``
+        performed its action; 1 when it stopped with work it could not do;
+        3 when ``check --strict`` reported findings.
 
     Raises:
         DriverError: If no sessions are configured, the mode is not one of the
@@ -1361,4 +1399,23 @@ def run(
                     cluster=action.cluster,
                 )
         if mode == "one":
-            return exit_code_for(StopReason.done)
+            # Through `_finish` like every other stop, and for the reason the
+            # bounded stop above gives: it is the only writer of `status.json`,
+            # and the absence of that file is what `move_leftovers_aside`
+            # reads as *this run was killed*. Returning early here meant every
+            # `ai-rfc next` that launched a session left a run directory the
+            # **next** `next` renamed `.interrupted-interrupt`, and said
+            # neither what it had done nor what to type after it.
+            return _finish(
+                cfg,
+                workspace,
+                run_dir,
+                Action(
+                    "stop",
+                    reason=StopReason.action_performed,
+                    detail=_performed(action),
+                ),
+                swept,
+                config_path=resume_path,
+                known_clusters=obs.known_clusters,
+            )

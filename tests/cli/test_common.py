@@ -141,14 +141,14 @@ def test_a_single_line_message_is_identical_through_both(
     assert capsys.readouterr().err == first
 
 
-@pytest.mark.parametrize("verb", ["run", "status", "verify", "doctor", "init"])
+@pytest.mark.parametrize("verb", ["run", "next", "status", "verify", "doctor", "init"])
 def test_every_verb_that_reads_a_config_keeps_the_parser_s_lines(
     tmp_path, capsys: pytest.CaptureFixture[str], verb: str
 ) -> None:
-    """The opt-out is per-handler, so each of the five is its own way to miss it.
+    """The opt-out is per-handler, so each of the six is its own way to miss it.
 
     ``ConfigParseError`` reaches every verb that loads a ``recon.yaml``, and
-    each one names it in its own ``except`` clause — five independent edits.
+    each one names it in its own ``except`` clause — six independent edits.
     Testing only ``run`` proved insufficient in practice: ``doctor``'s clause
     was written against an import that was never added, and the whole CLI
     suite still passed because no test drove ``doctor`` at a malformed file.

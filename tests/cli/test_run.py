@@ -21,6 +21,10 @@ SESSIONS_BLOCK = "sessions:\n  budget_usd: 5\n"
 #: real resume line lives in.
 FORGED_BOUND = "cluster:c1\nresume: ai-rfc run --config /tmp/evil.yaml"
 
+#: The same payload in ``--retry``'s spelling. A cluster id reaches the same
+#: artifacts from either flag, so it needs the same two ends.
+FORGED_RETRY = "c1\nresume: ai-rfc run --config /tmp/evil.yaml"
+
 
 def _record_sweep(
     monkeypatch: pytest.MonkeyPatch, *, code: int = 0
@@ -131,6 +135,7 @@ def test_a_configured_sessions_block_drives_the_sweep(initialised, capsys, monke
     assert calls[0]["workspace"] == root
     assert calls[0]["cfg"].sessions.budget_usd == 5.0
     assert calls[0]["until"] is None
+    assert calls[0]["retry"] is None
     assert calls[0]["config_path"] == config_path
     err = capsys.readouterr().err
     assert "boundary: mining" not in err
@@ -300,7 +305,9 @@ def test_the_refusal_cannot_be_forged_by_a_bound_that_bypassed_the_parser(
     """
     config_path, _ = initialised
 
-    code = run_cli.run(argparse.Namespace(config=config_path, until=FORGED_BOUND))
+    code = run_cli.run(
+        argparse.Namespace(config=config_path, until=FORGED_BOUND, retry=None)
+    )
 
     assert code == 1
     err = capsys.readouterr().err
@@ -331,6 +338,147 @@ def test_the_refusal_quotes_the_bound_in_its_own_message(initialised):
 
     with pytest.raises(LifecycleError) as raised:
         run_cli.run_stages(config_path, until=FORGED_BOUND)
+
+    assert len(str(raised.value).splitlines()) == 1
+    assert "\\n" in str(raised.value)
+
+
+# --- --retry: the line cluster_halted tells the operator to type ------------
+
+
+def test_a_retry_is_handed_to_the_sweep(initialised, monkeypatch):
+    """``cluster_halted``'s resume line was uncopyable until this argument existed.
+
+    ``sweep.run`` has accepted ``retry=`` since Task 9 and nothing passed it,
+    while ``stop.resume_line`` has printed ``ai-rfc run --config <path>
+    --retry <id>`` for as long. Task 11 is what made that stop reachable from
+    ``ai-rfc run`` at all — so the one line D59 promises the operator could be
+    reached, copied, and then refused by ``run``'s own parser.
+    """
+    config_path, _ = initialised
+    config_path.write_text(config_path.read_text() + SESSIONS_BLOCK)
+    calls = _record_sweep(monkeypatch)
+
+    assert cli.main(["run", "--config", str(config_path), "--retry", "c1"]) == 0
+
+    assert len(calls) == 1
+    assert calls[0]["retry"] == "c1"
+
+
+def test_a_retry_that_names_no_cluster_is_refused_by_the_parser(initialised, capsys):
+    """An empty id forgives nothing and would be indistinguishable from none.
+
+    ``record.attempts`` refuses it downstream for a sharper reason — an empty
+    id matches the rows that deliberately name no cluster, such as a
+    consolidation's — but that refusal arrives as a ``DriverError`` after the
+    workspace has already been read.
+
+    ``unrecognized`` is asserted absent because argparse answers an *unknown*
+    flag with the same exit 2. Without that line this test passes against a
+    ``run`` that has no ``--retry`` at all, which is the state it was written
+    against — a refusal for the wrong reason reads exactly like a refusal.
+    """
+    config_path, _ = initialised
+    config_path.write_text(config_path.read_text() + SESSIONS_BLOCK)
+
+    with pytest.raises(SystemExit) as raised:
+        cli.main(["run", "--config", str(config_path), "--retry", ""])
+
+    assert raised.value.code == 2
+    assert "unrecognized" not in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "retry",
+    [
+        FORGED_RETRY,  # forges a second record
+        "c1\x07",  # a C0 bell
+        "c1 ",  # LINE SEPARATOR, a break by str.splitlines' definition
+        "c1‮",  # RIGHT-TO-LEFT OVERRIDE, reorders without breaking
+    ],
+)
+def test_a_retry_that_could_forge_a_line_is_refused_by_the_parser(
+    initialised, capsys, retry
+):
+    """The first of ``--retry``'s two ends, and the same four escape classes.
+
+    Membership is the real guard on a cluster id and it lives in
+    ``sweep.observe``, which has the timeline. What is left at the parser is
+    the character class — and it is needed, because the value is interpolated
+    into the sessionless refusal below, which is a line an operator copies
+    from. Refused rather than escaped: at the parser there is still somewhere
+    to say no.
+
+    ``unrecognized`` absent for the reason the empty-id test gives: argparse's
+    answer to an unknown flag is also exit 2.
+    """
+    config_path, _ = initialised
+    config_path.write_text(config_path.read_text() + SESSIONS_BLOCK)
+
+    with pytest.raises(SystemExit) as raised:
+        cli.main(["run", "--config", str(config_path), "--retry", retry])
+
+    assert raised.value.code == 2
+    assert "unrecognized" not in capsys.readouterr().err
+
+
+def test_a_retry_without_sessions_is_refused(initialised, capsys):
+    """D16's rule in its third setting: a flag that cannot fire is refused.
+
+    Only the sweep forgives attempts, and only a configuration with sessions
+    reaches the sweep. Left unrefused, ``run --retry c1`` on a hand-mined
+    workspace walks to the boundary, reports success and forgives nothing —
+    the operator watches the same halt repeat, which is precisely what
+    ``observe``'s own membership refusal exists to prevent.
+    """
+    config_path, root = initialised
+
+    assert cli.main(["run", "--config", str(config_path), "--retry", "c1"]) == 1
+
+    assert not Layout(root).commits.exists()
+    err = capsys.readouterr().err
+    assert "c1" in err and "sessions" in err
+    assert len(err.splitlines()) == 1
+
+
+def test_the_retry_refusal_cannot_be_forged_by_a_value_that_bypassed_the_parser(
+    initialised, capsys
+):
+    """The second end, pinned on its own so the parser fix cannot mask it.
+
+    ``run_stages`` is reachable without the parser — from
+    :func:`ai_rfc.lifecycle.run.cli.run` given any namespace — so a guard that
+    lives only in ``configure`` is a rule callers follow rather than a
+    boundary. The payload stays visible, quoted inside the one line; what must
+    not exist is a **line** a reader takes for a record of its own.
+    """
+    config_path, _ = initialised
+
+    code = run_cli.run(
+        argparse.Namespace(config=config_path, until=None, retry=FORGED_RETRY)
+    )
+
+    assert code == 1
+    err = capsys.readouterr().err
+    assert len(err.splitlines()) == 1
+    assert not any(line.startswith("resume:") for line in err.splitlines())
+    assert "\\n" in err
+
+
+def test_the_retry_refusal_quotes_the_value_in_its_own_message(initialised):
+    """The repr, pinned where the stderr boundary cannot stand in for it.
+
+    Both layers make the printed line safe, so a test reading stderr passes
+    with either alone and the two mask each other. Asserted on ``str(error)``
+    instead — the exception's own text, before any stream touches it, which is
+    what a caller that logs it or wraps it in a JSON field receives.
+    """
+    from ai_rfc.lifecycle import LifecycleError
+
+    config_path, _ = initialised
+
+    with pytest.raises(LifecycleError) as raised:
+        run_cli.run_stages(config_path, retry=FORGED_RETRY)
 
     assert len(str(raised.value).splitlines()) == 1
     assert "\\n" in str(raised.value)
