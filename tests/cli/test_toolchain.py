@@ -13,6 +13,7 @@ from ai_rfc.toolchain import (
     RECORD_FILE,
     REFCACHE_DIGEST,
     TOOLS_DIR,
+    ToolchainBuildError,
     ToolchainError,
     _version,
     provision,
@@ -253,7 +254,7 @@ def test_cli_provision_keeps_the_lines_of_a_build_failure(
     )
 
     def _fail(*_args, **_kwargs):
-        raise ToolchainError(f"make deps failed:\n{tail}")
+        raise ToolchainBuildError(f"make deps failed:\n{tail}")
 
     monkeypatch.setattr(toolchain_cli, "provision", _fail)
 
@@ -268,6 +269,56 @@ def test_cli_provision_keeps_the_lines_of_a_build_failure(
         "  bundler: 2.5.3",
         "  see above",
     ]
+
+
+def test_cli_provision_does_not_structure_a_diagnostic_that_interpolates(
+    tmp_path, capsys, monkeypatch
+):
+    """Only the three stderr tails are structured; the other nine are records.
+
+    Nine of ``toolchain.py``'s twelve ``ToolchainError`` sites interpolate a
+    value — raw ``git`` stderr at ``:186`` and ``:190``, a ``--root``
+    argument or ``$AI_RFC_EXPERIMENTS_ROOT`` at ``:179``/``:182``. Exempting
+    the whole ``except`` clause gave all twelve the tails' licence and let a
+    newline in git's output forge a ``resume:`` line at column 0 — the shape
+    that was correctly escaped one commit earlier.
+    """
+    from ai_rfc.cli import main
+    from ai_rfc.lifecycle.toolchain import cli as toolchain_cli
+
+    def _fail(*_args, **_kwargs):
+        raise ToolchainError(
+            "cloning https://x failed: fatal: repo not found\n"
+            "resume: ai-rfc run --config /tmp/evil.yaml"
+        )
+
+    monkeypatch.setattr(toolchain_cli, "provision", _fail)
+
+    assert main(["toolchain", "provision", "--root", str(tmp_path)]) == 1
+
+    lines = capsys.readouterr().err.splitlines()
+    assert len(lines) == 1
+    assert not any(line.startswith("resume:") for line in lines)
+
+
+def test_cli_provision_emits_no_trailing_blank_line(tmp_path, capsys, monkeypatch):
+    """``stderr[-2000:]`` almost always ends in a newline; that is not a line.
+
+    ``split("\\n")`` yields a final empty string for text ending in a break,
+    which reached the operator as a blank stderr line after every failed
+    build.
+    """
+    from ai_rfc.cli import main
+    from ai_rfc.lifecycle.toolchain import cli as toolchain_cli
+
+    def _fail(*_args, **_kwargs):
+        raise ToolchainBuildError("make deps failed:\nError 2\n")
+
+    monkeypatch.setattr(toolchain_cli, "provision", _fail)
+
+    assert main(["toolchain", "provision", "--root", str(tmp_path)]) == 1
+
+    assert capsys.readouterr().err == "error: make deps failed:\nError 2\n"
 
 
 def test_cli_toolchain_help_is_wired_for_both_verbs(capsys):

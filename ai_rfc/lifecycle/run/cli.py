@@ -288,11 +288,15 @@ def run(args: argparse.Namespace) -> int:
     """
     try:
         return run_stages(config_path_from(args), until=args.until)
-    except ConfigParseError as error:
-        # Named before its base: the parser's block is the one diagnostic here
-        # whose line breaks are its own, and whose closing caret marks a
-        # column. Every other refusal below composes one record around a value
-        # — a `--until` bound, a path, a cluster id — and must stay one line.
+    except (ConfigParseError, ledger.LedgerParseError) as error:
+        # Named before their bases: a parser's block is the one kind of
+        # diagnostic here whose line breaks are its own, and whose closing
+        # caret marks a column. Two files can produce one — `recon.yaml` and
+        # the workspace's `revisions.yaml` — and they raise from two different
+        # exception families, which is why a sweep scoped to `ConfigError`
+        # found only the first. Every other refusal below composes one record
+        # around a value — a `--until` bound, a path, a cluster id — and must
+        # stay one line.
         report_structured(f"error: {error}")
         return 1
     except (

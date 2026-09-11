@@ -7,7 +7,14 @@ from pathlib import Path
 
 from ... import __version__
 from ...config import experiments_root
-from ...toolchain import RECORD_FILE, TOOLS_DIR, ToolchainError, provision, verify
+from ...toolchain import (
+    RECORD_FILE,
+    TOOLS_DIR,
+    ToolchainBuildError,
+    ToolchainError,
+    provision,
+    verify,
+)
 from ..common import report, report_structured
 from ..workspace import TEMPLATE_COMMIT, TEMPLATE_URL
 
@@ -87,10 +94,16 @@ def run(args: argparse.Namespace) -> int:
             record = provision(
                 root, template=args.template, template_commit=args.template_commit
             )
-        except (ToolchainError, OSError) as error:
-            # The stderr tail this carries is the only account of a failed
-            # build, and toolchain.py spells its newline itself.
+        except ToolchainBuildError as error:
+            # A build tool's own stderr tail: the only account of why
+            # provisioning failed, and its lines are the compiler's. Named
+            # before its base, because the other nine ToolchainError sites
+            # interpolate a value — raw git stderr among them — and exempting
+            # the whole clause let one of those forge a `resume:` line.
             report_structured(f"error: {error}")
+            return 1
+        except (ToolchainError, OSError) as error:
+            report(f"error: {error}")
             return 1
         print(f"toolchain: {record}")
         return 0

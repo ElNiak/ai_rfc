@@ -106,7 +106,9 @@ def run(args: argparse.Namespace) -> int:
     """
     try:
         body = payload(config_path_from(args))
-    except ConfigParseError as error:
+    except (ConfigParseError, ledger.LedgerParseError) as error:
+        # Both parse blocks: `recon.yaml`'s and `revisions.yaml`'s. `status`
+        # reads the ledger, so unlike `verify` it can meet the second.
         report_structured(f"error: {error}")
         return 1
     except (LifecycleError, ConfigError, ledger.LedgerError, OSError) as error:

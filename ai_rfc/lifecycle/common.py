@@ -52,15 +52,22 @@ def report(message: str) -> None:
 def report_structured(message: str) -> None:
     """A diagnostic whose **line structure is its own**, printed with it intact.
 
-    :func:`report` collapses every line break, which is right for a line an
+    :func:`report` collapses every line break, which is right for a line a
     verb *composed* — one record, with values interpolated into it — and wrong
-    for text a tool or a parser *emitted*. Two diagnostics are the second kind
-    and nothing else is:
+    for text a tool or a parser *emitted*. Three producers are the second kind,
+    and each has its **own exception type** so that a clause cannot exempt more
+    than the diagnostic it was opened for:
 
-    * ``toolchain.py`` spells the break itself (``f"…failed:\\n{stderr[-2000:]}"``)
-      and that tail is the only account of a failed build;
-    * ``config.py`` wraps :class:`yaml.YAMLError`, whose block ends in a ``^``
-      under the offending column — a caret on a collapsed line points at
+    * :class:`~ai_rfc.toolchain.ToolchainBuildError` — ``toolchain.py`` spells
+      the break itself (``f"…failed:\\n{stderr[-2000:]}"``) and that tail is
+      the only account of a failed build. It is a *subclass* because nine of
+      the twelve ``ToolchainError`` sites interpolate a value instead, and
+      routing the whole ``except`` clause once let raw ``git`` stderr forge a
+      ``resume:`` line;
+    * :class:`~ai_rfc.config.ConfigParseError` and
+      :class:`~ai_rfc.ledger.LedgerParseError` — :class:`yaml.YAMLError` from
+      ``recon.yaml`` and from ``revisions.yaml``, whose block ends in a ``^``
+      under the offending column. A caret on a collapsed line points at
       nothing, and position is the whole of its meaning.
 
     **Calling this is an assertion by the caller**: that the breaks in this
@@ -77,7 +84,11 @@ def report_structured(message: str) -> None:
     Args:
         message: The diagnostic, whose ``\\n`` breaks are kept.
     """
-    for line in message.split("\n"):
+    # One trailing break dropped, not stripped: a subprocess's
+    # ``stderr[-2000:]`` almost always ends in a newline, and ``str.split``
+    # answers that with a final empty string — a blank stderr line after every
+    # failed build. A *second* trailing break is a real blank line and is kept.
+    for line in message.removesuffix("\n").split("\n"):
         print(printable(line), file=sys.stderr)
 
 

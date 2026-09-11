@@ -33,6 +33,23 @@ class ToolchainError(RuntimeError):
     """The toolchain could not be installed or re-checked as asked."""
 
 
+class ToolchainBuildError(ToolchainError):
+    """A :class:`ToolchainError` whose text is a **build tool's own stderr tail**.
+
+    Three of this module's twelve raise sites end in ``f"…:\\n{stderr[-2000:]}"``
+    — ``make deps``, ``npm install`` and the online seed build. That tail is
+    the only account an operator gets of why provisioning failed, and its
+    lines are the compiler's, so a verb may print it with the breaks intact.
+
+    The other nine interpolate a value into a sentence this module composed: a
+    ``--root`` argument, ``$AI_RFC_EXPERIMENTS_ROOT``, a template URL, or raw
+    ``git`` stderr. Those must reach the operator as **one** record, because a
+    newline arriving through one of them forges a second. Hence a subclass
+    rather than a flag on the base: an ``except`` clause can then name exactly
+    the diagnostic it means to keep the lines of.
+    """
+
+
 Runner = Callable[..., "subprocess.CompletedProcess[str]"]
 
 TOOLS_DIR = "tools"
@@ -211,14 +228,14 @@ def provision(
         text=True,
     )
     if deps.returncode != 0:
-        raise ToolchainError(f"make deps failed:\n{deps.stderr[-2000:]}")
+        raise ToolchainBuildError(f"make deps failed:\n{deps.stderr[-2000:]}")
     npm = run(
         ["npm", "install", "--prefix", str(tools), "--no-save", *NODE_PACKAGES],
         capture_output=True,
         text=True,
     )
     if npm.returncode != 0:
-        raise ToolchainError(f"npm install failed:\n{npm.stderr[-2000:]}")
+        raise ToolchainBuildError(f"npm install failed:\n{npm.stderr[-2000:]}")
 
     binstubs = sorted(home.glob(".gems/ruby/*/bin/kramdown-rfc"))
     if not binstubs:
@@ -284,7 +301,9 @@ def provision(
         text=True,
     )
     if seed.returncode != 0:
-        raise ToolchainError(f"the online seed build failed:\n{seed.stderr[-2000:]}")
+        raise ToolchainBuildError(
+            f"the online seed build failed:\n{seed.stderr[-2000:]}"
+        )
     missing = [
         ref
         for ref in references

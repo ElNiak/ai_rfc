@@ -29,6 +29,21 @@ class LedgerError(RuntimeError):
     """Raised when the workspace's progress cannot be read as written."""
 
 
+class LedgerParseError(LedgerError):
+    """A :class:`LedgerError` carrying a **parser's own** multi-line diagnostic.
+
+    The mirror of :class:`ai_rfc.config.ConfigParseError`, one file along: a
+    :class:`yaml.YAMLError` from ``revisions.yaml``, whose block ends in a
+    ``^`` under the offending column. It is a different exception *family*
+    from ``ConfigError``, which is exactly why two successive sweeps for
+    multi-line diagnostics missed it — both searched the config path.
+
+    Only the YAML wrap raises it. This module's other three wraps carry an
+    ``OSError`` or a :class:`json.JSONDecodeError`, both of which are one line,
+    and both of which name a value that must stay one record.
+    """
+
+
 def partial_reason(
     checkpoint: bool, revision_tag: str | None, tag_exists: bool
 ) -> str | None:
@@ -111,8 +126,12 @@ def _entries(workspace: Path) -> dict[str, tuple[str, bool | None]]:
         return {}
     try:
         document = yaml.safe_load(path.read_text()) or {}
-    except (OSError, yaml.YAMLError) as error:
+    except OSError as error:
         raise LedgerError(f"{path}: {error}") from None
+    except yaml.YAMLError as error:
+        # The parser's block under its own type, so a verb can keep its lines
+        # and its caret without exempting every other LedgerError with it.
+        raise LedgerParseError(f"{path}: {error}") from None
     found: dict[str, tuple[str, bool | None]] = {}
     for tag, body in (document.get("revisions") or {}).items():
         if not isinstance(body, dict) or "cluster_id" not in body:

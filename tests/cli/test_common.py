@@ -168,6 +168,32 @@ def test_every_verb_that_reads_a_config_keeps_the_parser_s_lines(
     assert any(line.strip() == "^" for line in lines)
 
 
+@pytest.mark.parametrize("verb", ["run", "status"])
+def test_a_malformed_revisions_yaml_keeps_the_parser_s_lines(
+    initialised, capsys: pytest.CaptureFixture[str], verb: str
+) -> None:
+    """The third producer, missed by two successive measurements.
+
+    ``ledger.py:114`` wraps :class:`yaml.YAMLError` from ``revisions.yaml``
+    into a ``LedgerError`` — a different exception family from ``config.py``'s,
+    which is why scoping the search to ``ConfigError`` did not find it. It
+    reaches ``run`` and ``status``; ``verify`` only tests that the clusters
+    file exists, so it never parses this.
+    """
+    from ai_rfc.cli import main
+
+    config_path, root = initialised
+    assert main(["run", "--config", str(config_path)]) == 0
+    capsys.readouterr()
+    (root / "revisions.yaml").write_text("revisions:\n  a: b\n   c: [unclosed\n")
+
+    assert main([verb, "--config", str(config_path)]) == 1
+
+    lines = capsys.readouterr().err.splitlines()
+    assert len(lines) > 1
+    assert any(line.strip() == "^" for line in lines)
+
+
 def test_a_legitimate_accented_path_is_printed_untouched(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
