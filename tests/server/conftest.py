@@ -13,7 +13,7 @@ def make_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         return build_workspace(tmp_path / name)
 
     def use(root: Path) -> None:
-        monkeypatch.setenv("AI_RFC_WORKSPACE", str(root))
+        monkeypatch.setenv("AI_RFC_CONFIG", str(root / "recon.yaml"))
 
     return build, use
 

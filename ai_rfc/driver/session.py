@@ -26,7 +26,7 @@ from typing import Any
 
 from ai_rfc.config import experiments_root, profile_dir
 
-from . import DriverError
+from . import CONFIG_FILE, DriverError
 from .arms import MCP_FILE, ArmProfile, arm_profile, claude_argv, mcp_config
 from .enforcement import bash_prefixes, render_settings
 from .spawn import spawn
@@ -239,6 +239,12 @@ class SessionResult:
 def session_env(spec: SessionSpec) -> dict[str, str]:
     """The complete environment of a session: profile, contract, PATH, HOME.
 
+    Nothing is inherited, so both halves of the contract are named here.
+    ``AI_RFC_CONFIG`` is what ``resolve_context()`` reads, and arms A and C
+    reach it by running the CLI inside this environment;
+    ``AI_RFC_WORKSPACE`` stays because arm B's and arm C's rendered prompts
+    spell paths as ``$AI_RFC_WORKSPACE/...``.
+
     Args:
         spec: The session being launched.
 
@@ -250,6 +256,7 @@ def session_env(spec: SessionSpec) -> dict[str, str]:
     return {
         "CLAUDE_CONFIG_DIR": str(resolve_profile(spec.profile)),
         "AI_RFC_WORKSPACE": str(spec.workspace),
+        "AI_RFC_CONFIG": str(spec.workspace / CONFIG_FILE),
         **({"AI_RFC_TOOLCHAIN": str(spec.toolchain)} if spec.toolchain else {}),
         "PATH": ":".join(directories),
         "HOME": os.environ.get("HOME", ""),

@@ -47,7 +47,7 @@ from ai_rfc.pipeline.run import perform, workspace_from
 from ai_rfc.pipeline.stages import BY_NAME
 from ai_rfc.pipeline.state import State, state
 
-from . import DriverError, printable, record, render
+from . import CONFIG_FILE, DriverError, printable, record, render
 from .arms import arm_profile
 from .consolidation import Due, consolidation_due, consolidations_recorded
 from .session import SessionSpec, claude_version, run_session, surface_shortfall
@@ -79,11 +79,6 @@ GATE_STAGES: tuple[str, ...] = ("check", "lint", "build")
 #: What one iteration of the loop decided to do.
 ACTIONS: tuple[str, ...] = ("stage", "session", "consolidation", "gate", "stop")
 
-#: The sealed configuration, duplicated from
-#: :attr:`ai_rfc.lifecycle.workspace.Layout.config` for the same reason
-#: :data:`ai_rfc.driver.record.RUNS_DIR` duplicates ``runs``: this package sits
-#: below ``lifecycle`` and may not import it.
-CONFIG_FILE = "recon.yaml"
 #: The system prompt this run rendered, beside the run rather than inside the
 #: workspace: a session may write the workspace, and a prompt it could rewrite
 #: is a prompt whose digest proves nothing.

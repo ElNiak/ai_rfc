@@ -6,9 +6,12 @@ harness reuses the same builder for its own tests. Importable without the
 ``mcp`` package.
 """
 
+import json
 import os
 import subprocess
 from pathlib import Path
+
+import yaml
 
 
 def git(repo: Path, *args: str, date: str | None = None) -> str:
@@ -37,6 +40,52 @@ def git(repo: Path, *args: str, date: str | None = None) -> str:
         text=True,
         env=env,
     ).stdout.strip()
+
+
+def seal(root: Path) -> Path:
+    """Write the two files that make ``root`` a sealed workspace.
+
+    ``resolve_context()`` reads ``AI_RFC_CONFIG`` and takes the workspace from
+    the config's own directory only when that directory holds both halves of
+    what ``init`` writes, so a fixture workspace must carry both or no tool can
+    be pointed at it.
+
+    ``toolchain:`` is declared rather than left to its default, and that is
+    load-bearing for the same reason ``tests/conftest.py``'s ``initialised``
+    fixture pins the experiments root: the default is
+    ``<experiments root>/tools/toolchain.json``, which exists on a developer's
+    machine, and a context that found it would run a real draft build off the
+    operator's own toolchain. The path named here never exists.
+
+    The config is emitted rather than formatted: a ``root`` carrying a colon, a
+    quote or a ``#`` is the YAML emitter's problem to quote, not a list of
+    characters this function remembers.
+
+    Args:
+        root: An existing workspace root.
+
+    Returns:
+        The path of the sealed ``recon.yaml``.
+    """
+    config = root / "recon.yaml"
+    config.write_text(
+        yaml.safe_dump(
+            {
+                "name": "fixture",
+                "workspace": str(root),
+                "toolchain": str(root / "tools" / "toolchain.json"),
+                "source": {
+                    "repo": str(root / "clone"),
+                    "host": "none",
+                    "pin": "main",
+                },
+                "draft": {"name": "draft-test-spec"},
+            },
+            sort_keys=True,
+        )
+    )
+    (root / "init.json").write_text(json.dumps({"name": "fixture"}) + "\n")
+    return config
 
 
 def build_workspace(root: Path) -> Path:
@@ -147,4 +196,5 @@ def build_workspace(root: Path) -> Path:
         "revision 00 content",
         date="2026-01-01T00:00:05+00:00",
     )
+    seal(root)
     return root

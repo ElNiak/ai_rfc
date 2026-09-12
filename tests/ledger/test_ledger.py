@@ -239,7 +239,7 @@ def test_the_five_old_readers_agree_with_the_ledger(ws, monkeypatch):
     first, second = _ids(ws)
     _finish(ws, first, "draft-test-spec-01")
     (ws / "init.json").write_text(json.dumps({"window": [1, 2]}))
-    monkeypatch.setenv("AI_RFC_WORKSPACE", str(ws))
+    monkeypatch.setenv("AI_RFC_CONFIG", str(ws / "recon.yaml"))
 
     rows = clusters(ws)
     summary = counts(rows)

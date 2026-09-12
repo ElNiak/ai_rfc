@@ -35,7 +35,7 @@ def fixture_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     from ai_rfc.server.testing import build_workspace
 
     root = build_workspace(tmp_path / "ws")
-    monkeypatch.setenv("AI_RFC_WORKSPACE", str(root))
+    monkeypatch.setenv("AI_RFC_CONFIG", str(root / "recon.yaml"))
     return root
 
 

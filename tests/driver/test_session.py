@@ -210,6 +210,7 @@ def test_the_environment_is_closed_and_keeps_user(
     assert set(calls[0]["env"]) == {
         "CLAUDE_CONFIG_DIR",
         "AI_RFC_WORKSPACE",
+        "AI_RFC_CONFIG",
         "AI_RFC_TOOLCHAIN",
         "PATH",
         "HOME",

@@ -340,7 +340,7 @@ def test_prepared_window_is_the_only_unprocessed_range(
     fixture_workspace, template_repo, tmp_path, monkeypatch
 ):
     pristine = _prepare(fixture_workspace, template_repo, tmp_path)
-    monkeypatch.setenv("AI_RFC_WORKSPACE", str(pristine))
+    monkeypatch.setenv("AI_RFC_CONFIG", str(pristine / "recon.yaml"))
 
     from ai_rfc.server.core.queries import cluster_next, status
     from ai_rfc.server.paths import resolve_context

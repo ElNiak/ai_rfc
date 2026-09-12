@@ -51,10 +51,12 @@ def test_launch_streams_events_and_records_status(campaign, write_scenario):
     env = json.loads((ref.run_dir / "env.json").read_text())
     assert env["PATH"].startswith(str(campaign.bin_dir))
     assert env["AI_RFC_WORKSPACE"] == str(ref.workspace)
+    assert env["AI_RFC_CONFIG"] == str(ref.workspace / "recon.yaml")
     assert env["AI_RFC_TOOLCHAIN"] == campaign.toolchain
     assert set(env) == {
         "CLAUDE_CONFIG_DIR",
         "AI_RFC_WORKSPACE",
+        "AI_RFC_CONFIG",
         "AI_RFC_TOOLCHAIN",
         "PATH",
         "HOME",

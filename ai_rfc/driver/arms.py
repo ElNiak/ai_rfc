@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from . import DriverError
+from . import CONFIG_FILE, DriverError
 
 ARMS = ("A", "B", "C")
 READ_TOOLS = ("Read", "Edit", "Write", "Grep", "Glob")
@@ -145,8 +145,17 @@ def mcp_config(
     The server is a module of the installed package, so the config names the
     interpreter and the module and nothing else; there is no checkout to
     locate and no path to bootstrap.
+
+    ``AI_RFC_CONFIG`` is what the server resolves its context from; the run's
+    workspace is a sealed one, so its own ``recon.yaml`` is the handle.
+    ``AI_RFC_WORKSPACE`` goes with it because arm B's and arm C's rendered
+    prompts spell paths as ``$AI_RFC_WORKSPACE/...``, and an arm that mounts
+    the server may also be told to run a command.
     """
-    env = {"AI_RFC_WORKSPACE": str(workspace)}
+    env = {
+        "AI_RFC_WORKSPACE": str(workspace),
+        "AI_RFC_CONFIG": str(workspace / CONFIG_FILE),
+    }
     if toolchain is not None:
         env["AI_RFC_TOOLCHAIN"] = str(toolchain)
     return {

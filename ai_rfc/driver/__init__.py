@@ -8,6 +8,17 @@ experiment share one spawn path rather than two that drift.
 
 from __future__ import annotations
 
+#: The sealed configuration, duplicated from
+#: :attr:`ai_rfc.lifecycle.workspace.Layout.config` for the same reason
+#: :data:`ai_rfc.driver.record.RUNS_DIR` duplicates ``runs``: this package sits
+#: below ``lifecycle`` and may not import it.
+#:
+#: It lives at the package root rather than in :mod:`~ai_rfc.driver.sweep`,
+#: where it was written, for the reason :func:`printable` gives below:
+#: :func:`~ai_rfc.driver.arms.mcp_config` is a second consumer, and ``sweep``
+#: imports ``arms`` — reaching it through ``sweep`` would be a cycle.
+CONFIG_FILE = "recon.yaml"
+
 
 class DriverError(RuntimeError):
     """A session could not be launched, read, or accounted for."""

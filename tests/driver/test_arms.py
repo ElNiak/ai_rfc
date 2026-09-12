@@ -174,7 +174,10 @@ def test_the_mcp_config_launches_the_installed_server(tmp_path):
     server = config["mcpServers"]["ai_rfc"]
     assert server["command"] == "/venv/bin/python"
     assert server["args"] == ["-m", "ai_rfc.server"]
-    assert server["env"] == {"AI_RFC_WORKSPACE": str(tmp_path / "ws")}
+    assert server["env"] == {
+        "AI_RFC_WORKSPACE": str(tmp_path / "ws"),
+        "AI_RFC_CONFIG": str(tmp_path / "ws" / "recon.yaml"),
+    }
 
     with_toolchain = mcp_config(
         python="/venv/bin/python",

@@ -62,9 +62,9 @@ def test_gate_verbs_pass_exit_codes_through(workspace, capsys):
 
 
 def test_missing_env_is_a_clean_error(workspace, capsys, monkeypatch):
-    monkeypatch.delenv("AI_RFC_WORKSPACE")
+    monkeypatch.delenv("AI_RFC_CONFIG")
     assert cli.main(["status"]) == 1
-    assert "AI_RFC_WORKSPACE" in capsys.readouterr().err
+    assert "AI_RFC_CONFIG" in capsys.readouterr().err
 
 
 def test_checkpoint_verb(workspace, capsys):
