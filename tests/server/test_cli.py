@@ -67,6 +67,44 @@ def test_missing_env_is_a_clean_error(workspace, capsys, monkeypatch):
     assert "AI_RFC_CONFIG" in capsys.readouterr().err
 
 
+def test_a_config_that_does_not_validate_is_a_clean_error(
+    workspace, capsys, monkeypatch, tmp_path
+):
+    """Resolving the context now loads the config, so its refusals reach here.
+
+    Before the contract moved, ``load_config`` was not on this path and a
+    ``ConfigError`` was unreachable; catching only ``EnvError`` would turn an
+    operator's typo into a traceback.
+    """
+    bad = tmp_path / "recon.yaml"
+    bad.write_text("name: demo\nnope: 1\n")
+    monkeypatch.setenv("AI_RFC_CONFIG", str(bad))
+    assert cli.main(["status"]) == 1
+    err = capsys.readouterr().err
+    assert "nope: unknown key" in err
+    # One record, one line: a composed diagnostic with values interpolated.
+    assert err.count("\n") == 1
+
+
+def test_a_yaml_parse_error_keeps_the_parsers_own_caret(
+    workspace, capsys, monkeypatch, tmp_path
+):
+    """The other branch: the parser's block is the diagnosis, breaks and all.
+
+    A caret marks the offending column. Collapsed onto one line it points at
+    nothing, so ``ConfigParseError`` is reported through the structured path.
+    """
+    bad = tmp_path / "recon.yaml"
+    bad.write_text("name: [demo\n")
+    monkeypatch.setenv("AI_RFC_CONFIG", str(bad))
+    assert cli.main(["status"]) == 1
+    lines = capsys.readouterr().err.splitlines()
+    assert len(lines) > 1
+    caret = next(index for index, line in enumerate(lines) if line.strip() == "^")
+    assert lines[caret - 1].strip().startswith("name: [demo")
+    assert lines[caret].index("^") == lines[caret - 1].index("[")
+
+
 def test_checkpoint_verb(workspace, capsys):
     assert cli.main(["cluster-next"]) == 0
     first = _emit(capsys)

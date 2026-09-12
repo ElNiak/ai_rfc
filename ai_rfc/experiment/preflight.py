@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from ai_rfc.driver import DriverError
+from ai_rfc.driver import CONFIG_FILE, DriverError
 from ai_rfc.driver.arms import ARMS, MCP_FILE, arm_flags, arm_profile, mcp_config
 from ai_rfc.driver.enforcement import bash_prefixes, render_settings
 from ai_rfc.driver.stream import (
@@ -107,7 +107,15 @@ def build_invocations(
     scratch = _scratch(root)
     cwd = scratch / "cwd"
     isolated = profile_env(profile_dir(root))
-    plugin_env = {**isolated, "AI_RFC_WORKSPACE": str(workspace)}
+    # Every variable the plugin's ``.mcp.json`` substitutes. ``AI_RFC_CONFIG``
+    # is what the server resolves its context from, so the probe's negative
+    # control (``plugin_mcp_noenv``, which gets ``isolated``) fails on its
+    # absence rather than on the workspace handle's.
+    plugin_env = {
+        **isolated,
+        "AI_RFC_CONFIG": str(workspace / CONFIG_FILE),
+        "AI_RFC_WORKSPACE": str(workspace),
+    }
 
     def call(
         name: str,

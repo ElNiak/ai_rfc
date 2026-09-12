@@ -12,12 +12,10 @@ import json
 import sys
 from typing import Any
 
+from ..config import ConfigError, ConfigParseError
+from ..lifecycle.common import report, report_structured
 from .core import CoreError
 from .paths import EnvError, resolve_context
-
-
-def _report(message: str) -> None:
-    print(message, file=sys.stderr)
 
 
 def _emit(payload: Any) -> None:
@@ -37,7 +35,7 @@ def _parse_fields(pairs: list[str]) -> dict[str, Any]:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="ai_rfc",
-        description="Drive a reconstruction workspace (AI_RFC_WORKSPACE).",
+        description="Drive a reconstruction workspace (AI_RFC_CONFIG).",
     )
     verbs = parser.add_subparsers(dest="verb", required=True)
 
@@ -254,8 +252,14 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         ctx = resolve_context()
-    except EnvError as error:
-        _report(f"error: {error}")
+    except ConfigParseError as error:
+        # Its own branch, ahead of ConfigError: the YAML parser's block ends in
+        # a caret under the offending column, and a collapsed line leaves the
+        # caret pointing at nothing.
+        report_structured(f"error: {error}")
+        return 1
+    except (EnvError, ConfigError) as error:
+        report(f"error: {error}")
         return 1
 
     from .core import (
@@ -368,10 +372,13 @@ def main(argv: list[str] | None = None) -> int:
         elif args.verb == "draft-render":
             print(structures.render_structures(ctx), end="")
     except CoreError as error:
-        _report(f"error: {error}")
+        report(f"error: {error}")
         return 1
     except Exception as error:  # noqa: BLE001 - substrate errors surface verbatim
-        _report(f"error: {type(error).__name__}: {error}")
+        # Collapsed, deliberately. This clause catches a whole family, and
+        # report_structured's contract is an assertion about *one* producer's
+        # text; a broad clause cannot make it.
+        report(f"error: {type(error).__name__}: {error}")
         return 1
     return 0
 

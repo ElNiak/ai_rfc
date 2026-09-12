@@ -67,8 +67,13 @@ def test_isolated_invocations_use_the_profile_and_controls_do_not(tmp_path):
         by_name["claude_md_control"].cwd
         == tmp_path / "root" / "spike" / "canary" / "sub"
     )
-    assert by_name["plugin_mcp_env"].env["AI_RFC_WORKSPACE"] == str(tmp_path / "ws")
+    # Both halves of the contract the plugin's .mcp.json substitutes, and the
+    # negative control carries neither.
+    plugin_env = by_name["plugin_mcp_env"].env
+    assert plugin_env["AI_RFC_WORKSPACE"] == str(tmp_path / "ws")
+    assert plugin_env["AI_RFC_CONFIG"] == str(tmp_path / "ws" / "recon.yaml")
     assert "AI_RFC_WORKSPACE" not in by_name["plugin_mcp_noenv"].env
+    assert "AI_RFC_CONFIG" not in by_name["plugin_mcp_noenv"].env
     for name, inv in by_name.items():
         assert inv.argv[:2] == ("claude", "-p"), name
         assert "--max-budget-usd" in inv.argv, name
