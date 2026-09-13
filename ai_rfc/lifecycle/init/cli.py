@@ -11,16 +11,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from ... import __version__
-from ...config import (
-    ConfigError,
-    ConfigParseError,
-    ReconConfig,
-    dump_config,
-    load_config,
-)
+from ...config import ConfigError, ReconConfig, dump_config, load_config
 from ...draft.build import Toolchain
 from .. import LifecycleError
-from ..common import add_config_argument, config_path_from, report, report_structured
+from ..common import add_config_argument, config_path_from, report_diagnostic
 from ..workspace import (
     TEMPLATE_COMMIT,
     TEMPLATE_URL,
@@ -190,11 +184,12 @@ def run(args: argparse.Namespace) -> int:
             template=args.template,
             template_commit=args.template_commit,
         )
-    except ConfigParseError as error:
-        report_structured(f"error: {error}")
-        return 1
     except (LifecycleError, ConfigError, OSError) as error:
-        report(f"error: {error}")
+        # One clause. Whether a parser's caret survives is the raise
+        # site's property to declare, not this clause's to guess:
+        # report_diagnostic escapes the path each message opens with
+        # and prints a parser's block with its breaks.
+        report_diagnostic("error: ", error)
         return 1
     print(f"workspace: {root}")
     print(f"next: ai-rfc run --config {config_path}")

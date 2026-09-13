@@ -254,7 +254,7 @@ def test_cli_provision_keeps_the_lines_of_a_build_failure(
     )
 
     def _fail(*_args, **_kwargs):
-        raise ToolchainBuildError(f"make deps failed:\n{tail}")
+        raise ToolchainBuildError("make deps failed:", tail)
 
     monkeypatch.setattr(toolchain_cli, "provision", _fail)
 
@@ -312,7 +312,7 @@ def test_cli_provision_emits_no_trailing_blank_line(tmp_path, capsys, monkeypatc
     from ai_rfc.lifecycle.toolchain import cli as toolchain_cli
 
     def _fail(*_args, **_kwargs):
-        raise ToolchainBuildError("make deps failed:\nError 2\n")
+        raise ToolchainBuildError("make deps failed:", "Error 2\n")
 
     monkeypatch.setattr(toolchain_cli, "provision", _fail)
 

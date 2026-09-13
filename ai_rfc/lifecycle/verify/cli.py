@@ -6,7 +6,7 @@ import argparse
 from pathlib import Path
 
 from ... import __version__, ledger
-from ...config import ConfigError, ConfigParseError
+from ...config import ConfigError
 from ...draft import cli as draft_cli
 from ...pipeline.run import perform
 from ...pipeline.stages import BY_NAME
@@ -16,7 +16,7 @@ from ..common import (
     config_path_from,
     load_pair,
     report,
-    report_structured,
+    report_diagnostic,
 )
 
 NO_TIMELINE = "skipped (no timeline yet; run ai-rfc run first)"
@@ -152,11 +152,12 @@ def run(args: argparse.Namespace) -> int:
     """
     try:
         return verify(config_path_from(args), strict=args.strict)
-    except ConfigParseError as error:
-        report_structured(f"error: {error}")
-        return 1
     except (LifecycleError, ConfigError, OSError) as error:
-        report(f"error: {error}")
+        # One clause. Whether a parser's caret survives is the raise
+        # site's property to declare, not this clause's to guess:
+        # report_diagnostic escapes the path each message opens with
+        # and prints a parser's block with its breaks.
+        report_diagnostic("error: ", error)
         return 1
 
 

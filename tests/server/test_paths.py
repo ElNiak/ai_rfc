@@ -3,30 +3,65 @@
 import shutil
 
 import pytest
+import yaml
 
 from ai_rfc.server.paths import EnvError, resolve_context
 
 
-def _seal(root, declares=None):
+def _config(root, **extra):
+    """The smallest ``recon.yaml`` body that validates, as a dict.
+
+    Args:
+        root: The directory the ``workspace:`` field names.
+        **extra: Further top-level keys, such as ``toolchain``.
+
+    Returns:
+        The document, ready for :func:`yaml.safe_dump`.
+    """
+    document = {
+        "name": "demo",
+        "workspace": str(root),
+        "source": {"repo": "https://example.invalid/r.git", "pin": "deadbeef"},
+        "draft": {"name": "draft-demo"},
+    }
+    document.update({key: str(value) for key, value in extra.items()})
+    return document
+
+
+def _write(config, root, **extra):
+    """Emit a config rather than format one.
+
+    ``tmp_path`` is ``TMPDIR``-derived, so a root carrying a ``:``, a ``#`` or
+    a quote is the emitter's problem to quote — the same reason
+    ``server/testing.seal`` dumps instead of interpolating, and these fixtures
+    exist to prove that fix rather than to repeat the defect.
+
+    Args:
+        config: The file to write.
+        root: The directory the ``workspace:`` field names.
+        **extra: Further top-level keys.
+
+    Returns:
+        The path written.
+    """
+    config.parent.mkdir(parents=True, exist_ok=True)
+    config.write_text(yaml.safe_dump(_config(root, **extra), sort_keys=True))
+    return config
+
+
+def _seal(root, **extra):
     """Write the two files ``init`` writes, and return the sealed config's path.
 
     Args:
         root: Directory to seal; created if absent.
-        declares: Extra top-level YAML lines, already formatted.
+        **extra: Further top-level config keys, such as ``toolchain``.
 
     Returns:
         The path of the sealed ``recon.yaml``.
     """
     root.mkdir(parents=True, exist_ok=True)
     (root / "init.json").write_text("{}")
-    config = root / "recon.yaml"
-    config.write_text(
-        "name: demo\n"
-        f"workspace: {root}\n"
-        "source:\n  repo: https://example.invalid/r.git\n  pin: deadbeef\n"
-        "draft:\n  name: draft-demo\n" + (declares or "")
-    )
-    return config
+    return _write(root / "recon.yaml", root, **extra)
 
 
 def test_the_contract_needs_only_the_config(tmp_path, monkeypatch):
@@ -51,14 +86,10 @@ def test_a_config_that_is_not_a_file_is_refused(tmp_path, monkeypatch):
 
 def test_a_declared_workspace_that_is_not_a_directory_is_refused(tmp_path, monkeypatch):
     """The unsealed branch trusts the field, so the field is checked."""
-    config = tmp_path / "desk" / "recon.yaml"
-    config.parent.mkdir()
-    config.write_text(
-        "name: demo\n"
-        f"workspace: {tmp_path / 'absent'}\n"
-        f"toolchain: {tmp_path / 'absent-toolchain.json'}\n"
-        "source:\n  repo: https://example.invalid/r.git\n  pin: deadbeef\n"
-        "draft:\n  name: draft-demo\n"
+    config = _write(
+        tmp_path / "desk" / "recon.yaml",
+        tmp_path / "absent",
+        toolchain=tmp_path / "absent-toolchain.json",
     )
     monkeypatch.setenv("AI_RFC_CONFIG", str(config))
     with pytest.raises(EnvError):
@@ -90,7 +121,7 @@ def test_the_config_field_outranks_the_environment_handle(monkeypatch, tmp_path)
     declared.write_text("{}")
     fallback = tmp_path / "fallback.json"
     fallback.write_text("{}")
-    config = _seal(tmp_path / "ws", declares=f"toolchain: {declared}\n")
+    config = _seal(tmp_path / "ws", toolchain=declared)
     monkeypatch.delenv("AI_RFC_WORKSPACE", raising=False)
     monkeypatch.setenv("AI_RFC_CONFIG", str(config))
     monkeypatch.setenv("AI_RFC_TOOLCHAIN", str(fallback))
@@ -110,13 +141,7 @@ def test_a_copied_workspace_resolves_to_the_copy_not_the_original(
     """
     pristine = tmp_path / "pristine"
     (pristine / "out").mkdir(parents=True)
-    (pristine / "init.json").write_text("{}")
-    (pristine / "recon.yaml").write_text(
-        "name: demo\n"
-        f"workspace: {pristine}\n"
-        "source:\n  repo: https://example.invalid/r.git\n  pin: deadbeef\n"
-        "draft:\n  name: draft-demo\n"
-    )
+    _seal(pristine)
     copy = tmp_path / "runs" / "A1" / "workspace"
     copy.parent.mkdir(parents=True)
     shutil.copytree(pristine, copy)
@@ -133,17 +158,18 @@ def test_an_operator_config_outside_a_workspace_resolves_to_its_field(
 
     The sealed branch is gated on the file's own name; an operator keeps their
     ``recon.yaml`` where they like and the tree it points at is elsewhere.
+
+    This is also what stops the unsealed-workspace refusal below from
+    swallowing the ordinary case: a desk holds a ``recon.yaml`` and nothing a
+    stage writes, so there is no workspace here to be operating on by mistake
+    and the field is trusted.
     """
     declared = tmp_path / "elsewhere"
     declared.mkdir()
-    config = tmp_path / "desk" / "recon.yaml"
-    config.parent.mkdir()
-    config.write_text(
-        "name: demo\n"
-        f"workspace: {declared}\n"
-        f"toolchain: {tmp_path / 'absent-toolchain.json'}\n"
-        "source:\n  repo: https://example.invalid/r.git\n  pin: deadbeef\n"
-        "draft:\n  name: draft-demo\n"
+    config = _write(
+        tmp_path / "desk" / "recon.yaml",
+        declared,
+        toolchain=tmp_path / "absent-toolchain.json",
     )
     monkeypatch.delenv("AI_RFC_WORKSPACE", raising=False)
     monkeypatch.setenv("AI_RFC_CONFIG", str(config))
@@ -165,13 +191,10 @@ def test_a_stray_init_record_beside_an_unsealed_config_does_not_seal_it(
     desk = tmp_path / "desk"
     desk.mkdir()
     (desk / "init.json").write_text("{}")
-    config = desk / "candidate.yaml"
-    config.write_text(
-        "name: demo\n"
-        f"workspace: {declared}\n"
-        f"toolchain: {tmp_path / 'absent-toolchain.json'}\n"
-        "source:\n  repo: https://example.invalid/r.git\n  pin: deadbeef\n"
-        "draft:\n  name: draft-demo\n"
+    config = _write(
+        desk / "candidate.yaml",
+        declared,
+        toolchain=tmp_path / "absent-toolchain.json",
     )
     monkeypatch.delenv("AI_RFC_WORKSPACE", raising=False)
     monkeypatch.setenv("AI_RFC_CONFIG", str(config))
@@ -187,16 +210,75 @@ def test_a_defaulted_toolchain_path_that_does_not_exist_resolves_to_None(
     # The default hangs off the experiments root, and an operator's own root
     # holds a real toolchain.json — the trap tests/conftest.py:133-138 names.
     monkeypatch.setenv("AI_RFC_EXPERIMENTS_ROOT", str(tmp_path / "root"))
-    sealed = tmp_path / "ws"
-    sealed.mkdir()
-    (sealed / "init.json").write_text("{}")
-    (sealed / "recon.yaml").write_text(
-        "name: demo\n"
-        f"workspace: {sealed}\n"
-        "source:\n  repo: https://example.invalid/r.git\n  pin: deadbeef\n"
-        "draft:\n  name: draft-demo\n"
-    )
+    sealed = _seal(tmp_path / "ws")
     monkeypatch.delenv("AI_RFC_WORKSPACE", raising=False)
     monkeypatch.delenv("AI_RFC_TOOLCHAIN", raising=False)
-    monkeypatch.setenv("AI_RFC_CONFIG", str(sealed / "recon.yaml"))
+    monkeypatch.setenv("AI_RFC_CONFIG", str(sealed))
     assert resolve_context().toolchain is None
+
+
+def test_a_run_workspace_that_lost_its_seal_is_refused_not_redirected(
+    tmp_path, monkeypatch
+):
+    """The seal's absence must stop the resolver, not steer it.
+
+    A run's workspace is a copy of the pristine and its sealed ``workspace:``
+    field names the pristine. Gating only on ``init.json`` meant that losing
+    that one file mid-run resolved every tool to the pristine — the shared
+    baseline every other run is copied from, so a write there contaminates a
+    whole campaign, and nothing would have said so.
+    """
+    pristine = tmp_path / "pristine"
+    (pristine / "out").mkdir(parents=True)
+    _seal(pristine)
+    copy = tmp_path / "runs" / "A1" / "workspace"
+    copy.parent.mkdir(parents=True)
+    shutil.copytree(pristine, copy)
+    (copy / "init.json").unlink()
+
+    monkeypatch.delenv("AI_RFC_WORKSPACE", raising=False)
+    monkeypatch.setenv("AI_RFC_CONFIG", str(copy / "recon.yaml"))
+    with pytest.raises(EnvError) as refusal:
+        resolve_context()
+    # The two trees are byte-identical bar the seal, so a refusal that did not
+    # name the missing file would leave an operator unable to tell them apart.
+    assert "init.json" in str(refusal.value)
+
+
+def test_a_toolchain_handle_naming_no_file_is_refused_however_the_config_reads(
+    monkeypatch, tmp_path
+):
+    """Outranked is not unchecked.
+
+    The config's ``toolchain:`` wins when it names a file, but a handle
+    pointing at nothing is an operator's typo either way, and a precedence
+    rule that swallowed it would hide the typo exactly when the config
+    happened to be well provisioned.
+    """
+    monkeypatch.setenv("AI_RFC_EXPERIMENTS_ROOT", str(tmp_path / "root"))
+    declared = tmp_path / "declared.json"
+    declared.write_text("{}")
+    monkeypatch.delenv("AI_RFC_WORKSPACE", raising=False)
+    monkeypatch.setenv("AI_RFC_CONFIG", str(_seal(tmp_path / "ws", toolchain=declared)))
+    monkeypatch.setenv("AI_RFC_TOOLCHAIN", str(tmp_path / "typo.json"))
+    with pytest.raises(EnvError) as refusal:
+        resolve_context()
+    assert "AI_RFC_TOOLCHAIN" in str(refusal.value)
+
+
+def test_a_refused_workspace_names_the_handle_it_came_from(tmp_path, monkeypatch):
+    """Two things can be wrong, and the message has to say which to edit.
+
+    The workspace is derived now, so a bare "not a directory" leaves an
+    operator guessing between ``AI_RFC_CONFIG`` and the ``workspace:`` field
+    inside the file it names.
+    """
+    config = _write(
+        tmp_path / "desk" / "recon.yaml",
+        tmp_path / "absent",
+        toolchain=tmp_path / "absent-toolchain.json",
+    )
+    monkeypatch.setenv("AI_RFC_CONFIG", str(config))
+    with pytest.raises(EnvError) as refusal:
+        resolve_context()
+    assert "AI_RFC_CONFIG" in str(refusal.value) and str(config) in str(refusal.value)

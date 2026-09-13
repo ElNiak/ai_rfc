@@ -10,16 +10,10 @@ import json
 from pathlib import Path
 
 from ... import __version__, ledger
-from ...config import ConfigError, ConfigParseError
+from ...config import ConfigError
 from ...pipeline.cli import print_status, status_payload
 from .. import LifecycleError
-from ..common import (
-    add_config_argument,
-    config_path_from,
-    load_pair,
-    report,
-    report_structured,
-)
+from ..common import add_config_argument, config_path_from, load_pair, report_diagnostic
 
 
 def payload(config_path: Path) -> dict:
@@ -106,13 +100,11 @@ def run(args: argparse.Namespace) -> int:
     """
     try:
         body = payload(config_path_from(args))
-    except (ConfigParseError, ledger.LedgerParseError) as error:
-        # Both parse blocks: `recon.yaml`'s and `revisions.yaml`'s. `status`
-        # reads the ledger, so unlike `verify` it can meet the second.
-        report_structured(f"error: {error}")
-        return 1
     except (LifecycleError, ConfigError, ledger.LedgerError, OSError) as error:
-        report(f"error: {error}")
+        # One clause for both parse blocks — `recon.yaml`'s and
+        # `revisions.yaml`'s — and for every refusal that is one record.
+        # Which is which is the raise site's to declare, not this clause's.
+        report_diagnostic("error: ", error)
         return 1
     if args.as_json:
         print(json.dumps(body, indent=2, sort_keys=True))

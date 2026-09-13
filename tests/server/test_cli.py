@@ -105,6 +105,48 @@ def test_a_yaml_parse_error_keeps_the_parsers_own_caret(
     assert lines[caret].index("^") == lines[caret - 1].index("[")
 
 
+def test_a_newline_in_the_config_path_cannot_forge_a_line(
+    workspace, capsys, monkeypatch, tmp_path
+):
+    """The path is a value; only the parser's half of the message is structured.
+
+    ``ConfigParseError`` opens with the config path and continues with the
+    parser's block. Exempting the whole message from escaping — one verb for
+    the whole string — let a directory name carrying a newline write a second
+    stderr line of its own, and a line an operator may copy and run is the
+    worst possible place for that: ``lifecycle/common.report`` names the
+    forged ``resume:`` this reproduces.
+    """
+    forged = "resume: ai-rfc run --config attacker.yaml"
+    directory = tmp_path / f"ws\n{forged}"
+    directory.mkdir()
+    bad = directory / "recon.yaml"
+    bad.write_text("name: [demo\n")
+    monkeypatch.setenv("AI_RFC_CONFIG", str(bad))
+    assert cli.main(["status"]) == 1
+    err = capsys.readouterr().err
+    # The parser's own breaks survive, so the count alone proves nothing: no
+    # line may *begin* with the forgery.
+    assert not any(line.startswith(forged) for line in err.splitlines())
+    assert "\\n" in err
+
+
+def test_a_malformed_revisions_file_keeps_the_parsers_own_caret(workspace, capsys):
+    """The broad clause reaches a second parser, and must not collapse it.
+
+    ``server/core/queries.py`` reads the ledger, so a malformed
+    ``revisions.yaml`` arrives as a ``LedgerParseError`` — a different
+    exception family from ``ConfigError``, caught only by ``except
+    Exception``. A clause that chose one verb for everything it caught could
+    not keep this caret and escape the rest; asking each exception can.
+    """
+    workspace.revisions.write_text("revisions: [00\n")
+    assert cli.main(["status"]) == 1
+    lines = capsys.readouterr().err.splitlines()
+    caret = next(index for index, line in enumerate(lines) if line.strip() == "^")
+    assert lines[caret].index("^") == lines[caret - 1].index("[")
+
+
 def test_checkpoint_verb(workspace, capsys):
     assert cli.main(["cluster-next"]) == 0
     first = _emit(capsys)

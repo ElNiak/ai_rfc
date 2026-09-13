@@ -12,8 +12,8 @@ import json
 import sys
 from typing import Any
 
-from ..config import ConfigError, ConfigParseError
-from ..lifecycle.common import report, report_structured
+from ..config import ConfigError
+from ..lifecycle.common import report_diagnostic
 from .core import CoreError
 from .paths import EnvError, resolve_context
 
@@ -252,14 +252,12 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         ctx = resolve_context()
-    except ConfigParseError as error:
-        # Its own branch, ahead of ConfigError: the YAML parser's block ends in
-        # a caret under the offending column, and a collapsed line leaves the
-        # caret pointing at nothing.
-        report_structured(f"error: {error}")
-        return 1
     except (EnvError, ConfigError) as error:
-        report(f"error: {error}")
+        # One clause, not two. Whether the YAML parser's caret survives is
+        # ConfigParseError's property to declare, not this clause's to guess:
+        # report_diagnostic escapes the config path it opens with and prints
+        # the parser's block with its breaks.
+        report_diagnostic("error: ", error)
         return 1
 
     from .core import (
@@ -372,13 +370,15 @@ def main(argv: list[str] | None = None) -> int:
         elif args.verb == "draft-render":
             print(structures.render_structures(ctx), end="")
     except CoreError as error:
-        report(f"error: {error}")
+        report_diagnostic("error: ", error)
         return 1
     except Exception as error:  # noqa: BLE001 - substrate errors surface verbatim
-        # Collapsed, deliberately. This clause catches a whole family, and
-        # report_structured's contract is an assertion about *one* producer's
-        # text; a broad clause cannot make it.
-        report(f"error: {type(error).__name__}: {error}")
+        # The comment above is true again. This clause catches a family and
+        # cannot assert anything about its members' text, so it asks them:
+        # a LedgerParseError from a malformed revisions.yaml arrives here
+        # (server/core/queries.py reads the ledger) and keeps its caret, while
+        # everything else stays one record.
+        report_diagnostic(f"error: {type(error).__name__}: ", error)
         return 1
     return 0
 

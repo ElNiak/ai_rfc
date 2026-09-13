@@ -19,17 +19,27 @@ for the reason :func:`ai_rfc.lifecycle.common.load_pair` records: a campaign
 pristine is sealed with its own root written into that field and then *copied*
 per run, so every copy names the tree it was made from.
 
+Which is why an **unsealed directory that is nonetheless a workspace is
+refused, never resolved**. A run's copy that has lost its ``init.json`` would
+otherwise fall through to that same ``workspace:`` field and send every tool to
+the pristine — the shared baseline every other run is copied from, and the one
+tree where a stray write contaminates a whole campaign. Falling back is
+available only where the fallback is harmless: a config with no workspace
+around it at all.
+
 ``AI_RFC_WORKSPACE`` is still exported — by :mod:`ai_rfc.driver.session`,
 :mod:`ai_rfc.driver.arms` and :mod:`ai_rfc.experiment.preflight` — because arm
 B's and arm C's rendered prompts spell paths as ``$AI_RFC_WORKSPACE/...`` at
 some twenty sites. It is no longer what this module reads.
 
 ``AI_RFC_TOOLCHAIN`` is optional; when set it names the ``toolchain.json`` the
-build gate uses. It is consulted only when the config's own ``toolchain:``
-names no file: that field is defaulted rather than optional
-(``config.py:642``), so reading it straight through would hand every context a
-toolchain and make ``core/draft.py``'s ``if ctx.toolchain is not None:`` always
-true.
+build gate uses. The config's own ``toolchain:`` outranks it, because that
+field is defaulted rather than optional (``config.py:642``) — reading it
+straight through would hand every context a toolchain and make
+``core/draft.py``'s ``if ctx.toolchain is not None:`` always true, so the field
+is tested for a *file* rather than against ``None``. Outranked is not
+unchecked: a handle that names no file is still refused, whatever the config
+declares, because it is an operator's typo either way.
 """
 
 from __future__ import annotations
@@ -39,7 +49,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..config import load_config
+from ..ledger import PRISTINE_RECORD
 from ..lifecycle.common import CONFIG_ENV
+from ..lifecycle.workspace import CONFIG_FILE as CONFIG_FILE_NAME
 from ..lifecycle.workspace import Layout
 
 #: The optional handle naming a ``toolchain.json`` outright.
@@ -73,6 +85,104 @@ class Context:
         return self.workspace / "revisions.yaml"
 
 
+def _workspace_markers(layout: Layout) -> list[str]:
+    """Which artifacts of a built workspace ``layout.root`` already holds.
+
+    A predicate over the category "is this a workspace", rather than a check
+    for the one file that happens to be missing: every one of these is written
+    by a stage or by ``init``, and none of them appears in a directory an
+    operator merely keeps a ``recon.yaml`` in.
+
+    Args:
+        layout: The candidate workspace.
+
+    Returns:
+        The names present, in a stable order; empty when this is not a
+        workspace.
+    """
+    candidates = (
+        layout.manifest,
+        layout.revisions,
+        layout.questions,
+        layout.clone,
+        layout.corpus,
+        layout.timeline,
+        layout.clusters,
+        layout.checkpoints,
+        layout.draft,
+        layout.out,
+        layout.refcache,
+        layout.root / PRISTINE_RECORD,
+    )
+    return [path.name for path in candidates if path.exists()]
+
+
+def _looks_like_a_workspace(layout: Layout) -> bool:
+    """Whether ``layout.root`` is a workspace that has lost its seal.
+
+    The config itself is not evidence: this is asked only on the branch that
+    is *defined* by a config being there, and an operator's desk holds one.
+    Anything else on the list is a stage's or ``init``'s output, so one is
+    enough.
+
+    Erring towards refusal is deliberate. A desk that happens to hold a
+    ``draft/`` beside its ``recon.yaml`` is refused with a message naming the
+    fix; the alternative, silently resolving a run's workspace to the pristine
+    it was copied from, is the failure that looks like success.
+
+    Args:
+        layout: The candidate workspace.
+
+    Returns:
+        True when a built workspace's artifacts are present, so resolving
+        elsewhere would be operating on the wrong tree.
+    """
+    return bool(_workspace_markers(layout))
+
+
+def _resolve_toolchain(declared: Path | None) -> Path | None:
+    """The ``toolchain.json`` this context builds against, or ``None``.
+
+    The config's field outranks the environment handle (D57's D2), but the
+    handle keeps its own guard: a ``AI_RFC_TOOLCHAIN`` that names no file is
+    an operator's typo either way, and swallowing it whenever the config
+    happened to declare a real record would make the typo invisible.
+
+    ``declared`` is never ``None`` in practice — ``config.py``'s table defaults
+    it to ``<experiments root>/tools/toolchain.json`` — which is exactly why
+    the field is tested with :meth:`~pathlib.Path.is_file` rather than against
+    ``None``: reading it straight through would hand every context a toolchain
+    and make ``core/draft.py``'s ``if ctx.toolchain is not None:`` always true.
+
+    The ``is not None`` below survives that, deliberately, because *in
+    practice* is a property of one producer and not of the type:
+    :attr:`ai_rfc.config.ReconConfig.toolchain` is declared ``Path | None``
+    and a config built by hand rather than loaded really does carry ``None``
+    (``tests/driver/test_sweep.py`` does exactly that, and
+    ``driver/sweep.py``'s own gate tests for it). Dropping the test would make
+    this function total only over the values ``load_config`` happens to
+    return, and ``mypy`` says so.
+
+    Args:
+        declared: The config's ``toolchain:`` field, defaulted or not.
+
+    Returns:
+        The resolved record, or ``None`` when neither source names a file.
+
+    Raises:
+        EnvError: If ``AI_RFC_TOOLCHAIN`` is set and does not name a file.
+    """
+    handle = os.environ.get(TOOLCHAIN_ENV)
+    from_handle: Path | None = None
+    if handle:
+        from_handle = Path(handle).expanduser().resolve()
+        if not from_handle.is_file():
+            raise EnvError(f"{TOOLCHAIN_ENV}={from_handle} is not a file")
+    if declared is not None and declared.is_file():
+        return declared.resolve()
+    return from_handle
+
+
 def resolve_context() -> Context:
     """Read and validate the environment contract.
 
@@ -80,8 +190,9 @@ def resolve_context() -> Context:
         The resolved context.
 
     Raises:
-        EnvError: If ``AI_RFC_CONFIG`` is missing or does not name a file, if
-            the workspace it resolves to is not a directory, or if
+        EnvError: If ``AI_RFC_CONFIG`` is missing or does not name a file,
+            if its directory is a workspace that has lost its ``init.json``,
+            if the workspace it resolves to is not a directory, or if
             ``AI_RFC_TOOLCHAIN`` is set and does not name a file.
         ConfigError: If the config does not validate. Deliberately not wrapped:
             :class:`~ai_rfc.config.ConfigParseError` is a subclass carrying the
@@ -98,16 +209,25 @@ def resolve_context() -> Context:
     if not config_path.is_file():
         raise EnvError(f"{CONFIG_ENV}={config_path} is not a file")
     layout = Layout(config_path.parent)
-    sealed = layout.config == config_path and layout.init_record.is_file()
     config = load_config(config_path)
-    workspace_path = layout.root if sealed else config.workspace.expanduser().resolve()
+    if layout.config == config_path and layout.init_record.is_file():
+        workspace_path = layout.root
+    else:
+        if _looks_like_a_workspace(layout):
+            raise EnvError(
+                f"{CONFIG_ENV}={config_path} sits in what looks like a "
+                f"workspace ({', '.join(_workspace_markers(layout))} present) "
+                f"but {layout.init_record.name} is missing, so this is not a "
+                f"sealed workspace and its {CONFIG_FILE_NAME}'s workspace: "
+                f"field names the tree it was copied from. Restore "
+                f"{layout.init_record}, or point {CONFIG_ENV} at the config of "
+                "the workspace you mean"
+            )
+        workspace_path = config.workspace.expanduser().resolve()
     if not workspace_path.is_dir():
-        raise EnvError(f"workspace {workspace_path} is not a directory")
-    toolchain: Path | None = None
-    if config.toolchain is not None and config.toolchain.is_file():
-        toolchain = config.toolchain.resolve()
-    elif os.environ.get(TOOLCHAIN_ENV):
-        toolchain = Path(os.environ[TOOLCHAIN_ENV]).resolve()
-        if not toolchain.is_file():
-            raise EnvError(f"{TOOLCHAIN_ENV}={toolchain} is not a file")
+        raise EnvError(
+            f"workspace {workspace_path}, from {CONFIG_ENV}={config_path}, "
+            "is not a directory"
+        )
+    toolchain = _resolve_toolchain(config.toolchain)
     return Context(workspace=workspace_path, toolchain=toolchain)

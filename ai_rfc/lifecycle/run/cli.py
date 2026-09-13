@@ -13,7 +13,7 @@ import argparse
 from pathlib import Path
 
 from ... import __version__, ledger
-from ...config import ConfigError, ConfigParseError
+from ...config import ConfigError
 from ...driver import DriverError, sweep
 from ...pipeline.run import perform
 from ...pipeline.stages import BY_NAME, STAGES, Performer, is_optional
@@ -24,7 +24,7 @@ from ..common import (
     config_path_from,
     load_sealed,
     report,
-    report_structured,
+    report_diagnostic,
 )
 
 BOUNDARY = "mining"
@@ -380,17 +380,6 @@ def run(args: argparse.Namespace) -> int:
     """
     try:
         return run_stages(config_path_from(args), until=args.until, retry=args.retry)
-    except (ConfigParseError, ledger.LedgerParseError) as error:
-        # Named before their bases: a parser's block is the one kind of
-        # diagnostic here whose line breaks are its own, and whose closing
-        # caret marks a column. Two files can produce one — `recon.yaml` and
-        # the workspace's `revisions.yaml` — and they raise from two different
-        # exception families, which is why a sweep scoped to `ConfigError`
-        # found only the first. Every other refusal below composes one record
-        # around a value — a `--until` bound, a path, a cluster id — and must
-        # stay one line.
-        report_structured(f"error: {error}")
-        return 1
     except (
         LifecycleError,
         ConfigError,
@@ -403,7 +392,10 @@ def run(args: argparse.Namespace) -> int:
         DriverError,
         OSError,
     ) as error:
-        report(f"error: {error}")
+        # One clause for every refusal, including the two parse blocks
+        # (`recon.yaml`'s and `revisions.yaml`'s). Which messages keep
+        # their line breaks is the raise site's property to declare.
+        report_diagnostic("error: ", error)
         return 1
 
 

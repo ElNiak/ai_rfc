@@ -17,6 +17,8 @@ from urllib.parse import urlparse
 
 import yaml
 
+from .diagnostics import StructuredDiagnostic
+
 DEFAULT_ROOT = "~/ai-rfc-experiments"
 IDENTITY_FIELDS = ("source.pin", "window", "draft.name")
 #: ``\Z``, never ``$``: Python's ``$`` also matches just before a trailing
@@ -47,7 +49,7 @@ class ConfigError(ValueError):
     """Raised when ``recon.yaml`` cannot be interpreted as written."""
 
 
-class ConfigParseError(ConfigError):
+class ConfigParseError(StructuredDiagnostic, ConfigError):
     """A :class:`ConfigError` carrying a **parser's own** multi-line diagnostic.
 
     Separate from its base for one reason: what a verb may do with the text.
@@ -59,9 +61,17 @@ class ConfigParseError(ConfigError):
     collapsing it points the caret at nothing.
 
     It subclasses ``ConfigError`` so that every existing ``except
-    ConfigError`` still catches it; a verb that wants to keep the parser's
-    lines names this type explicitly and routes it through
-    :func:`ai_rfc.lifecycle.common.report_structured`.
+    ConfigError`` still catches it, and
+    :class:`~ai_rfc.diagnostics.StructuredDiagnostic` so that a handler can
+    test for the property rather than name the type.
+
+    **Only the parser's half is the parser's.** The message opens with the
+    config path, which is a value an operator typed, so the two are carried
+    apart: the path is escaped and the block is printed with its breaks. A
+    verb that kept the whole string's breaks let a path containing a newline
+    forge a second stderr line — the failure
+    :func:`ai_rfc.lifecycle.common.report` names, arrived at through the door
+    meant to prevent it.
     """
 
 
@@ -556,7 +566,7 @@ def load_config(path: Path) -> ReconConfig:
         # The parser's block verbatim, under its own type: its lines and its
         # closing caret are the diagnosis, and a verb that collapses them
         # leaves the caret pointing at nothing.
-        raise ConfigParseError(f"{path}: {error}") from None
+        raise ConfigParseError(f"{path}:", str(error)) from None
     if not isinstance(document, dict):
         raise ConfigError(f"{path}: expected a mapping at the top level")
     flat = _flatten(document)

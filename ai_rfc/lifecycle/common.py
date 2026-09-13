@@ -16,6 +16,7 @@ import sys
 from pathlib import Path
 
 from ..config import ReconConfig, drift, load_config
+from ..diagnostics import StructuredDiagnostic
 from ..driver import printable
 from . import LifecycleError
 from .workspace import Layout
@@ -55,15 +56,16 @@ def report_structured(message: str) -> None:
     :func:`report` collapses every line break, which is right for a line a
     verb *composed* — one record, with values interpolated into it — and wrong
     for text a tool or a parser *emitted*. Three producers are the second kind,
-    and each has its **own exception type** so that a clause cannot exempt more
-    than the diagnostic it was opened for:
+    and each has its **own exception type**, all three mixing in
+    :class:`~ai_rfc.diagnostics.StructuredDiagnostic` so that a handler can
+    test for the property instead of naming the types it hopes it caught:
 
-    * :class:`~ai_rfc.toolchain.ToolchainBuildError` — ``toolchain.py`` spells
-      the break itself (``f"…failed:\\n{stderr[-2000:]}"``) and that tail is
-      the only account of a failed build. It is a *subclass* because nine of
-      the twelve ``ToolchainError`` sites interpolate a value instead, and
-      routing the whole ``except`` clause once let raw ``git`` stderr forge a
-      ``resume:`` line;
+    * :class:`~ai_rfc.toolchain.ToolchainBuildError` — ``toolchain.py`` passes
+      the tail as the block (``ToolchainBuildError("make deps failed:",
+      stderr[-2000:])``) and that tail is the only account of a failed build.
+      It is a *subclass* because nine of the twelve ``ToolchainError`` sites
+      interpolate a value instead, and routing the whole ``except`` clause
+      once let raw ``git`` stderr forge a ``resume:`` line;
     * :class:`~ai_rfc.config.ConfigParseError` and
       :class:`~ai_rfc.ledger.LedgerParseError` — :class:`yaml.YAMLError` from
       ``recon.yaml`` and from ``revisions.yaml``, whose block ends in a ``^``
@@ -72,7 +74,12 @@ def report_structured(message: str) -> None:
 
     **Calling this is an assertion by the caller**: that the breaks in this
     text are the producer's structure rather than a value that arrived from a
-    ``recon.yaml``, a timeline or a model. Every other unprintable character
+    ``recon.yaml``, a timeline or a model. Prefer :func:`report_diagnostic`,
+    which makes the assertion where it is true — at the raise site, over the
+    producer's half alone — rather than over a whole caught message. Call this
+    directly only where the text is a producer's and nothing else is joined to
+    it; the only such caller left is :func:`report_diagnostic` itself. Every
+    other unprintable character
     is still escaped, line by line, and only ``\\n`` survives — so a ``\\r``,
     a NEL, a LINE SEPARATOR, an ANSI introducer or a RIGHT-TO-LEFT OVERRIDE
     smuggled into a tool's output cannot rewrite what the terminal shows. The
@@ -90,6 +97,40 @@ def report_structured(message: str) -> None:
     # failed build. A *second* trailing break is a real blank line and is kept.
     for line in message.removesuffix("\n").split("\n"):
         print(printable(line), file=sys.stderr)
+
+
+def report_diagnostic(prefix: str, error: BaseException) -> None:
+    """Report one caught error, keeping a producer's own breaks and no others.
+
+    The verb to use is a property of the **raise site**, so this asks the raise
+    site: an exception mixing in
+    :class:`~ai_rfc.diagnostics.StructuredDiagnostic` has already separated the
+    half it composed from the half a parser or a build tool emitted, and each
+    half gets the treatment it needs — the heading through :func:`report`, the
+    block through :func:`report_structured`. Everything else is one record and
+    is collapsed.
+
+    This is what an ``except`` clause cannot do. A clause catches a *family*,
+    and both mistakes this replaces came from asking it to: naming
+    :class:`~ai_rfc.config.ConfigParseError` in a clause and passing the whole
+    message to :func:`report_structured` exempted the config **path** along
+    with the parser's block, so a path containing a newline forged a second
+    line; widening to a bare ``except Exception`` and passing everything to
+    :func:`report` collapsed a :class:`~ai_rfc.ledger.LedgerParseError`'s caret
+    instead. One ``isinstance`` over the category answers both.
+
+    Use it in the broad clause too. That is the point: the clause no longer
+    has to know which types it caught.
+
+    Args:
+        prefix: Text the caller composed, such as ``"error: "``. Escaped.
+        error: The caught exception.
+    """
+    if isinstance(error, StructuredDiagnostic):
+        report(f"{prefix}{error.structured_context}")
+        report_structured(error.structured_block)
+        return
+    report(f"{prefix}{error}")
 
 
 def add_config_argument(parser: argparse.ArgumentParser) -> None:

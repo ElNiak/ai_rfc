@@ -20,7 +20,7 @@ import shlex
 from pathlib import Path
 
 from ... import __version__, ledger
-from ...config import ConfigError, ConfigParseError
+from ...config import ConfigError
 from ...driver import DriverError, sweep
 from .. import LifecycleError
 from ..common import (
@@ -28,7 +28,7 @@ from ..common import (
     config_path_from,
     load_sealed,
     report,
-    report_structured,
+    report_diagnostic,
 )
 from ..run.cli import BOUNDARY, add_sweep_arguments
 
@@ -140,13 +140,6 @@ def run(args: argparse.Namespace) -> int:
     """
     try:
         return run_one(config_path_from(args), until=args.until, retry=args.retry)
-    except (ConfigParseError, ledger.LedgerParseError) as error:
-        # Named before their bases, as in `run`: a YAML parser's block is the
-        # one diagnostic here whose line breaks are its own and whose closing
-        # caret marks a column. Every other refusal composes one record around
-        # a value and must stay one line.
-        report_structured(f"error: {error}")
-        return 1
     except (
         LifecycleError,
         ConfigError,
@@ -159,7 +152,10 @@ def run(args: argparse.Namespace) -> int:
         DriverError,
         OSError,
     ) as error:
-        report(f"error: {error}")
+        # One clause for every refusal, including the two parse blocks
+        # (`recon.yaml`'s and `revisions.yaml`'s). Which messages keep
+        # their line breaks is the raise site's property to declare.
+        report_diagnostic("error: ", error)
         return 1
 
 

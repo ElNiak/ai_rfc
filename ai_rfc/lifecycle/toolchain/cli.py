@@ -7,15 +7,8 @@ from pathlib import Path
 
 from ... import __version__
 from ...config import experiments_root
-from ...toolchain import (
-    RECORD_FILE,
-    TOOLS_DIR,
-    ToolchainBuildError,
-    ToolchainError,
-    provision,
-    verify,
-)
-from ..common import report, report_structured
+from ...toolchain import RECORD_FILE, TOOLS_DIR, ToolchainError, provision, verify
+from ..common import report, report_diagnostic
 from ..workspace import TEMPLATE_COMMIT, TEMPLATE_URL
 
 
@@ -94,16 +87,15 @@ def run(args: argparse.Namespace) -> int:
             record = provision(
                 root, template=args.template, template_commit=args.template_commit
             )
-        except ToolchainBuildError as error:
-            # A build tool's own stderr tail: the only account of why
-            # provisioning failed, and its lines are the compiler's. Named
-            # before its base, because the other nine ToolchainError sites
-            # interpolate a value — raw git stderr among them — and exempting
-            # the whole clause let one of those forge a `resume:` line.
-            report_structured(f"error: {error}")
-            return 1
         except (ToolchainError, OSError) as error:
-            report(f"error: {error}")
+            # One clause. A build tool's stderr tail is the only account of
+            # why provisioning failed and its lines are the compiler's, while
+            # the other nine ToolchainError sites interpolate a value — raw
+            # git stderr among them — and exempting the whole clause let one
+            # of those forge a `resume:` line. Which is which is
+            # ToolchainBuildError's property to declare, not this clause's to
+            # guess.
+            report_diagnostic("error: ", error)
             return 1
         print(f"toolchain: {record}")
         return 0

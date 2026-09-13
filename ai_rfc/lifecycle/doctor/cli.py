@@ -14,14 +14,13 @@ from typing import Callable
 from ... import __version__, toolchain
 from ...config import (
     ConfigError,
-    ConfigParseError,
     ReconConfig,
     experiments_root,
     load_config,
     profile_dir,
 )
 from ...toolchain import RECORD_FILE, TOOLS_DIR
-from ..common import CONFIG_ENV, report, report_structured
+from ..common import CONFIG_ENV, report_diagnostic
 from ..profile import login_command
 
 
@@ -300,11 +299,12 @@ def run(args: argparse.Namespace) -> int:
     if config_path is not None:
         try:
             config = load_config(config_path)
-        except ConfigParseError as error:
-            report_structured(f"error: {error}")
-            return 1
         except ConfigError as error:
-            report(f"error: {error}")
+            # One clause. Whether a parser's caret survives is the raise
+            # site's property to declare, not this clause's to guess:
+            # report_diagnostic escapes the path each message opens with
+            # and prints a parser's block with its breaks.
+            report_diagnostic("error: ", error)
             return 1
     results = checks(config)
     if args.as_json:

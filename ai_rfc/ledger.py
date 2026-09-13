@@ -18,6 +18,8 @@ from typing import Any
 
 import yaml
 
+from .diagnostics import StructuredDiagnostic
+
 CHECKPOINT_FILE = "checkpoint.json"
 PRESEED_MARKER = "harness.json"
 CLUSTERS_FILE = "timeline/clusters.jsonl"
@@ -29,7 +31,7 @@ class LedgerError(RuntimeError):
     """Raised when the workspace's progress cannot be read as written."""
 
 
-class LedgerParseError(LedgerError):
+class LedgerParseError(StructuredDiagnostic, LedgerError):
     """A :class:`LedgerError` carrying a **parser's own** multi-line diagnostic.
 
     The mirror of :class:`ai_rfc.config.ConfigParseError`, one file along: a
@@ -131,7 +133,7 @@ def _entries(workspace: Path) -> dict[str, tuple[str, bool | None]]:
     except yaml.YAMLError as error:
         # The parser's block under its own type, so a verb can keep its lines
         # and its caret without exempting every other LedgerError with it.
-        raise LedgerParseError(f"{path}: {error}") from None
+        raise LedgerParseError(f"{path}:", str(error)) from None
     found: dict[str, tuple[str, bool | None]] = {}
     for tag, body in (document.get("revisions") or {}).items():
         if not isinstance(body, dict) or "cluster_id" not in body:
