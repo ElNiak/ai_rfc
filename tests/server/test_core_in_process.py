@@ -188,7 +188,7 @@ def test_citation_gate_says_it_is_clean(workspace):
     }
 
 
-@pytest.mark.parametrize("separator", ["\n", " "])
+@pytest.mark.parametrize("separator", ["\n", "\u2028"])
 def test_a_line_break_in_a_finding_arrives_as_separate_stderr_elements(
     workspace, separator
 ):
@@ -330,9 +330,17 @@ def test_the_core_never_spawns_a_substrate_subprocess(
 
 
 def test_the_shell_out_helper_is_gone():
+    """The absent ``subprocess`` attribute, not the argv predicate, is the proof.
+
+    A predicate refuser only recognises the shape ``_run`` happened to spawn; a
+    module that cannot reach ``subprocess`` at all cannot spawn any shape of it
+    — ``python3 -m``, ``-c``, a console script, ``shell=True``, ``Popen`` or
+    ``check_output`` included. Both modules are asserted, not just ``gates``.
+    """
     assert not hasattr(gates, "_run")
     assert not hasattr(gates, "subprocess")
     assert not hasattr(build_core, "_run")
+    assert not hasattr(build_core, "subprocess")
 
 
 _OUT_OF_FAMILY = {
