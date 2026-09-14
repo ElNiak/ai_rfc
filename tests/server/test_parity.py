@@ -13,7 +13,9 @@ their **workspace** form, with no path, because a path selects the explicit
 form instead — which prints no JSON and reads a different revision.
 """
 
+import argparse
 import json
+import re
 from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
@@ -102,10 +104,118 @@ def test_read_parity_adjudicate(make_workspace, capsys):
     assert from_tool == from_cli
 
 
+PARITY_TABLE = Path(__file__).resolve().parents[2] / "docs" / "parity.md"
+
+
 def test_every_tool_is_in_the_parity_table():
-    table = (Path(__file__).resolve().parents[2] / "docs" / "parity.md").read_text()
+    table = PARITY_TABLE.read_text()
     for tool in tools.ALL_TOOLS:
         assert f"`{tool.__name__}`" in table, tool.__name__
+
+
+#: The middle column's cell for a tool with no ``ai-rfc`` verb at all. Only
+#: ``ai_rfc_status`` has one (D16): the folded ``status`` got no verb, because
+#: ``ai-rfc status`` already means the operator's ledger.
+MCP_ONLY = "— (MCP only)"
+
+#: A cell boundary in a GitHub-flavoured Markdown table. A ``|`` inside a cell
+#: is escaped as ``\|`` and is *not* a boundary — row 25's
+#: ``(--normative\|--no-normative)`` is live data, and a naive ``split("|")``
+#: reads that one row as five cells and every later index as the wrong column.
+_BOUNDARY = re.compile(r"(?<!\\)\|")
+
+
+def _cells(row: str) -> list[str]:
+    """One table row's cells, unescaped.
+
+    Args:
+        row: A Markdown table row, pipes at both ends.
+
+    Returns:
+        The cells between the outer pipes, stripped, with ``\\|`` restored to
+        the ``|`` the author wrote.
+    """
+    return [cell.strip().replace("\\|", "|") for cell in _BOUNDARY.split(row)[1:-1]]
+
+
+def _verb_column() -> dict[str, str]:
+    """The parity table's tool name to its CLI cell.
+
+    Returns:
+        ``{tool name: middle cell}`` for every row of the tool table. Rows are
+        recognised by their first cell, so the exit-code table below it and the
+        prose around it are not rows.
+    """
+    return {
+        cells[0].strip("`"): cells[1]
+        for line in PARITY_TABLE.read_text().splitlines()
+        if line.startswith("| `ai_rfc_")
+        for cells in [_cells(line)]
+    }
+
+
+def _subcommands(parser: argparse.ArgumentParser) -> argparse._SubParsersAction | None:
+    """The subparser action of ``parser``, or ``None`` when it is a leaf."""
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            return action
+    return None
+
+
+def _descend(parser: argparse.ArgumentParser, tokens: list[str]) -> tuple[int, bool]:
+    """Follow ``tokens`` down the parser tree while each one is a choice.
+
+    A segment counts only when it is a *choice* of the parser above it, which
+    is what makes this a reading of the live tree rather than of a list: the
+    first token that is not a choice is where the verb ends and the cell's
+    placeholders (``SQL``, ``ID``, ``[--patch]``) begin.
+
+    Args:
+        parser: The parser to start from, normally the root.
+        tokens: The cell's words after ``ai-rfc``.
+
+    Returns:
+        How many segments were consumed, and whether the parser reached is a
+        leaf — a group such as ``claim`` is reached by one segment and is not
+        a verb anyone can run.
+    """
+    consumed = 0
+    for token in tokens:
+        action = _subcommands(parser)
+        if action is None or token not in action.choices:
+            break
+        parser = action.choices[token]
+        consumed += 1
+    return consumed, _subcommands(parser) is None
+
+
+def test_the_parity_table_names_a_verb_the_parser_owns():
+    """The middle column was documentation nothing checked.
+
+    ``test_every_tool_is_in_the_parity_table`` asserts the *tool* name, so the
+    column naming the CLI arm's own argv drifted through a whole rename
+    unnoticed: it still spelled the retired hyphenated verbs of a parser that
+    no longer exists. What it must name is a verb the root parser really owns,
+    read off ``cli.build_parser()`` rather than off a list written beside it —
+    a list would be re-derived from whatever the table already said.
+
+    What this cannot check is *correspondence*: the parser knows nothing of
+    tool names, so a row pairing ``ai_rfc_gate`` with ``ai-rfc claim upsert``
+    passes here. The twin named in :data:`TWINS` is what pins that pair, and
+    it drives both arms rather than reading either name.
+    """
+    parser = cli.build_parser()
+    column = _verb_column()
+    assert set(column) == {tool.__name__ for tool in tools.ALL_TOOLS}
+    for tool_name, cell in column.items():
+        if tool_name == "ai_rfc_status":
+            assert cell == MCP_ONLY, cell
+            continue
+        named = f"{tool_name}: {cell}"
+        assert cell.startswith("`ai-rfc ") and cell.endswith("`"), named
+        consumed, leaf = _descend(parser, cell.strip("`").split()[1:])
+        assert consumed, f"{tool_name}: {cell} opens with no verb the parser owns"
+        assert leaf, f"{tool_name}: {cell} stops at a group, which nothing runs"
 
 
 _PINNED = "2026-01-02T00:00:00+00:00"
@@ -205,7 +315,8 @@ def test_consolidation_checkpoint_and_revision_parity(make_workspace, capsys):
 
     use(tool_arm)
     first = tools.ai_rfc_cluster_next()["id"]
-    assert tools.ai_rfc_checkpoint(first)["exit_code"] == 0
+    checkpoint_tool = tools.ai_rfc_checkpoint(first)
+    assert checkpoint_tool["exit_code"] == 0
     tools.ai_rfc_revision_record("draft-test-spec-00", first, True, "first")
     # A consolidation that changed nothing digests the same manifest as the
     # cluster checkpoint, which would leave both arms comparing a degenerate
@@ -227,7 +338,9 @@ def test_consolidation_checkpoint_and_revision_parity(make_workspace, capsys):
     )
 
     use(cli_arm)
+    capsys.readouterr()
     assert cli.main(["checkpoint", first]) == 0
+    checkpoint_cli = json.loads(capsys.readouterr().out)
     assert (
         cli.main(
             [
@@ -279,6 +392,15 @@ def test_consolidation_checkpoint_and_revision_parity(make_workspace, capsys):
         == 0
     )
     capsys.readouterr()
+    # The one payload the twins cannot compare whole: its note carries the
+    # absolute path of the checkpoint just written, so the two arms differ
+    # there by construction and must. Rather than normalise the roots away as
+    # the build twin has to — a comparison that normalises can pass while the
+    # two sides genuinely differ — each note is asserted to name that arm's
+    # *own* directory, which is the property the difference stands for.
+    written = Path("checkpoints") / first
+    for arm, payload in ((tool_arm, checkpoint_tool), (cli_arm, checkpoint_cli)):
+        assert payload["stderr"] == [f"note: checkpoint written to {arm / written}"]
     for name in ("revisions.yaml", "consolidations/01/checkpoint.json"):
         assert (tool_arm / name).read_bytes() == (cli_arm / name).read_bytes()
     record = json.loads((tool_arm / "consolidations/01/checkpoint.json").read_text())

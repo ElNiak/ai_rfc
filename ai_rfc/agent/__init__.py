@@ -6,8 +6,8 @@ Every command below this package is one operation from
 parse argv, hand the core its arguments, and print what it returned. An
 operation implemented here rather than called from there would make the
 AI+MCP and AI+CLI arms two programs being compared instead of one program
-reached two ways, which is the thing ``tests/agent/test_one_core.py`` and
-``tests/server/test_parity.py`` exist to refuse.
+reached two ways, which is the thing ``tests/server/test_parity.py`` exists to
+refuse: one twin per MCP tool, each driving the tool against the verb below.
 
 The two functions here are the plumbing every group shares: the JSON rendering
 every result goes out as, and the context-and-refusal boundary every verb runs

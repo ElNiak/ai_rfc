@@ -76,7 +76,8 @@ def _export(args: argparse.Namespace, ctx: Context) -> int:
     ``end=""`` rather than a bare ``print()``: the bundle is the core's return
     value and a trailing newline appended here is a byte the tool arm never
     emits. ``3cdeb29`` fixed exactly that at the site this was lifted from, and
-    ``tests/agent/test_one_core.py`` pins the string against the core's own.
+    ``test_question_export_parity`` in ``tests/server/test_parity.py`` pins
+    this stdout against the tool's own return value, byte for byte.
     """
     from ...server.core import questions
 
