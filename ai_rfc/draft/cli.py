@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
 
 from ai_rfc import __version__
@@ -30,16 +29,6 @@ from .completeness import write_completeness_report
 from .gate import GateError, draft_text, run_gate, write_gate_report
 from .lint import lint, write_lint_report
 from .structures import STRUCTURES_FILE, render_all
-
-
-def _report(message: str) -> None:
-    """Write a diagnostic to stderr.
-
-    Deliberately not the ``logging`` module. Every ``panther.*`` logger is
-    configured with ``propagate=False`` and a handler admitting only ``ERROR``,
-    so a logged warning here is discarded before anyone sees it.
-    """
-    print(message, file=sys.stderr)
 
 
 def configure(parser: argparse.ArgumentParser) -> None:
@@ -233,6 +222,22 @@ def run(args: argparse.Namespace) -> int:
         when ``gate --strict``, ``completeness --strict``, ``build --strict``
         or ``lint --strict`` reported findings.
     """
+    # Function-local, and not to be tidied to the top (D13's shape, and the
+    # idiom of ``pipeline/run.py:77``). ``ai_rfc/cli.py``'s ``build_parser``
+    # imports this module to call ``configure``, and ``configure`` needs none
+    # of this. Measured: the root door pays **0** extra modules either way,
+    # because the lifecycle verbs it also mounts already hold
+    # ``lifecycle.common``; the standalone ``python -m ai_rfc.draft --help``
+    # and ``--version`` pay **72**, and this guard is what they keep out.
+    #
+    # ``report`` rather than a local ``print``: every line below interpolates
+    # a value an author, an operator or a model session controls — a cluster
+    # id out of ``revisions.yaml``, a toolchain path out of ``toolchain.json``
+    # — and a break in one of those forges a second line in this command's own
+    # grammar. ``report_diagnostic`` is the other half of the pair and asks the
+    # **raise site** whether its breaks are a producer's structure.
+    from ..lifecycle.common import report, report_diagnostic
+
     if args.verb == "checkpoint":
         if args.consolidation is not None and args.base is None:
             args._parser.error("--consolidation requires --base")
@@ -252,16 +257,16 @@ def run(args: argparse.Namespace) -> int:
                     args.manifest, args.timeline, args.cluster, args.out
                 )
         except (CheckpointError, SchemaError, OSError) as error:
-            _report(f"error: {error}")
+            report_diagnostic("error: ", error)
             return 1
-        _report(f"note: checkpoint written to {checkpoint_dir}")
+        report(f"note: checkpoint written to {checkpoint_dir}")
         return 0
 
     if args.verb == "render":
         try:
             text = render_all(load(args.manifest))
         except (ValueError, OSError) as error:
-            _report(f"error: {error}")
+            report_diagnostic("error: ", error)
             return 1
         if text:
             print(text, end="")
@@ -284,16 +289,16 @@ def run(args: argparse.Namespace) -> int:
                 workspace / "draft",
             )
         except (CompletenessError, OSError) as error:
-            _report(f"error: {error}")
+            report_diagnostic("error: ", error)
             return 1
 
         write_completeness_report(args.out, completeness_report)
 
         found = completeness_findings(completeness_report)
         for finding in found:
-            _report(f"finding: {finding}")
+            report(f"finding: {finding}")
         if not found:
-            _report("note: reconstruction complete")
+            report("note: reconstruction complete")
         if found and args.strict:
             return 3
         return 0
@@ -311,11 +316,11 @@ def run(args: argparse.Namespace) -> int:
                 refcache=args.refcache,
             )
         except (BuildError, OSError) as error:
-            _report(f"error: {error}")
+            report_diagnostic("error: ", error)
             return 1
         for finding in build_report.findings:
-            _report(f"finding: {finding}")
-        _report(
+            report(f"finding: {finding}")
+        report(
             f"note: build of {build_report.commit[:12]} exited "
             f"{build_report.exit_code}; "
             f"report at {args.out / BUILD_DIR / REPORT_FILE}"
@@ -358,12 +363,12 @@ def run(args: argparse.Namespace) -> int:
                 source={"path": str(args.draftrepo), "ref": ref},
             )
         except (ValueError, OSError) as error:
-            _report(f"error: {error}")
+            report_diagnostic("error: ", error)
             return 1
         report_path = write_lint_report(args.out, lint_report)
         for finding in lint_report.findings:
-            _report(f"finding: {finding}")
-        _report(f"note: lint report at {report_path}")
+            report(f"finding: {finding}")
+        report(f"note: lint report at {report_path}")
         if lint_report.findings and args.strict:
             return 3
         return 0
@@ -379,17 +384,17 @@ def run(args: argparse.Namespace) -> int:
                 consolidations_dir=args.consolidations,
             )
         except (GateError, OSError) as error:
-            _report(f"error: {error}")
+            report_diagnostic("error: ", error)
             return 1
 
         write_gate_report(args.out, findings)
 
         for finding in findings:
-            _report(f"finding: {finding}")
+            report(f"finding: {finding}")
         if findings and args.strict:
             return 3
         if not findings:
-            _report("note: gate clean")
+            report("note: gate clean")
         return 0
 
     # argparse admits only the verbs above, so this is unreachable by argv. It

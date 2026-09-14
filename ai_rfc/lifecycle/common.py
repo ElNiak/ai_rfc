@@ -30,18 +30,28 @@ def report(message: str) -> None:
     The ``panther.*`` loggers swallow warnings, so these go straight to the
     stream the operator is watching.
 
-    **Escaped here rather than at each of the twenty-six call sites**, for the
-    reason :func:`ai_rfc.driver.sweep.report` gives for the other stderr
-    boundary: it is a boundary rather than a rule each caller remembers. Every
-    lifecycle verb interpolates operator- or agent-controlled values into
-    these lines — a config path, a cluster id, a ``--until`` bound, the text
-    of a caught error — and a value carrying a newline forges a second line
-    beneath the first. That matters most where the real artifact is itself a
-    line an operator copies: a forged ``resume: ai-rfc …`` is a fabricated
+    **Escaped here rather than at each of the twenty-nine call sites**, for
+    the reason :func:`ai_rfc.driver.sweep.report` gives for the other stderr
+    boundary: it is a boundary rather than a rule each caller remembers.
+    (Twenty-nine is every ``report(`` outside this module, which is what a
+    reader can re-derive; the two inside it are
+    :func:`report_diagnostic`'s.) Every caller interpolates operator- or
+    agent-controlled values into these lines — a config path, a cluster id, a
+    ``--until`` bound, a toolchain path, the text of a caught error — and a
+    value carrying a newline forges a second line beneath the first. That
+    matters most where the real artifact is itself a line an operator reads as
+    the tool's own verdict: a forged ``resume: ai-rfc …`` is a fabricated
     instruction, which is exactly what a ``--until cluster:<id>`` refusal
-    produced before this became a boundary.
+    produced before this became a boundary, and a forged ``note: gate clean``
+    is what an unescaped ``cluster_id`` produced in ``draft/cli.py`` before
+    that verb was routed here too.
 
-    No caller loses anything: no lifecycle diagnostic is deliberately
+    **The callers are no longer only the lifecycle verbs.** ``draft/cli.py``
+    is a substrate command and reaches this through a function-local import,
+    so the sentence to hold on to is the property, not the package: this is
+    where a composed one-record diagnostic goes.
+
+    No caller loses anything: none of these diagnostics is deliberately
     multi-line, and each is one record by construction.
 
     Args:

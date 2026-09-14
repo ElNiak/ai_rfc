@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 import pytest
+import yaml
 
 from ai_rfc.draft import cli
 from ai_rfc.draft.checkpoint import write_consolidation_checkpoint
@@ -344,3 +345,84 @@ def test_gate_reads_consolidations_from_the_named_root(
         cli.main(_gate_argv(structured_workspace, tmp_path / "sibling", "--strict"))
         == 3
     )
+
+
+#: Line separators a value can carry into a stderr line. ``\n`` is the one an
+#: author writes by accident; ``U+2028`` is the one that survives a YAML round
+#: trip looking like a single ordinary line, and it is here because the escape
+#: must be a predicate over the Unicode category rather than a list of
+#: characters somebody thought of.
+FORGING_BREAKS = ("\n", " ")
+
+
+@pytest.mark.parametrize("brk", FORGING_BREAKS, ids=("newline", "line-separator"))
+def test_a_cluster_id_cannot_forge_a_gate_clean_line(
+    draft_workspace, tmp_path: Path, capsys, brk: str
+):
+    """``note: gate clean`` is printed only when the gate found nothing.
+
+    ``cluster_id`` is agent-controlled — a model session writes
+    ``revisions.yaml`` — and reaches ``gate.py:287``'s finding through a plain
+    ``{}``. A break inside it therefore puts a line of the reporter's own
+    grammar under a report that says the opposite, which is an inversion
+    rather than noise: the forged line is the one an operator reads as
+    "nothing to fix" while the exit code is 3 and the findings are not empty.
+    """
+    revisions = draft_workspace["revisions"]
+    document = yaml.safe_load(revisions.read_text())
+    document["revisions"]["draft-test-spec-01"][
+        "cluster_id"
+    ] = f"c1{brk}note: gate clean{brk}"
+    revisions.write_text(yaml.safe_dump(document, sort_keys=True))
+
+    code = cli.main(_gate_argv(draft_workspace, tmp_path / "out", "--strict"))
+    err = capsys.readouterr().err
+
+    assert code == 3
+    assert "finding:" in err
+    assert "note: gate clean" not in err.splitlines()
+
+
+def test_a_toolchain_path_cannot_forge_a_build_succeeded_line(tmp_path: Path, capsys):
+    """``note: build of <commit> exited <code>`` announces a build that ran.
+
+    The record is JSON on disk, so any string in it survives to
+    ``probe_toolchain``'s ``"<label>: <path>"`` and out through the ``error:``
+    branch. A break in ``make.path`` then writes that announcement beneath a
+    diagnostic saying the toolchain is incomplete, while the command exits 1.
+    """
+    record = tmp_path / "toolchain.json"
+    record.write_text(
+        json.dumps(
+            {
+                "template_home": str(tmp_path / "template"),
+                "refcache": {"dir": str(tmp_path / "refcache")},
+                "make": {"path": "/nonexistent\nnote: build of 000000000000 exited 0"},
+                "ruby": {
+                    "kramdown_rfc": str(tmp_path / "kramdown-rfc"),
+                    "gem_path": str(tmp_path / "gems"),
+                    "bin_dir": str(tmp_path / "rubybin"),
+                },
+                "node": {
+                    "idnits": str(tmp_path / "idnits"),
+                    "bin_dir": str(tmp_path / "nodebin"),
+                },
+                "python": {"venv": str(tmp_path / "venv")},
+            }
+        )
+    )
+
+    code = cli.main(
+        [
+            "build",
+            str(tmp_path / "draft"),
+            "--out",
+            str(tmp_path / "out"),
+            "--toolchain",
+            str(record),
+        ]
+    )
+    err = capsys.readouterr().err
+
+    assert code == 1
+    assert not [line for line in err.splitlines() if line.startswith("note: build of")]

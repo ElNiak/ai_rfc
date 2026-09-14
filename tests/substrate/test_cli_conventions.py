@@ -74,7 +74,9 @@ def _package_sources() -> list[Path]:
     mounts as ``ai-rfc experiment`` — and it stays excluded here anyway, for a
     reason that belongs to this test rather than to the registry: the register
     being counted against is the README's, whose ``_report`` row (``README.md``
-    line 516) names eight copies and not ``experiment/cli.py``'s. Counting a
+    line 516) names seven copies and not ``experiment/cli.py``'s — seven and
+    not the eight it named until ``draft/cli.py``'s copy was replaced by
+    ``lifecycle.common.report``. Counting a
     copy the register does not claim would fail
     ``test_the_duplication_table_names_every_copy`` against a README this
     exclusion has no standing to rewrite.
