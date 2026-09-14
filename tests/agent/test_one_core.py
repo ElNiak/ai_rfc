@@ -1,13 +1,18 @@
-"""One core, not two: the grouped verb and the parity verb do the same thing.
+"""One core, not two: the grouped verb and the MCP tool do the same thing.
 
-``tests/server/test_parity.py`` pins the MCP tool arm against the ``ai_rfc``
-CLI. These pin the *new* front door against that same CLI, one verb per group,
-so a group that re-implemented an operation rather than calling
-:mod:`ai_rfc.server.core` fails here rather than after the fold.
+One verb per group, so a group that re-implemented an operation rather than
+calling :mod:`ai_rfc.server.core` fails here rather than in a campaign.
 
-Task 8 deletes ``ai_rfc/server/cli.py``, at which point these re-point at
-``ai_rfc.server.tools`` exactly as the twins do; until then the CLI it deletes
-is the arm with a verb to compare against.
+**The second arm moved.** These pinned the grouped verb against the ``ai_rfc``
+CLI's matching verb while that second parser existed; the parser is gone, and
+they now pin it against :mod:`ai_rfc.server.tools`, which is what the module
+docstring always said would happen to them.
+
+That makes this file and ``tests/server/test_parity.py`` two suites asking one
+question — tool arm against door arm — over an overlapping set of verbs, since
+the twins re-pointed onto this same door in the same change. Whether they
+merge is a decision about the *suite*, not about either arm, and it is
+recorded as owed rather than taken here.
 """
 
 import json
@@ -19,7 +24,6 @@ import pytest
 import yaml
 
 from ai_rfc import cli as root_cli
-from ai_rfc.server import cli as parity_cli
 from ai_rfc.server import tools
 
 pytestmark = pytest.mark.unit
@@ -70,8 +74,7 @@ def test_corpus_query_reaches_one_core(make_workspace, capsys):
     assert root_cli.main(["corpus", "query", sql]) == 0
     from_root = json.loads(capsys.readouterr().out)
     use(parity_arm)
-    assert parity_cli.main(["corpus-query", sql]) == 0
-    from_parity = json.loads(capsys.readouterr().out)
+    from_parity = tools.ai_rfc_corpus_query(sql)
     assert from_root == from_parity
     # Two empty result sets compare equal; the fixture corpus holds four
     # commits, so this is what proves either arm reached the index.
@@ -84,8 +87,7 @@ def test_cluster_next_reaches_one_core(make_workspace, capsys):
     assert root_cli.main(["cluster", "next"]) == 0
     from_root = json.loads(capsys.readouterr().out)
     use(parity_arm)
-    assert parity_cli.main(["cluster-next"]) == 0
-    from_parity = json.loads(capsys.readouterr().out)
+    from_parity = tools.ai_rfc_cluster_next()
     assert from_root == from_parity
     # ``null`` decodes to the same None the verb returns when nothing is
     # outstanding: without this the twin would pass on two empty reads.
@@ -116,7 +118,7 @@ def test_claim_upsert_reaches_one_core(make_workspace, capsys):
     use(root_arm)
     assert root_cli.main(["claim", "upsert", *argv]) == 0
     use(parity_arm)
-    assert parity_cli.main(["claim-upsert", *argv]) == 0
+    tools.ai_rfc_claim_upsert("t:5.1", {**fields, "intent": "intended"})
     capsys.readouterr()
     assert (root_arm / "manifest.yaml").read_bytes() == (
         parity_arm / "manifest.yaml"
@@ -133,8 +135,7 @@ def test_claim_check_reaches_one_core(make_workspace, capsys):
     assert root_cli.main(["claim", "check"]) == 0
     from_root = json.loads(capsys.readouterr().out)
     use(parity_arm)
-    assert parity_cli.main(["claim-adjudicate"]) == 0
-    from_parity = json.loads(capsys.readouterr().out)
+    from_parity = tools.ai_rfc_claim_adjudicate()
     assert from_root == from_parity
     # The fixture's two claims, adjudicated; an empty preview compares equal.
     assert {row["id"] for row in from_root} == {"t:1.1", "t:2.1"}
@@ -148,8 +149,7 @@ def test_question_draft_reaches_one_core(make_workspace, capsys, monkeypatch):
     assert root_cli.main(["question", "draft", *argv]) == 0
     from_root = json.loads(capsys.readouterr().out)
     use(parity_arm)
-    assert parity_cli.main(["question-draft", *argv]) == 0
-    from_parity = json.loads(capsys.readouterr().out)
+    from_parity = tools.ai_rfc_question_draft(_QUESTION, ["t:1.1"])
     assert from_root == from_parity
     # Linking the claim is the manifest half of this verb; an entry written to
     # the register and linked to nothing returns [] on both arms.
@@ -163,12 +163,17 @@ def test_question_export_emits_the_cores_string_unchanged(
 ):
     """The verb's stdout is the core's return value, byte for byte.
 
-    Compared against the core function and not only against the parity CLI,
-    because the defect ``3cdeb29`` fixed was a bare ``print()`` appending a
-    newline the tool arm never produces. Lifting a pre-fix reading of
-    ``server/cli.py:311`` would put that newline back, and a CLI-to-CLI
-    comparison would only catch it while the CLI it was lifted from still
-    exists — which Task 8 ends.
+    ``from_root == from_core`` is what this test is: the defect ``3cdeb29``
+    fixed was a bare ``print()`` appending a newline the tool never produces,
+    and only a door-against-tool comparison sees that newline at all. It was
+    written that way while a second CLI existed precisely because a
+    CLI-against-CLI comparison would have agreed with itself — and that second
+    CLI is now gone, so the shape it was written in is the only one left.
+
+    ``from_parity`` is the same tool on the other twin, so the last clause is
+    a statement about the two **workspaces** rather than about the two arms.
+    It is kept because it is the cheap half of what the twin fixture is for:
+    the second workspace really is byte-identical after the write.
     """
     root_arm, parity_arm, use = _twins(make_workspace)
     _pin_the_register_clock(monkeypatch)
@@ -180,8 +185,7 @@ def test_question_export_emits_the_cores_string_unchanged(
     assert root_cli.main(["question", "export"]) == 0
     from_root = capsys.readouterr().out
     use(parity_arm)
-    assert parity_cli.main(["question-export"]) == 0
-    from_parity = capsys.readouterr().out
+    from_parity = tools.ai_rfc_question_export()
     # An empty register renders "No open questions.\n" on every side, which
     # would agree without any arm having rendered a question at all.
     assert _QUESTION in from_core
@@ -214,8 +218,14 @@ def test_answer_record_reaches_one_core(make_workspace, capsys, monkeypatch):
     assert root_cli.main(["answer", "record", *argv]) == 0
     from_root = json.loads(capsys.readouterr().out)
     use(parity_arm)
-    assert parity_cli.main(["answer-record", *argv]) == 0
-    from_parity = json.loads(capsys.readouterr().out)
+    from_parity = tools.ai_rfc_answer_record(
+        "q-001",
+        "Every profile.",
+        "the author",
+        "int-001.md",
+        quote,
+        author_confirmed_exact_text=True,
+    )
     assert from_root == from_parity
     # The interview anchor and the sign-off are the two manifest writes this
     # verb exists for, and the sign-off is the half the flag decides: both are
@@ -243,7 +253,7 @@ def test_revision_record_reaches_one_core(make_workspace, capsys):
     use(root_arm)
     assert root_cli.main(["revision", "record", *argv]) == 0
     use(parity_arm)
-    assert parity_cli.main(["revision-record", *argv]) == 0
+    tools.ai_rfc_revision_record("draft-test-spec-00", cluster_id, True, "first")
     capsys.readouterr()
     assert (root_arm / "revisions.yaml").read_bytes() == (
         parity_arm / "revisions.yaml"
@@ -267,8 +277,7 @@ def test_checkpoint_reaches_one_core(make_workspace, capsys):
     assert root_cli.main(["checkpoint", cluster_id]) == 0
     from_root = json.loads(capsys.readouterr().out)
     use(parity_arm)
-    assert parity_cli.main(["checkpoint", cluster_id]) == 0
-    from_parity = json.loads(capsys.readouterr().out)
+    from_parity = tools.ai_rfc_checkpoint(cluster_id)
     assert from_root["exit_code"] == from_parity["exit_code"] == 0
     # The digest is what proves both arms froze one manifest; an absent key on
     # both sides would compare equal, so it is read rather than compared alone.
@@ -294,8 +303,7 @@ def test_gate_reaches_one_core_and_keeps_its_exit_code(make_workspace, capsys):
     assert root_cli.main(["gate"]) == 0
     from_root = json.loads(capsys.readouterr().out)
     use(parity_arm)
-    assert parity_cli.main(["gate"]) == 0
-    from_parity = json.loads(capsys.readouterr().out)
+    from_parity = tools.ai_rfc_gate()
     assert from_root == from_parity and from_root["exit_code"] == 0
     assert (root_arm / report).read_bytes() == (parity_arm / report).read_bytes()
 
@@ -308,8 +316,7 @@ def test_gate_reaches_one_core_and_keeps_its_exit_code(make_workspace, capsys):
     assert root_cli.main(["gate", "--strict"]) == 3
     strict_root = json.loads(capsys.readouterr().out)
     use(parity_arm)
-    assert parity_cli.main(["gate", "--strict"]) == 3
-    strict_parity = json.loads(capsys.readouterr().out)
+    strict_parity = tools.ai_rfc_gate(strict=True)
     assert strict_root == strict_parity and strict_root["exit_code"] == 3
 
 
@@ -320,8 +327,7 @@ def test_citation_gate_reaches_one_core(make_workspace, capsys):
     assert root_cli.main(["citation-gate"]) == 0
     from_root = json.loads(capsys.readouterr().out)
     use(parity_arm)
-    assert parity_cli.main(["citation-gate"]) == 0
-    from_parity = json.loads(capsys.readouterr().out)
+    from_parity = tools.ai_rfc_citation_gate()
     assert from_root == from_parity and from_root["exit_code"] == 0
     assert from_root["stderr"] == ["note: gate clean"] and from_root["findings"] == []
     assert (root_arm / report).read_bytes() == (parity_arm / report).read_bytes()
@@ -333,7 +339,7 @@ def test_structure_upsert_reaches_one_core(make_workspace, capsys):
     use(root_arm)
     assert root_cli.main(["structure", "upsert", *argv]) == 0
     use(parity_arm)
-    assert parity_cli.main(["structure-upsert", *argv]) == 0
+    tools.ai_rfc_structure_upsert("header", _FIELDS)
     capsys.readouterr()
     assert (root_arm / "manifest.yaml").read_bytes() == (
         parity_arm / "manifest.yaml"

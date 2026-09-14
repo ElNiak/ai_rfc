@@ -20,7 +20,6 @@ from pathlib import Path
 import pytest
 
 from ai_rfc import cli as root_cli
-from ai_rfc.server import cli as parity_cli
 from ai_rfc.server import tools
 
 pytestmark = pytest.mark.unit
@@ -60,8 +59,8 @@ def test_draft_render_reaches_one_core(make_workspace, capsys):
     """The grouped verb prints the core's string, byte for byte.
 
     ``print(..., end="")`` rather than the JSON every other verb emits: the
-    render *is* the payload, and ``test_draft_render_parity`` asserts the tool
-    arm's output does not start with a quote.
+    render *is* the payload, which is what the "does not start with a quote"
+    assertion below is for — a JSON-encoded string would.
     """
     build, use = make_workspace
     root_arm, parity_arm = build("root-arm"), build("parity-arm")
@@ -73,8 +72,7 @@ def test_draft_render_reaches_one_core(make_workspace, capsys):
 
     use(parity_arm)
     tools.ai_rfc_structure_upsert("header", _FIELDS)
-    assert parity_cli.main(["draft-render"]) == 0
-    from_parity = capsys.readouterr().out
+    from_parity = tools.ai_rfc_draft_render()
 
     assert from_root == from_parity
     assert not from_root.lstrip().startswith('"')
@@ -99,8 +97,7 @@ def test_draft_commit_reaches_one_core(make_workspace, capsys, monkeypatch):
     from_root = json.loads(capsys.readouterr().out)
 
     use(parity_arm)
-    assert parity_cli.main(["draft-commit", "-m", "more prose"]) == 0
-    from_parity = json.loads(capsys.readouterr().out)
+    from_parity = tools.ai_rfc_draft_commit("more prose")
 
     assert from_root == from_parity
 
@@ -111,6 +108,10 @@ def test_draft_lint_reaches_one_core(make_workspace, capsys):
     Not the leaf's ``--worktree``, whose default is the opposite: a bare
     ``ai-rfc draft lint`` must measure the uncommitted file, because that is
     what ``ai_rfc_draft_lint()`` does and what the twin compares against.
+
+    ``source.path`` is excluded rather than the payload compared whole: the
+    two arms lint two different workspaces, so that key differs by
+    construction. Every other key is the measurement.
     """
     build, use = make_workspace
     root_arm, parity_arm = build("root-arm"), build("parity-arm")
@@ -120,8 +121,7 @@ def test_draft_lint_reaches_one_core(make_workspace, capsys):
     from_root = json.loads(capsys.readouterr().out)
 
     use(parity_arm)
-    assert parity_cli.main(["draft-lint"]) == 0
-    from_parity = json.loads(capsys.readouterr().out)
+    from_parity = tools.ai_rfc_draft_lint()
 
     assert from_root["metrics"] == from_parity["metrics"]
     assert from_root["findings"] == from_parity["findings"]

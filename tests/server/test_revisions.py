@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from ai_rfc.server import cli
+from ai_rfc import cli
 from ai_rfc.server.core import CoreError, revisions, structures
 from ai_rfc.server.core.gates import write_checkpoint
 from ai_rfc.server.core.queries import cluster_next

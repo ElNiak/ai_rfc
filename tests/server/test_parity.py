@@ -3,6 +3,14 @@
 The twin workspaces are built with pinned commit dates, so before any
 operation their files are byte-identical; after one operation through each
 frontend they must still be.
+
+The CLI arm is ``ai-rfc <group> <verb>`` — the one door. It was
+``ai_rfc <verb>`` until that second parser was deleted, and the twins moved
+with it rather than being retired: what they pin is that the two *frontends*
+agree, and which program the CLI arm is has never been the claim. The grouped
+argv are the argv an agent types; the folded ``draft`` verbs are spelled in
+their **workspace** form, with no path, because a path selects the explicit
+form instead — which prints no JSON and reads a different revision.
 """
 
 import json
@@ -12,10 +20,11 @@ from types import SimpleNamespace
 
 import yaml
 
+from ai_rfc import cli
 from ai_rfc.draft.build import BUILD_DIR
 from ai_rfc.draft.build import REPORT_FILE as BUILD_REPORT
 from ai_rfc.draft.build import BuildError
-from ai_rfc.server import cli, tools
+from ai_rfc.server import tools
 from ai_rfc.server.core import build as build_core
 from ai_rfc.server.core import queries
 from ai_rfc.server.paths import resolve_context
@@ -48,7 +57,8 @@ def test_claim_upsert_parity(make_workspace, capsys):
     assert (
         cli.main(
             [
-                "claim-upsert",
+                "claim",
+                "upsert",
                 "t:5.1",
                 "--text",
                 fields["text"],
@@ -75,7 +85,7 @@ def test_record_status_parity(make_workspace, capsys):
     use(tool_arm)
     tools.ai_rfc_claim_record_status()
     use(cli_arm)
-    assert cli.main(["claim-record-status"]) == 0
+    assert cli.main(["claim", "record-status"]) == 0
     capsys.readouterr()
     assert (tool_arm / "manifest.yaml").read_bytes() == (
         cli_arm / "manifest.yaml"
@@ -87,7 +97,7 @@ def test_read_parity_adjudicate(make_workspace, capsys):
     use(tool_arm)
     from_tool = tools.ai_rfc_claim_adjudicate()
     use(cli_arm)
-    assert cli.main(["claim-adjudicate"]) == 0
+    assert cli.main(["claim", "check"]) == 0
     from_cli = json.loads(capsys.readouterr().out)
     assert from_tool == from_cli
 
@@ -111,7 +121,7 @@ def test_draft_commit_parity(make_workspace, capsys, monkeypatch):
     use(tool_arm)
     from_tool = tools.ai_rfc_draft_commit("more prose")
     use(cli_arm)
-    assert cli.main(["draft-commit", "-m", "more prose"]) == 0
+    assert cli.main(["draft", "commit", "-m", "more prose"]) == 0
     from_cli = json.loads(capsys.readouterr().out)
     assert from_tool == from_cli
     assert git(tool_arm / "draft", "rev-parse", "HEAD") == git(
@@ -131,7 +141,7 @@ def test_revision_tag_parity(make_workspace, capsys, monkeypatch):
     use(tool_arm)
     from_tool = tools.ai_rfc_revision_tag("draft-test-spec-00", "revision 00")
     use(cli_arm)
-    assert cli.main(["revision-tag", "draft-test-spec-00", "-m", "revision 00"]) == 0
+    assert cli.main(["revision", "tag", "draft-test-spec-00", "-m", "revision 00"]) == 0
     from_cli = json.loads(capsys.readouterr().out)
     assert from_tool == from_cli and from_tool["exit_code"] == 0
     assert git(tool_arm / "draft", "cat-file", "-p", "draft-test-spec-00") == git(
@@ -144,7 +154,7 @@ def test_draft_lint_parity(make_workspace, capsys):
     use(tool_arm)
     via_tool = tools.ai_rfc_draft_lint()
     use(cli_arm)
-    assert cli.main(["draft-lint"]) == 0
+    assert cli.main(["draft", "lint"]) == 0
     via_cli = json.loads(capsys.readouterr().out)
     assert (
         via_tool["metrics"] == via_cli["metrics"]
@@ -165,7 +175,9 @@ def test_structure_upsert_parity(make_workspace, capsys):
     use(tool_arm)
     tools.ai_rfc_structure_upsert("header", FIELDS)
     use(cli_arm)
-    assert cli.main(["structure-upsert", "header", "--json", json.dumps(FIELDS)]) == 0
+    assert (
+        cli.main(["structure", "upsert", "header", "--json", json.dumps(FIELDS)]) == 0
+    )
     capsys.readouterr()
     assert (tool_arm / "manifest.yaml").read_bytes() == (
         cli_arm / "manifest.yaml"
@@ -179,7 +191,7 @@ def test_draft_render_parity(make_workspace, capsys):
     from_tool = tools.ai_rfc_draft_render()
     use(cli_arm)
     tools.ai_rfc_structure_upsert("header", FIELDS)
-    assert cli.main(["draft-render"]) == 0
+    assert cli.main(["draft", "render"]) == 0
     from_cli = capsys.readouterr().out
     # print() adds no quotes; _emit would have.
     assert not from_cli.lstrip().startswith('"')
@@ -219,7 +231,8 @@ def test_consolidation_checkpoint_and_revision_parity(make_workspace, capsys):
     assert (
         cli.main(
             [
-                "revision-record",
+                "revision",
+                "record",
                 "draft-test-spec-00",
                 "--cluster",
                 first,
@@ -230,7 +243,9 @@ def test_consolidation_checkpoint_and_revision_parity(make_workspace, capsys):
         )
         == 0
     )
-    assert cli.main(["structure-upsert", "header", "--json", json.dumps(FIELDS)]) == 0
+    assert (
+        cli.main(["structure", "upsert", "header", "--json", json.dumps(FIELDS)]) == 0
+    )
     assert (
         cli.main(
             [
@@ -247,7 +262,8 @@ def test_consolidation_checkpoint_and_revision_parity(make_workspace, capsys):
     assert (
         cli.main(
             [
-                "revision-record",
+                "revision",
+                "record",
                 "draft-test-spec-01",
                 "--cluster",
                 first,
@@ -321,10 +337,10 @@ def test_status_parity(make_workspace):
     Shaped unlike its nine siblings on purpose, and not to be "fixed" into
     their shape. U3 gives the folded ``status`` no ``ai-rfc`` verb at all — the
     MCP tool stays, and ``ai-rfc status`` keeps its existing meaning as the
-    operator's ledger — and Task 8 deletes ``ai_rfc/server/cli.py`` outright. A
+    operator's ledger — and ``ai_rfc/server/cli.py``, which had one, is gone. A
     tool-versus-CLI twin here would survive neither ruling, so the two arms
-    meet at the core function both frontends would have shared, and Task 8's
-    re-point of the other nineteen twins leaves this one alone.
+    meet at the core function both frontends would have shared, and the
+    re-point of the other nineteen twins left this one alone.
     """
     tool_arm, core_arm, use = _twins(make_workspace)
     use(tool_arm)
@@ -343,7 +359,7 @@ def test_corpus_query_parity(make_workspace, capsys):
     use(tool_arm)
     from_tool = tools.ai_rfc_corpus_query(sql)
     use(cli_arm)
-    assert cli.main(["corpus-query", sql]) == 0
+    assert cli.main(["corpus", "query", sql]) == 0
     from_cli = json.loads(capsys.readouterr().out)
     assert from_tool == from_cli
     # Two empty result sets compare equal; the corpus holds four commits.
@@ -355,7 +371,7 @@ def test_cluster_next_parity(make_workspace, capsys):
     use(tool_arm)
     from_tool = tools.ai_rfc_cluster_next()
     use(cli_arm)
-    assert cli.main(["cluster-next"]) == 0
+    assert cli.main(["cluster", "next"]) == 0
     from_cli = json.loads(capsys.readouterr().out)
     assert from_tool == from_cli
     # The verb returns None when nothing is outstanding, and ``null`` decodes
@@ -380,7 +396,8 @@ def test_cluster_get_parity(make_workspace, capsys):
     assert (
         cli.main(
             [
-                "cluster-get",
+                "cluster",
+                "get",
                 cluster_id,
                 "--patch",
                 "--patch-offset",
@@ -407,7 +424,7 @@ def test_question_draft_parity(make_workspace, capsys, monkeypatch):
     use(tool_arm)
     from_tool = tools.ai_rfc_question_draft(_QUESTION, ["t:1.1"])
     use(cli_arm)
-    assert cli.main(["question-draft", _QUESTION, "--claim", "t:1.1"]) == 0
+    assert cli.main(["question", "draft", _QUESTION, "--claim", "t:1.1"]) == 0
     from_cli = json.loads(capsys.readouterr().out)
     assert from_tool == from_cli
     # Linking the claim is the manifest half of this verb; an entry that was
@@ -425,18 +442,18 @@ def test_question_export_parity(make_workspace, capsys, monkeypatch):
 
     ``test_draft_render_parity`` states that contract and its comment names
     this exact failure mode: a bare ``print()`` adds a trailing newline the
-    tool arm never produces, which is why ``draft-render``'s branch passes
-    ``end=""`` (``server/cli.py:371``). ``question-export`` is the only other
-    string-returning verb and was the one that never got it: at ``bd03cb7``
-    this twin was RED, because ``server/cli.py:311`` was a bare ``print()``
-    appending a newline the tool arm never produces. ``3cdeb29`` gave that site
-    the same ``end=""``.
+    tool arm never produces, which is why ``draft render``'s branch passes
+    ``end=""`` (``ai_rfc/draft/cli.py:118``). ``question export`` is the only
+    other string-returning verb and was the one that never got it: at
+    ``bd03cb7`` this twin was RED, because the CLI's branch was a bare
+    ``print()``. ``3cdeb29`` gave that site the same ``end=""``, and the lift
+    into ``agent/question/cli.py:83`` carried it across.
 
     The assertion is unchanged across that fix, and deliberately so. It was
     written as equality while equality was false, because a twin bent to fit a
     divergence destroys the only evidence the divergence exists — which is what
-    this file is for. It is a pin now, and the verb it guards is about to be
-    lifted into ``agent/question/cli.py``.
+    this file is for. It is a pin now, over a verb that has since moved houses
+    twice without the contract moving with it.
     """
     tool_arm, cli_arm, use = _twins(make_workspace)
     _pin_the_register_clock(monkeypatch)
@@ -446,7 +463,7 @@ def test_question_export_parity(make_workspace, capsys, monkeypatch):
     use(tool_arm)
     from_tool = tools.ai_rfc_question_export()
     use(cli_arm)
-    assert cli.main(["question-export"]) == 0
+    assert cli.main(["question", "export"]) == 0
     from_cli = capsys.readouterr().out
     # An empty register renders "No open questions.\n" on both sides, which
     # would agree without either arm having rendered a question at all.
@@ -477,7 +494,8 @@ def test_answer_record_parity(make_workspace, capsys, monkeypatch):
     assert (
         cli.main(
             [
-                "answer-record",
+                "answer",
+                "record",
                 "q-001",
                 "--answer",
                 "Every profile.",
@@ -661,7 +679,7 @@ def test_draft_build_parity(make_workspace, capsys, monkeypatch, tmp_path):
     use(tool_arm)
     from_tool = tools.ai_rfc_draft_build("main")
     use(cli_arm)
-    assert cli.main(["draft-build", "--ref", "main"]) == 0
+    assert cli.main(["draft", "build", "--ref", "main"]) == 0
     from_cli = json.loads(capsys.readouterr().out)
 
     assert calls == [(tool_arm / "draft", "main"), (cli_arm / "draft", "main")]
@@ -685,7 +703,7 @@ def test_draft_build_parity(make_workspace, capsys, monkeypatch, tmp_path):
     use(tool_arm)
     refused_tool = tools.ai_rfc_draft_build("main")
     use(cli_arm)
-    assert cli.main(["draft-build", "--ref", "main"]) == 1
+    assert cli.main(["draft", "build", "--ref", "main"]) == 1
     refused_cli = json.loads(capsys.readouterr().out)
     # A refusal names no path, so this half is compared whole — including the
     # non-zero code, which the success half cannot pin at all.
