@@ -561,9 +561,12 @@ def test_gate_parity(make_workspace, capsys):
     strict_cli = json.loads(capsys.readouterr().out)
     assert strict_tool == strict_cli and strict_tool["exit_code"] == 3
     # Quoted verbatim so a real violation is told from an empty one, which
-    # makes this the one assertion here that a reword in ai_rfc.report will
-    # break. Such a failure is not a parity break: both arms would still agree.
-    # Re-pin the wording rather than reaching for the frontends.
+    # makes this an assertion a reword breaks. It named ai_rfc.report, which
+    # holds none of this text: the line is composed in two places, the reason
+    # at ai_rfc/promotion.py:106-109 and the "violation: <id>: " prefix at
+    # ai_rfc/server/core/gates.py:154. Such a failure is not a parity break —
+    # both arms would still agree. Re-pin the wording rather than reaching for
+    # the frontends.
     assert strict_tool["stderr"] == [
         "violation: t:1.1: recorded as confirmed but its evidence supports "
         "only inferred"
@@ -602,6 +605,11 @@ def test_citation_gate_parity(make_workspace, capsys):
     assert cli.main(["citation-gate", "--strict"]) == 3
     strict_cli = json.loads(capsys.readouterr().out)
     assert strict_tool == strict_cli and strict_tool["exit_code"] == 3
+    # The sibling wording pin, which had no comment: this text is composed at
+    # ai_rfc/draft/gate.py:272, and the clean half's "note: gate clean" at
+    # ai_rfc/server/core/gates.py:224. Quoted verbatim for the same reason as
+    # the gate twin's — an empty findings list is what a broken gate returns
+    # too — and breaking on a reword is likewise not a parity break.
     assert strict_tool["findings"] == [
         "draft-test-spec-00: registered in revisions.yaml but absent from "
         "the draft repository"
