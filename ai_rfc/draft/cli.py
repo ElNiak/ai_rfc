@@ -276,7 +276,7 @@ def run(args: argparse.Namespace) -> int:
     if args.verb == "completeness":
         workspace = args.workspace
         try:
-            report = build_completeness(
+            completeness_report = build_completeness(
                 workspace / "timeline",
                 workspace / "checkpoints",
                 workspace / "manifest.yaml",
@@ -287,9 +287,9 @@ def run(args: argparse.Namespace) -> int:
             _report(f"error: {error}")
             return 1
 
-        write_completeness_report(args.out, report)
+        write_completeness_report(args.out, completeness_report)
 
-        found = completeness_findings(report)
+        found = completeness_findings(completeness_report)
         for finding in found:
             _report(f"finding: {finding}")
         if not found:
@@ -301,7 +301,7 @@ def run(args: argparse.Namespace) -> int:
     if args.verb == "build":
         try:
             toolchain = resolve_toolchain(args.toolchain)
-            report = build(
+            build_report = build(
                 args.draftrepo,
                 toolchain=toolchain,
                 out=args.out,
@@ -313,13 +313,14 @@ def run(args: argparse.Namespace) -> int:
         except (BuildError, OSError) as error:
             _report(f"error: {error}")
             return 1
-        for finding in report.findings:
+        for finding in build_report.findings:
             _report(f"finding: {finding}")
         _report(
-            f"note: build of {report.commit[:12]} exited {report.exit_code}; "
+            f"note: build of {build_report.commit[:12]} exited "
+            f"{build_report.exit_code}; "
             f"report at {args.out / BUILD_DIR / REPORT_FILE}"
         )
-        if report.findings and args.strict:
+        if build_report.findings and args.strict:
             return 3
         return 0
 
@@ -350,7 +351,7 @@ def run(args: argparse.Namespace) -> int:
             # `lint` renders the manifest itself, so it raises whatever the
             # renderer does; a manifest the loader accepted can still refuse to
             # render, and that must read as an error rather than a traceback.
-            report = lint(
+            lint_report = lint(
                 text,
                 manifest=manifest,
                 manifest_error=manifest_error,
@@ -359,11 +360,11 @@ def run(args: argparse.Namespace) -> int:
         except (ValueError, OSError) as error:
             _report(f"error: {error}")
             return 1
-        report_path = write_lint_report(args.out, report)
-        for finding in report.findings:
+        report_path = write_lint_report(args.out, lint_report)
+        for finding in lint_report.findings:
             _report(f"finding: {finding}")
         _report(f"note: lint report at {report_path}")
-        if report.findings and args.strict:
+        if lint_report.findings and args.strict:
             return 3
         return 0
 
