@@ -49,6 +49,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..config import load_config
+from ..driver import DriverError
+from ..driver.stop import _quoted
 from ..ledger import PRISTINE_RECORD
 from ..lifecycle.common import CONFIG_ENV
 from ..lifecycle.workspace import CONFIG_FILE as CONFIG_FILE_NAME
@@ -162,11 +164,18 @@ def _unsealed_refusal(config_path: Path, layout: Layout) -> str:
     config, because a run's copy carries the pristine's root in that field and
     a tool sent there writes into the baseline every other run is made from.
 
-    The remedy is a line to paste. It names the sealed config outright when
-    one is actually there to name — both halves of the seal present, so
-    pointing at it resolves rather than landing on this refusal again — and a
-    placeholder otherwise, because a path that does not resolve is the
-    unfollowable instruction this function exists to stop emitting.
+    The remedy is a line to paste, so **its** grammar is a shell's while the
+    rest of the message's is lines, and the path in it goes through
+    :func:`ai_rfc.driver.stop._quoted` — the spelling that already knows
+    ``shlex.quote`` alone is not enough, since a quoted newline still renders
+    as two physical lines. It names the sealed config outright when one is
+    there to name, both halves of the seal present, so that pointing at it
+    resolves rather than landing back on this refusal. It falls back to the
+    placeholder in the two cases where no path can be named: nothing sealed
+    sits beside this config, or the one that does cannot be written as a
+    single shell line. A path that does not resolve, and a path that does not
+    survive being pasted, are the same unfollowable instruction this function
+    exists to stop emitting.
 
     Args:
         config_path: The resolved ``AI_RFC_CONFIG``.
@@ -176,12 +185,19 @@ def _unsealed_refusal(config_path: Path, layout: Layout) -> str:
         The refusal text, ending in the one actionable remedy.
     """
     present = ", ".join(_workspace_markers(layout))
-    sealed_here = layout.config.is_file() and layout.init_record.is_file()
-    remedy = (
-        f"{CONFIG_ENV}={layout.config}"
-        if sealed_here
-        else f"{CONFIG_ENV}=<workspace>/{CONFIG_FILE_NAME}"
-    )
+    remedy = f"{CONFIG_ENV}=<workspace>/{CONFIG_FILE_NAME}"
+    if layout.config.is_file() and layout.init_record.is_file():
+        try:
+            remedy = f"{CONFIG_ENV}={_quoted(str(layout.config), 'the config')}"
+        except DriverError:
+            # ``_quoted`` refuses rather than escapes, which is right for a
+            # line to paste: a mangled one that is nonetheless executable is
+            # worse than none. Degrading to the placeholder rather than
+            # letting that refusal propagate is what keeps *this* refusal
+            # deliverable — :func:`ai_rfc.driver.printable` records that
+            # raising on a reporting path replaces the answer with a second
+            # failure, and here the refusal is the answer.
+            pass
     if layout.config != config_path:
         return (
             f"{CONFIG_ENV}={config_path} sits in what looks like a workspace "

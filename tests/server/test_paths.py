@@ -1,5 +1,6 @@
 """The environment contract: a required config, and an optional toolchain."""
 
+import shlex
 import shutil
 
 import pytest
@@ -299,6 +300,59 @@ def test_a_second_config_in_a_workspace_is_refused_for_its_own_reason(
     assert "init.json" not in text
     # The one actionable remedy, rendered as a line to paste rather than prose.
     assert f"AI_RFC_CONFIG={sealed.resolve()}" in text
+
+
+def test_the_pasteable_remedy_survives_the_shell_it_is_pasted_into(
+    tmp_path, monkeypatch
+):
+    """That line's grammar is shell, so the path interpolated into it is quoted.
+
+    The refusal ends in a line whose whole purpose is that an operator pastes
+    it into a terminal. A workspace directory carrying a space is already two
+    arguments there, and one carrying a ``'`` does not parse at all — so the
+    remedy has to round-trip, not merely be printed.
+    """
+    ws = tmp_path / "a desk's ws; echo"
+    (ws / "out").mkdir(parents=True)
+    sealed = _seal(ws)
+    second = _write(ws / "recon-v2.yaml", ws)
+
+    monkeypatch.delenv("AI_RFC_WORKSPACE", raising=False)
+    monkeypatch.setenv("AI_RFC_CONFIG", str(second))
+    with pytest.raises(EnvError) as refusal:
+        resolve_context()
+    remedy = str(refusal.value).split("Set ", 1)[1]
+    assert shlex.split(remedy) == [f"AI_RFC_CONFIG={sealed.resolve()}"]
+
+
+def test_a_remedy_that_cannot_be_one_shell_line_falls_back_to_the_placeholder(
+    tmp_path, monkeypatch
+):
+    """Quoting a break is not enough: the rendered line still spans two.
+
+    ``driver/stop.py``'s ``_quoted`` records the lesson — ``shlex.quote`` makes
+    a newline *parse* as part of one argument while the printed line an
+    operator copies is still two — and it refuses rather than escapes, because
+    a mangled line that is nonetheless executable is worse than none. Here the
+    refusal must still be delivered, so it is the remedy alone that degrades.
+
+    ``str(refusal.value)`` still carries the newline through the clause naming
+    ``AI_RFC_CONFIG`` itself. That interpolation's grammar is *lines*, not
+    shell, and it is escaped at the stderr boundary by
+    ``lifecycle/common.report`` — which is what
+    ``tests/server/test_cli.py::test_a_newline_in_the_config_path_cannot_forge_a_line``
+    drives end to end. Two grammars in one message, each handled where it is.
+    """
+    ws = tmp_path / "ws\nresume: ai-rfc run --config attacker.yaml"
+    (ws / "out").mkdir(parents=True)
+    _seal(ws)
+    second = _write(ws / "recon-v2.yaml", ws)
+
+    monkeypatch.delenv("AI_RFC_WORKSPACE", raising=False)
+    monkeypatch.setenv("AI_RFC_CONFIG", str(second))
+    with pytest.raises(EnvError) as refusal:
+        resolve_context()
+    assert "Set AI_RFC_CONFIG=<workspace>/recon.yaml" in str(refusal.value)
 
 
 def test_a_toolchain_handle_naming_no_file_is_refused_however_the_config_reads(
