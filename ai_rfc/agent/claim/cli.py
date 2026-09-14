@@ -11,12 +11,17 @@ from __future__ import annotations
 import argparse
 import json
 from functools import partial
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ... import __version__
-from ...server.core import CoreError
-from ...server.paths import Context
 from .. import emit, perform
+
+# Annotation-only, and deliberately not at module scope: ``build_parser``
+# imports every registered module to call its ``configure``, so a runtime
+# import of the core here would be paid by ``ai-rfc --help`` too. The
+# runtime imports live in :func:`ai_rfc.agent.perform` and in each verb.
+if TYPE_CHECKING:
+    from ...server.paths import Context
 
 
 def configure(parser: argparse.ArgumentParser) -> None:
@@ -95,6 +100,8 @@ def _parse_fields(pairs: list[str]) -> dict[str, Any]:
             ``str`` rather than a filter: a newline in it arrives as ``\\n``
             and cannot forge a second diagnostic line.
     """
+    from ...server.core import CoreError
+
     fields: dict[str, Any] = {}
     for pair in pairs:
         if "=" not in pair:

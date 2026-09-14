@@ -21,12 +21,10 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from ..config import ConfigError
-from ..lifecycle.common import report_diagnostic
-from ..server.core import CoreError
-from ..server.paths import Context, EnvError, resolve_context
+if TYPE_CHECKING:
+    from ..server.paths import Context
 
 
 def emit(payload: Any) -> None:
@@ -64,6 +62,18 @@ def perform(action: Callable[[Context], int]) -> int:
         ``action``'s exit code, or 1 when the environment, the inputs or a
         guardrail refused the operation.
     """
+    # Function-local, and not to be tidied back to the top (D13's shape, and
+    # the idiom of ``pipeline/run.py:77``). ``ai_rfc/cli.py``'s ``build_parser``
+    # imports every registered module to call its ``configure``, so anything
+    # these ten groups import at module scope is paid by every invocation of
+    # every verb — ``ai-rfc --help`` included, which needs no core at all.
+    # Measured: at module scope the ten rows cost 25 modules (278 -> 303) on a
+    # help screen; ``configure`` needs none of this, only ``perform`` does.
+    from ..config import ConfigError
+    from ..lifecycle.common import report_diagnostic
+    from ..server.core import CoreError
+    from ..server.paths import EnvError, resolve_context
+
     try:
         ctx = resolve_context()
     except (EnvError, ConfigError) as error:

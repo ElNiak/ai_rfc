@@ -9,10 +9,17 @@ from __future__ import annotations
 
 import argparse
 from functools import partial
+from typing import TYPE_CHECKING
 
 from ... import __version__
-from ...server.paths import Context
 from .. import emit, perform
+
+# Annotation-only, and deliberately not at module scope: ``build_parser``
+# imports every registered module to call its ``configure``, so a runtime
+# import of the core here would be paid by ``ai-rfc --help`` too. The
+# runtime imports live in :func:`ai_rfc.agent.perform` and in each verb.
+if TYPE_CHECKING:
+    from ...server.paths import Context
 
 
 def configure(parser: argparse.ArgumentParser) -> None:
