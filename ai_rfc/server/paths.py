@@ -145,12 +145,17 @@ def _unsealed_refusal(config_path: Path, layout: Layout) -> str:
 
     **Two** conditions reach this refusal and they are different mistakes: the
     config is not the workspace's own ``recon.yaml``, or the ``init.json``
-    beside it is gone. Only one of them is the operator's, and a message that
-    asserts the other tells them to restore a file that is sitting there. So
-    each condition describes itself, and neither describes a history this
-    workspace may not have: a workspace sealed in place carries its **own**
-    root in ``workspace:``, so *"the tree it was copied from"* is false there
-    even though refusing is still right.
+    beside it is gone. A message asserting the one that does **not** hold tells
+    the operator to restore a file sitting right there, so each branch
+    describes only the condition it tested. Where both hold, the first is
+    reported and every clause it prints is true of that case as well — the
+    remedy falls back to the placeholder, because the seal it would otherwise
+    name is itself missing.
+
+    Neither branch describes a history this workspace may not have: a
+    workspace sealed in place carries its **own** root in ``workspace:``, so
+    *"the tree it was copied from"* is false there even though refusing is
+    still right.
 
     What both share is the reason for refusing rather than falling back: the
     ``workspace:`` field is resolved only where no workspace surrounds the
