@@ -39,9 +39,11 @@ class Parser(argparse.ArgumentParser):
     ``argparse.py:1836`` and ``:2351`` in this interpreter's 3.10 stdlib, and
     both call ``self.error()``, which is the single funnel. Sub-parsers are
     covered without a second edit and without a registry: ``add_subparsers``
-    does ``kwargs.setdefault("parser_class", type(self))``, so every parser
-    ``build_parser`` mounts is this class — verified to the second level, a
-    group's leaf and a leaf's own sub-verb both come back as ``Parser``.
+    does ``kwargs.setdefault("parser_class", type(self))``, and no
+    ``configure`` in this package passes one of its own. Measured over the
+    tree ``build_parser()`` actually returns rather than over a stand-in:
+    all **27** leaves are this class, and so is every sub-verb of the **13**
+    that have one.
 
     Not covered, and deliberately: each command's ``build_standalone_parser``
     constructs :class:`argparse.ArgumentParser` directly, so
