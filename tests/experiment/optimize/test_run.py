@@ -53,11 +53,10 @@ requires_gepa = pytest.mark.skipif(
 
 
 @pytest.fixture
-def interview_fixture(tmp_path, panther_repo, template_repo):
+def interview_fixture(tmp_path, template_repo):
     template, commit = template_repo
     return build_interview_pristine(
         tmp_path / "interview",
-        panther_repo=panther_repo,
         template=template,
         template_commit=commit,
     )

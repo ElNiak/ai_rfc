@@ -605,7 +605,7 @@ def _optimize_run(args: argparse.Namespace, root: Path) -> int:
             model=model,
             effort=args.effort,
             timeout_s=args.timeout_s,
-            panther_repo=(args.panther_repo or _repo_root()).resolve(),
+            panther_repo=_repo_root(),
             toolchain=args.toolchain.resolve(),
             source_plugin_root=plugin_root,
             seed=seed,
@@ -966,12 +966,6 @@ def configure(parser: argparse.ArgumentParser) -> None:
         help="Seconds before a run's process group is killed (default: %(default)s).",
     )
     init.add_argument(
-        "--panther-repo",
-        type=Path,
-        required=True,
-        help="Checkout supplying the ai_rfc substrate every run may reach.",
-    )
-    init.add_argument(
         "--plugin-dir",
         type=Path,
         default=None,
@@ -1108,12 +1102,6 @@ def configure(parser: argparse.ArgumentParser) -> None:
     )
     _add_root(prepare_interview)
     prepare_interview.add_argument(
-        "--panther-repo",
-        type=Path,
-        required=True,
-        help="Checkout the prepared workspace records and resolves against.",
-    )
-    prepare_interview.add_argument(
         "--template",
         default=TEMPLATE_URL,
         help="Internet-Draft template repository (default: %(default)s).",
@@ -1242,13 +1230,6 @@ def configure(parser: argparse.ArgumentParser) -> None:
         default=None,
         help="The plugin the search starts from. Default: the ai-rfc plugin "
         "beside this package.",
-    )
-    optimize_run.add_argument(
-        "--panther-repo",
-        type=Path,
-        default=None,
-        help="Checkout each campaign records its revision of. Default: the "
-        "repository this package is installed from.",
     )
     optimize_run.add_argument(
         "--seed",
@@ -1416,7 +1397,7 @@ def run(args: argparse.Namespace) -> int:
                     effort=args.effort,
                     budget_usd=args.budget,
                     timeout_s=args.timeout,
-                    panther_repo=args.panther_repo.resolve(),
+                    panther_repo=_repo_root(),
                     plugin_root=plugin_dir,
                     python=args.python,
                     claude_bin=args.claude,
@@ -1528,7 +1509,6 @@ def run(args: argparse.Namespace) -> int:
 
             fixture = build_interview_pristine(
                 root,
-                panther_repo=args.panther_repo.resolve(),
                 template=args.template,
                 template_commit=args.template_commit,
                 toolchain=args.toolchain,

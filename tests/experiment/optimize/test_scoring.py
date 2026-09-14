@@ -858,11 +858,10 @@ def test_the_final_summary_is_read_from_the_run_dir_when_one_is_named(
 
 
 @pytest.fixture
-def interview(tmp_path, panther_repo, template_repo):
+def interview(tmp_path, template_repo):
     template, commit = template_repo
     return build_interview_pristine(
         tmp_path / "root",
-        panther_repo=panther_repo,
         template=template,
         template_commit=commit,
     )

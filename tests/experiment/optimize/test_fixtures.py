@@ -20,11 +20,10 @@ from ai_rfc.schema import load
 
 
 @pytest.fixture
-def interview(tmp_path, panther_repo, template_repo) -> InterviewFixture:
+def interview(tmp_path, template_repo) -> InterviewFixture:
     template, commit = template_repo
     return build_interview_pristine(
         tmp_path / "root",
-        panther_repo=panther_repo,
         template=template,
         template_commit=commit,
     )

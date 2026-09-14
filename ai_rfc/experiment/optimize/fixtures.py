@@ -185,7 +185,6 @@ def _transcript() -> str:
 def build_interview_pristine(
     root: Path,
     *,
-    panther_repo: Path,
     template: str,
     template_commit: str,
     toolchain: Path | None = None,
@@ -200,8 +199,6 @@ def build_interview_pristine(
     Args:
         root: Where the fixture is built; the baseline lands in
             ``root/pristine/<name>`` and the intermediate under ``root/build``.
-        panther_repo: Unused since the harness prepares from a config; kept so
-            the four callers that pass it do not all have to change at once.
         template: Draft template clone source.
         template_commit: The commit the draft scaffold is pinned to.
         toolchain: Toolchain record written into the config; the fixture

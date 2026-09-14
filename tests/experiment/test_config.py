@@ -248,7 +248,7 @@ def test_a_campaign_frozen_before_the_toolchain_fields_existed_still_loads(
 
 
 def test_campaign_init_cli_needs_a_toolchain_when_none_is_provisioned(
-    tmp_path, pristine, panther_repo, capsys
+    tmp_path, pristine, capsys
 ):
     """`--toolchain` omitted, and no ``<root>/tools/toolchain.json`` exists.
 
@@ -269,8 +269,6 @@ def test_campaign_init_cli_needs_a_toolchain_when_none_is_provisioned(
             "x",
             "--baseline",
             str(pristine),
-            "--panther-repo",
-            str(panther_repo),
             "--claude",
             "/bin/echo",
             "--skip-parity",

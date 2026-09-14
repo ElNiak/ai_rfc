@@ -9,6 +9,7 @@ import pytest
 
 from ai_rfc.driver.session import SessionResult
 from ai_rfc.experiment import ExperimentError, cli
+from ai_rfc.experiment.config import git_describe
 
 from .conftest import COMPLETE_STEPS, FAKE_CLAUDE
 
@@ -34,9 +35,7 @@ def _session_result(**overrides):
     return dataclasses.replace(base, **overrides) if overrides else base
 
 
-def _init(
-    tmp_path, pristine, panther_repo, capsys, toolchain_record, *extra, skip_parity=True
-):
+def _init(tmp_path, pristine, capsys, toolchain_record, *extra, skip_parity=True):
     code = cli.main(
         [
             "campaign",
@@ -57,8 +56,6 @@ def _init(
             "1",
             "--timeout",
             "900",
-            "--panther-repo",
-            str(panther_repo),
             "--python",
             sys.executable,
             "--claude",
@@ -74,11 +71,9 @@ def _init(
 
 
 def test_campaign_init_run_audit_analyze_round_trip(
-    tmp_path, pristine, panther_repo, write_scenario, capsys, toolchain_record
+    tmp_path, pristine, write_scenario, capsys, toolchain_record
 ):
-    code, out, campaign_dir = _init(
-        tmp_path, pristine, panther_repo, capsys, toolchain_record
-    )
+    code, out, campaign_dir = _init(tmp_path, pristine, capsys, toolchain_record)
     assert code == 0 and "run order:" in out and campaign_dir.exists()
     order = json.loads((campaign_dir / "campaign.json").read_text())["run_order"]
     for run_id in order:
@@ -120,16 +115,14 @@ def test_the_campaign_shim_actually_runs(campaign):
 
 
 def test_run_returns_nonzero_when_a_launched_run_failed(
-    tmp_path, pristine, panther_repo, write_scenario, capsys, toolchain_record
+    tmp_path, pristine, write_scenario, capsys, toolchain_record
 ):
     """A campaign driver must be able to branch on `run`'s exit code.
 
     Every run's exit code was printed and then discarded, so a script could not
     tell a campaign where every run failed from one where every run passed.
     """
-    _, _, campaign_dir = _init(
-        tmp_path, pristine, panther_repo, capsys, toolchain_record
-    )
+    _, _, campaign_dir = _init(tmp_path, pristine, capsys, toolchain_record)
     order = json.loads((campaign_dir / "campaign.json").read_text())["run_order"]
     for run_id in order:
         write_scenario(
@@ -142,7 +135,7 @@ def test_run_returns_nonzero_when_a_launched_run_failed(
 
 
 def test_a_failing_parity_suite_exits_three_not_two(
-    tmp_path, pristine, panther_repo, capsys, monkeypatch, toolchain_record
+    tmp_path, pristine, capsys, monkeypatch, toolchain_record
 ):
     """2 belongs to argparse, so a stop-ship gate must not also return it.
 
@@ -154,9 +147,7 @@ def test_a_failing_parity_suite_exits_three_not_two(
         cli, "_run_parity", lambda *_, **__: {"passed": False, "summary": "1 failed"}
     )
 
-    code, _, _ = _init(
-        tmp_path, pristine, panther_repo, capsys, toolchain_record, skip_parity=False
-    )
+    code, _, _ = _init(tmp_path, pristine, capsys, toolchain_record, skip_parity=False)
 
     assert code == 3
 
@@ -314,8 +305,6 @@ def test_empty_model_is_refused_but_an_unknown_one_is_not(capsys):
             "x",
             "--baseline",
             "p",
-            "--panther-repo",
-            ".",
             "--model",
             "some-model-released-next-year",
         ]
@@ -323,14 +312,66 @@ def test_empty_model_is_refused_but_an_unknown_one_is_not(capsys):
     assert parsed.model == "some-model-released-next-year"
 
 
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["campaign", "init", "--id", "x", "--baseline", "p"],
+        ["optimize", "prepare-interview"],
+        [
+            "optimize",
+            "run",
+            "--name",
+            "n",
+            "--stage",
+            "fake",
+            "--examples",
+            "e.json",
+            "--toolchain",
+            "t.json",
+        ],
+    ],
+    ids=["campaign-init", "prepare-interview", "optimize-run"],
+)
+def test_panther_repo_is_no_longer_a_flag(argv, capsys):
+    """The three subcommands that took ``--panther-repo`` now refuse it.
+
+    Each argv carries that subparser's complete required set, read off the
+    parser itself rather than guessed: argparse reports a missing required
+    option before an unrecognized one, so an incomplete argv would exit 2 for
+    the wrong reason and this would have passed before the flag was removed.
+    The stderr line is what discriminates the two exits.
+    """
+    with pytest.raises(SystemExit) as raised:
+        cli.build_standalone_parser().parse_args([*argv, "--panther-repo", "/x"])
+
+    assert raised.value.code == 2
+    assert "unrecognized arguments: --panther-repo" in capsys.readouterr().err
+
+
+def test_campaign_init_records_provenance_without_the_flag(
+    tmp_path, pristine, capsys, toolchain_record
+):
+    """Provenance is now read from the repository this package installs from.
+
+    ``git_describe`` answers ``unknown`` rather than raising when git fails,
+    so comparing against the description of ``_repo_root()`` pins *which*
+    checkout was read; asserting only that something was written would hold
+    against that failure mode too.
+    """
+    code, _, campaign_dir = _init(tmp_path, pristine, capsys, toolchain_record)
+
+    assert code == 0
+    recorded = json.loads((campaign_dir / "campaign.json").read_text())["git"]
+    assert recorded["panther"] != "unknown"
+    assert recorded["panther"] == git_describe(cli._repo_root())
+
+
 def test_run_parity_reports_the_suite():
     result = cli._run_parity(sys.executable)
     assert result["passed"] is True and "passed" in result["summary"]
 
 
-def test_campaign_init_refuses_unknown_pristine(
-    tmp_path, panther_repo, capsys, toolchain_record
-):
+def test_campaign_init_refuses_unknown_pristine(tmp_path, capsys, toolchain_record):
     code = cli.main(
         [
             "campaign",
@@ -341,8 +382,6 @@ def test_campaign_init_refuses_unknown_pristine(
             "x",
             "--baseline",
             "nope",
-            "--panther-repo",
-            str(panther_repo),
             "--claude",
             str(FAKE_CLAUDE),
             "--toolchain",
@@ -453,13 +492,12 @@ def _consolidate(campaign_dir: Path, *only: str, acknowledge: bool = True) -> in
 
 
 def test_campaign_init_takes_a_consolidation_interval(
-    tmp_path, pristine, panther_repo, capsys, toolchain_record
+    tmp_path, pristine, capsys, toolchain_record
 ):
     """The cadence is a property of the campaign, so it is frozen with it."""
     _, _, campaign_dir = _init(
         tmp_path,
         pristine,
-        panther_repo,
         capsys,
         toolchain_record,
         "--consolidate-every",
@@ -494,7 +532,7 @@ def _recon_with_interval(tmp_path: Path, interval: int) -> Path:
 
 
 def test_the_interval_an_operator_configured_is_what_freezes(
-    tmp_path, pristine, panther_repo, capsys, toolchain_record
+    tmp_path, pristine, capsys, toolchain_record
 ):
     """An operator who configured a cadence gets that cadence, not the default.
 
@@ -509,7 +547,6 @@ def test_the_interval_an_operator_configured_is_what_freezes(
     _, _, campaign_dir = _init(
         tmp_path,
         pristine,
-        panther_repo,
         capsys,
         toolchain_record,
         "--config",
@@ -521,7 +558,7 @@ def test_the_interval_an_operator_configured_is_what_freezes(
 
 
 def test_the_flag_outranks_the_interval_the_config_carries(
-    tmp_path, pristine, panther_repo, capsys, toolchain_record
+    tmp_path, pristine, capsys, toolchain_record
 ):
     """The flag is the more specific instruction, so it wins.
 
@@ -531,7 +568,6 @@ def test_the_flag_outranks_the_interval_the_config_carries(
     _, _, campaign_dir = _init(
         tmp_path,
         pristine,
-        panther_repo,
         capsys,
         toolchain_record,
         "--config",
@@ -545,7 +581,7 @@ def test_the_flag_outranks_the_interval_the_config_carries(
 
 
 def test_a_config_with_no_sessions_block_configures_no_cadence(
-    tmp_path, pristine, panther_repo, capsys, toolchain_record, monkeypatch
+    tmp_path, pristine, capsys, toolchain_record, monkeypatch
 ):
     """The ordinary shape of a baseline's config, not an edge case.
 
@@ -563,7 +599,6 @@ def test_a_config_with_no_sessions_block_configures_no_cadence(
     _, _, campaign_dir = _init(
         tmp_path,
         pristine,
-        panther_repo,
         capsys,
         toolchain_record,
         "--config",
@@ -575,7 +610,7 @@ def test_a_config_with_no_sessions_block_configures_no_cadence(
 
 
 def test_a_zero_the_config_carries_disables_mid_sweep_rounds(
-    tmp_path, pristine, panther_repo, capsys, toolchain_record
+    tmp_path, pristine, capsys, toolchain_record
 ):
     """0 is a configured value, so the config tier must not read it as absent.
 
@@ -586,7 +621,6 @@ def test_a_zero_the_config_carries_disables_mid_sweep_rounds(
     _, _, campaign_dir = _init(
         tmp_path,
         pristine,
-        panther_repo,
         capsys,
         toolchain_record,
         "--config",
@@ -598,7 +632,7 @@ def test_a_zero_the_config_carries_disables_mid_sweep_rounds(
 
 
 def test_the_consolidation_interval_defaults_to_recon_yamls_own(
-    tmp_path, pristine, panther_repo, capsys, toolchain_record, monkeypatch
+    tmp_path, pristine, capsys, toolchain_record, monkeypatch
 ):
     """One default for the interval, so an operator's and a campaign's agree.
 
@@ -611,16 +645,14 @@ def test_the_consolidation_interval_defaults_to_recon_yamls_own(
     above that assert a configured 3 and a flagged 5.
     """
     monkeypatch.setattr(cli, "DEFAULT_CONSOLIDATE_EVERY", 7)
-    _, _, campaign_dir = _init(
-        tmp_path, pristine, panther_repo, capsys, toolchain_record
-    )
+    _, _, campaign_dir = _init(tmp_path, pristine, capsys, toolchain_record)
 
     frozen = json.loads((campaign_dir / "campaign.json").read_text())
     assert frozen["consolidate_every"] == 7
 
 
 def test_a_negative_consolidation_interval_is_refused(
-    tmp_path, pristine, panther_repo, capsys, toolchain_record
+    tmp_path, pristine, capsys, toolchain_record
 ):
     """A minus sign inverts the flag's meaning instead of narrowing it.
 
@@ -637,7 +669,6 @@ def test_a_negative_consolidation_interval_is_refused(
         _init(
             tmp_path,
             pristine,
-            panther_repo,
             capsys,
             toolchain_record,
             "--consolidate-every",
@@ -650,7 +681,7 @@ def test_a_negative_consolidation_interval_is_refused(
 
 
 def test_one_consolidation_runs_against_a_finished_workspace(
-    tmp_path, pristine, panther_repo, capsys, toolchain_record, monkeypatch
+    tmp_path, pristine, capsys, toolchain_record, monkeypatch
 ):
     """One paid round on a finished copy, with no sweep around it.
 
@@ -660,9 +691,7 @@ def test_one_consolidation_runs_against_a_finished_workspace(
     """
     from ai_rfc.experiment import per_cluster
 
-    _, _, campaign_dir = _init(
-        tmp_path, pristine, panther_repo, capsys, toolchain_record
-    )
+    _, _, campaign_dir = _init(tmp_path, pristine, capsys, toolchain_record)
     _finished_run(campaign_dir, "A1", ONE_UNCONSOLIDATED_CLUSTER)
     seen: dict = {}
 
@@ -690,14 +719,12 @@ def test_one_consolidation_runs_against_a_finished_workspace(
 
 
 def test_a_manual_consolidation_that_recorded_nothing_exits_nonzero(
-    tmp_path, pristine, panther_repo, capsys, toolchain_record, monkeypatch
+    tmp_path, pristine, capsys, toolchain_record, monkeypatch
 ):
     """The operator paid for a round; whether it landed is the exit code."""
     from ai_rfc.experiment import per_cluster
 
-    _, _, campaign_dir = _init(
-        tmp_path, pristine, panther_repo, capsys, toolchain_record
-    )
+    _, _, campaign_dir = _init(tmp_path, pristine, capsys, toolchain_record)
     _finished_run(campaign_dir, "A1", ONE_UNCONSOLIDATED_CLUSTER)
     launched: list[int] = []
 
@@ -714,7 +741,7 @@ def test_a_manual_consolidation_that_recorded_nothing_exits_nonzero(
 
 
 def test_a_manual_consolidation_launches_nothing_when_none_is_due(
-    tmp_path, pristine, panther_repo, capsys, toolchain_record, monkeypatch
+    tmp_path, pristine, capsys, toolchain_record, monkeypatch
 ):
     """A revisions map that will not scan answers None rather than raising.
 
@@ -725,9 +752,7 @@ def test_a_manual_consolidation_launches_nothing_when_none_is_due(
     """
     from ai_rfc.experiment import per_cluster
 
-    _, _, campaign_dir = _init(
-        tmp_path, pristine, panther_repo, capsys, toolchain_record
-    )
+    _, _, campaign_dir = _init(tmp_path, pristine, capsys, toolchain_record)
     _finished_run(campaign_dir, "A1", "revisions: [\n")
 
     def refuse(*_args, **_kwargs):
@@ -740,7 +765,7 @@ def test_a_manual_consolidation_launches_nothing_when_none_is_due(
 
 
 def test_arm_c_is_refused_a_consolidation_by_hand_too(
-    tmp_path, pristine, panther_repo, capsys, toolchain_record, monkeypatch
+    tmp_path, pristine, capsys, toolchain_record, monkeypatch
 ):
     """The sweep declines C's rounds, and a flag must not route around that.
 
@@ -750,9 +775,7 @@ def test_arm_c_is_refused_a_consolidation_by_hand_too(
     """
     from ai_rfc.experiment import per_cluster
 
-    _, _, campaign_dir = _init(
-        tmp_path, pristine, panther_repo, capsys, toolchain_record
-    )
+    _, _, campaign_dir = _init(tmp_path, pristine, capsys, toolchain_record)
     _finished_run(campaign_dir, "C1", ONE_UNCONSOLIDATED_CLUSTER)
 
     def refuse(*_args, **_kwargs):
@@ -765,7 +788,7 @@ def test_arm_c_is_refused_a_consolidation_by_hand_too(
 
 
 def test_an_arm_the_verb_refuses_is_never_sent_to_fetch_a_flag_first(
-    tmp_path, pristine, panther_repo, capsys, toolchain_record, monkeypatch
+    tmp_path, pristine, capsys, toolchain_record, monkeypatch
 ):
     """The refusal an operator cannot argue with comes before the one they can.
 
@@ -776,9 +799,7 @@ def test_an_arm_the_verb_refuses_is_never_sent_to_fetch_a_flag_first(
     """
     from ai_rfc.experiment import per_cluster
 
-    _, _, campaign_dir = _init(
-        tmp_path, pristine, panther_repo, capsys, toolchain_record
-    )
+    _, _, campaign_dir = _init(tmp_path, pristine, capsys, toolchain_record)
     _finished_run(campaign_dir, "C1", ONE_UNCONSOLIDATED_CLUSTER)
 
     def refuse(*_args, **_kwargs):
@@ -792,7 +813,7 @@ def test_an_arm_the_verb_refuses_is_never_sent_to_fetch_a_flag_first(
 
 
 def test_a_zero_consolidation_interval_survives_into_the_campaign(
-    tmp_path, pristine, panther_repo, capsys, toolchain_record
+    tmp_path, pristine, capsys, toolchain_record
 ):
     """0 is a value, not an absence: it keeps the sweep-end round and no other.
 
@@ -803,7 +824,6 @@ def test_a_zero_consolidation_interval_survives_into_the_campaign(
     _, _, campaign_dir = _init(
         tmp_path,
         pristine,
-        panther_repo,
         capsys,
         toolchain_record,
         "--consolidate-every",
@@ -815,7 +835,7 @@ def test_a_zero_consolidation_interval_survives_into_the_campaign(
 
 
 def test_a_manual_consolidation_is_refused_without_the_acknowledgment(
-    tmp_path, pristine, panther_repo, capsys, toolchain_record, monkeypatch
+    tmp_path, pristine, capsys, toolchain_record, monkeypatch
 ):
     """Appending to a finished run crosses an invariant, so it is said out loud.
 
@@ -826,9 +846,7 @@ def test_a_manual_consolidation_is_refused_without_the_acknowledgment(
     """
     from ai_rfc.experiment import per_cluster
 
-    _, _, campaign_dir = _init(
-        tmp_path, pristine, panther_repo, capsys, toolchain_record
-    )
+    _, _, campaign_dir = _init(tmp_path, pristine, capsys, toolchain_record)
     _finished_run(campaign_dir, "A1", ONE_UNCONSOLIDATED_CLUSTER)
 
     def refuse(*_args, **_kwargs):
@@ -842,7 +860,7 @@ def test_a_manual_consolidation_is_refused_without_the_acknowledgment(
 
 
 def test_a_manual_consolidation_records_that_it_extended_the_transcript(
-    tmp_path, pristine, panther_repo, capsys, toolchain_record, monkeypatch
+    tmp_path, pristine, capsys, toolchain_record, monkeypatch
 ):
     """A reader of the run must be able to tell the extension was deliberate.
 
@@ -852,9 +870,7 @@ def test_a_manual_consolidation_records_that_it_extended_the_transcript(
     """
     from ai_rfc.experiment import per_cluster
 
-    _, _, campaign_dir = _init(
-        tmp_path, pristine, panther_repo, capsys, toolchain_record
-    )
+    _, _, campaign_dir = _init(tmp_path, pristine, capsys, toolchain_record)
     workspace = _finished_run(campaign_dir, "A1", ONE_UNCONSOLIDATED_CLUSTER)
     (workspace.parent / "events.jsonl").write_text('{"a": 1}\n{"b": 2}\n')
     launched: list[int] = []
@@ -883,7 +899,7 @@ def test_a_manual_consolidation_records_that_it_extended_the_transcript(
 
 
 def test_a_manual_consolidation_needs_exactly_one_run(
-    tmp_path, pristine, panther_repo, capsys, toolchain_record, monkeypatch
+    tmp_path, pristine, capsys, toolchain_record, monkeypatch
 ):
     """The round edits one workspace, and --only is the only thing that says which.
 
@@ -893,9 +909,7 @@ def test_a_manual_consolidation_needs_exactly_one_run(
     """
     from ai_rfc.experiment import per_cluster
 
-    _, _, campaign_dir = _init(
-        tmp_path, pristine, panther_repo, capsys, toolchain_record
-    )
+    _, _, campaign_dir = _init(tmp_path, pristine, capsys, toolchain_record)
     _finished_run(campaign_dir, "A1", ONE_UNCONSOLIDATED_CLUSTER)
 
     def refuse(*_args, **_kwargs):
