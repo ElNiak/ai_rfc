@@ -321,6 +321,30 @@ def test_cli_provision_emits_no_trailing_blank_line(tmp_path, capsys, monkeypatc
     assert capsys.readouterr().err == "error: make deps failed:\nError 2\n"
 
 
+def test_cli_provision_emits_no_line_at_all_for_an_empty_tail(
+    tmp_path, capsys, monkeypatch
+):
+    """A tool that wrote nothing to stderr has no block, and no block is no line.
+
+    ``stderr[-2000:]`` is ``""`` when the failing tool put its output on stdout
+    or was killed before writing, and ``"".split("\\n")`` is ``[""]``. This is
+    the same artifact the test above exists to prevent, on the adjacent input:
+    while the two halves were one joined string the heading sat in front of the
+    empty tail and absorbed it, and splitting them took that away.
+    """
+    from ai_rfc.cli import main
+    from ai_rfc.lifecycle.toolchain import cli as toolchain_cli
+
+    def _fail(*_args, **_kwargs):
+        raise ToolchainBuildError("make deps failed:", "")
+
+    monkeypatch.setattr(toolchain_cli, "provision", _fail)
+
+    assert main(["toolchain", "provision", "--root", str(tmp_path)]) == 1
+
+    assert capsys.readouterr().err == "error: make deps failed:\n"
+
+
 def test_cli_toolchain_help_is_wired_for_both_verbs(capsys):
     from ai_rfc.cli import main
 

@@ -128,7 +128,13 @@ def report_diagnostic(prefix: str, error: BaseException) -> None:
     """
     if isinstance(error, StructuredDiagnostic):
         report(f"{prefix}{error.structured_context}")
-        report_structured(error.structured_block)
+        # A producer that wrote nothing has no block, and ``"".split("\n")``
+        # is ``[""]`` — a blank stderr line under the heading. While the two
+        # halves were one string the heading sat in front of that emptiness
+        # and ``removesuffix`` consumed it; apart, they do not, so the
+        # emptiness is answered where both halves are in hand.
+        if error.structured_block:
+            report_structured(error.structured_block)
         return
     report(f"{prefix}{error}")
 

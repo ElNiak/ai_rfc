@@ -88,3 +88,24 @@ class StructuredDiagnostic:
         super().__init__(f"{context}\n{block}")  # type: ignore[call-arg]
         self.structured_context = context
         self.structured_block = block
+
+    def __reduce__(self) -> tuple[type[StructuredDiagnostic], tuple[str, str]]:
+        """Rebuild from the two halves rather than from ``args``.
+
+        :meth:`BaseException.__reduce__` returns ``(cls, self.args)``, and
+        ``args`` carries the **joined** message while this ``__init__`` takes
+        the two halves — so the inherited reduction rebuilds with an argument
+        too few, and splitting the message stopped all three types pickling
+        and surviving :func:`copy.copy`. Nothing crosses a process boundary
+        today; a campaign running its arms in a pool is where that stops being
+        latent.
+
+        Overriding here rather than handing both halves to ``super().__init__``
+        is deliberate: ``args`` stays the one joined line, so ``str()`` remains
+        byte for byte the two lines a handler prints, which is what the four
+        sites that re-wrap one of these into another exception type read.
+
+        Returns:
+            The concrete type and the two halves to rebuild it from.
+        """
+        return (type(self), (self.structured_context, self.structured_block))

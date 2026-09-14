@@ -245,6 +245,62 @@ def test_a_run_workspace_that_lost_its_seal_is_refused_not_redirected(
     assert "init.json" in str(refusal.value)
 
 
+def test_a_workspace_sealed_in_place_that_lost_its_seal_says_only_what_is_true(
+    tmp_path, monkeypatch
+):
+    """The copied-from clause is false for a workspace that was never copied.
+
+    ``seal`` writes a workspace's **own** root into its ``workspace:`` field,
+    so a campaign pristine — or any workspace an operator initialised and left
+    where it was — names itself there. Refusing is still right, because without
+    the seal the resolver cannot tell such a tree from a run's copy of it, but
+    a message asserting the field *names the tree it was copied from* describes
+    a history this workspace does not have.
+    """
+    ws = tmp_path / "ws"
+    (ws / "out").mkdir(parents=True)
+    config = _seal(ws)
+    (ws / "init.json").unlink()
+
+    monkeypatch.delenv("AI_RFC_WORKSPACE", raising=False)
+    monkeypatch.setenv("AI_RFC_CONFIG", str(config))
+    with pytest.raises(EnvError) as refusal:
+        resolve_context()
+    text = str(refusal.value)
+    # The seal really is what is missing here, so naming it is followable.
+    assert str((ws / "init.json").resolve()) in text
+    assert "names the tree it was copied from" not in text
+
+
+def test_a_second_config_in_a_workspace_is_refused_for_its_own_reason(
+    tmp_path, monkeypatch
+):
+    """The branch has two entry conditions, and must not assert the other one.
+
+    An operator who keeps a second config beside a sealed workspace's own
+    ``recon.yaml`` reaches the refusal because this file is not that
+    workspace's config — not because the seal is gone. A message that says
+    ``init.json`` is missing sends them to restore a file sitting right there,
+    and it is the hand-driven operator, not the harness, who is the whole
+    population this refusal exists for: every automated caller hands over the
+    workspace's own ``recon.yaml``.
+    """
+    ws = tmp_path / "ws"
+    (ws / "out").mkdir(parents=True)
+    sealed = _seal(ws)
+    second = _write(ws / "recon-v2.yaml", ws)
+
+    monkeypatch.delenv("AI_RFC_WORKSPACE", raising=False)
+    monkeypatch.setenv("AI_RFC_CONFIG", str(second))
+    with pytest.raises(EnvError) as refusal:
+        resolve_context()
+    text = str(refusal.value)
+    # The seal is present, so no clause of the refusal may name it.
+    assert "init.json" not in text
+    # The one actionable remedy, rendered as a line to paste rather than prose.
+    assert f"AI_RFC_CONFIG={sealed.resolve()}" in text
+
+
 def test_a_toolchain_handle_naming_no_file_is_refused_however_the_config_reads(
     monkeypatch, tmp_path
 ):

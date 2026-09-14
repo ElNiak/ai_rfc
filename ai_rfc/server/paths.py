@@ -140,6 +140,61 @@ def _looks_like_a_workspace(layout: Layout) -> bool:
     return bool(_workspace_markers(layout))
 
 
+def _unsealed_refusal(config_path: Path, layout: Layout) -> str:
+    """Why this config's own directory is refused rather than resolved.
+
+    **Two** conditions reach this refusal and they are different mistakes: the
+    config is not the workspace's own ``recon.yaml``, or the ``init.json``
+    beside it is gone. Only one of them is the operator's, and a message that
+    asserts the other tells them to restore a file that is sitting there. So
+    each condition describes itself, and neither describes a history this
+    workspace may not have: a workspace sealed in place carries its **own**
+    root in ``workspace:``, so *"the tree it was copied from"* is false there
+    even though refusing is still right.
+
+    What both share is the reason for refusing rather than falling back: the
+    ``workspace:`` field is resolved only where no workspace surrounds the
+    config, because a run's copy carries the pristine's root in that field and
+    a tool sent there writes into the baseline every other run is made from.
+
+    The remedy is a line to paste. It names the sealed config outright when
+    one is actually there to name — both halves of the seal present, so
+    pointing at it resolves rather than landing on this refusal again — and a
+    placeholder otherwise, because a path that does not resolve is the
+    unfollowable instruction this function exists to stop emitting.
+
+    Args:
+        config_path: The resolved ``AI_RFC_CONFIG``.
+        layout: The candidate workspace, which is that config's own directory.
+
+    Returns:
+        The refusal text, ending in the one actionable remedy.
+    """
+    present = ", ".join(_workspace_markers(layout))
+    sealed_here = layout.config.is_file() and layout.init_record.is_file()
+    remedy = (
+        f"{CONFIG_ENV}={layout.config}"
+        if sealed_here
+        else f"{CONFIG_ENV}=<workspace>/{CONFIG_FILE_NAME}"
+    )
+    if layout.config != config_path:
+        return (
+            f"{CONFIG_ENV}={config_path} sits in what looks like a workspace "
+            f"({present} present) but is not that workspace's "
+            f"{CONFIG_FILE_NAME}, so nothing here sealed it to this tree and "
+            f"its workspace: field is not resolved while a workspace is "
+            f"around it. Set {remedy}"
+        )
+    return (
+        f"{CONFIG_ENV}={config_path} sits in what looks like a workspace "
+        f"({present} present) whose {layout.init_record.name} is missing. "
+        f"Without the seal a run's copy cannot be told from the tree it was "
+        f"made from, and a copy's workspace: field names that tree, so the "
+        f"field is not resolved here. Restore {layout.init_record}, or set "
+        f"{remedy}"
+    )
+
+
 def _resolve_toolchain(declared: Path | None) -> Path | None:
     """The ``toolchain.json`` this context builds against, or ``None``.
 
@@ -190,10 +245,13 @@ def resolve_context() -> Context:
         The resolved context.
 
     Raises:
-        EnvError: If ``AI_RFC_CONFIG`` is missing or does not name a file,
-            if its directory is a workspace that has lost its ``init.json``,
-            if the workspace it resolves to is not a directory, or if
-            ``AI_RFC_TOOLCHAIN`` is set and does not name a file.
+        EnvError: If ``AI_RFC_CONFIG`` is missing or does not name a file, if
+            its directory is a workspace this config is not the seal of —
+            either because the config is not that workspace's ``recon.yaml``
+            or because its ``init.json`` is gone, which
+            :func:`_unsealed_refusal` tells apart — if the workspace it
+            resolves to is not a directory, or if ``AI_RFC_TOOLCHAIN`` is set
+            and does not name a file.
         ConfigError: If the config does not validate. Deliberately not wrapped:
             :class:`~ai_rfc.config.ConfigParseError` is a subclass carrying the
             YAML parser's own multi-line block, and a caller dispatching on the
@@ -214,15 +272,7 @@ def resolve_context() -> Context:
         workspace_path = layout.root
     else:
         if _looks_like_a_workspace(layout):
-            raise EnvError(
-                f"{CONFIG_ENV}={config_path} sits in what looks like a "
-                f"workspace ({', '.join(_workspace_markers(layout))} present) "
-                f"but {layout.init_record.name} is missing, so this is not a "
-                f"sealed workspace and its {CONFIG_FILE_NAME}'s workspace: "
-                f"field names the tree it was copied from. Restore "
-                f"{layout.init_record}, or point {CONFIG_ENV} at the config of "
-                "the workspace you mean"
-            )
+            raise EnvError(_unsealed_refusal(config_path, layout))
         workspace_path = config.workspace.expanduser().resolve()
     if not workspace_path.is_dir():
         raise EnvError(
