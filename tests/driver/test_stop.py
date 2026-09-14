@@ -548,10 +548,10 @@ UNPRINTABLE = [
     "\r",  # carriage return: rewrites what the terminal shows
     "\x1b",  # escape: opens a control sequence
     "\x85",  # NEL, a line break to str.splitlines
-    " ",  # LINE SEPARATOR
-    " ",  # PARAGRAPH SEPARATOR
-    "‮",  # RIGHT-TO-LEFT OVERRIDE: reorders what is read
-    "​",  # ZERO WIDTH SPACE: hides a token boundary
+    "\u2028",  # LINE SEPARATOR
+    "\u2029",  # PARAGRAPH SEPARATOR
+    "\u202e",  # RIGHT-TO-LEFT OVERRIDE: reorders what is read
+    "\u200b",  # ZERO WIDTH SPACE: hides a token boundary
 ]
 
 

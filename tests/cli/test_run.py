@@ -267,7 +267,7 @@ def test_a_bound_that_names_nothing_is_refused_by_the_parser(initialised, bound)
 
 @pytest.mark.parametrize(
     "bound",
-    [FORGED_BOUND, "cluster:c1\x07", "cluster:c1 evil", "cluster:c1‮"],
+    [FORGED_BOUND, "cluster:c1\x07", "cluster:c1\u2028evil", "cluster:c1\u202e"],
 )
 def test_a_cluster_bound_that_could_forge_a_line_is_refused_by_the_parser(
     initialised, bound
@@ -410,8 +410,8 @@ def test_a_retry_that_names_no_cluster_is_refused_by_the_parser(initialised, cap
     [
         FORGED_RETRY,  # forges a second record
         "c1\x07",  # a C0 bell
-        "c1 ",  # LINE SEPARATOR, a break by str.splitlines' definition
-        "c1‮",  # RIGHT-TO-LEFT OVERRIDE, reorders without breaking
+        "c1\u2028",  # LINE SEPARATOR, a break by str.splitlines' definition
+        "c1\u202e",  # RIGHT-TO-LEFT OVERRIDE, reorders without breaking
     ],
 )
 def test_a_retry_that_could_forge_a_line_is_refused_by_the_parser(

@@ -100,7 +100,7 @@ def test_round_trip_preserves_the_other_unicode_line_breaks(
     plugin_root: Path,
 ) -> None:
     seed = seed_from_plugin(plugin_root)
-    for separator in ("\x0b", "\x1c", "\x1d", "\x1e", "\x85", " ", " "):
+    for separator in ("\x0b", "\x1c", "\x1d", "\x1e", "\x85", "\u2028", "\u2029"):
         body = seed.interviewing.replace("The", f"The{separator}", 1)
         proposed = replace(seed, interviewing=body)
         assert decode(encode(proposed), seed=seed) == proposed

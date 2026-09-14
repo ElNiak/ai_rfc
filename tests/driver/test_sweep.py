@@ -474,11 +474,11 @@ UNPRINTABLE = (
     "\r",  # rewrites what the terminal already showed
     "\x1b",  # opens a control sequence
     "\x7f",  # DEL
-    "",  # NEL — a break by str.splitlines' own definition
-    " ",  # LINE SEPARATOR
-    " ",  # PARAGRAPH SEPARATOR
-    "‮",  # RIGHT-TO-LEFT OVERRIDE — reorders without breaking
-    "​",  # ZERO WIDTH SPACE — hides a token boundary
+    "\u0085",  # NEL — a break by str.splitlines' own definition
+    "\u2028",  # LINE SEPARATOR
+    "\u2029",  # PARAGRAPH SEPARATOR
+    "\u202e",  # RIGHT-TO-LEFT OVERRIDE — reorders without breaking
+    "\u200b",  # ZERO WIDTH SPACE — hides a token boundary
 )
 
 
