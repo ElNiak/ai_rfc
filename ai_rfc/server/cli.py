@@ -338,7 +338,7 @@ def main(argv: list[str] | None = None) -> int:
                 ctx, args.cluster_id, args.consolidation, args.base
             )
             _emit(result)
-            return 0 if result["exit_code"] == 0 else 1
+            return result["exit_code"]
         elif args.verb == "gate":
             result = gates.manifest_gate(ctx, strict=args.strict)
             _emit(result)
