@@ -1,5 +1,7 @@
 import hashlib
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -99,12 +101,52 @@ def test_init_campaign_freezes_everything(
             .read_text()
             .startswith("--- arm-")
         )
-    shim = campaign.bin_dir / "ai_rfc"
+    shim = campaign.bin_dir / "ai-rfc"
     assert shim.exists() and shim.stat().st_mode & 0o111
     assert "/venv/bin/python" in shim.read_text()
     assert stored["parity"] == {"passed": True, "summary": "38 passed"}
     assert stored["git"]["panther"] and stored["git"]["ai_rfc"]
     assert campaign.split_run_id("B2") == ("B", 2)
+
+
+def test_an_interpreter_path_cannot_forge_a_command_in_the_shim(
+    tmp_path, pristine, panther_repo, plugin_root
+):
+    """``--python`` is an operator's string and lands inside a ``sh`` script.
+
+    Its default is :data:`sys.executable`, which is why this had never been
+    seen; its value is whatever was typed. The body wrote ``exec "{python}"``,
+    and inside a double-quoted word ``sh`` still expands ``$(...)``, a
+    backtick and a backslash — so an interpreter under a directory whose name
+    contains a substitution ran it, every time any session invoked the shim.
+
+    Measured before the fix, on this very shape: exit 126 with the marker
+    written. The assertion is both halves, because a shim that merely refused
+    to run would also write no marker and would tell nobody why.
+    """
+    home = tmp_path / "py$(touch forged)"
+    home.mkdir()
+    interpreter = home / "python"
+    # A wrapper rather than a symlink: a symlinked interpreter resolves its
+    # prefix from the link's own directory and would not import ai_rfc.
+    interpreter.write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n')
+    interpreter.chmod(0o755)
+
+    campaign = _init(
+        tmp_path, pristine, panther_repo, plugin_root, python=str(interpreter)
+    )
+    # ``cwd`` is where the forged ``touch`` would land: a directory name
+    # cannot hold a ``/``, so the payload has to be relative, and asserting on
+    # it means saying where it would appear.
+    done = subprocess.run(
+        [str(campaign.bin_dir / "ai-rfc"), "--help"],
+        capture_output=True,
+        text=True,
+        cwd=tmp_path,
+    )
+    assert not (tmp_path / "forged").exists()
+    assert done.returncode == 0, done.stderr
+    assert done.stdout.startswith("usage: ai-rfc <verb> [args]")
 
 
 def test_init_campaign_refuses_to_overwrite(

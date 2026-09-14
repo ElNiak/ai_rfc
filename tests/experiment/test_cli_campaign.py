@@ -1,5 +1,7 @@
 import dataclasses
 import json
+import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -95,6 +97,26 @@ def test_campaign_init_run_audit_analyze_round_trip(
     assert (campaign_dir / "analysis" / "aggregate.json").exists()
     report = (campaign_dir / "analysis" / "report.md").read_text()
     assert "# Campaign pilot-test" in report and "| A |" in report
+
+
+def test_the_campaign_shim_actually_runs(campaign):
+    """The round-trip gate above emits the shim's name without executing it.
+
+    ``fake_claude`` mutates its workspace by importing the core in process and
+    writes the shim's name into the transcript only as a string for the audit
+    classifier, so the round trip would stay green with a shim that could not
+    run at all — or that was never written. This is the only assertion in the
+    suite that spends a process on it.
+
+    ``--help`` rather than a verb, because the shim's job is to reach the door:
+    the door's own usage line is what proves the interpreter, the ``-c`` body
+    and the import all resolved, and it needs no workspace to print.
+    """
+    shim = campaign.bin_dir / "ai-rfc"
+    assert shim.is_file() and os.access(shim, os.X_OK)
+    done = subprocess.run([str(shim), "--help"], capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr
+    assert done.stdout.startswith("usage: ai-rfc <verb> [args]")
 
 
 def test_run_returns_nonzero_when_a_launched_run_failed(

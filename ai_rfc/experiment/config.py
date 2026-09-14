@@ -12,6 +12,7 @@ import dataclasses
 import hashlib
 import json
 import random
+import shlex
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -52,8 +53,22 @@ TASK_TEMPLATE_FILE = "task.tmpl.md"
 CONSOLIDATION_TASK_TEMPLATE_FILE = "task-consolidation.tmpl.md"
 LOOP_TEMPLATE_FILE = "loop.tmpl.md"
 CAMPAIGN_FILE = "campaign.json"
+#: The ``ai-rfc`` every session finds first on its ``PATH``. It names
+#: :mod:`ai_rfc.cli` — the one door — rather than a CLI of its own, so an arm
+#: running through Bash reaches exactly the parser an operator does.
+#:
+#: ``{python}`` is **not** wrapped in double quotes here, and must not be:
+#: the interpreter arrives from ``--python``, whose default is
+#: :data:`sys.executable` but whose value is an operator's to choose, and
+#: inside a double-quoted word ``$``, a backtick and a backslash keep their
+#: meaning to ``sh``. Measured: with the path
+#: ``<tmp>/py$(touch forged)/python`` the old body ran ``touch`` and exited
+#: 126; through :func:`shlex.quote` it exits 0, writes no file, and reaches
+#: the door. Single-quoting is total for this grammar — unlike the stderr
+#: boundary, where a character list was the wrong shape and
+#: :func:`ai_rfc.driver.printable` answers with a category instead.
 _SHIM = """#!/bin/sh
-exec "{python}" -c "import sys; from ai_rfc.server.cli import main; sys.exit(main())" "$@"
+exec {python} -c "import sys; from ai_rfc.cli import main; sys.exit(main())" "$@"
 """
 
 
@@ -403,8 +418,8 @@ def init_campaign(config: CampaignConfig) -> Campaign:
 
     bin_dir = campaign_dir / "bin"
     bin_dir.mkdir()
-    shim = bin_dir / "ai_rfc"
-    shim.write_text(_SHIM.format(python=python))
+    shim = bin_dir / "ai-rfc"
+    shim.write_text(_SHIM.format(python=shlex.quote(python)))
     shim.chmod(0o755)
     for name in ("runs", "audit", "analysis"):
         (campaign_dir / name).mkdir()
