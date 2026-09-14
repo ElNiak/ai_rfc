@@ -52,7 +52,7 @@ def pristine(tmp_path: Path) -> Path:
     return root
 
 
-def _init(tmp_path, pristine, panther_repo, plugin_root, **overrides):
+def _init(tmp_path, pristine, plugin_root, **overrides):
     # The module's six pre-existing tests call _init(...) with no toolchain, and
     # init_campaign now refuses without one; this default keeps them working
     # without touching every call site. verify() is monkeypatched to (True, ())
@@ -71,7 +71,6 @@ def _init(tmp_path, pristine, panther_repo, plugin_root, **overrides):
         effort="high",
         budget_usd=25.0,
         timeout_s=7200,
-        panther_repo=panther_repo,
         plugin_root=plugin_root,
         python="/venv/bin/python",
         claude_bin="/bin/echo",
@@ -82,10 +81,8 @@ def _init(tmp_path, pristine, panther_repo, plugin_root, **overrides):
     return init_campaign(CampaignConfig(**kwargs))
 
 
-def test_init_campaign_freezes_everything(
-    tmp_path, pristine, panther_repo, plugin_root
-):
-    campaign = _init(tmp_path, pristine, panther_repo, plugin_root)
+def test_init_campaign_freezes_everything(tmp_path, pristine, plugin_root):
+    campaign = _init(tmp_path, pristine, plugin_root)
     assert campaign.dir == tmp_path / "root" / "campaigns" / "pilot-test"
     stored = json.loads((campaign.dir / "campaign.json").read_text())
     assert stored["run_order"] == list(campaign.run_order)
@@ -105,12 +102,16 @@ def test_init_campaign_freezes_everything(
     assert shim.exists() and shim.stat().st_mode & 0o111
     assert "/venv/bin/python" in shim.read_text()
     assert stored["parity"] == {"passed": True, "summary": "38 passed"}
-    assert stored["git"]["panther"] and stored["git"]["ai_rfc"]
+    # The harness no longer takes a PANTHER checkout, so it records none: a
+    # `git describe` of its own root under a `panther` label named the wrong
+    # repository, and `panther_repo` held this package's root, not PANTHER's.
+    assert "panther" not in stored["git"] and stored["git"]["ai_rfc"]
+    assert "panther_repo" not in stored
     assert campaign.split_run_id("B2") == ("B", 2)
 
 
 def test_an_interpreter_path_cannot_forge_a_command_in_the_shim(
-    tmp_path, pristine, panther_repo, plugin_root
+    tmp_path, pristine, plugin_root
 ):
     """``--python`` is an operator's string and lands inside a ``sh`` script.
 
@@ -132,9 +133,7 @@ def test_an_interpreter_path_cannot_forge_a_command_in_the_shim(
     interpreter.write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n')
     interpreter.chmod(0o755)
 
-    campaign = _init(
-        tmp_path, pristine, panther_repo, plugin_root, python=str(interpreter)
-    )
+    campaign = _init(tmp_path, pristine, plugin_root, python=str(interpreter))
     # ``cwd`` is where the forged ``touch`` would land: a directory name
     # cannot hold a ``/``, so the payload has to be relative, and asserting on
     # it means saying where it would appear.
@@ -149,20 +148,46 @@ def test_an_interpreter_path_cannot_forge_a_command_in_the_shim(
     assert done.stdout.startswith("usage: ai-rfc <verb> [args]")
 
 
-def test_init_campaign_refuses_to_overwrite(
-    tmp_path, pristine, panther_repo, plugin_root
-):
-    _init(tmp_path, pristine, panther_repo, plugin_root)
+def test_init_campaign_refuses_to_overwrite(tmp_path, pristine, plugin_root):
+    _init(tmp_path, pristine, plugin_root)
     with pytest.raises(ExperimentError):
-        _init(tmp_path, pristine, panther_repo, plugin_root)
+        _init(tmp_path, pristine, plugin_root)
 
 
-def test_load_campaign_round_trips(tmp_path, pristine, panther_repo, plugin_root):
-    campaign = _init(tmp_path, pristine, panther_repo, plugin_root)
+def test_load_campaign_round_trips(tmp_path, pristine, plugin_root):
+    campaign = _init(tmp_path, pristine, plugin_root)
     loaded = load_campaign(campaign.dir)
     assert loaded == campaign
     with pytest.raises(ExperimentError):
         load_campaign(tmp_path / "nowhere")
+
+
+def test_load_campaign_reads_a_record_written_before_the_retirement(
+    tmp_path, pristine, plugin_root
+):
+    """An archived campaign keeps its ``panther_repo`` and ``git.panther``.
+
+    A recording is not edited to match a later retirement, so the loader must
+    read the shape it was written in. Both retired keys are put back exactly
+    as ``docs/experiments/2026-08-31-pilot-aioquic/campaign.json`` carries
+    them; the loader drops them rather than resurrecting a field to hold
+    them, which is what the second assertion pins.
+    """
+    campaign = _init(tmp_path, pristine, plugin_root)
+    path = campaign.dir / "campaign.json"
+    archived = json.loads(path.read_text())
+    archived["panther_repo"] = "/somewhere/PANTHER"
+    archived["git"] = dict(archived["git"], panther="v1.1.3-839-g226608938")
+    path.write_text(json.dumps(archived, indent=2, sort_keys=True) + "\n")
+
+    loaded = load_campaign(campaign.dir)
+
+    assert loaded.id == campaign.id
+    # Dropped, not resurrected into a field that would then be written back.
+    assert not hasattr(loaded, "panther_repo")
+    # Inside `git` it survives untouched: the loader reads a recording, it
+    # does not edit one.
+    assert loaded.git["panther"] == "v1.1.3-839-g226608938"
 
 
 def test_git_describe_names_a_commit(panther_repo):
@@ -170,10 +195,10 @@ def test_git_describe_names_a_commit(panther_repo):
 
 
 def test_init_campaign_freezes_an_absolute_claude_binary(
-    tmp_path, pristine, panther_repo, plugin_root
+    tmp_path, pristine, plugin_root
 ):
     """A run's PATH excludes the user's bin dirs, so a bare name would not resolve."""
-    campaign = _init(tmp_path, pristine, panther_repo, plugin_root, claude_bin="echo")
+    campaign = _init(tmp_path, pristine, plugin_root, claude_bin="echo")
     assert Path(campaign.claude_bin).is_absolute()
     assert Path(campaign.claude_bin).exists()
 
@@ -181,7 +206,6 @@ def test_init_campaign_freezes_an_absolute_claude_binary(
         _init(
             tmp_path,
             pristine,
-            panther_repo,
             plugin_root,
             campaign_id="no-such-binary",
             claude_bin="definitely-not-a-real-binary-xyz",
@@ -190,7 +214,7 @@ def test_init_campaign_freezes_an_absolute_claude_binary(
 
 
 def test_init_refuses_without_a_verified_toolchain(
-    pristine, tmp_path, panther_repo, plugin_root, monkeypatch
+    pristine, tmp_path, plugin_root, monkeypatch
 ):
     from ai_rfc import toolchain as toolchain_module
 
@@ -202,15 +226,15 @@ def test_init_refuses_without_a_verified_toolchain(
         lambda record, runner=None: (False, ("refcache digest differs",)),
     )
     with pytest.raises(ExperimentError) as excinfo:
-        _init(tmp_path, pristine, panther_repo, plugin_root, toolchain=record)
+        _init(tmp_path, pristine, plugin_root, toolchain=record)
     assert "refcache digest differs" in str(excinfo.value)
     with pytest.raises(ExperimentError) as excinfo:
-        _init(tmp_path, pristine, panther_repo, plugin_root, toolchain=None)
+        _init(tmp_path, pristine, plugin_root, toolchain=None)
     assert "needs a verified toolchain" in str(excinfo.value)
 
 
 def test_init_records_the_toolchain_digest(
-    pristine, tmp_path, panther_repo, plugin_root, monkeypatch
+    pristine, tmp_path, plugin_root, monkeypatch
 ):
     from ai_rfc import toolchain as toolchain_module
 
@@ -219,7 +243,7 @@ def test_init_records_the_toolchain_digest(
     monkeypatch.setattr(
         toolchain_module, "verify", lambda record, runner=None: (True, ())
     )
-    campaign = _init(tmp_path, pristine, panther_repo, plugin_root, toolchain=record)
+    campaign = _init(tmp_path, pristine, plugin_root, toolchain=record)
     assert campaign.toolchain == str(record) and campaign.template_home == "/t"
     assert campaign.toolchain_sha256 == hashlib.sha256(record.read_bytes()).hexdigest()
     stored = json.loads((campaign.dir / "campaign.json").read_text())
@@ -227,7 +251,7 @@ def test_init_records_the_toolchain_digest(
 
 
 def test_a_campaign_frozen_before_the_toolchain_fields_existed_still_loads(
-    tmp_path, pristine, panther_repo, plugin_root
+    tmp_path, pristine, plugin_root
 ):
     """The three new fields default to None, so a pre-existing campaign.json loads.
 
@@ -235,7 +259,7 @@ def test_a_campaign_frozen_before_the_toolchain_fields_existed_still_loads(
     outside this fix round's file list, so this is the equivalent coverage
     for toolchain/toolchain_sha256/template_home, kept here instead.
     """
-    campaign = _init(tmp_path, pristine, panther_repo, plugin_root)
+    campaign = _init(tmp_path, pristine, plugin_root)
     stored_path = campaign.dir / "campaign.json"
     payload = json.loads(stored_path.read_text())
     for key in ("toolchain", "toolchain_sha256", "template_home"):
@@ -285,11 +309,11 @@ def test_render_task_reads_the_template_it_is_given(tmp_path):
 
 
 def test_init_freezes_the_task_template_beside_the_rendering(
-    pristine, tmp_path, panther_repo, plugin_root
+    pristine, tmp_path, plugin_root
 ):
     from ai_rfc.experiment.config import TASK_TEMPLATE
 
-    campaign = _init(tmp_path, pristine, panther_repo, plugin_root)
+    campaign = _init(tmp_path, pristine, plugin_root)
     frozen = campaign.prompts_dir / "task.tmpl.md"
     assert frozen.read_bytes() == TASK_TEMPLATE.read_bytes()
     assert campaign.task_template == frozen
@@ -301,14 +325,13 @@ def test_init_freezes_the_task_template_beside_the_rendering(
 
 
 def test_init_freezes_the_template_and_the_profile_it_was_given(
-    tmp_path, pristine, panther_repo, plugin_root
+    tmp_path, pristine, plugin_root
 ):
     """What an optimizer proposes is what the campaign is pinned to."""
     template = "{{preamble}}\n\n{{guidance}}\n"
     campaign = _init(
         tmp_path,
         pristine,
-        panther_repo,
         plugin_root,
         arms=("A",),
         loop_template=template,
@@ -333,9 +356,9 @@ def test_init_freezes_the_template_and_the_profile_it_was_given(
 
 
 def test_a_campaign_without_a_template_records_no_template_digest(
-    tmp_path, pristine, panther_repo, plugin_root
+    tmp_path, pristine, plugin_root
 ):
-    campaign = _init(tmp_path, pristine, panther_repo, plugin_root)
+    campaign = _init(tmp_path, pristine, plugin_root)
     assert campaign.loop_template_sha256 is None
     assert campaign.task_profile == "loop"
     assert not (campaign.prompts_dir / "loop.tmpl.md").exists()
@@ -343,9 +366,9 @@ def test_a_campaign_without_a_template_records_no_template_digest(
 
 
 def test_a_campaign_frozen_before_the_profile_fields_existed_still_loads(
-    tmp_path, pristine, panther_repo, plugin_root
+    tmp_path, pristine, plugin_root
 ):
-    campaign = _init(tmp_path, pristine, panther_repo, plugin_root)
+    campaign = _init(tmp_path, pristine, plugin_root)
     stored_path = campaign.dir / "campaign.json"
     payload = json.loads(stored_path.read_text())
     for key in ("task_profile", "loop_template_sha256"):
@@ -357,16 +380,16 @@ def test_a_campaign_frozen_before_the_profile_fields_existed_still_loads(
 
 
 def test_a_campaign_defaults_to_consolidating_every_ten_clusters(
-    tmp_path, pristine, panther_repo, plugin_root
+    tmp_path, pristine, plugin_root
 ):
-    campaign = _init(tmp_path, pristine, panther_repo, plugin_root)
+    campaign = _init(tmp_path, pristine, plugin_root)
     assert campaign.consolidate_every == 10
     stored = json.loads((campaign.dir / "campaign.json").read_text())
     assert stored["consolidate_every"] == 10
 
 
 def test_a_chosen_consolidation_interval_survives_the_round_trip(
-    tmp_path, pristine, panther_repo, plugin_root
+    tmp_path, pristine, plugin_root
 ):
     """Only a non-default value can distinguish wiring from a lucky default.
 
@@ -374,7 +397,7 @@ def test_a_chosen_consolidation_interval_survives_the_round_trip(
     says nothing about whether init_campaign threaded the ask into the
     record. Task 8's ``--consolidate-every`` rests entirely on that thread.
     """
-    campaign = _init(tmp_path, pristine, panther_repo, plugin_root, consolidate_every=3)
+    campaign = _init(tmp_path, pristine, plugin_root, consolidate_every=3)
     assert campaign.consolidate_every == 3
     stored = json.loads((campaign.dir / "campaign.json").read_text())
     assert stored["consolidate_every"] == 3
@@ -382,14 +405,14 @@ def test_a_chosen_consolidation_interval_survives_the_round_trip(
 
 
 def test_a_campaign_frozen_before_consolidation_existed_still_loads(
-    tmp_path, pristine, panther_repo, plugin_root
+    tmp_path, pristine, plugin_root
 ):
     """load_campaign splats the frozen JSON into the dataclass.
 
     A field without a default would make every existing campaign.json
     unloadable - the finished MARK campaign included.
     """
-    campaign = _init(tmp_path, pristine, panther_repo, plugin_root)
+    campaign = _init(tmp_path, pristine, plugin_root)
     stored_path = campaign.dir / "campaign.json"
     payload = json.loads(stored_path.read_text())
     del payload["consolidate_every"]
@@ -398,14 +421,13 @@ def test_a_campaign_frozen_before_consolidation_existed_still_loads(
 
 
 def test_the_interview_profile_is_one_arm_and_one_session(
-    tmp_path, pristine, panther_repo, plugin_root
+    tmp_path, pristine, plugin_root
 ):
     """Only arm A carries the tools, and the fixture has no cluster left."""
     with pytest.raises(ExperimentError) as excinfo:
         _init(
             tmp_path,
             pristine,
-            panther_repo,
             plugin_root,
             arms=("A", "B"),
             task_profile="interview",
@@ -417,7 +439,6 @@ def test_the_interview_profile_is_one_arm_and_one_session(
         _init(
             tmp_path,
             pristine,
-            panther_repo,
             plugin_root,
             arms=("A",),
             task_profile="interview",
@@ -427,7 +448,7 @@ def test_the_interview_profile_is_one_arm_and_one_session(
 
 
 def test_a_template_that_leaves_a_slot_unfilled_freezes_nothing(
-    tmp_path, pristine, panther_repo, plugin_root
+    tmp_path, pristine, plugin_root
 ):
     """A campaign is frozen once, so a bad proposal must not half-build one.
 
@@ -438,30 +459,26 @@ def test_a_template_that_leaves_a_slot_unfilled_freezes_nothing(
         _init(
             tmp_path,
             pristine,
-            panther_repo,
             plugin_root,
             loop_template="{{nonesuch}}\n",
         )
     assert not (tmp_path / "root" / "campaigns" / "pilot-test").exists()
     with pytest.raises(DriverError):
-        _init(tmp_path, pristine, panther_repo, plugin_root, task_profile="nope")
+        _init(tmp_path, pristine, plugin_root, task_profile="nope")
     assert not (tmp_path / "root" / "campaigns" / "pilot-test").exists()
 
 
 def test_the_profile_dir_override_is_what_the_campaign_records(
-    tmp_path, pristine, panther_repo, plugin_root
+    tmp_path, pristine, plugin_root
 ):
     elsewhere = tmp_path / "shared-profile"
-    campaign = _init(
-        tmp_path, pristine, panther_repo, plugin_root, profile_dir=elsewhere
-    )
+    campaign = _init(tmp_path, pristine, plugin_root, profile_dir=elsewhere)
     assert campaign.profile_dir == elsewhere
     assert load_campaign(campaign.dir).profile_dir == elsewhere
     assert (
         _init(
             tmp_path,
             pristine,
-            panther_repo,
             plugin_root,
             campaign_id="default-profile",
         ).profile_dir
@@ -470,7 +487,7 @@ def test_the_profile_dir_override_is_what_the_campaign_records(
 
 
 def test_verify_toolchain_false_leaves_the_toolchain_unverified(
-    tmp_path, pristine, panther_repo, plugin_root, monkeypatch
+    tmp_path, pristine, plugin_root, monkeypatch
 ):
     from ai_rfc import toolchain as toolchain_module
 
@@ -481,25 +498,19 @@ def test_verify_toolchain_false_leaves_the_toolchain_unverified(
         return True, ()
 
     monkeypatch.setattr(toolchain_module, "verify", _verify)
-    campaign = _init(
-        tmp_path, pristine, panther_repo, plugin_root, verify_toolchain=False
-    )
+    campaign = _init(tmp_path, pristine, plugin_root, verify_toolchain=False)
     assert verified == []
     assert campaign.toolchain == str(tmp_path / "toolchain.json")
-    _init(
-        tmp_path, pristine, panther_repo, plugin_root, campaign_id="verified-campaign"
-    )
+    _init(tmp_path, pristine, plugin_root, campaign_id="verified-campaign")
     assert verified == [tmp_path / "toolchain.json"]
 
 
 def test_init_renders_every_arm_from_a_proposed_loop_template(
-    tmp_path, pristine, panther_repo, plugin_root
+    tmp_path, pristine, plugin_root
 ):
     """The optimizer's path: the frozen arm prompts say what the proposal says."""
     template = "{{preamble}}\n\n{{guidance}}\n"
-    campaign = _init(
-        tmp_path, pristine, panther_repo, plugin_root, loop_template=template
-    )
+    campaign = _init(tmp_path, pristine, plugin_root, loop_template=template)
     for arm in "ABC":
         assert (campaign.prompts_dir / f"arm-{arm}.md").read_text() == arm_prompt(
             arm, plugin_root, template=template
@@ -511,9 +522,9 @@ def test_init_renders_every_arm_from_a_proposed_loop_template(
 
 
 def test_a_campaign_freezes_a_consolidation_prompt_per_arm(
-    tmp_path, pristine, panther_repo, plugin_root
+    tmp_path, pristine, plugin_root
 ):
-    campaign = _init(tmp_path, pristine, panther_repo, plugin_root)
+    campaign = _init(tmp_path, pristine, plugin_root)
     for arm in campaign.arms:
         frozen = campaign.prompts_dir / f"consolidation-{arm}.md"
         assert frozen.is_file()
@@ -522,9 +533,9 @@ def test_a_campaign_freezes_a_consolidation_prompt_per_arm(
 
 
 def test_a_campaign_freezes_the_consolidation_task_template(
-    tmp_path, pristine, panther_repo, plugin_root
+    tmp_path, pristine, plugin_root
 ):
-    campaign = _init(tmp_path, pristine, panther_repo, plugin_root)
+    campaign = _init(tmp_path, pristine, plugin_root)
     frozen = campaign.consolidation_task_template
     assert frozen.is_file()
     packaged = task_template_path("consolidation")

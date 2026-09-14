@@ -18,9 +18,7 @@ from .conftest import COMPLETE_STEPS, FAKE_CLAUDE
 
 
 @pytest.fixture
-def per_cluster_campaign(
-    wide_pristine, panther_repo, plugin_root, tmp_path, toolchain_record
-):
+def per_cluster_campaign(wide_pristine, plugin_root, tmp_path, toolchain_record):
     """A one-arm campaign executed as one agent session per cluster."""
     return init_campaign(
         CampaignConfig(
@@ -34,7 +32,6 @@ def per_cluster_campaign(
             effort="high",
             budget_usd=1.0,
             timeout_s=900,
-            panther_repo=panther_repo,
             plugin_root=plugin_root,
             python=sys.executable,
             claude_bin=str(FAKE_CLAUDE),

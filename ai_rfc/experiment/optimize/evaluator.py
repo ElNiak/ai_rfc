@@ -111,8 +111,6 @@ class EvaluatorSettings:
         model: Model every run is launched against.
         effort: Reasoning effort every run is launched with.
         timeout_s: Wall-clock cap on one run.
-        panther_repo: Recorded in each campaign, and the root relative paths
-            resolve against.
         toolchain: The verified ``toolchain.json`` every campaign records.
         source_plugin_root: The real plugin. Frontmatters and every file the
             candidate does not carry are copied from it; it is never written.
@@ -136,7 +134,6 @@ class EvaluatorSettings:
     model: str
     effort: str
     timeout_s: int
-    panther_repo: Path
     toolchain: Path | None
     source_plugin_root: Path
     seed: Bundle
@@ -450,7 +447,6 @@ class Evaluator:
                 effort=settings.effort,
                 budget_usd=example.budget_usd,
                 timeout_s=settings.timeout_s,
-                panther_repo=settings.panther_repo,
                 plugin_root=plugin_root,
                 python=settings.python,
                 claude_bin=settings.claude_bin,

@@ -20,10 +20,13 @@ FAKE_CLAUDE_LM = Path(__file__).parent / "fake_claude" / "claude-lm"
 
 @pytest.fixture
 def panther_repo() -> Path:
-    """A git repository the campaign record can ``git describe``.
+    """Any git repository, for a test that needs one to ``git describe``.
 
-    The name survives from when this located the substrate; it now only feeds
-    the record and the ``reconstructions/`` lookup, and SP2 retires it.
+    The name is all that survives: it located the substrate, then fed the
+    campaign record, and the record's ``panther_repo`` and ``git.panther``
+    are now retired because neither named PANTHER any more. The two callers
+    left are ``test_git_describe_names_a_commit`` and ``_launch``, which has
+    never read the argument. SP2 retires the name itself.
     """
     assert (REPO_ROOT / ".git").exists(), REPO_ROOT
     return REPO_ROOT
@@ -311,7 +314,7 @@ def interview_trap_steps(
 
 
 @pytest.fixture
-def campaign(pristine, panther_repo, plugin_root, tmp_path, toolchain_record):
+def campaign(pristine, plugin_root, tmp_path, toolchain_record):
     """A frozen three-arm campaign whose launches go through the fake claude."""
     from ai_rfc.experiment.config import CampaignConfig, init_campaign
 
@@ -331,7 +334,6 @@ def campaign(pristine, panther_repo, plugin_root, tmp_path, toolchain_record):
             # then looks like a harness defect. The timeout path has its own
             # test, which sets timeout_s=1 explicitly.
             timeout_s=900,
-            panther_repo=panther_repo,
             plugin_root=plugin_root,
             python=sys.executable,
             claude_bin=str(FAKE_CLAUDE),

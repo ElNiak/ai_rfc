@@ -111,7 +111,10 @@ def render_report(aggregate: dict[str, Any]) -> str:
         "",
         f"- target: `{aggregate['target']}`, window {aggregate['window']}",
         f"- model: `{aggregate['model']}`, effort `{aggregate['effort']}`, harness `{aggregate['claude_version']}`",
-        f"- git: PANTHER `{git.get('panther')}`, ai_rfc `{git.get('ai_rfc')}`",
+        # An archived aggregate also carries `panther`; it is read straight
+        # past rather than printed, because the value it holds described this
+        # package's own root under PANTHER's label.
+        f"- git: ai_rfc `{git.get('ai_rfc')}`",
         f"- parity pre-run: {aggregate.get('parity_pre_run')}",
         f"- run order: {', '.join(aggregate['run_order'])}",
         "",

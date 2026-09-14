@@ -142,7 +142,7 @@ def _interview_steps(builder, fixture):
 
 
 @pytest.fixture
-def settings(tmp_path, panther_repo, plugin_root, toolchain_record):
+def settings(tmp_path, plugin_root, toolchain_record):
     """Evaluator settings whose campaigns all launch the fake claude."""
     profile_dir = tmp_path / "profile"
     profile_dir.mkdir()
@@ -154,7 +154,6 @@ def settings(tmp_path, panther_repo, plugin_root, toolchain_record):
         model="fake-model",
         effort="high",
         timeout_s=900,
-        panther_repo=panther_repo,
         toolchain=toolchain_record,
         source_plugin_root=plugin_root,
         seed=seed_from_plugin(plugin_root),

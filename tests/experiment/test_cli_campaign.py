@@ -348,22 +348,24 @@ def test_panther_repo_is_no_longer_a_flag(argv, capsys):
     assert "unrecognized arguments: --panther-repo" in capsys.readouterr().err
 
 
-def test_campaign_init_records_provenance_without_the_flag(
+def test_campaign_init_records_only_the_provenance_it_can_name(
     tmp_path, pristine, capsys, toolchain_record
 ):
-    """Provenance is now read from the repository this package installs from.
+    """No flag, and so no PANTHER revision — rather than a mislabelled one.
 
     ``git_describe`` answers ``unknown`` rather than raising when git fails,
-    so comparing against the description of ``_repo_root()`` pins *which*
-    checkout was read; asserting only that something was written would hold
-    against that failure mode too.
+    so comparing the surviving key against the description of
+    ``_default_plugin_dir()`` pins *which* checkout was read; asserting only
+    that something was written would hold against that failure mode too.
     """
     code, _, campaign_dir = _init(tmp_path, pristine, capsys, toolchain_record)
 
     assert code == 0
-    recorded = json.loads((campaign_dir / "campaign.json").read_text())["git"]
-    assert recorded["panther"] != "unknown"
-    assert recorded["panther"] == git_describe(cli._repo_root())
+    stored = json.loads((campaign_dir / "campaign.json").read_text())
+    assert "panther_repo" not in stored
+    assert "panther" not in stored["git"]
+    assert stored["git"]["ai_rfc"] != "unknown"
+    assert stored["git"]["ai_rfc"] == git_describe(cli._default_plugin_dir())
 
 
 def test_run_parity_reports_the_suite():

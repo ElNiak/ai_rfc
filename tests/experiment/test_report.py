@@ -93,7 +93,24 @@ def test_render_report_has_every_section_and_the_numbers():
     assert "| A1 | A | 0 | no | 1/1 |" in text
     assert "| c0002-x | ✓ |" in text
     assert "- **completed**: artifacts AND gates" in text
-    assert "fake-claude 0.0.0" in text and "abc" in text
+    # The retired `git.panther` was asserted here too, as the fixture's "abc";
+    # the test below now owns that value, asserting it is *not* printed.
+    assert "fake-claude 0.0.0" in text
+
+
+def test_the_report_ignores_an_archived_records_panther_revision():
+    """The fixture aggregate is an archived one: its ``git`` still has both.
+
+    The harness stopped taking a PANTHER checkout, so the value it used to
+    print under that label was a description of this package's own root. The
+    renderer now names only what it can name truthfully, and reads straight
+    past the retired key rather than refusing a record that carries it.
+    """
+    text = render_report(_aggregate())
+
+    assert "- git: ai_rfc `def`\n" in text
+    assert "PANTHER" not in text
+    assert "abc" not in text
 
 
 def test_render_report_tolerates_missing_values():

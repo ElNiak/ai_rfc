@@ -93,7 +93,6 @@ class CampaignConfig:
     effort: str
     budget_usd: float
     timeout_s: int
-    panther_repo: Path
     plugin_root: Path
     python: str
     claude_bin: str
@@ -139,7 +138,6 @@ class Campaign:
     timeout_s: int
     profile_dir: Path
     pristine_dir: Path
-    panther_repo: Path
     plugin_root: Path
     python: str
     claude_bin: str
@@ -317,7 +315,6 @@ def init_campaign(config: CampaignConfig) -> Campaign:
     seed = config.seed
     python = config.python
     plugin_root = config.plugin_root
-    panther_repo = config.panther_repo
     claude_bin = config.claude_bin
 
     for arm in arms:
@@ -438,7 +435,6 @@ def init_campaign(config: CampaignConfig) -> Campaign:
         timeout_s=config.timeout_s,
         profile_dir=config.profile_dir or default_profile_dir(root),
         pristine_dir=pristine_dir,
-        panther_repo=panther_repo,
         plugin_root=plugin_root,
         python=python,
         claude_bin=resolved_claude,
@@ -446,10 +442,11 @@ def init_campaign(config: CampaignConfig) -> Campaign:
         run_order=run_order(tuple(arms), repeats, seed),
         prompt_sha256=prompt_sha256,
         pristine_sha256=digest_path.read_text(),
-        git={
-            "panther": git_describe(panther_repo),
-            "ai_rfc": git_describe(plugin_root),
-        },
+        # Only what the harness can name truthfully. A `panther` key used to
+        # sit beside this one; it described whatever checkout --panther-repo
+        # named, and once that flag was retired it could only have described
+        # this package's own root under PANTHER's label.
+        git={"ai_rfc": git_describe(plugin_root)},
         parity=config.parity,
         created_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
         session_mode=config.session_mode,
@@ -488,7 +485,13 @@ def load_campaign(campaign_dir: Path) -> Campaign:
     if not path.exists():
         raise ExperimentError(f"{path} is missing; not a campaign directory")
     payload = json.loads(path.read_text())
-    for key in ("root", "profile_dir", "pristine_dir", "panther_repo", "plugin_root"):
+    # A campaign frozen before `panther_repo` was retired still carries it,
+    # and a recording is not edited to match a later retirement: read it in
+    # the shape it was written, and drop the key rather than keep a field
+    # alive to receive it. `git.panther` needs no such handling — `git` is a
+    # plain dict, so an archived one keeps its extra key untouched.
+    payload.pop("panther_repo", None)
+    for key in ("root", "profile_dir", "pristine_dir", "plugin_root"):
         payload[key] = Path(payload[key])
     payload["window"] = tuple(payload["window"])
     payload["arms"] = tuple(payload["arms"])
