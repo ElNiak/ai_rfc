@@ -558,13 +558,20 @@ one clause `check/cli.py` adds about its own exit-3 gate.
 
 **The register speaks for the substrate only.** `server/` and `experiment/`
 keep their own `_git` (`server/core/draft.py`, `experiment/workspace.py`) and
-`_report` (`server/cli.py`, `experiment/cli.py`) copies, and the test excludes
+`experiment/` its own `_report` (`experiment/cli.py`), and the test excludes
 them deliberately: they are separate programs that share no helper with the
 substrate, and their copies have different contracts — the server's `_git`
 takes its `Context` and always targets the workspace's `draft/` clone, and
 the experiment's raises `ExperimentError` and can pin commit dates so a
 scaffold commit hashes identically in every pristine workspace. They are
 named here so nobody counts them as drift.
+
+This row named a `server/cli.py` copy of `_report` until that module was
+deleted. Two things were wrong with it and only one of them was the
+deletion: `server/cli.py` defined `_emit`, never a `_report`, so the pairing
+had been inaccurate since it was written. `server/` has no stderr helper of
+its own today — it reports through `lifecycle/common.report_diagnostic`, the
+boundary the substrate uses.
 
 `anchors.py`'s `_git` additionally duplicates one the companion provenance
 module will provide once it lands. When that arrives, consolidation should

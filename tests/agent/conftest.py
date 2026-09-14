@@ -24,3 +24,15 @@ def make_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.setenv("AI_RFC_CONFIG", str(root / "recon.yaml"))
 
     return build, use
+
+
+@pytest.fixture
+def workspace(make_workspace):
+    """One resolved workspace, for the tests that drive a single arm."""
+    build, use = make_workspace
+    root = build("ws")
+    use(root)
+
+    from ai_rfc.server.paths import resolve_context
+
+    return resolve_context()
