@@ -354,9 +354,18 @@ def test_campaign_init_records_only_the_provenance_it_can_name(
     """No flag, and so no PANTHER revision — rather than a mislabelled one.
 
     ``git_describe`` answers ``unknown`` rather than raising when git fails,
-    so comparing the surviving key against the description of
-    ``_default_plugin_dir()`` pins *which* checkout was read; asserting only
-    that something was written would hold against that failure mode too.
+    so the surviving key is compared against a live description instead of
+    only being checked for emptiness. It does **not** pin *which* checkout was
+    read: ``_repo_root()`` and ``_default_plugin_dir()`` describe identically,
+    the plugin dir lying inside the package root — which is the whole reason
+    the two PANTHER keys were retired rather than repointed.
+
+    ``-dirty`` is stripped from both sides, and the comparison must not be
+    tightened back. This worktree is shared with other sessions, so whether it
+    is dirty depends on who happens to have a file open while the test runs,
+    which is not something this test is about. The commit the suffix hangs off
+    is still compared, so the normalisation cannot hide two genuinely
+    different revisions.
     """
     code, _, campaign_dir = _init(tmp_path, pristine, capsys, toolchain_record)
 
@@ -364,8 +373,9 @@ def test_campaign_init_records_only_the_provenance_it_can_name(
     stored = json.loads((campaign_dir / "campaign.json").read_text())
     assert "panther_repo" not in stored
     assert "panther" not in stored["git"]
-    assert stored["git"]["ai_rfc"] != "unknown"
-    assert stored["git"]["ai_rfc"] == git_describe(cli._default_plugin_dir())
+    recorded = stored["git"]["ai_rfc"].removesuffix("-dirty")
+    assert recorded != "unknown"
+    assert recorded == git_describe(cli._default_plugin_dir()).removesuffix("-dirty")
 
 
 def test_run_parity_reports_the_suite():

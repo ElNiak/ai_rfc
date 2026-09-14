@@ -24,9 +24,13 @@ def panther_repo() -> Path:
 
     The name is all that survives: it located the substrate, then fed the
     campaign record, and the record's ``panther_repo`` and ``git.panther``
-    are now retired because neither named PANTHER any more. The two callers
-    left are ``test_git_describe_names_a_commit`` and ``_launch``, which has
-    never read the argument. SP2 retires the name itself.
+    are now retired because neither named PANTHER any more.
+
+    Nine tests still request it, counted off the signatures rather than by
+    grep: ``test_git_describe_names_a_commit``, which wants any repository to
+    describe, and eight in ``test_fake_claude.py`` that hand it to ``_launch``
+    — a plain helper, so not itself a requester, and one that has never read
+    the argument. SP2 retires the name itself.
     """
     assert (REPO_ROOT / ".git").exists(), REPO_ROOT
     return REPO_ROOT
