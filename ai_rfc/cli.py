@@ -9,7 +9,9 @@ here untouched.
 from __future__ import annotations
 
 import argparse
+import sys
 from importlib import import_module
+from typing import NoReturn
 
 from . import __version__
 from .entrypoints import ENTRY_POINTS, SECTIONS
@@ -20,6 +22,55 @@ PROG = "ai-rfc"
 #: asserts ``panther ai-rfc --help`` opens with exactly ``usage: ai-rfc
 #: <verb>``, and that test lives in a repository this one cannot edit.
 USAGE = "%(prog)s <verb> [args]\n       %(prog)s --help | --version"
+
+
+class Parser(argparse.ArgumentParser):
+    """An ``ArgumentParser`` whose refusals go through the stderr boundary.
+
+    argparse composes ``unrecognized arguments: %s`` with ``%s`` and not
+    ``%r``, interpolating ``' '.join(argv)`` — the operator's own tokens —
+    straight into a stderr line. A token carrying a newline therefore writes a
+    second line that reads as a diagnostic of the tool's own: driven against a
+    mounted verb it planted ``resume: ai-rfc run --config /tmp/evil.yaml``
+    under a real refusal, which is a fabricated instruction in the one place
+    an operator is most likely to copy one from.
+
+    **One override, every parser in the tree.** The two ``%s`` sites are
+    ``argparse.py:1836`` and ``:2351`` in this interpreter's 3.10 stdlib, and
+    both call ``self.error()``, which is the single funnel. Sub-parsers are
+    covered without a second edit and without a registry: ``add_subparsers``
+    does ``kwargs.setdefault("parser_class", type(self))``, so every parser
+    ``build_parser`` mounts is this class — verified to the second level, a
+    group's leaf and a leaf's own sub-verb both come back as ``Parser``.
+
+    Not covered, and deliberately: each command's ``build_standalone_parser``
+    constructs :class:`argparse.ArgumentParser` directly, so
+    ``python -m ai_rfc.<sub>`` keeps the stock ``error()``. Sweeping those is
+    a separate change to a dozen files with a dozen tests, and this is the
+    door fifteen verbs newly reach.
+    """
+
+    def error(self, message: str) -> NoReturn:
+        """Print the usage and one escaped diagnostic, then exit 2.
+
+        Args:
+            message: argparse's own text, with the offending tokens already
+                interpolated into it.
+
+        Raises:
+            SystemExit: Always, with code 2 — argparse's contract for a
+                malformed invocation, unchanged.
+        """
+        # Function-local: importing ``lifecycle.common`` at module scope costs
+        # 90 modules (measured, 137 -> 227) and ``import ai_rfc.cli`` is on no
+        # error path at all. It is free where it actually runs — by the time a
+        # parser can refuse anything, ``build_parser`` has imported every verb
+        # and ``lifecycle.common`` with them (299 modules, already loaded).
+        from .lifecycle.common import report
+
+        self.print_usage(sys.stderr)
+        report(f"{self.prog}: error: {message}")
+        self.exit(2)
 
 
 def _epilog() -> str:
@@ -56,7 +107,7 @@ def build_parser() -> argparse.ArgumentParser:
         A parser whose subcommands are the registry's, each configured by its
         own module so the two doors cannot disagree about an argument.
     """
-    parser = argparse.ArgumentParser(
+    parser = Parser(
         prog=PROG,
         usage=USAGE,
         description="Reconstruct a specification from a repository's history.",
