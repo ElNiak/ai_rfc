@@ -35,9 +35,21 @@ class Parser(argparse.ArgumentParser):
     under a real refusal, which is a fabricated instruction in the one place
     an operator is most likely to copy one from.
 
-    **One override, every parser in the tree.** The two ``%s`` sites are
-    ``argparse.py:1836`` and ``:2351`` in this interpreter's 3.10 stdlib, and
-    both call ``self.error()``, which is the single funnel. Sub-parsers are
+    **A funnel, not a list of sites.** ``error()`` is the single method every
+    argparse diagnostic is routed through, so overriding it covers each of
+    those messages *without enumerating them* — which is the distinction this
+    package keeps making, and the same one :func:`ai_rfc.driver.printable`
+    rests on: a predicate over a category beats a list of characters somebody
+    thought of. Three forging messages are known and each is an **instance**,
+    not the set: ``:1836`` unrecognised arguments from ``parse_args``,
+    ``:2351`` the same message from ``parse_intermixed_args``, and ``:2230``
+    ambiguous option — the last found by a reviewer on a depth-2 sub-parser
+    after this was written, and already covered. (Read out of the 3.10.12
+    stdlib rather than carried over: ``:2351`` is a second entry point onto
+    one message, not a second message. ``invalid choice`` is not among them;
+    it interpolates with ``%r`` and forges nothing.) A newly noticed
+    fourth needs no second fix; if one ever did, that would mean argparse had
+    stopped funnelling, which is the thing to check. Sub-parsers are
     covered without a second edit and without a registry: ``add_subparsers``
     does ``kwargs.setdefault("parser_class", type(self))``, and no
     ``configure`` in this package passes one of its own. Measured over the
