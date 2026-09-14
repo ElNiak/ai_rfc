@@ -341,7 +341,7 @@ class Session:
                 self.surface(
                     "claim_upsert",
                     {"claim_id": step["id"], "fields": fields},
-                    f"ai_rfc claim-upsert {step['id']} --text … --section … --level MAY --layer core",
+                    f"ai-rfc claim upsert {step['id']} --text … --section … --level MAY --layer core",
                     None,
                     json.dumps(stored),
                     step,
@@ -356,7 +356,7 @@ class Session:
                 self.surface(
                     "claim_record_status",
                     {},
-                    "ai_rfc claim-record-status",
+                    "ai-rfc claim record-status",
                     None,
                     json.dumps(changed),
                     step,
@@ -374,7 +374,7 @@ class Session:
                     "claim_ids": claim_ids,
                     "question_id": step["id"],
                 },
-                f'ai_rfc question-draft "…" {claims} --id {step["id"]}',
+                f'ai-rfc question draft "…" {claims} --id {step["id"]}',
                 lambda: draft_question(
                     self.ctx, text, claim_ids, question_id=step["id"]
                 ),
@@ -399,7 +399,7 @@ class Session:
             self.register_call(
                 "answer_record",
                 fields,
-                f"ai_rfc answer-record {fields['question_id']} --answer … "
+                f"ai-rfc answer record {fields['question_id']} --answer … "
                 f"--by {fields['answered_by']} --transcript {fields['transcript']} "
                 f"--quote …{flag}",
                 lambda: record_answer(self.ctx, **fields),
@@ -430,7 +430,7 @@ class Session:
                     "cluster_id": cluster,
                     **({"consolidation": consolidation, "base": base} if base else {}),
                 },
-                f"ai_rfc checkpoint {cluster}{extra}",
+                f"ai-rfc checkpoint {cluster}{extra}",
                 f"{RAW} draft checkpoint {ws}/manifest.yaml --timeline {ws}/timeline --cluster {cluster} --out {ws}/{out}{extra}",
                 json.dumps(result),
                 step,
@@ -450,7 +450,7 @@ class Session:
             self.surface(
                 "draft_commit",
                 {"message": "prose"},
-                'ai_rfc draft-commit -m "prose"',
+                'ai-rfc draft commit -m "prose"',
                 f"git -C {ws}/draft add -A && git -C {ws}/draft commit -m prose",
                 json.dumps(result),
                 step,
@@ -493,7 +493,7 @@ class Session:
                             else {}
                         ),
                     },
-                    f"ai_rfc revision-record {step['tag']} --cluster {cluster} {flag} --note n{extra}",
+                    f"ai-rfc revision record {step['tag']} --cluster {cluster} {flag} --note n{extra}",
                     None,
                     json.dumps(entry),
                     step,
@@ -505,7 +505,7 @@ class Session:
             self.surface(
                 "revision_tag",
                 {"tag": step["tag"], "message": "rev"},
-                f'ai_rfc revision-tag {step["tag"]} -m rev',
+                f'ai-rfc revision tag {step["tag"]} -m rev',
                 f'git -C {ws}/draft tag -a {step["tag"]} -m rev',
                 json.dumps(result),
                 step,
@@ -517,7 +517,7 @@ class Session:
             self.surface(
                 "gate",
                 {"strict": True},
-                "ai_rfc gate --strict",
+                "ai-rfc gate --strict",
                 f"{RAW} check {ws}/manifest.yaml --out {ws}/out --repo {ws}/clone --strict",
                 json.dumps(result),
                 step,
@@ -529,14 +529,14 @@ class Session:
             self.surface(
                 "citation_gate",
                 {"strict": True},
-                "ai_rfc citation-gate --strict",
+                "ai-rfc citation-gate --strict",
                 f"{RAW}.draft gate {ws}/draft --timeline {ws}/timeline --checkpoints {ws}/checkpoints --questions {ws}/questions.yaml --revisions {ws}/revisions.yaml --out {ws}/out --strict",
                 json.dumps(result),
                 step,
             )
         elif kind == "denied":
             command = step.get("command", "echo x")
-            families = step.get("families", "'ai_rfc '")
+            families = step.get("families", "'ai-rfc '")
             tool = step.get("tool", "Bash")
             text = (
                 f"PreToolUse:{tool} hook error: [guard]: denied: this arm may run "
@@ -578,12 +578,12 @@ class Session:
                     "Bash",
                     {
                         "command": (
-                            "ai_rfc claim-upsert --bogus"
+                            "ai-rfc claim upsert --bogus"
                             if self.arm == "B"
                             else f"{RAW} --bogus"
                         )
                     },
-                    "exit code 2: usage: ai_rfc [-h] …",
+                    "exit code 2: usage: ai-rfc <verb> [args] …",
                     step=step,
                     is_error=True,
                 )

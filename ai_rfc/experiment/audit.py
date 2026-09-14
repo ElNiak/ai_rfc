@@ -35,6 +35,18 @@ from .config import Campaign
 from .runner import load_status
 
 STATE_FILES = ("manifest.yaml", "questions.yaml", "revisions.yaml")
+#: Arm B's command prefixes, read from the one declaration in
+#: :mod:`driver.arms` rather than spelled again here. Arm B's family was
+#: renamed to ``ai-rfc`` when the campaign shim was; a literal here would have
+#: gone on admitting only the older spelling, and ``arms.py`` warns that such
+#: a drifted second copy reclassifies a legitimate call as an integrity
+#: violation. The cardinality is arms.py's business, so every prefix it
+#: declares is tried.
+ARM_B_PREFIXES = bash_prefixes(arm_profile("B"))
+#: Recorded keys, not the door. ``bash:ai_rfc`` and ``bash:python_ai_rfc`` are
+#: written into ``audit/<run_id>.json`` and read back by ``analyze``, so they
+#: keep the word every audit record already on disk was written under. Only
+#: the matchers above moved to ``ai-rfc``.
 ALLOWED_SURFACES: dict[str, set[str]] = {
     "A": {"mcp", "edit", "read"},
     "B": {"bash:ai_rfc", "edit", "read"},
@@ -49,9 +61,11 @@ class ToolCall:
     index: int
     name: str
     surface: str
-    #: The program family within the surface, e.g. ``ai_rfc`` inside
-    #: ``bash:ai_rfc``. Recorded key: it is written into ``audit/<run_id>.json``
-    #: through ``asdict``, so the field keeps the word the evidence uses.
+    #: The program family within the surface: the command's own first word,
+    #: so ``ai-rfc`` inside ``bash:ai_rfc`` — the surface is the recorded key
+    #: and keeps its older spelling, the family is what the run actually ran.
+    #: Recorded key: it is written into ``audit/<run_id>.json`` through
+    #: ``asdict``, so the field keeps the word the evidence uses.
     family: str
     target: str
     denied: bool
@@ -63,7 +77,7 @@ class ToolCall:
 
 def _stage_surface(stage: str) -> str:
     """The surface one pipe stage reaches for."""
-    if stage.startswith("ai_rfc "):
+    if any(stage.startswith(prefix) for prefix in ARM_B_PREFIXES):
         return "bash:ai_rfc"
     if stage.startswith(RAW_PREFIX):
         return "bash:python_ai_rfc"

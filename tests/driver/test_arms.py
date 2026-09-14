@@ -120,7 +120,7 @@ def test_arms_b_and_c_allow_exactly_their_command_family():
         "Write",
         "Grep",
         "Glob",
-        "Bash(ai_rfc *)",
+        "Bash(ai-rfc *)",
     ]
     assert _value(c, "--tools").split(",") == [
         "Read",

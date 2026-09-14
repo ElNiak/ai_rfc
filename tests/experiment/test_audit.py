@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+from ai_rfc.driver.arms import arm_profile
+from ai_rfc.driver.enforcement import bash_prefixes
 from ai_rfc.driver.stream import parse_stream
 from ai_rfc.experiment.audit import (
     audit_campaign,
@@ -15,13 +17,28 @@ from ai_rfc.experiment.campaign_runs import launch_pending
 from .conftest import COMPLETE_STEPS
 
 
+def test_the_audit_classifier_reads_the_guard_prefix():
+    """The classifier is a second reader of one declaration, not a second copy.
+
+    ``arms.py`` warns that a drifted second copy silently reclassifies a
+    legitimate call as an integrity violation. So the two spellings are
+    asserted in both directions: the guard's own prefix reaches arm B's
+    surface, and any other spelling of it does not.
+    """
+    (prefix,) = bash_prefixes(arm_profile("B"))
+    assert bash_surface(f"{prefix}status") == "bash:ai_rfc"
+    assert bash_surface("ai_rfc status") == "bash:other"
+
+
 def test_bash_surface_recognises_each_command_family():
-    assert bash_surface("ai_rfc status") == "bash:ai_rfc"
+    # The surfaces keep the spelling every audit record on disk was written
+    # under; only the commands they are recognised from moved to `ai-rfc`.
+    assert bash_surface("ai-rfc status") == "bash:ai_rfc"
     assert bash_surface("python -m ai_rfc m.yaml --out o") == "bash:python_ai_rfc"
     assert bash_surface("git -C draft tag -a x -m y") == "bash:git"
     assert bash_surface('sqlite3 corpus/index.sqlite "SELECT 1"') == "bash:sqlite3"
     assert bash_surface("git -C d add -A && git -C d commit -m m") == "bash:git"
-    assert bash_surface("ai_rfc status && echo x") == "bash:mixed"
+    assert bash_surface("ai-rfc status && echo x") == "bash:mixed"
     assert bash_surface("echo hi") == "bash:other" and bash_surface("") == "bash:other"
 
 
@@ -39,9 +56,9 @@ def test_classify_maps_tools_to_surfaces():
         "mcp__other__thing",
         "",
     )
-    assert classify("Bash", {"command": "ai_rfc gate --strict"}, WS) == (
+    assert classify("Bash", {"command": "ai-rfc gate --strict"}, WS) == (
         "bash:ai_rfc",
-        "ai_rfc",
+        "ai-rfc",
         "",
     )
     assert classify("Edit", {"file_path": "/w/manifest.yaml"}, WS) == (
@@ -141,7 +158,7 @@ def test_an_edit_under_checkpoints_is_counted_as_a_register_hand_edit():
 
 def test_audit_events_flags_an_executed_out_of_arm_call():
     events = parse_stream(
-        '{"type":"assistant","message":{"id":"m1","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ai_rfc status"}}],"usage":{"input_tokens":1,"output_tokens":1}}}\n'
+        '{"type":"assistant","message":{"id":"m1","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ai-rfc status"}}],"usage":{"input_tokens":1,"output_tokens":1}}}\n'
         '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","is_error":false,"content":"{}"}]}}\n'
         '{"type":"result","subtype":"success","total_cost_usd":0.1,"usage":{},"permission_denials":[]}\n'
     )
@@ -182,7 +199,7 @@ def test_audit_over_fake_runs_counts_bypasses_and_errors(campaign, write_scenari
             "arm": "A",
             "steps": COMPLETE_STEPS
             + [
-                {"kind": "denied", "command": "ai_rfc status"},
+                {"kind": "denied", "command": "ai-rfc status"},
                 {"kind": "tool_error"},
                 {"kind": "compact"},
             ],
@@ -251,20 +268,20 @@ def test_bash_surface_reads_a_command_the_way_the_guard_does():
     make.
     """
     assert (
-        bash_surface('ai_rfc corpus-query "SELECT sha FROM commits; SELECT 1"')
+        bash_surface('ai-rfc corpus query "SELECT sha FROM commits; SELECT 1"')
         == "bash:ai_rfc"
     )
-    assert bash_surface('ai_rfc corpus-query "SELECT a || b FROM c"') == "bash:ai_rfc"
+    assert bash_surface('ai-rfc corpus query "SELECT a || b FROM c"') == "bash:ai_rfc"
     assert (
-        bash_surface("ai_rfc cluster-get c1 --patch 2>&1 | head -c 20000")
+        bash_surface("ai-rfc cluster get c1 --patch 2>&1 | head -c 20000")
         == "bash:ai_rfc"
     )
     assert bash_surface('sqlite3 c.db "SELECT 1; SELECT 2"') == "bash:sqlite3"
     # Leaving the family through a pipe is still mixed.
-    assert bash_surface("ai_rfc status | sh") == "bash:mixed"
-    assert bash_surface("ai_rfc status | tee /tmp/x") == "bash:mixed"
+    assert bash_surface("ai-rfc status | sh") == "bash:mixed"
+    assert bash_surface("ai-rfc status | tee /tmp/x") == "bash:mixed"
     # A command that cannot be read at all is not credited to any family.
-    assert bash_surface('ai_rfc corpus-query "unterminated') == "bash:other"
+    assert bash_surface('ai-rfc corpus query "unterminated') == "bash:other"
 
 
 def _hook_start(name="PreToolUse"):
@@ -288,7 +305,7 @@ def _bash_call(index, command):
 
 
 def test_guard_stats_pairs_the_digest_with_the_hook_evidence():
-    events = [_bash_call(1, "ai_rfc status"), _hook_start()]
+    events = [_bash_call(1, "ai-rfc status"), _hook_start()]
     report = guard_stats(events, "B", "abc", "abc")
     assert report["unmodified"] is True
     assert report["bash_calls"] == 1 and report["pretooluse_hook_starts"] == 1
@@ -296,7 +313,7 @@ def test_guard_stats_pairs_the_digest_with_the_hook_evidence():
 
 
 def test_guard_stats_catches_a_settings_file_edited_after_mount():
-    events = [_bash_call(1, "ai_rfc status"), _hook_start()]
+    events = [_bash_call(1, "ai-rfc status"), _hook_start()]
     report = guard_stats(events, "B", "abc", "def")
     assert report["unmodified"] is False
     # The hook still fired; the two halves fail independently.
@@ -304,7 +321,7 @@ def test_guard_stats_catches_a_settings_file_edited_after_mount():
 
 
 def test_guard_stats_catches_a_guard_that_never_ran():
-    events = [_bash_call(1, "ai_rfc status"), _bash_call(2, "ai_rfc gate")]
+    events = [_bash_call(1, "ai-rfc status"), _bash_call(2, "ai-rfc gate")]
     report = guard_stats(events, "B", "abc", "abc")
     assert report["unmodified"] is True
     assert report["pretooluse_hook_starts"] == 0

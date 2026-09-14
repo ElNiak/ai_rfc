@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from ai_rfc.driver.arms import arm_profile
+from ai_rfc.driver.enforcement import bash_prefixes
 from ai_rfc.driver.session import EVENTS_FILE
 from ai_rfc.driver.stream import (
     ai_rfc_connected,
@@ -44,6 +45,10 @@ DEFINITIONS = {
     "auc": "integral over normalized cumulative tokens of completed_so_far/window_size, as a right-continuous step function",
     "checked_fraction": "the substrate's honesty metric, reported per checkpoint; expected 0.0 without interviews or runtime anchors",
 }
+#: Arm B's command prefixes, from the one declaration in :mod:`driver.arms`.
+#: The trajectory is the third reader of it: a literal here that fell behind
+#: the guard would drop every point from arm B's curve rather than error.
+ARM_B_PREFIXES = bash_prefixes(arm_profile("B"))
 
 
 def window_clusters(workspace: Path) -> list[dict[str, Any]]:
@@ -162,7 +167,11 @@ def _cluster_of_call(arm: str, name: str, tool_input: dict[str, Any]) -> str | N
     command = str(tool_input.get("command", "")).strip()
     if arm == "A" and name == "mcp__ai_rfc__ai_rfc_checkpoint":
         return str(tool_input.get("cluster_id") or "")
-    if arm == "B" and name == "Bash" and command.startswith("ai_rfc checkpoint"):
+    if (
+        arm == "B"
+        and name == "Bash"
+        and any(command.startswith(f"{prefix}checkpoint") for prefix in ARM_B_PREFIXES)
+    ):
         parts = command.split()
         return parts[2] if len(parts) > 2 else ""
     if (

@@ -597,13 +597,13 @@ def test_a_cluster_whose_new_claims_are_all_rejected_is_an_unanchored_zero(
 def test_every_zero_still_carries_the_run_diagnostics(loop_workspace):
     audit = analysis()["audit"]
     audit["register_edits"] = 2
-    audit["bypass_attempts"] = {"items": [{"summary": "command=ai_rfc status"}]}
+    audit["bypass_attempts"] = {"items": [{"summary": "command=ai-rfc status"}]}
     audit["errors"] = {"class1": 1, "class2": 0, "first_failure_index": 4}
 
     info = score(loop_workspace, audit=audit).info
 
     assert info["kind"] == "loop" and info["cluster_id"] == SECOND
-    assert info["bypass_attempts"] == ["command=ai_rfc status"]
+    assert info["bypass_attempts"] == ["command=ai-rfc status"]
     assert info["errors"]["first_failure_index"] == 4
     assert info["num_turns"] == 20 and info["total_cost_usd"] == 2.0
     json.dumps(info)

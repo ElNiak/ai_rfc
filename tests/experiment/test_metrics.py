@@ -1,5 +1,7 @@
 import json
 
+from ai_rfc.driver.arms import arm_profile
+from ai_rfc.driver.enforcement import bash_prefixes
 from ai_rfc.driver.stream import parse_stream
 from ai_rfc.experiment.audit import audit_campaign
 from ai_rfc.experiment.campaign_runs import launch_pending
@@ -14,6 +16,39 @@ from ai_rfc.experiment.metrics import (
 from ai_rfc.server.testing import git as _vcs
 
 from .conftest import COMPLETE_STEPS
+
+
+def _one_bash_call(command: str) -> list[dict]:
+    """A one-event transcript whose only tool call runs ``command``."""
+    event = {
+        "type": "assistant",
+        "message": {
+            "id": "m1",
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "t1",
+                    "name": "Bash",
+                    "input": {"command": command},
+                }
+            ],
+        },
+    }
+    return parse_stream(f"{json.dumps(event)}\n")
+
+
+def test_the_checkpoint_matcher_reads_the_guard_prefix():
+    """The trajectory's matcher is the third reader of one declaration.
+
+    A separate test from the audit's, because the two fail differently: this
+    one drops every point from the trajectory while the audit's reclassifies
+    a legitimate call as an integrity violation.
+    """
+    (prefix,) = bash_prefixes(arm_profile("B"))
+    assert checkpoint_calls(_one_bash_call(f"{prefix}checkpoint c0002-x"), "B") == [
+        {"index": 0, "cluster_id": "c0002-x"}
+    ]
+    assert checkpoint_calls(_one_bash_call("ai_rfc checkpoint c0002-x"), "B") == []
 
 
 def _run(campaign, write_scenario, scenarios):
@@ -101,7 +136,7 @@ def test_analyze_campaign_aggregates_per_arm(campaign, write_scenario):
 def test_trajectory_points_follow_checkpoint_calls():
     events = parse_stream(
         '{"type":"assistant","message":{"id":"m1","content":[{"type":"text","text":"a"}],"usage":{"input_tokens":100,"output_tokens":10}}}\n'
-        '{"type":"assistant","message":{"id":"m2","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ai_rfc checkpoint c0002-x"}}],"usage":{"input_tokens":50,"output_tokens":5}}}\n'
+        '{"type":"assistant","message":{"id":"m2","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ai-rfc checkpoint c0002-x"}}],"usage":{"input_tokens":50,"output_tokens":5}}}\n'
         '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","is_error":false,"content":"{}"}]}}\n'
         '{"type":"assistant","message":{"id":"m3","content":[{"type":"text","text":"done"}],"usage":{"input_tokens":30,"output_tokens":5}}}\n'
     )

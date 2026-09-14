@@ -365,7 +365,7 @@ def test_fake_records_denials_and_exit_codes(
             "arm": "A",
             "exit_code": 0,
             "steps": [
-                {"kind": "denied", "command": "ai_rfc status"},
+                {"kind": "denied", "command": "ai-rfc status"},
                 {"kind": "mcp_denied"},
             ],
         },
@@ -373,7 +373,7 @@ def test_fake_records_denials_and_exit_codes(
     events = _launch(profile, workspace, panther_repo)
     assert len(denials(events)) == 4
     first = result_event(events)["permission_denials"][0]
-    assert first["tool_input"] == {"command": "ai_rfc status"}
+    assert first["tool_input"] == {"command": "ai-rfc status"}
     # The shape the guard really produces: hook events bracket the refused call,
     # and the denial names the call it refused.
     hooks = [e for e in events if str(e.get("subtype", "")).startswith("hook_")]
@@ -383,7 +383,7 @@ def test_fake_records_denials_and_exit_codes(
     assert first["tool_use_id"] == bash_call["id"]
     text = tool_results(events)[bash_call["id"]]["text"]
     assert text.startswith("PreToolUse:Bash hook error:")
-    assert "refused: ai_rfc status" in text
+    assert "refused: ai-rfc status" in text
 
 
 def test_fake_replays_an_interview_into_the_register_and_the_manifest(
@@ -411,8 +411,8 @@ def test_fake_replays_an_interview_into_the_register_and_the_manifest(
             assert "mcp__ai_rfc__ai_rfc_question_draft" in names
             assert "mcp__ai_rfc__ai_rfc_answer_record" in names
         elif arm == "B":
-            assert any("ai_rfc question-draft" in c for c in commands)
-            assert any("ai_rfc answer-record" in c for c in commands)
+            assert any("ai-rfc question draft" in c for c in commands)
+            assert any("ai-rfc answer record" in c for c in commands)
             assert not any(name.startswith("mcp__") for name in names)
         else:
             edits = [

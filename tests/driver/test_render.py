@@ -43,13 +43,16 @@ def test_write_plugin_skill_round_trips(tmp_path):
 
 
 def test_arm_renderings_name_only_their_surface():
+    # Every needle is a spelling something still produces: arm B's CLI is
+    # `ai-rfc cluster next` after CLI-3, so asserting the retired
+    # `ai_rfc cluster-next` is absent would hold against any rendering at all.
     a, b, c = (render_loop(arm) for arm in "ABC")
     assert "ai_rfc_cluster_next" in a
-    assert "ai_rfc cluster-next" not in a and "python -m ai_rfc" not in a
-    assert "ai_rfc cluster-next" in b
+    assert "ai-rfc cluster next" not in a and "python -m ai_rfc" not in a
+    assert "ai-rfc cluster next" in b
     assert "ai_rfc_cluster_next" not in b and "python -m ai_rfc" not in b
     assert "python -m ai_rfc" in c
-    assert "arfc_" not in c and "ai_rfc cluster" not in c
+    assert "ai_rfc_" not in c and "ai-rfc " not in c
 
 
 def test_arm_prompt_bundles_the_neutral_texts(plugin_root):
@@ -69,7 +72,14 @@ def test_arm_prompts_differ_only_where_slots_differ(plugin_root):
     # drop a *changed* line whose own text begins `--` or `++` — a bare CLI
     # flag at line start — from the set this asserts on.
     changed = [line for line in lines[2:] if line[:1] in "+-"]
-    assert changed and all("ai_rfc" in line for line in changed)
+    # Directional, because the two arms no longer spell their surface the same
+    # way: a single `"ai_rfc" in line or "ai-rfc" in line` over the union would
+    # hold just as well on a rendering that had leaked arm B's CLI into arm A.
+    removed = [line for line in changed if line[0] == "-"]
+    added = [line for line in changed if line[0] == "+"]
+    assert removed and added
+    assert all("ai_rfc" in line for line in removed)
+    assert all("ai-rfc" in line for line in added)
 
 
 def test_the_raw_arm_uses_the_dispatcher():
@@ -84,8 +94,8 @@ def test_the_raw_arm_uses_the_dispatcher():
 def test_every_arm_names_its_build_step():
     a, b, c, interactive = (render_loop(arm) for arm in ("A", "B", "C", "interactive"))
     assert "ai_rfc_draft_build" in a and "refuses on findings" in a
-    assert "ai_rfc draft-build" in b
-    assert "not available in this arm" in c and "draft-build" not in c
+    assert "ai-rfc draft build" in b
+    assert "not available in this arm" in c and "draft build" not in c
     assert "ai_rfc_draft_build" in interactive and "ai_rfc draft-build" in interactive
 
 
@@ -97,12 +107,14 @@ def test_arm_prompt_bundles_the_keyword_policy_and_the_figures_skill(plugin_root
 
 
 def test_arm_c_prompt_has_no_build_tool_or_verb_names(plugin_root):
-    # Arm C has neither the MCP server nor the `ai_rfc` command, so its
+    # Arm C has neither the MCP server nor the `ai-rfc` command, so its
     # bundled prompt (the loop rendering plus the arm-neutral skill texts)
-    # must never leak a tool or CLI-verb name it cannot use.
+    # must never leak a tool or CLI-verb name it cannot use. Both needles are
+    # spellings something still produces: the retired `ai_rfc draft-build` is
+    # absent from every arm, so asserting it would pin nothing.
     prompt = arm_prompt("C", plugin_root)
     assert "ai_rfc_draft_build" not in prompt
-    assert "ai_rfc draft-build" not in prompt
+    assert "ai-rfc draft build" not in prompt
 
 
 def test_the_package_template_is_what_an_absent_override_renders():

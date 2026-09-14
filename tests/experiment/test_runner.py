@@ -122,7 +122,7 @@ def test_arm_a_mounts_mcp_and_has_no_bash(campaign):
     ref_b = _ready(campaign, "B1")
     argv_b = prepare_argv(session_spec(campaign, ref_b), ref_b.run_dir)
     assert "--mcp-config" not in argv_b
-    assert "Bash(ai_rfc *)" in argv_b[argv_b.index("--allowedTools") + 1]
+    assert "Bash(ai-rfc *)" in argv_b[argv_b.index("--allowedTools") + 1]
     env_b = session_env(session_spec(campaign, ref_b))
     assert env_b["CLAUDE_CONFIG_DIR"] == str(campaign.profile_dir)
     assert env_b["AI_RFC_TOOLCHAIN"] == campaign.toolchain
@@ -135,7 +135,7 @@ def test_every_run_mounts_its_arms_guard(campaign):
     confine a built-in tool (spike S0, CLI 2.1.247)."""
     expected = {
         "A1": (),
-        "B1": ("ai_rfc ",),
+        "B1": ("ai-rfc ",),
         "C1": (
             "python -m ai_rfc",
             "git ",

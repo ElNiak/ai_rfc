@@ -49,9 +49,14 @@ PROFILES: dict[str, ArmProfile] = {
     ),
     "B": ArmProfile(
         arm="B",
-        label="class 2: hybrid shell-via-tool (ai_rfc CLI through Bash)",
+        label="class 2: hybrid shell-via-tool (ai-rfc CLI through Bash)",
         tools=READ_TOOLS + ("Bash",),
-        allowed_tools=READ_TOOLS + ("Bash(ai_rfc *)",),
+        # The `ai-rfc` entry below is the only declaration of arm B's family,
+        # and it names the campaign's own bin/ai-rfc shim. Unlike RAW_PREFIX,
+        # no reader spells it again: the guard, the audit classifier and the
+        # trajectory's checkpoint matcher all derive it through
+        # `enforcement.bash_prefixes`, so no second copy is left to drift.
+        allowed_tools=READ_TOOLS + ("Bash(ai-rfc *)",),
         uses_mcp=False,
     ),
     "C": ArmProfile(
