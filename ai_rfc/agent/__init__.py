@@ -67,8 +67,12 @@ def perform(action: Callable[[Context], int]) -> int:
     # imports every registered module to call its ``configure``, so anything
     # these ten groups import at module scope is paid by every invocation of
     # every verb — ``ai-rfc --help`` included, which needs no core at all.
-    # Measured: at module scope the ten rows cost 25 modules (278 -> 303) on a
-    # help screen; ``configure`` needs none of this, only ``perform`` does.
+    # Measured, and decomposed rather than attributed whole: the four imports
+    # below are what this guard keeps out, and they are **4** modules. The ten
+    # rows cost 21 more on top — ``ai_rfc.agent``, the ten packages and their
+    # ten ``cli`` modules — which ``build_parser`` must import to reach each
+    # ``configure``. That 21 is a floor, not debt; 278 -> 299 with this guard,
+    # 278 -> 303 without it. ``configure`` needs none of this, only this does.
     from ..config import ConfigError
     from ..lifecycle.common import report_diagnostic
     from ..server.core import CoreError
