@@ -59,12 +59,14 @@ as overrides of the config's own values, for a dry run over a slice. A
 production sweep is simply a config whose window spans every cluster, run with
 `--session-mode per-cluster`.
 
-`campaign init` no longer takes `--panther-repo`. The campaign's `git.panther`
-is a `git describe` of the repository this package is installed from, which is
-what `optimize run`'s copy of the flag already defaulted to. That repository is
-the `ai_rfc` checkout, so with `--plugin-dir` left at its default `git.panther`
-and `git.ai_rfc` now describe the same revision — the superproject's revision
-is no longer recorded anywhere in the campaign.
+`campaign init` no longer takes `--panther-repo`. Both the campaign's
+`panther_repo` path and its `git.panther` description are now read from the
+repository this package is installed from, which is what `optimize run`'s copy
+of the flag already defaulted to. That repository is the `ai_rfc` checkout, so
+the record is misattributed rather than merely poorer: `panther_repo` holds the
+`ai_rfc` root, and with `--plugin-dir` left at its default `git.panther` and
+`git.ai_rfc` carry one revision under two labels — which `report.md` then
+prints as `PANTHER`.
 
 ## Arms
 
