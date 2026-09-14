@@ -95,6 +95,27 @@ def test_write_checkpoint_names_the_directory_it_wrote(workspace):
     )
 
 
+def test_write_checkpoint_names_a_consolidation_directory(workspace):
+    """The sixth shape the brief's "five sites" hides: one dict, two writers.
+
+    ``write_consolidation_checkpoint`` takes its arguments in a different order
+    from ``write_checkpoint`` and lands under an ordinal rather than a cluster
+    id, so the branch is pinned rather than left to the cluster case.
+    """
+    cluster = cluster_next(workspace)["id"]
+    assert write_checkpoint(workspace, cluster)["exit_code"] == 0
+    result = write_checkpoint(
+        workspace, cluster, consolidation=1, base=f"checkpoints/{cluster}"
+    )
+    written = workspace.workspace / "consolidations" / "01"
+    assert result["exit_code"] == 0
+    assert result["stderr"] == [f"note: checkpoint written to {written}"]
+    assert (
+        result["manifest_sha256"]
+        == json.loads((written / "checkpoint.json").read_text())["manifest_sha256"]
+    )
+
+
 def test_write_checkpoint_reports_a_refusal_as_one_error_line(workspace):
     cluster = cluster_next(workspace)["id"]
     assert write_checkpoint(workspace, cluster)["exit_code"] == 0

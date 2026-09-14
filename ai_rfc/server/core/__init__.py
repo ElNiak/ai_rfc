@@ -58,6 +58,10 @@ def reported(verb: Callable[[], tuple[int, list[str]]]) -> tuple[int, list[str]]
     back exit 1. In process the same exception would leave the core, cross the
     MCP server and end the tool call instead, so the boundary is rebuilt here.
 
+    A :class:`CoreError` belongs above this boundary, not inside it: it is a
+    refusal the caller must see raised, and moving one into a verb body would
+    silently downgrade it to exit 1.
+
     Args:
         verb: The verb body, already carrying its own narrow family.
 

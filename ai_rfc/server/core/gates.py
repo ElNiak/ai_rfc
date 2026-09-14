@@ -122,8 +122,9 @@ def _check_manifest(ctx: Context, strict: bool) -> tuple[int, list[str]]:
     """Validate the manifest the way ``ai-rfc check`` validates it.
 
     The CLI's ``--repo not given`` note has no counterpart here: the core
-    always names a repository and refuses above when that path is not one, so
-    ``anchors_checked`` is true wherever the note could be reached.
+    always names a repository and refuses before reaching that point when the
+    path is not one, so ``anchors_checked`` is true wherever the note could be
+    reached.
 
     Args:
         ctx: The resolved context.

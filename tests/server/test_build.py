@@ -19,12 +19,11 @@ from ai_rfc.server.core.build import CoreError, draft_build, draft_lint
 from ai_rfc.server.paths import resolve_context
 
 
-def _fake_build(report: dict, *, writes_report: bool = True):
+def _fake_build(report: dict):
     """Stand in for ``ai_rfc.draft.build.build``, recording its keyword call.
 
     Args:
         report: The record to write where the real build writes it.
-        writes_report: Whether to write it at all.
 
     Returns:
         The fake and the list its calls are appended to.
@@ -33,10 +32,9 @@ def _fake_build(report: dict, *, writes_report: bool = True):
 
     def build(draft_repo, **kwargs):
         calls.append((draft_repo, kwargs))
-        if writes_report:
-            target = kwargs["out"] / BUILD_DIR
-            target.mkdir(parents=True, exist_ok=True)
-            (target / REPORT_FILE).write_text(json.dumps(report))
+        target = kwargs["out"] / BUILD_DIR
+        target.mkdir(parents=True, exist_ok=True)
+        (target / REPORT_FILE).write_text(json.dumps(report))
         return SimpleNamespace(
             findings=tuple(report.get("findings", ())),
             commit=report.get("commit", "c" * 40),
