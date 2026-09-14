@@ -20,9 +20,17 @@ def test_help_lists_every_visible_verb_in_registration_order(capsys):
 
     **Visible, not every**: §6 retires six verbs from the operator's help
     without unmounting them, so the comparison is against the registry's own
-    answer to which rows render. Both halves are asserted — the order of what
-    does render, and the absence of what must not — because the first alone
-    would be satisfied by a listing that had dropped a verb nobody hid.
+    answer to which rows render.
+
+    That one equality carries **both** directions, which is why there is no
+    second assertion beneath it: the verbs are distinct, so a hidden verb
+    appearing and a visible verb vanishing are each a mismatch against the
+    same list. A companion "the hidden ones are absent" was written here and
+    removed, because it could not fail — it was implied by the line above it,
+    and a docstring calling it evidence was the misleading part. The property
+    it was reaching for is the one this file cannot see: that a hidden verb is
+    still *mounted*. ``tests/cli/test_root.py`` asserts that against the
+    parser's own ``choices``, where it can actually go red.
     """
     with pytest.raises(SystemExit) as exit_info:
         cli.main(["--help"])
@@ -34,9 +42,6 @@ def test_help_lists_every_visible_verb_in_registration_order(capsys):
         line.split()[0] for line in table.splitlines() if re.match(r"^ {2}\S", line)
     ]
     assert rendered == [entry.verb for entry in ENTRY_POINTS if not entry.hidden]
-    assert set(rendered).isdisjoint(
-        {entry.verb for entry in ENTRY_POINTS if entry.hidden}
-    )
 
 
 def test_a_bare_invocation_is_a_usage_error(capsys):

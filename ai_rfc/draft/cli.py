@@ -374,7 +374,14 @@ def run(args: argparse.Namespace) -> int:
     # of this. Measured: the root door pays **0** extra modules either way,
     # because the lifecycle verbs it also mounts already hold
     # ``lifecycle.common``; the standalone ``python -m ai_rfc.draft --help``
-    # and ``--version`` pay **72**, and this guard is what they keep out.
+    # pays **71**, and this guard is what it keeps out.
+    #
+    # 71 and not the 72 a bare ``import ai_rfc.lifecycle.common`` adds after
+    # this module: argparse's help rendering loads ``locale`` and ``textwrap``
+    # first, and ``locale`` is in this chain too, so by the time ``--help``
+    # could pay, one of the 72 is already there. The number to state is the
+    # one on the path the guard protects, not the one measured before the
+    # parser is built.
     #
     # ``report`` rather than a local ``print``: every line below interpolates
     # a value an author, an operator or a model session controls — a cluster

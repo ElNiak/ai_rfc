@@ -370,7 +370,7 @@ def test_arm_c_gate_still_dispatches_through_the_root_door(
 #: trip looking like a single ordinary line, and it is here because the escape
 #: must be a predicate over the Unicode category rather than a list of
 #: characters somebody thought of.
-FORGING_BREAKS = ("\n", " ")
+FORGING_BREAKS = ("\n", "\u2028")
 
 
 @pytest.mark.parametrize("brk", FORGING_BREAKS, ids=("newline", "line-separator"))
