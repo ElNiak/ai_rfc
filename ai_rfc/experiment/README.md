@@ -26,7 +26,7 @@ Everything is kept under `AI_RFC_EXPERIMENTS_ROOT` (default
   campaigns/<id>/
     campaign.json               the frozen run matrix and every pinned input
     prompts/arm-A.md …          rendered system prompts, task.md, diff-*.patch
-    bin/ai_rfc                  the shim arm B's Bash reaches
+    bin/ai-rfc                  the shim arm B's Bash reaches
     runs/<run-id>/              one directory per launch (see below)
     audit/                      per-run integrity verdicts
     analysis/                   aggregate.json and report.md
@@ -73,14 +73,23 @@ rather than printing it.
 ## Arms
 
 An arm is the surface a session may reach, not a different agent or prompt.
-`arms.py` declares them; the protocol's §1 explains the three-class taxonomy
-they instantiate.
+`ai_rfc/driver/arms.py` declares them; the protocol's §1 explains the
+three-class taxonomy they instantiate.
 
 | Arm | Surface | Built-in tools | Allowlist | MCP |
 |---|---|---|---|---|
 | A | class 1, structured-typed: the twenty `ai_rfc_*` MCP tools | Read, Edit, Write, Grep, Glob | those plus `mcp__ai_rfc` | mounted from a per-run `ai_rfc.json` |
-| B | class 2, hybrid: the `ai_rfc <verb>` parity CLI through Bash | the same plus Bash | `Bash(ai_rfc *)` | not mounted |
+| B | class 2, hybrid: the nineteen `ai-rfc <group> <verb>` agent verbs through Bash | the same plus Bash | `Bash(ai-rfc *)` | not mounted |
 | C | class 2, hybrid: raw substrate commands through Bash | the same plus Bash | `Bash(python -m ai_rfc*)`, `Bash(git *)`, `Bash(sqlite3 *)` | not mounted |
+
+**Twenty against nineteen.** CLI-3 folded arm B's verbs into the one door and
+gave one of them no name: `ai_rfc_status` stays an MCP tool with no `ai-rfc`
+verb, because `ai-rfc status` already means the operator's ledger (D16). So the
+two compared surfaces are no longer the same size. Arm B is not denied the
+information — it reads the same artifacts, and `ai-rfc status` prints the
+ledger over them — but the tool's composite costs it several calls instead of
+one, which any per-call measure has to be read against. `docs/parity.md` is the
+row-for-row record.
 
 Enforcement is by removal (arm A has no Bash tool) or by a `PreToolUse` hook
 (`guard.py`, mounted through `--settings`) that exits 2 for any Bash command

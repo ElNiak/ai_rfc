@@ -184,6 +184,32 @@ ENTRY_POINTS: tuple[EntryPoint, ...] = (
         "draft",
         "ai-rfc draft",
         f"{PACKAGE}.draft.cli",
+        # **Stays under BY_HAND, though four of its seven verbs are agent
+        # verbs** (`build`, `lint`, `commit`, `render` in `docs/parity.md`).
+        # Neither heading is wholly true of this row: `draft checkpoint
+        # <manifest> --timeline … --out …` is exactly what "Run these
+        # yourself" means, and its workspace-form siblings are exactly what
+        # "used inside sessions" means. `draft` is the one entry whose two
+        # forms are deliberately the same verb, which is what
+        # `tests/agent/test_draft_group.py` pins, and a heading cannot say
+        # "both".
+        #
+        # Three costs decide it. Moving the row empties BY_HAND — `check` and
+        # `coverage` are hidden (R3) — and deletes a heading
+        # `test_the_hidden_verbs_section_still_renders_when_one_row_survives`
+        # pins as surviving, leaving no visible sign that a by-hand surface
+        # exists at all while arm C still types it through this door. It would
+        # also be the only AGENT row three of whose verbs an agent never
+        # types, in a section whose every other summary ends in its verb list.
+        # And the summary cannot carry the caveat: the row renders at 123
+        # characters against a widest row of 127, so four characters is the
+        # whole budget.
+        #
+        # What guarantees which verbs an agent types is not the heading but
+        # `docs/parity.md`, whose verb column is now walked against
+        # `cli.build_parser()`. The heading is navigation; the table is the
+        # contract.
+        #
         # Seven verbs, so no parenthesised list — the `experiment` row's rule,
         # reached the same way. Listing them renders the row at 170
         # characters, 43 past the longest other row and 31 past the 139 that

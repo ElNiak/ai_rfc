@@ -11,7 +11,7 @@ The comparison uses the binding three-class interface taxonomy: class 1, structu
 | Arm | Surface | Class |
 |---|---|---|
 | A | `ai_rfc_*` MCP tools | 1: structured-typed |
-| B | `ai_rfc` CLI invoked through the Bash tool | 2: hybrid shell-via-tool |
+| B | `ai-rfc` agent verbs invoked through the Bash tool | 2: hybrid shell-via-tool |
 | C | Raw substrate `python -m` commands through the Bash tool | 2: hybrid, different command family |
 
 **The class-3 caveat, stated up front.** A true class-3 arm may not exist inside a Claude-Code harness, because every shell interaction there transits the Bash function-calling tool. The cleanest deployed class-3 exemplar, mini-swe-agent, parses actions from model text and runs them via subprocess with no tool-calling layer at all (mini-swe-agent, 2025-2026). Two consequences are binding:
@@ -21,13 +21,15 @@ The comparison uses the binding three-class interface taxonomy: class 1, structu
 
 The B-versus-C contrast is deliberately kept: it isolates within-class affordance (a curated command vocabulary versus generic module invocation) with the wrapper held constant, making the affordance/capability boundary measurable.
 
-**Parity is the arm-design backbone.** Both frontends drive one shared core. The `ai_rfc` parity test suite is a standing construct check, run before and after the experiment; any capability delta discovered is a protocol stop-ship, and the parity-test evidence ships with the paper. This is the design element every published near-miss lacked: capabilities held "similar" without tests (Xu et al., 2026), arms that were different systems entirely (Terminal Agents Suffice, 2026), or assignment that leaked outright (Scaffolding Matters, 2026).
+**Parity is the arm-design backbone.** Both frontends drive one shared core. The parity test suite (`tests/server/test_parity.py`) is a standing construct check, run before and after the experiment: **twenty twins, one per MCP tool**, each driving the tool and its `ai-rfc` verb over two byte-identical workspaces and comparing what each arm wrote or read. Any capability delta discovered is a protocol stop-ship, and the parity-test evidence ships with the paper. This is the design element every published near-miss lacked: capabilities held "similar" without tests (Xu et al., 2026), arms that were different systems entirely (Terminal Agents Suffice, 2026), or assignment that leaked outright (Scaffolding Matters, 2026).
+
+**One measured asymmetry, from CLI-3 (D16).** Folding the parity CLI into `ai-rfc` left `ai_rfc_status` without a verb of its own, because `ai-rfc status` already names the operator's ledger. Arm A therefore reaches twenty operations as tools and arm B reaches nineteen as verbs — a change to the *arm surfaces themselves*, not to the documentation of them, and the first the two arms have not been the same size. It is not a capability delta of the kind the paragraph above calls a stop-ship: the status read is a composite over four artifacts both arms can already open, and arm B additionally has `ai-rfc status`. What it costs arm B is calls, so every per-call measure is read against it, and the twentieth twin drives the tool against `queries.status` rather than against a verb. Recorded here rather than corrected, on the same rule as every other asymmetry in `docs/parity.md`.
 
 ## 2. Arm-Assignment Enforcement
 
 The controlling finding: "agents frequently ignored the interface they were assigned," so unverified comparisons measure an unknown mixture (Scaffolding Matters, 2026). Three mandatory elements follow.
 
-**Enforce by removal or allowlist, never by denylist or prompt instruction.** String-level denylists are 69.0-98.6% bypassable across 1,709 real-world configurations, including Claude Code's built-in denylist (One goal, many commands [ShellSieve], 2026). Concretely: arm A runs with the Bash tool absent, or with `ai_rfc` and `python -m` invocations denied by allowlist; arms B and C run with the `ai_rfc` MCP server unmounted. The enforcement mechanism itself is disclosed in the paper.
+**Enforce by removal or allowlist, never by denylist or prompt instruction.** String-level denylists are 69.0-98.6% bypassable across 1,709 real-world configurations, including Claude Code's built-in denylist (One goal, many commands [ShellSieve], 2026). Concretely: arm A runs with the Bash tool absent, or with `ai-rfc` and `python -m` invocations denied by allowlist; arms B and C run with the `ai_rfc` MCP server unmounted. The enforcement mechanism itself is disclosed in the paper.
 
 **Audit every transcript.** Tool-call records are structured, so the audit is mechanical: scan each run for out-of-arm invocations. The **assignment-integrity rate is a reported metric per arm-target cell**, and integrity-violated runs are excluded by a pre-registered rule, never silently.
 
@@ -117,10 +119,12 @@ From the aioquic pilot, `pilot-aioquic-w02-11-20260831`; full report at
   addition *from the pilot* — a run is excluded only after the guard's verdict and the
   audit's verdict are confirmed to agree on the offending call. The pilot's one apparent
   violation was an instrument defect, not a run defect.
-- **Enforcement configuration per arm**: *unchanged from the protocol*. A: read tools plus
-  16 `mcp__ai_rfc__*`, no Bash. B: read tools plus `Bash(ai_rfc *)`. C: read tools plus
-  `Bash(python -m ai_rfc*)`, `Bash(git *)`, `Bash(sqlite3 *)`. Enforced by a
-  `PreToolUse` hook, because `--allowedTools` does not confine a built-in tool.
+- **Enforcement configuration per arm**: *unchanged from the protocol in shape, re-spelled
+  by CLI-3*. A: read tools plus the `mcp__ai_rfc__*` tools (16 at the pilot, 20 today), no
+  Bash. B: read tools plus `Bash(ai-rfc *)` — `Bash(ai_rfc *)` until the console script
+  retired. C: read tools plus `Bash(python -m ai_rfc*)`, `Bash(git *)`, `Bash(sqlite3 *)`,
+  which CLI-3 did not touch. Enforced by a `PreToolUse` hook, because `--allowedTools`
+  does not confine a built-in tool.
 - **Model and harness**: `claude-opus-5`, effort `high`, `claude --version`
   **2.1.251 (Claude Code)** — *from the pilot*. Re-run the S0 spike whenever the CLI moves;
   the enforcement mechanism is a measured property of the CLI, not a contract.
@@ -147,13 +151,14 @@ From the aioquic pilot, `pilot-aioquic-w02-11-20260831`; full report at
 
 ### 2026-09-03 — draft quality v2, SP7a
 
-- **Tool surface**: 18 tools (`ai_rfc_draft_build` and `ai_rfc_draft_lint`
-  added to the 16 above); `docs/parity.md` is the table.
+- **Tool surface**: 20 tools (`ai_rfc_draft_build`, `ai_rfc_draft_lint`,
+  `ai_rfc_structure_upsert` and `ai_rfc_draft_render` added to the 16 above);
+  `docs/parity.md` is the table.
 - **Arm C stays frozen** at the pre-v2, 16-tool surface (spec D42); the
   parity table's third column reads "not available in arm C" for the two
   new rows, so a v2 campaign compares arms A and B only.
 - **Every revision tag compiles**: the server's `revision_tag` (the MCP tool
-  and its `ai_rfc revision-tag` CLI form share one core) runs `draft build`
+  and its `ai-rfc revision tag` CLI form share one core) runs `draft build`
   before creating the tag whenever `AI_RFC_TOOLCHAIN` is set, refusing the
   tag on any build finding, and `campaign init` refuses to start without a
   verified toolchain — so in a v2 campaign (arms A and B only, per above)

@@ -16,9 +16,10 @@ holds all of it:
   and the snapshot, and `toolchain provision`; the three subpackages named
   separately in this list live under the same directory but are not substrate.
   Its design and schema are documented in `ai_rfc/README.md`.
-- `ai_rfc/server/` — the **MCP server** and its parity CLI (`ai_rfc <verb>`):
-  one core, two frontends, so an agent cannot overstate what the evidence
-  supports whichever door it uses. Tool-to-verb table: `docs/parity.md`.
+- `ai_rfc/server/` — the **MCP server** and the core both frontends call; the
+  matching `ai-rfc <group> <verb>` commands live in `ai_rfc/agent/`. One core,
+  two frontends, so an agent cannot overstate what the evidence supports
+  whichever door it uses. Tool-to-verb table: `docs/parity.md`.
 - `ai_rfc/experiment/` — the **driver and instrument**: pristine workspaces,
   hermetic `claude -p` sessions, per-cluster sweeps, audit and metrics. The
   only code in the repository that launches an agent. Usage:
@@ -98,13 +99,18 @@ refuse with `no config: pass --config or set AI_RFC_CONFIG` when neither is;
 
 Two variables are required by the plugin and the server: `AI_RFC_PYTHON`, the
 interpreter with the `ai-rfc` distribution installed (e.g. a venv's
-`bin/python`), read by the plugin's `.mcp.json`; and `AI_RFC_WORKSPACE`, a
-reconstruction workspace (clone, corpus, timeline, clusters, checkpoints,
-manifest, questions, revisions, draft), read by the MCP server and the
-`ai_rfc` parity verbs until CLI-3 derives it from the config. Missing either
-fails loudly; nothing guesses. The manifest's `structures:` registry is
-rendered by the tool — `ai_rfc_draft_render`, or `ai_rfc draft-render` — and
-the blocks it emits are pasted into the draft and never hand-edited there.
+`bin/python`), read by the plugin's `.mcp.json`; and `AI_RFC_CONFIG`, the
+`recon.yaml` this process operates under, from which the MCP server and the
+`ai-rfc` agent verbs derive the reconstruction workspace (clone, corpus,
+timeline, clusters, checkpoints, manifest, questions, revisions, draft) and
+the toolchain. That derivation is CLI-3's (D57); before it the workspace was
+named directly by `AI_RFC_WORKSPACE`, which the plugin still exports and the
+sessions still set, because arms B and C's rendered prompts spell paths as
+`$AI_RFC_WORKSPACE/…` at some twenty sites — it is simply no longer what
+resolves a context. Missing either required variable fails loudly; nothing
+guesses. The manifest's `structures:` registry is rendered by the tool —
+`ai_rfc_draft_render`, or `ai-rfc draft render` — and the blocks it emits are
+pasted into the draft and never hand-edited there.
 
 Three more are read where named and are optional there: `AI_RFC_TOOLCHAIN`, a
 `toolchain.json` that `draft build` and the pipeline's build stage use when no
@@ -116,18 +122,21 @@ and never stores (without it the discussion endpoints are refused and the
 snapshot records the fidelity it reached); and `AI_RFC_EXPERIMENTS_ROOT`, the
 experiment harness's state root (default `~/ai-rfc-experiments`).
 
-## Three entry names, two dispatchers
+## Two entry names, one dispatcher
 
 | Entry | What it is | Surface |
 |---|---|---|
-| `ai-rfc <verb>` = `python -m ai_rfc <verb>` | The one door: a single dispatcher (`ai_rfc/cli.py`) over the seven lifecycle verbs `config`, `init`, `run`, `status`, `verify`, `toolchain`, `doctor` and the eight programs `history`, `forge`, `timeline`, `views`, `check`, `draft`, `coverage`, `pipeline`, each also reachable as `python -m ai_rfc.<sub>` | What a person, or the raw experiment arm, runs |
-| `ai_rfc <verb>` (underscore) | The parity CLI (`ai_rfc/server/cli.py`): twenty workspace-level verbs, one per MCP tool, over the same core the server uses | What the AI+CLI experiment arm runs through Bash |
-| `python -m ai_rfc.server` | The stdio MCP server exposing the same twenty operations as `ai_rfc_*` tools | What Claude Code mounts from the plugin's `.mcp.json`, and what the AI+MCP arm gets |
+| `ai-rfc <verb>` = `python -m ai_rfc <verb>` | The one door: a single dispatcher (`ai_rfc/cli.py`) over the seven lifecycle verbs `config`, `init`, `run`, `status`, `verify`, `toolchain`, `doctor`; the eight programs `history`, `forge`, `timeline`, `views`, `check`, `draft`, `coverage`, `pipeline`, each also reachable as `python -m ai_rfc.<sub>`; and the nineteen agent verbs (`claim upsert`, `cluster next`, `question draft`, `gate`, …) from `ai_rfc/agent/`, with `draft`'s four in `ai_rfc/draft/cli.py` | What a person, the AI+CLI experiment arm and the raw arm all run |
+| `python -m ai_rfc.server` | The stdio MCP server exposing twenty operations as `ai_rfc_*` tools | What Claude Code mounts from the plugin's `.mcp.json`, and what the AI+MCP arm gets |
 
-The underscore name is interim: the one-door design folds it into `ai-rfc`
-(see the pyproject comment on `[project.scripts]`). Exit codes are the same
-through every door: 0 clean, 1 unusable input, 2 malformed invocation
-(argparse), 3 strict findings.
+There used to be a third, `ai_rfc <verb>` (underscore): a second console
+script over a second parser, holding the twenty workspace-level verbs. CLI-3
+folded those verbs into `ai-rfc` as grouped subcommands and retired the script,
+its campaign shim and both `prog="ai_rfc"` values (D56) — so the AI+CLI arm now
+types the same program a person does, and nineteen verbs answer twenty tools
+(`ai_rfc_status` got none, D16; `docs/parity.md` is the row-for-row table).
+Exit codes are the same through every door: 0 clean, 1 unusable input,
+2 malformed invocation (argparse), 3 strict findings.
 
 ## Plugin
 
@@ -139,7 +148,7 @@ at the repository root). It carries:
 | `/ai-rfc-init URL` | Runs the deterministic stages for a fresh workspace and scaffolds the draft |
 | `/ai-rfc-next-cluster` | One iteration of the `ai-rfc-reconstruction-loop` skill |
 | `/ai-rfc-interview-import PATH` | The `ai-rfc-interviewing` skill |
-| `/ai-rfc-release-revision` | The tagging tail of the loop, through the MCP tools or `ai_rfc` verbs |
+| `/ai-rfc-release-revision` | The tagging tail of the loop, through the MCP tools or the `ai-rfc` agent verbs |
 | `/ai-rfc-status` | A one-screen report computed from the workspace's own artifacts |
 
 Skills: `ai-rfc-reconstruction-loop` (the driver), `ai-rfc-evidence-hygiene`
