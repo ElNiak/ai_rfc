@@ -14,6 +14,7 @@ import hashlib
 import json
 import re
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import Any
 
 import yaml
@@ -515,3 +516,19 @@ def lint(
             "data_model_claims_unbound": unbound,
         },
     )
+
+
+def write_lint_report(out: Path, report: LintReport) -> Path:
+    """Freeze one lint report under ``out``.
+
+    Args:
+        out: Directory to write :data:`REPORT_FILE` into; created if absent.
+        report: What :func:`lint` returned.
+
+    Returns:
+        The path written.
+    """
+    out.mkdir(parents=True, exist_ok=True)
+    path = out / REPORT_FILE
+    path.write_text(report.to_json())
+    return path

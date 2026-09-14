@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import json
-import os
 import sys
 from pathlib import Path
 
@@ -18,8 +16,7 @@ from .build import (
     TOOLCHAIN_ENV,
     BuildError,
     build,
-    load_toolchain,
-    probe_toolchain,
+    resolve_toolchain,
 )
 from .checkpoint import (
     CheckpointError,
@@ -29,10 +26,9 @@ from .checkpoint import (
 from .completeness import CompletenessError
 from .completeness import build as build_completeness
 from .completeness import findings as completeness_findings
-from .completeness import to_json as completeness_json
-from .gate import GateError, draft_text, run_gate
-from .lint import REPORT_FILE as LINT_REPORT_FILE
-from .lint import lint
+from .completeness import write_completeness_report
+from .gate import GateError, draft_text, run_gate, write_gate_report
+from .lint import lint, write_lint_report
 from .structures import STRUCTURES_FILE, render_all
 
 
@@ -291,8 +287,7 @@ def run(args: argparse.Namespace) -> int:
             _report(f"error: {error}")
             return 1
 
-        args.out.mkdir(parents=True, exist_ok=True)
-        (args.out / "completeness.json").write_text(completeness_json(report))
+        write_completeness_report(args.out, report)
 
         found = completeness_findings(report)
         for finding in found:
@@ -304,20 +299,8 @@ def run(args: argparse.Namespace) -> int:
         return 0
 
     if args.verb == "build":
-        toolchain_path = args.toolchain or (
-            Path(os.environ[TOOLCHAIN_ENV]) if os.environ.get(TOOLCHAIN_ENV) else None
-        )
-        if toolchain_path is None:
-            _report(
-                f"error: no toolchain; pass --toolchain or set {TOOLCHAIN_ENV} "
-                "(ai-rfc toolchain provision writes it)"
-            )
-            return 1
         try:
-            toolchain = load_toolchain(toolchain_path)
-            missing = probe_toolchain(toolchain)
-            if missing:
-                raise BuildError("toolchain incomplete: " + "; ".join(missing))
+            toolchain = resolve_toolchain(args.toolchain)
             report = build(
                 args.draftrepo,
                 toolchain=toolchain,
@@ -376,11 +359,10 @@ def run(args: argparse.Namespace) -> int:
         except (ValueError, OSError) as error:
             _report(f"error: {error}")
             return 1
-        args.out.mkdir(parents=True, exist_ok=True)
-        (args.out / LINT_REPORT_FILE).write_text(report.to_json())
+        report_path = write_lint_report(args.out, report)
         for finding in report.findings:
             _report(f"finding: {finding}")
-        _report(f"note: lint report at {args.out / LINT_REPORT_FILE}")
+        _report(f"note: lint report at {report_path}")
         if report.findings and args.strict:
             return 3
         return 0
@@ -399,10 +381,7 @@ def run(args: argparse.Namespace) -> int:
             _report(f"error: {error}")
             return 1
 
-        args.out.mkdir(parents=True, exist_ok=True)
-        (args.out / "gate-report.json").write_text(
-            json.dumps({"findings": list(findings)}, sort_keys=True, indent=2) + "\n"
-        )
+        write_gate_report(args.out, findings)
 
         for finding in findings:
             _report(f"finding: {finding}")

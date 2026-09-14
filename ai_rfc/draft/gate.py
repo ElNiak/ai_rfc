@@ -16,7 +16,7 @@ import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 import yaml
 
@@ -36,6 +36,9 @@ REVISION_TAG = re.compile(r"^draft-.+-(?P<nn>\d\d)$")
 
 #: What a revision may be: a cluster round, or a consolidation of one.
 REVISION_KINDS = ("cluster", "consolidation")
+
+#: Where :func:`write_gate_report` freezes one run's findings.
+REPORT_FILE = "gate-report.json"
 
 #: A claim citation in prose: a backticked ``ai_rfc:<claim-id>`` token. The
 #: backticks keep kramdown-rfc's own ``{{ }}`` machinery away from it.
@@ -474,3 +477,21 @@ def run_gate(
         if finding not in deduped:
             deduped.append(finding)
     return tuple(deduped)
+
+
+def write_gate_report(out: Path, findings: Sequence[str]) -> Path:
+    """Freeze one gate run's findings under ``out``.
+
+    Args:
+        out: Directory to write :data:`REPORT_FILE` into; created if absent.
+        findings: What :func:`run_gate` returned, in its order.
+
+    Returns:
+        The path written.
+    """
+    out.mkdir(parents=True, exist_ok=True)
+    path = out / REPORT_FILE
+    path.write_text(
+        json.dumps({"findings": list(findings)}, sort_keys=True, indent=2) + "\n"
+    )
+    return path

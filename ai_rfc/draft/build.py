@@ -141,6 +141,40 @@ def probe_toolchain(toolchain: Toolchain) -> tuple[str, ...]:
     return tuple(missing)
 
 
+def resolve_toolchain(explicit: Path | None) -> Toolchain:
+    """Find the toolchain a build should use, and refuse an unusable one.
+
+    An empty ``$AI_RFC_TOOLCHAIN`` names no record: ``os.environ[...]`` would
+    otherwise hand :func:`load_toolchain` a ``Path("")``, whose refusal names
+    the current directory rather than the absent configuration.
+
+    Args:
+        explicit: The record the caller named, if it named one; otherwise the
+            value of :data:`TOOLCHAIN_ENV` is read.
+
+    Returns:
+        The loaded record, probed and complete.
+
+    Raises:
+        BuildError: If neither ``explicit`` nor :data:`TOOLCHAIN_ENV` names a
+            record, or if :func:`probe_toolchain` reports anything missing.
+            :func:`load_toolchain` raises it for an unreadable record too.
+    """
+    path = explicit or (
+        Path(os.environ[TOOLCHAIN_ENV]) if os.environ.get(TOOLCHAIN_ENV) else None
+    )
+    if path is None:
+        raise BuildError(
+            f"no toolchain; pass --toolchain or set {TOOLCHAIN_ENV} "
+            "(ai-rfc toolchain provision writes it)"
+        )
+    toolchain = load_toolchain(path)
+    missing = probe_toolchain(toolchain)
+    if missing:
+        raise BuildError("toolchain incomplete: " + "; ".join(missing))
+    return toolchain
+
+
 @dataclass(frozen=True)
 class BuildReport:
     """What one build did and what it found."""

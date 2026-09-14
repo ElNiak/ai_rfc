@@ -18,6 +18,9 @@ from ..schema import SchemaError, load
 from .checkpoint import CHECKPOINT_FILE, MANIFEST_FILE
 from .gate import GateError, cited_ids, load_revisions
 
+#: Where :func:`write_completeness_report` freezes one report.
+REPORT_FILE = "completeness.json"
+
 
 class CompletenessError(ValueError):
     """Raised when the gate's inputs cannot be interpreted as written."""
@@ -345,3 +348,19 @@ def findings(report: CompletenessReport) -> tuple[str, ...]:
     for claim_id in report.manifest_drift:
         lines.append(f"{claim_id}: in the live manifest but in no checkpoint")
     return tuple(lines)
+
+
+def write_completeness_report(out: Path, report: CompletenessReport) -> Path:
+    """Freeze one completeness report under ``out``.
+
+    Args:
+        out: Directory to write :data:`REPORT_FILE` into; created if absent.
+        report: What :func:`build` returned.
+
+    Returns:
+        The path written.
+    """
+    out.mkdir(parents=True, exist_ok=True)
+    path = out / REPORT_FILE
+    path.write_text(to_json(report))
+    return path
