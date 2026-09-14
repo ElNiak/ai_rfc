@@ -97,7 +97,9 @@ _EXPERIMENT_GUIDANCE = (
 #: ``ai_rfc_status()``; arm C asks git. Arm B has neither: its Bash prefix
 #: admits ``ai-rfc`` and nothing else, and the folded ``ai-rfc status`` verb
 #: is the operator's ledger over the whole reconstruction, not the
-#: per-session report ``ai_rfc_status`` returns.
+#: per-session report ``ai_rfc_status`` returns. Arm B's slot names that verb
+#: and says what it is rather than denying one exists: the arm can run it, so
+#: a prompt claiming otherwise is a statement the session can falsify.
 _REVISIONS_SINCE_READ = (
     "read `$AI_RFC_WORKSPACE/revisions.yaml` for every entry recorded after "
     "the last `kind: consolidation` one — each entry is keyed by its own tag"
@@ -275,8 +277,10 @@ SLOT_TABLES: dict[str, dict[str, str]] = {
             f"that is not done, or `null`. {_CLUSTER_DONE_RULE})"
         ),
         "revisions_since": (
-            f"{_REVISIONS_SINCE_READ} — no `ai-rfc` verb reports where the draft "
-            "now stands, and this arm has no `git` to list its tags with"
+            f"{_REVISIONS_SINCE_READ} — no `ai-rfc` verb reports what this "
+            "session changed (`ai-rfc status` is the operator's ledger over the "
+            "whole reconstruction, not this round), and this arm has no `git` "
+            "to list the tags with"
         ),
         "structure_upsert": "`ai-rfc structure upsert <id> --json '…'`",
         "draft_render": "`ai-rfc draft render`",
