@@ -49,6 +49,15 @@ class EntryPoint:
             order. Entries sharing one are kept contiguous in
             :data:`ENTRY_POINTS`, because that order is the order the help
             prints.
+        hidden: Retire this row from the operator's help without unmounting
+            the verb. ``ai-rfc <verb>`` still parses and still runs — which is
+            the whole of the distinction, and it is forced rather than
+            preferred: ``ai_rfc/driver/render.py``'s arm-C table types
+            ``python -m ai_rfc check`` and ``python -m ai_rfc draft …``
+            through **this** door, so a deleted row would break that arm
+            outright. A hidden entry still declares a ``section``, because a
+            section is a property of the command and not of the listing; a
+            section all of whose rows are hidden simply prints no heading.
     """
 
     verb: str
@@ -56,6 +65,7 @@ class EntryPoint:
     module: str
     summary: str
     section: str
+    hidden: bool = False
 
     def load(self) -> CommandModule:
         """Import the module this entry names.
@@ -168,13 +178,20 @@ ENTRY_POINTS: tuple[EntryPoint, ...] = (
         "Report which manifest claims are not backed by the code their "
         "anchors point at",
         BY_HAND,
+        hidden=True,
     ),
     EntryPoint(
         "draft",
         "ai-rfc draft",
         f"{PACKAGE}.draft.cli",
-        "Freeze the manifest per cluster, then gate the prose against it "
-        "(checkpoint, render, gate, completeness, build, lint)",
+        # Seven verbs, so no parenthesised list — the `experiment` row's rule,
+        # reached the same way. Listing them renders the row at 170
+        # characters, 43 past the longest other row and 31 past the 139 that
+        # comment already rejected; `_epilog()` emits it unwrapped. The list
+        # was affordable at six and is not at seven, and the verbs are one
+        # `ai-rfc draft --help` away.
+        "Freeze the manifest per cluster, gate the prose against it, and "
+        "drive the workspace's own draft repository",
         BY_HAND,
     ),
     EntryPoint(
@@ -183,6 +200,7 @@ ENTRY_POINTS: tuple[EntryPoint, ...] = (
         f"{PACKAGE}.coverage.cli",
         "Propose anchors for the lines a test run actually executed",
         BY_HAND,
+        hidden=True,
     ),
     EntryPoint(
         "history",
@@ -190,6 +208,7 @@ ENTRY_POINTS: tuple[EntryPoint, ...] = (
         f"{PACKAGE}.history.cli",
         "Turn a pinned clone's commits into a queryable corpus",
         PERFORMED,
+        hidden=True,
     ),
     EntryPoint(
         "forge",
@@ -197,6 +216,7 @@ ENTRY_POINTS: tuple[EntryPoint, ...] = (
         f"{PACKAGE}.forge.cli",
         "Pull pull-request discussion from GitHub or GitLab (fetch, adopt)",
         PERFORMED,
+        hidden=True,
     ),
     EntryPoint(
         "timeline",
@@ -204,6 +224,7 @@ ENTRY_POINTS: tuple[EntryPoint, ...] = (
         f"{PACKAGE}.timeline.cli",
         "Group the corpus into ordered clusters, one per pull request",
         PERFORMED,
+        hidden=True,
     ),
     EntryPoint(
         "views",
@@ -211,6 +232,7 @@ ENTRY_POINTS: tuple[EntryPoint, ...] = (
         f"{PACKAGE}.views.cli",
         "Write the per-cluster evidence folder an author reads",
         PERFORMED,
+        hidden=True,
     ),
     EntryPoint(
         "corpus",

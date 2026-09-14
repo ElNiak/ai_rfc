@@ -10,13 +10,19 @@ from ai_rfc.entrypoints import ENTRY_POINTS
 pytestmark = pytest.mark.unit
 
 
-def test_help_lists_every_verb_in_registration_order(capsys):
+def test_help_lists_every_visible_verb_in_registration_order(capsys):
     """Registration order is the workflow order; the listing must keep it.
 
     The needle is "exactly two spaces then a word", read over the verb table
     alone: argparse indents its own option rows the same way, so scanning the
     whole help would capture ``-h``, ``--version`` and the ``<verb>`` metavar
     as if they were commands. The table starts at the first section heading.
+
+    **Visible, not every**: §6 retires six verbs from the operator's help
+    without unmounting them, so the comparison is against the registry's own
+    answer to which rows render. Both halves are asserted — the order of what
+    does render, and the absence of what must not — because the first alone
+    would be satisfied by a listing that had dropped a verb nobody hid.
     """
     with pytest.raises(SystemExit) as exit_info:
         cli.main(["--help"])
@@ -27,7 +33,10 @@ def test_help_lists_every_verb_in_registration_order(capsys):
     rendered = [
         line.split()[0] for line in table.splitlines() if re.match(r"^ {2}\S", line)
     ]
-    assert rendered == [entry.verb for entry in ENTRY_POINTS]
+    assert rendered == [entry.verb for entry in ENTRY_POINTS if not entry.hidden]
+    assert set(rendered).isdisjoint(
+        {entry.verb for entry in ENTRY_POINTS if entry.hidden}
+    )
 
 
 def test_a_bare_invocation_is_a_usage_error(capsys):

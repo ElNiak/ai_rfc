@@ -347,6 +347,24 @@ def test_gate_reads_consolidations_from_the_named_root(
     )
 
 
+def test_arm_c_gate_still_dispatches_through_the_root_door(
+    draft_workspace, tmp_path: Path, capsys
+):
+    """Parsing is not dispatching.
+
+    ``tests/cli/test_root.py``'s pin proves arm C's argv still parses to the
+    same namespace; the fold could preserve that and still send it to a
+    branch reached by a different rule. This runs the longest of the four end
+    to end, through the door ``render.py:169`` actually types.
+    """
+    from ai_rfc import cli as root_cli
+
+    out = tmp_path / "out"
+    assert root_cli.main(["draft", *_gate_argv(draft_workspace, out)]) == 0
+    assert json.loads((out / "gate-report.json").read_text())["findings"] == []
+    assert "gate clean" in capsys.readouterr().err
+
+
 #: Line separators a value can carry into a stderr line. ``\n`` is the one an
 #: author writes by accident; ``U+2028`` is the one that survives a YAML round
 #: trip looking like a single ordinary line, and it is here because the escape

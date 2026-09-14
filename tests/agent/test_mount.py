@@ -1,8 +1,9 @@
 """D56's verb tree: every agent verb reachable as ``ai-rfc <group> <verb>``.
 
-The parity CLI's twenty verbs were a second front door. Fifteen of them mount
-here as grouped subcommands of the root; ``draft``'s four follow, and ``status``
-retires without one (U3).
+The parity CLI's twenty verbs were a second front door. Nineteen of them mount
+here as grouped subcommands of the root, and ``status`` retires without one
+(U3). ``draft``'s four came last because ``draft`` was already a leaf verb and
+two ``add_parser("draft")`` calls cannot coexist.
 """
 
 import pytest
@@ -28,6 +29,10 @@ GROUPED = [
     "gate",
     "citation-gate",
     "structure upsert",
+    "draft commit",
+    "draft build",
+    "draft lint",
+    "draft render",
 ]
 
 

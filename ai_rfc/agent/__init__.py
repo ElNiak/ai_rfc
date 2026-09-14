@@ -9,12 +9,19 @@ AI+MCP and AI+CLI arms two programs being compared instead of one program
 reached two ways, which is the thing ``tests/agent/test_one_core.py`` and
 ``tests/server/test_parity.py`` exist to refuse.
 
-The two functions here are the plumbing all ten groups share: the JSON
-rendering every result goes out as, and the context-and-refusal boundary every
-verb runs inside. They sit in ``__init__.py`` rather than in a ``common.py``
-beside it — the spelling :mod:`ai_rfc.lifecycle` uses — because this package
-has no other content of its own: ten leaf packages and this, where
-``lifecycle`` also holds a workspace layout, a profile and a config pair.
+The two functions here are the plumbing every group shares: the JSON rendering
+every result goes out as, and the context-and-refusal boundary every verb runs
+inside. They sit in ``__init__.py`` rather than in a ``common.py`` beside it —
+the spelling :mod:`ai_rfc.lifecycle` uses — because this package has no other
+content of its own: ten leaf packages and this, where ``lifecycle`` also holds
+a workspace layout, a profile and a config pair.
+
+**Ten packages, eleven callers.** ``draft``'s four agent verbs live in
+:mod:`ai_rfc.draft.cli` rather than in a package here, because ``draft`` was
+already a top-level leaf verb and two ``add_parser("draft")`` calls cannot
+coexist. They call these two the same way the ten do, which is the point: what
+makes a verb one of these is that it reaches :mod:`ai_rfc.server.core` through
+this boundary, not where its module sits.
 """
 
 from __future__ import annotations
@@ -65,14 +72,19 @@ def perform(action: Callable[[Context], int]) -> int:
     # Function-local, and not to be tidied back to the top (D13's shape, and
     # the idiom of ``pipeline/run.py:77``). ``ai_rfc/cli.py``'s ``build_parser``
     # imports every registered module to call its ``configure``, so anything
-    # these ten groups import at module scope is paid by every invocation of
-    # every verb — ``ai-rfc --help`` included, which needs no core at all.
+    # the ten groups — or :mod:`ai_rfc.draft.cli`, the eleventh caller —
+    # imports at module scope is paid by every invocation of every verb:
+    # ``ai-rfc --help`` included, which needs no core at all.
     # Measured, and decomposed rather than attributed whole: the four imports
     # below are what this guard keeps out, and they are **4** modules. The ten
     # rows cost 21 more on top — ``ai_rfc.agent``, the ten packages and their
     # ten ``cli`` modules — which ``build_parser`` must import to reach each
     # ``configure``. That 21 is a floor, not debt; 278 -> 299 with this guard,
-    # 278 -> 303 without it. ``configure`` needs none of this, only this does.
+    # 278 -> 303 without it. Folding ``draft``'s four verbs added nothing to
+    # the total — re-measured from a cold interpreter, ``build_parser()``
+    # leaves 299 modules before the fold and 299 after — because
+    # ``draft/cli.py`` was already imported for its ``configure`` and this
+    # module with it. ``configure`` needs none of this, only this does.
     from ..config import ConfigError
     from ..lifecycle.common import report_diagnostic
     from ..server.core import CoreError

@@ -25,14 +25,22 @@ USAGE = "%(prog)s <verb> [args]\n       %(prog)s --help | --version"
 def _epilog() -> str:
     """Render the verb table, grouped under the headings in declared order.
 
+    Hidden entries are skipped, and a section all of whose rows are hidden
+    prints no heading at all — which is what retires ``PERFORMED`` from the
+    listing while leaving its four verbs mounted. The column width is measured
+    over the rows that render rather than over the whole registry, so a hidden
+    verb longer than every visible one cannot pad the table for a name nobody
+    sees. (It does not today: ``citation-gate`` is the longest either way.)
+
     Returns:
-        One block per non-empty section: its heading, then one aligned row per
-        command registered under it.
+        One block per section with a visible row: its heading, then one
+        aligned row per command registered under it.
     """
-    width = max(len(entry.verb) for entry in ENTRY_POINTS)
+    visible = [entry for entry in ENTRY_POINTS if not entry.hidden]
+    width = max(len(entry.verb) for entry in visible)
     lines: list[str] = []
     for section in SECTIONS:
-        rows = [entry for entry in ENTRY_POINTS if entry.section == section]
+        rows = [entry for entry in visible if entry.section == section]
         if not rows:
             continue
         lines.append(f"{section}:")

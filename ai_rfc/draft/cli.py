@@ -1,12 +1,31 @@
-"""Command-line entry point for checkpoints and the citation gate."""
+"""Command-line entry point for checkpoints, the citation gate and the draft.
+
+``draft`` carries two kinds of verb, because it is the one verb name that was
+already taken when spec D56's agent groups were mounted. ``checkpoint``,
+``gate`` and ``completeness`` are the leaf's own: they name every input on the
+command line and are what arm C and an operator type. ``commit`` is an agent
+verb like the ten under :mod:`ai_rfc.agent`: it takes the workspace from the
+environment and calls :mod:`ai_rfc.server.core`.
+
+``build``, ``lint`` and ``render`` are both, and **the positional selects
+which**. Named a draft repository or a manifest, they run the substrate
+directly and report findings on stderr; given nothing, they resolve the
+workspace and return the core's JSON, which is what the MCP arm returns and
+what ``tests/server/test_parity.py`` compares against. A flag belonging to the
+form the operator did not choose is a usage error rather than a silent no-op:
+``--strict`` ignored would be a gate an author believed they had run.
+"""
 
 from __future__ import annotations
 
 import argparse
+from functools import partial
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from ai_rfc import __version__
 
+from ..agent import emit, perform
 from ..schema import SchemaError, load
 from .build import (
     BUILD_DIR,
@@ -29,6 +48,75 @@ from .completeness import write_completeness_report
 from .gate import GateError, draft_text, run_gate, write_gate_report
 from .lint import lint, write_lint_report
 from .structures import STRUCTURES_FILE, render_all
+
+# Annotation-only, and deliberately not at module scope: ``build_parser``
+# imports this module to call ``configure``, so a runtime import of
+# ``server.paths`` here would be paid by ``ai-rfc --help`` too (D13). The
+# runtime imports live in :func:`ai_rfc.agent.perform` and in each verb below.
+if TYPE_CHECKING:
+    from ..server.paths import Context
+
+
+def _refuse_other_form(
+    args: argparse.Namespace, passed: list[tuple[str, bool]], reason: str
+) -> None:
+    """Exit 2 when a flag names the form the operator did not choose.
+
+    Reported rather than ignored, and through the parser rather than as a
+    diagnostic: a flag that changes nothing is indistinguishable from one that
+    worked, and the worst of them is ``--strict``, whose whole content is that
+    a finding should have refused the run.
+
+    Args:
+        args: The parsed namespace; ``args._parser`` is the parser that owns
+            these arguments and so the one whose usage line belongs under the
+            message, which differs between the two doors.
+        passed: ``(flag, was it given)`` for every flag of the other form.
+        reason: What the named flags belong to, completing the message.
+    """
+    named = [flag for flag, given in passed if given]
+    if named:
+        belongs = "belongs" if len(named) == 1 else "belong"
+        args._parser.error(f"{', '.join(named)} {belongs} to {reason}")
+
+
+def _commit(args: argparse.Namespace, ctx: Context) -> int:
+    """Commit every change in the workspace's draft repository."""
+    from ..server.core import draft as draft_core
+
+    emit(draft_core.commit_draft(ctx, args.message))
+    return 0
+
+
+def _build_workspace(args: argparse.Namespace, ctx: Context) -> int:
+    """Compile the workspace's draft, surfacing the core's own exit code."""
+    from ..server.core import build as build_core
+
+    result = build_core.draft_build(ctx, args.ref)
+    emit(result)
+    return int(result["exit_code"])
+
+
+def _lint_workspace(args: argparse.Namespace, ctx: Context) -> int:
+    """Measure the workspace's draft, surfacing the core's own exit code."""
+    from ..server.core import build as build_core
+
+    result = build_core.draft_lint(ctx, worktree=not args.committed)
+    emit(result)
+    return int(result["exit_code"])
+
+
+def _render_workspace(args: argparse.Namespace, ctx: Context) -> int:
+    """Print the workspace manifest's structures as kramdown blocks.
+
+    ``print(..., end="")`` rather than :func:`~ai_rfc.agent.emit`: the blocks
+    are the payload, not a result about one, and the tool arm returns the same
+    string with no quotes around it and no trailing newline added.
+    """
+    from ..server.core import structures as structures_core
+
+    print(structures_core.render_structures(ctx), end="")
+    return 0
 
 
 def configure(parser: argparse.ArgumentParser) -> None:
@@ -81,12 +169,19 @@ def configure(parser: argparse.ArgumentParser) -> None:
     render = verbs.add_parser(
         "render", help="Render a manifest's structures as kramdown blocks."
     )
-    render.add_argument("manifest", type=Path, help="Manifest to render.")
+    render.add_argument(
+        "manifest",
+        type=Path,
+        nargs="?",
+        default=None,
+        help="Manifest to render. Omitted: the workspace's own, through the "
+        "core, printed as the tool arm prints it.",
+    )
     render.add_argument(
         "--out",
         type=Path,
         default=None,
-        help="Also write structures.md into this directory.",
+        help="Also write structures.md into this directory (needs MANIFEST).",
     )
 
     gate = verbs.add_parser(
@@ -142,9 +237,19 @@ def configure(parser: argparse.ArgumentParser) -> None:
         "build",
         help="Compile a draft revision with the template toolchain, offline.",
     )
-    build_verb.add_argument("draftrepo", type=Path, help="The nested draft repository.")
     build_verb.add_argument(
-        "--out", type=Path, required=True, help="Directory receiving build/."
+        "draftrepo",
+        type=Path,
+        nargs="?",
+        default=None,
+        help="The nested draft repository. Omitted: the workspace's own, "
+        "through the core.",
+    )
+    build_verb.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help="Directory receiving build/. Required with DRAFTREPO.",
     )
     build_verb.add_argument(
         "--ref", default="HEAD", help="Tag, branch or commit to build (default: HEAD)."
@@ -163,8 +268,11 @@ def configure(parser: argparse.ArgumentParser) -> None:
     )
     build_verb.add_argument(
         "--targets",
-        default=",".join(DEFAULT_TARGETS),
-        help="Comma-separated make targets (default: %(default)s).",
+        default=None,
+        # The default is written out rather than left to `%(default)s`: the
+        # stored default is None so that "was it given" is answerable, and
+        # `%(default)s` would print that None into the help.
+        help="Comma-separated make targets " f"(default: {','.join(DEFAULT_TARGETS)}).",
     )
     build_verb.add_argument(
         "--date", default=None, help="xml2rfc -D date; default: the ref's commit date."
@@ -174,16 +282,39 @@ def configure(parser: argparse.ArgumentParser) -> None:
     )
 
     lint_verb = verbs.add_parser("lint", help="Measure a draft revision's quality.")
-    lint_verb.add_argument("draftrepo", type=Path, help="The nested draft repository.")
     lint_verb.add_argument(
-        "--out", type=Path, required=True, help="Directory for lint-report.json."
+        "draftrepo",
+        type=Path,
+        nargs="?",
+        default=None,
+        help="The nested draft repository. Omitted: the workspace's own, "
+        "through the core.",
     )
+    lint_verb.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help="Directory for lint-report.json. Required with DRAFTREPO.",
+    )
+    # All three name which text to measure, so argparse refuses any two of
+    # them together. The two halves disagree about the default on purpose:
+    # `ai-rfc draft lint DRAFTREPO` reads HEAD, because an operator naming a
+    # repository means the revision in it, while a bare `ai-rfc draft lint`
+    # reads the uncommitted file, because that is what `ai_rfc_draft_lint()`
+    # does and an author lints before committing.
     which = lint_verb.add_mutually_exclusive_group()
-    which.add_argument("--ref", default="HEAD", help="Tag, branch or commit to read.")
+    which.add_argument(
+        "--ref", default=None, help="Tag, branch or commit to read (default: HEAD)."
+    )
     which.add_argument(
         "--worktree",
         action="store_true",
         help="Read the uncommitted draft file instead of a ref.",
+    )
+    which.add_argument(
+        "--committed",
+        action="store_true",
+        help="Measure HEAD rather than the uncommitted file (no DRAFTREPO).",
     )
     lint_verb.add_argument(
         "--manifest",
@@ -194,6 +325,13 @@ def configure(parser: argparse.ArgumentParser) -> None:
     lint_verb.add_argument(
         "--strict", action="store_true", help="Exit 3 when any finding is reported."
     )
+
+    commit = verbs.add_parser(
+        "commit",
+        help="Commit every change in the workspace's draft/ (a clean tree is "
+        "an error).",
+    )
+    commit.add_argument("-m", "--message", required=True, help="Commit message.")
 
 
 def build_standalone_parser() -> argparse.ArgumentParser:
@@ -220,7 +358,15 @@ def run(args: argparse.Namespace) -> int:
     Returns:
         0 on success, 1 if an input could not be read or interpreted, and 3
         when ``gate --strict``, ``completeness --strict``, ``build --strict``
-        or ``lint --strict`` reported findings.
+        or ``lint --strict`` reported findings. The workspace forms of
+        ``build`` and ``lint`` return the core's code raw instead, so a gate's
+        3 arrives as 3 rather than collapsed.
+
+    Raises:
+        AssertionError: If ``args.verb`` names no branch. argparse admits only
+            the verbs :func:`configure` declares, so this is unreachable by
+            argv; it replaces the fallthrough that used to run ``gate`` for
+            any verb missing a branch, silently and with the wrong arguments.
     """
     # Function-local, and not to be tidied to the top (D13's shape, and the
     # idiom of ``pipeline/run.py:77``). ``ai_rfc/cli.py``'s ``build_parser``
@@ -237,6 +383,9 @@ def run(args: argparse.Namespace) -> int:
     # grammar. ``report_diagnostic`` is the other half of the pair and asks the
     # **raise site** whether its breaks are a producer's structure.
     from ..lifecycle.common import report, report_diagnostic
+
+    if args.verb == "commit":
+        return perform(partial(_commit, args))
 
     if args.verb == "checkpoint":
         if args.consolidation is not None and args.base is None:
@@ -263,6 +412,14 @@ def run(args: argparse.Namespace) -> int:
         return 0
 
     if args.verb == "render":
+        if args.manifest is None:
+            _refuse_other_form(
+                args,
+                [("--out", args.out is not None)],
+                "`draft render MANIFEST`, which is the form that has a "
+                "manifest to write structures.md beside",
+            )
+            return perform(partial(_render_workspace, args))
         try:
             text = render_all(load(args.manifest))
         except (ValueError, OSError) as error:
@@ -304,6 +461,23 @@ def run(args: argparse.Namespace) -> int:
         return 0
 
     if args.verb == "build":
+        if args.draftrepo is None:
+            _refuse_other_form(
+                args,
+                [
+                    ("--out", args.out is not None),
+                    ("--toolchain", args.toolchain is not None),
+                    ("--refcache", args.refcache is not None),
+                    ("--targets", args.targets is not None),
+                    ("--date", args.date is not None),
+                    ("--strict", args.strict),
+                ],
+                "`draft build DRAFTREPO --out DIR`; the workspace form takes "
+                "its paths and its toolchain from the context",
+            )
+            return perform(partial(_build_workspace, args))
+        if args.out is None:
+            args._parser.error("DRAFTREPO requires --out")
         try:
             toolchain = resolve_toolchain(args.toolchain)
             build_report = build(
@@ -311,7 +485,11 @@ def run(args: argparse.Namespace) -> int:
                 toolchain=toolchain,
                 out=args.out,
                 ref=args.ref,
-                targets=tuple(t for t in args.targets.split(",") if t),
+                targets=tuple(
+                    t
+                    for t in (args.targets or ",".join(DEFAULT_TARGETS)).split(",")
+                    if t
+                ),
                 date=args.date,
                 refcache=args.refcache,
             )
@@ -330,6 +508,24 @@ def run(args: argparse.Namespace) -> int:
         return 0
 
     if args.verb == "lint":
+        if args.draftrepo is None:
+            _refuse_other_form(
+                args,
+                [
+                    ("--out", args.out is not None),
+                    ("--ref", args.ref is not None),
+                    ("--worktree", args.worktree),
+                    ("--manifest", args.manifest is not None),
+                    ("--strict", args.strict),
+                ],
+                "`draft lint DRAFTREPO --out DIR`; the workspace form measures "
+                "the workspace's own draft and manifest",
+            )
+            return perform(partial(_lint_workspace, args))
+        if args.out is None:
+            args._parser.error("DRAFTREPO requires --out")
+        if args.committed:
+            args._parser.error("--committed: the explicit form spells this --ref HEAD")
         try:
             if args.worktree:
                 candidates = sorted(
@@ -344,8 +540,8 @@ def run(args: argparse.Namespace) -> int:
                     )
                 text, ref = candidates[0].read_text(), "worktree"
             else:
-                _, text = draft_text(args.draftrepo, args.ref)
-                ref = args.ref
+                ref = args.ref or "HEAD"
+                _, text = draft_text(args.draftrepo, ref)
             manifest = None
             manifest_error = None
             if args.manifest is not None:
