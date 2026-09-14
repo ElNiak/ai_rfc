@@ -212,4 +212,79 @@ ENTRY_POINTS: tuple[EntryPoint, ...] = (
         "Write the per-cluster evidence folder an author reads",
         PERFORMED,
     ),
+    EntryPoint(
+        "corpus",
+        "ai-rfc corpus",
+        f"{PACKAGE}.agent.corpus.cli",
+        "Query the commit corpus this workspace was built from (query)",
+        AGENT,
+    ),
+    EntryPoint(
+        "cluster",
+        "ai-rfc cluster",
+        f"{PACKAGE}.agent.cluster.cli",
+        "Read the timeline's clusters: the next one to do, and one cluster's "
+        "evidence (get, next)",
+        AGENT,
+    ),
+    EntryPoint(
+        "claim",
+        "ai-rfc claim",
+        f"{PACKAGE}.agent.claim.cli",
+        "Add, update and adjudicate the manifest's requirement claims "
+        "(upsert, check, record-status)",
+        AGENT,
+    ),
+    EntryPoint(
+        "question",
+        "ai-rfc question",
+        f"{PACKAGE}.agent.question.cli",
+        "Draft the questions only the author can answer, and export them as "
+        "one bundle (draft, export)",
+        AGENT,
+    ),
+    EntryPoint(
+        "answer",
+        "ai-rfc answer",
+        f"{PACKAGE}.agent.answer.cli",
+        "Record what the author answered, anchored to the transcript it was "
+        "said in (record)",
+        AGENT,
+    ),
+    EntryPoint(
+        "revision",
+        "ai-rfc revision",
+        f"{PACKAGE}.agent.revision.cli",
+        "Record what each draft revision froze, and tag it once the strict "
+        "gates accept it (record, tag)",
+        AGENT,
+    ),
+    EntryPoint(
+        "checkpoint",
+        "ai-rfc checkpoint",
+        f"{PACKAGE}.agent.checkpoint.cli",
+        "Freeze the manifest against one cluster, write-once",
+        AGENT,
+    ),
+    EntryPoint(
+        "gate",
+        "ai-rfc gate",
+        f"{PACKAGE}.agent.gate.cli",
+        "Weigh every claim against the evidence its anchors point at",
+        AGENT,
+    ),
+    EntryPoint(
+        "citation-gate",
+        "ai-rfc citation-gate",
+        f"{PACKAGE}.agent.citation_gate.cli",
+        "Check the draft's prose against the checkpoints its revisions froze",
+        AGENT,
+    ),
+    EntryPoint(
+        "structure",
+        "ai-rfc structure",
+        f"{PACKAGE}.agent.structure.cli",
+        "Declare the data structures the draft renders as blocks (upsert)",
+        AGENT,
+    ),
 )
