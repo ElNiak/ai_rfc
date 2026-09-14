@@ -96,7 +96,9 @@ def test_every_arm_names_its_build_step():
     assert "ai_rfc_draft_build" in a and "refuses on findings" in a
     assert "ai-rfc draft build" in b
     assert "not available in this arm" in c and "draft build" not in c
-    assert "ai_rfc_draft_build" in interactive and "ai_rfc draft-build" in interactive
+    # The interactive table is dual-form: the MCP tool name is an identifier
+    # and stays, the CLI twin is the grouped verb the root parser dispatches.
+    assert "ai_rfc_draft_build" in interactive and "ai-rfc draft build" in interactive
 
 
 def test_arm_prompt_bundles_the_keyword_policy_and_the_figures_skill(plugin_root):

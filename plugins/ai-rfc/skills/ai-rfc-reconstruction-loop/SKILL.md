@@ -16,7 +16,7 @@ clusters in ordinal order; never skip silently.
 
 Load `ai-rfc-evidence-hygiene` before touching claims and `ai-rfc-rfc-style` before touching prose.
 
-When the `ai_rfc` MCP server is connected, prefer its tools (`ai_rfc_cluster_next`, `ai_rfc_claim_upsert`, `ai_rfc_claim_record_status`, `ai_rfc_checkpoint`, `ai_rfc_gate`, `ai_rfc_revision_tag`, …) or the equivalent `ai_rfc <verb>` CLI — same core, guardrails enforced up front (see `docs/parity.md`). The raw substrate commands below remain the documented fallback and the raw experiment arm.
+When the `ai_rfc` MCP server is connected, prefer its tools (`ai_rfc_cluster_next`, `ai_rfc_claim_upsert`, `ai_rfc_claim_record_status`, `ai_rfc_checkpoint`, `ai_rfc_gate`, `ai_rfc_revision_tag`, …) or the equivalent `ai-rfc <verb>` CLI — same core, guardrails enforced up front (see `docs/parity.md`). The raw substrate commands below remain the documented fallback and the raw experiment arm.
 
 ## Preconditions
 
@@ -39,8 +39,8 @@ When the `ai_rfc` MCP server is connected, prefer its tools (`ai_rfc_cluster_nex
    not itself an anchor class.
 3b. If this cluster defines or changes a wire format, message, record,
     enumeration or state machine, register it now, binding every field, value
-    or transition to a claim you just recorded: `ai_rfc_structure_upsert` (or `ai_rfc structure-upsert`) with the id, kind, title, section and members
-    Then render and paste the block into its owning section: `ai_rfc_draft_render` (or `ai_rfc draft-render`)
+    or transition to a claim you just recorded: `ai_rfc_structure_upsert` (or `ai-rfc structure upsert`) with the id, kind, title, section and members
+    Then render and paste the block into its owning section: `ai_rfc_draft_render` (or `ai-rfc draft render`)
     Skip this step when the cluster describes only behaviour.
 4. **Lint**: `python -m ai_rfc check $AI_RFC_WORKSPACE/manifest.yaml --out $AI_RFC_WORKSPACE/out --repo $AI_RFC_WORKSPACE/clone` — fix every unverified anchor (wrong paths, wrong
    commits, wrong lines) BEFORE anything is built on top.
@@ -58,8 +58,8 @@ When the `ai_rfc` MCP server is connected, prefer its tools (`ai_rfc_cluster_nex
 8. **Record, build and tag the revision**: append the entry to `$AI_RFC_WORKSPACE/revisions.yaml` under `revisions:` (`cluster_id`, `checkpoint_manifest_sha256` copied from the checkpoint's `checkpoint.json`, `normative_change`, `note`) — the tag
    `draft-<name>-NN` (two digits, monotone in cluster ordinal), the cluster
    id, an explicit `normative_change`, a one-line note. Commit any prose
-   change (`git -C $AI_RFC_WORKSPACE/draft add -A && git -C $AI_RFC_WORKSPACE/draft commit -m "<message>"`), then build it: `ai_rfc_draft_build()` or `ai_rfc draft-build` (the template's `make txt html lint idnits`, offline). Exit 0 and no findings is the bar before tagging — a failed stage names the line, a broken reference names a front-matter reference the sealed cache does not hold (cite it inline instead). Then create
-   the annotated tag (`git -C $AI_RFC_WORKSPACE/draft tag -a draft-<name>-NN -m "<message>"` — only after the strict manifest gate and the build both exited 0 with no findings; `ai_rfc_revision_tag` (or `ai_rfc revision-tag`) runs manifest gate, build, tag and the strict citation gate together and deletes the tag again on any finding). Every revision entry needs its
+   change (`git -C $AI_RFC_WORKSPACE/draft add -A && git -C $AI_RFC_WORKSPACE/draft commit -m "<message>"`), then build it: `ai_rfc_draft_build()` or `ai-rfc draft build` (the template's `make txt html lint idnits`, offline). Exit 0 and no findings is the bar before tagging — a failed stage names the line, a broken reference names a front-matter reference the sealed cache does not hold (cite it inline instead). Then create
+   the annotated tag (`git -C $AI_RFC_WORKSPACE/draft tag -a draft-<name>-NN -m "<message>"` — only after the strict manifest gate and the build both exited 0 with no findings; `ai_rfc_revision_tag` (or `ai-rfc revision tag`) runs manifest gate, build, tag and the strict citation gate together and deletes the tag again on any finding). Every revision entry needs its
    tag, no-change revisions included.
 9. **Gate**: `python -m ai_rfc draft gate $AI_RFC_WORKSPACE/draft --timeline $AI_RFC_WORKSPACE/timeline --checkpoints $AI_RFC_WORKSPACE/checkpoints --questions $AI_RFC_WORKSPACE/questions.yaml --revisions $AI_RFC_WORKSPACE/revisions.yaml --out $AI_RFC_WORKSPACE/out --strict` — exit 0 before advancing.
 10. **Open questions**: any claim stuck at `gap`/`inferred` that blocks a

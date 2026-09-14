@@ -183,10 +183,15 @@ _RAW = {
 }
 
 SLOT_TABLES: dict[str, dict[str, str]] = {
+    # This table becomes the shipped SKILL.md, so a CLI form written here is
+    # an instruction a model session acts on. Each slot below names the MCP
+    # tool *and* its CLI twin: the tool names are identifiers and do not move,
+    # the CLI half is the grouped verb the root parser dispatches. Every one
+    # was checked against `cli.build_parser()`'s own subparser tree.
     "interactive": {
         **_RAW,
         "draft_build": (
-            "`ai_rfc_draft_build()` or `ai_rfc draft-build` (the template's "
+            "`ai_rfc_draft_build()` or `ai-rfc draft build` (the template's "
             "`make txt html lint idnits`, offline). Exit 0 and no findings is "
             "the bar before tagging — a failed stage names the line, a broken "
             "reference names a front-matter reference the sealed cache does "
@@ -195,22 +200,22 @@ SLOT_TABLES: dict[str, dict[str, str]] = {
         "revision_tag": (
             '`git -C $AI_RFC_WORKSPACE/draft tag -a draft-<name>-NN -m "<message>"` '
             "— only after the strict manifest gate and the build both exited 0 "
-            "with no findings; `ai_rfc_revision_tag` (or `ai_rfc revision-tag`) "
+            "with no findings; `ai_rfc_revision_tag` (or `ai-rfc revision tag`) "
             "runs manifest gate, build, tag and the strict citation gate "
             "together and deletes the tag again on any finding"
         ),
         "structure_upsert": (
-            "`ai_rfc_structure_upsert` (or `ai_rfc structure-upsert`) with the "
+            "`ai_rfc_structure_upsert` (or `ai-rfc structure upsert`) with the "
             "id, kind, title, section and members"
         ),
-        "draft_render": "`ai_rfc_draft_render` (or `ai_rfc draft-render`)",
-        "draft_lint": "`ai_rfc_draft_lint()` (or `ai_rfc draft-lint`)",
+        "draft_render": "`ai_rfc_draft_render` (or `ai-rfc draft render`)",
+        "draft_lint": "`ai_rfc_draft_lint()` (or `ai-rfc draft lint`)",
         "checkpoint_consolidation": (
-            "`ai_rfc_checkpoint` (or `ai_rfc checkpoint`) with the "
+            "`ai_rfc_checkpoint` (or `ai-rfc checkpoint`) with the "
             "consolidation ordinal and the cluster checkpoint it follows"
         ),
         "revision_record_consolidation": (
-            "`ai_rfc_revision_record` (or `ai_rfc revision-record`) with "
+            "`ai_rfc_revision_record` (or `ai-rfc revision record`) with "
             "`kind='consolidation'` and the consolidation checkpoint's path"
         ),
         "guidance": (
@@ -221,7 +226,7 @@ SLOT_TABLES: dict[str, dict[str, str]] = {
             "When the `ai_rfc` MCP server is connected, prefer its tools "
             "(`ai_rfc_cluster_next`, `ai_rfc_claim_upsert`, `ai_rfc_claim_record_status`, "
             "`ai_rfc_checkpoint`, `ai_rfc_gate`, `ai_rfc_revision_tag`, …) or the "
-            "equivalent `ai_rfc <verb>` CLI — same core, guardrails enforced up "
+            "equivalent `ai-rfc <verb>` CLI — same core, guardrails enforced up "
             "front (see `docs/parity.md`). The raw substrate commands below "
             "remain the documented fallback and the raw experiment arm."
         ),
