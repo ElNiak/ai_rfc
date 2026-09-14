@@ -316,14 +316,15 @@ def _pin_the_register_clock(monkeypatch) -> None:
 
 
 def test_status_parity(make_workspace):
-    """The tool against ``queries.status``, not against an ``ai_rfc`` verb.
+    """The tool against ``queries.status``, not against an ``ai_rfc`` verb (D16).
 
     Shaped unlike its nine siblings on purpose, and not to be "fixed" into
-    their shape: the folded ``status`` gets no ``ai-rfc`` verb at all (the MCP
-    tool stays, and ``ai-rfc status`` keeps its existing meaning as the
-    operator's ledger), and ``ai_rfc/server/cli.py`` is deleted outright later
-    in this row. A tool-versus-CLI twin here would not survive either ruling,
-    so the two arms meet at the core function both frontends would have shared.
+    their shape. U3 gives the folded ``status`` no ``ai-rfc`` verb at all — the
+    MCP tool stays, and ``ai-rfc status`` keeps its existing meaning as the
+    operator's ledger — and Task 8 deletes ``ai_rfc/server/cli.py`` outright. A
+    tool-versus-CLI twin here would survive neither ruling, so the two arms
+    meet at the core function both frontends would have shared, and Task 8's
+    re-point of the other nineteen twins leaves this one alone.
     """
     tool_arm, core_arm, use = _twins(make_workspace)
     use(tool_arm)
@@ -425,13 +426,15 @@ def test_question_export_parity(make_workspace, capsys, monkeypatch):
     ``test_draft_render_parity`` states that contract and its comment names
     this exact failure mode: a bare ``print()`` adds a trailing newline the
     tool arm never produces, which is why ``draft-render``'s branch passes
-    ``end=""``. ``question-export`` is the only other string-returning verb and
-    its branch does not, so this twin is RED against unchanged code.
+    ``end=""`` (``server/cli.py:371``). ``question-export`` is the only other
+    string-returning verb, and at ``bd03cb7`` its branch
+    (``server/cli.py:311``) is a bare ``print()``.
 
-    It is deliberately left asserting equality rather than the observed
-    one-byte difference. A twin bent to fit a divergence destroys the only
-    evidence that the divergence exists, and this file's job in the fold is to
-    be that evidence.
+    So this asserts equality rather than the observed one-byte difference. A
+    twin bent to fit a divergence destroys the only evidence the divergence
+    exists, and this file's job in the fold is to be that evidence. The one
+    token ``end=""`` at that site is the whole fix, and nothing here changes
+    with it.
     """
     tool_arm, cli_arm, use = _twins(make_workspace)
     _pin_the_register_clock(monkeypatch)
@@ -686,11 +689,11 @@ def test_draft_build_parity(make_workspace, capsys, monkeypatch, tmp_path):
 
 
 #: Tool name -> the test function that drives its twin. Written out rather than
-#: derived: one twin covers two verbs and one does not carry the ``_parity``
-#: suffix, so any expression over ``dir()`` undercounts and would pin the wrong
-#: number. ``ai_rfc_status``'s twin compares the tool against ``queries.status``
-#: rather than a CLI verb, because the folded ``status`` gets no ``ai-rfc`` verb
-#: at all.
+#: derived (D6): one twin covers two verbs and one does not carry the
+#: ``_parity`` suffix, so any expression over ``dir()`` undercounts and would
+#: pin the wrong number. ``ai_rfc_status``'s twin compares the tool against
+#: ``queries.status`` rather than a CLI verb, because U3 gives the folded
+#: ``status`` no ``ai-rfc`` verb at all (D16).
 TWINS: dict[str, str] = {
     "ai_rfc_status": "test_status_parity",
     "ai_rfc_corpus_query": "test_corpus_query_parity",
