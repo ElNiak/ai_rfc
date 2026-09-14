@@ -308,7 +308,7 @@ def main(argv: list[str] | None = None) -> int:
                 )
             )
         elif args.verb == "question-export":
-            print(questions.export_open(ctx))
+            print(questions.export_open(ctx), end="")
         elif args.verb == "answer-record":
             _emit(
                 questions.record_answer(
