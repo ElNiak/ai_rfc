@@ -427,14 +427,16 @@ def test_question_export_parity(make_workspace, capsys, monkeypatch):
     this exact failure mode: a bare ``print()`` adds a trailing newline the
     tool arm never produces, which is why ``draft-render``'s branch passes
     ``end=""`` (``server/cli.py:371``). ``question-export`` is the only other
-    string-returning verb, and at ``bd03cb7`` its branch
-    (``server/cli.py:311``) is a bare ``print()``.
+    string-returning verb and was the one that never got it: at ``bd03cb7``
+    this twin was RED, because ``server/cli.py:311`` was a bare ``print()``
+    appending a newline the tool arm never produces. ``3cdeb29`` gave that site
+    the same ``end=""``.
 
-    So this asserts equality rather than the observed one-byte difference. A
-    twin bent to fit a divergence destroys the only evidence the divergence
-    exists, and this file's job in the fold is to be that evidence. The one
-    token ``end=""`` at that site is the whole fix, and nothing here changes
-    with it.
+    The assertion is unchanged across that fix, and deliberately so. It was
+    written as equality while equality was false, because a twin bent to fit a
+    divergence destroys the only evidence the divergence exists — which is what
+    this file is for. It is a pin now, and the verb it guards is about to be
+    lifted into ``agent/question/cli.py``.
     """
     tool_arm, cli_arm, use = _twins(make_workspace)
     _pin_the_register_clock(monkeypatch)
@@ -540,6 +542,10 @@ def test_gate_parity(make_workspace, capsys):
     assert cli.main(["gate", "--strict"]) == 3
     strict_cli = json.loads(capsys.readouterr().out)
     assert strict_tool == strict_cli and strict_tool["exit_code"] == 3
+    # Quoted verbatim so a real violation is told from an empty one, which
+    # makes this the one assertion here that a reword in ai_rfc.report will
+    # break. Such a failure is not a parity break: both arms would still agree.
+    # Re-pin the wording rather than reaching for the frontends.
     assert strict_tool["stderr"] == [
         "violation: t:1.1: recorded as confirmed but its evidence supports "
         "only inferred"
