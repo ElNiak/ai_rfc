@@ -33,9 +33,13 @@ def report(message: str) -> None:
     **Escaped here rather than at each of the twenty-nine call sites**, for
     the reason :func:`ai_rfc.driver.sweep.report` gives for the other stderr
     boundary: it is a boundary rather than a rule each caller remembers.
-    (Twenty-nine is every ``report(`` outside this module, which is what a
-    reader can re-derive; the two inside it are
-    :func:`report_diagnostic`'s.) Every caller interpolates operator- or
+    (Twenty-nine is every **call** to *this* function outside this module,
+    counted by walking the AST rather than grepping — a grep for ``report(``
+    also finds it named in prose, and finds the unrelated ``report`` that
+    ``driver/sweep.py`` and the two ``experiment`` modules each define for
+    themselves, which together would answer 72. The two calls inside this
+    module are :func:`report_diagnostic`'s.) Every caller interpolates
+    operator- or
     agent-controlled values into these lines — a config path, a cluster id, a
     ``--until`` bound, a toolchain path, the text of a caught error — and a
     value carrying a newline forges a second line beneath the first. That

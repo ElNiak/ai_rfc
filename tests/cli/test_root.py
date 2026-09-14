@@ -177,9 +177,13 @@ ARM_C_ARGV = [
 ]
 
 
-@pytest.mark.parametrize(
-    ("argv", "expected"), ARM_C_ARGV, ids=[" ".join(a[:2]) for a, _ in ARM_C_ARGV]
-)
+#: One id per row, written out: two rows are ``check`` and differ only in
+#: ``--strict``, so an id derived from the first two tokens would collide and
+#: pytest would silently suffix them ``check0``/``check1``.
+ARM_C_IDS = ["lint", "gate", "checkpoint", "citation-gate"]
+
+
+@pytest.mark.parametrize(("argv", "expected"), ARM_C_ARGV, ids=ARM_C_IDS)
 def test_arm_c_argv_parses_to_the_same_namespace(argv, expected):
     """A pin, not a RED: green before the fold and green after it.
 

@@ -178,13 +178,18 @@ def test_a_flag_from_the_other_form_is_a_usage_error(argv, named, capsys):
     assert "usage: ai-rfc draft" in err
 
 
-def test_the_explicit_form_still_names_its_own_inputs(make_workspace, tmp_path: Path):
+def test_the_explicit_form_still_names_its_own_inputs(
+    make_workspace, tmp_path: Path, monkeypatch
+):
     """The fold added a form; it did not replace the one arm C and operators type.
 
     ``render MANIFEST`` is the shape ``docs/parity.md`` points an operator at,
     and it must keep working with no workspace resolvable at all — which is
-    what the missing ``AI_RFC_CONFIG`` here asserts.
+    what the ``delenv`` asserts. It is ``delenv`` and not merely omitting the
+    fixture's ``use``: this suite's other tests set ``AI_RFC_CONFIG``, and so
+    might the machine, and the claim would then be true only by luck.
     """
+    monkeypatch.delenv("AI_RFC_CONFIG", raising=False)
     build, _ = make_workspace
     workspace = build("explicit")
     out = tmp_path / "out"
