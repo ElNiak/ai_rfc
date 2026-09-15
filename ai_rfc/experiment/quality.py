@@ -32,6 +32,19 @@ from .report import _cell, _fmt, _separator
 #: buy the table a fifth column the header does not have.
 _RAILS = "| metric | before | after | delta |"
 
+#: The metrics :func:`~ai_rfc.draft.lint.lint` can only compute with a manifest
+#: in hand. When the manifest could not be read they are not zero and not
+#: empty — they are unmeasured, and the table must not let a reader mistake
+#: the one for the other.
+_MANIFEST_DEPENDENT = frozenset(
+    {
+        "citations.uncited",
+        "citations.cited_fraction",
+        "structures.defined",
+        "structures.rendered",
+    }
+)
+
 
 def reduce_lint(report: LintReport) -> dict[str, Any]:
     """Project one lint report down to the numbers an instrument aggregates.
@@ -71,6 +84,12 @@ def reduce_lint(report: LintReport) -> dict[str, Any]:
         },
         "narration_count": len(report.narration),
         "finding_count": len(report.findings),
+        # Without this every manifest-dependent metric above is indistinguishable
+        # from a clean measurement: `lint` initialises `uncited` to `[]` and
+        # `cited_fraction` to None, and only populates them when it was handed a
+        # manifest. A reduction that dropped the reason would report "cited
+        # everything" about a revision whose manifest it never read.
+        "manifest_error": report.manifest_error,
     }
 
 
@@ -232,6 +251,19 @@ def _delta(before: Any, after: Any) -> str | None:
     return f"+{text}" if change > 0 else text
 
 
+def _measured(record: Mapping[str, Any], name: str) -> Any:
+    """One metric's value, or None when its record never read a manifest.
+
+    A revision whose frozen manifest could not be read has an empty ``uncited``
+    and a zero ``defined`` because nothing was compared, not because nothing
+    was wrong. Rendering those as numbers would report "no change" about
+    something the instrument never measured.
+    """
+    if name in _MANIFEST_DEPENDENT and record.get("manifest_error"):
+        return None
+    return record.get(name)
+
+
 def compare_lints(
     before: dict, after: dict, *, before_label: str, after_label: str
 ) -> str:
@@ -242,6 +274,10 @@ def compare_lints(
     the campaign report's own escaper: a metric name carrying a pipe must not
     be able to add a column, and the values are agent-controlled prose in the
     end.
+
+    A record carrying a ``manifest_error`` renders the metrics that needed the
+    manifest as the em dash rather than as a number, and the error itself is a
+    row of its own, so an unmeasured revision cannot be read as a clean one.
 
     Args:
         before: A reduced lint record, nested or flat.
@@ -256,9 +292,11 @@ def compare_lints(
     header = f"| metric | {_cell(before_label)} | {_cell(after_label)} | delta |"
     lines = [header, _separator(_RAILS)]
     for name in sorted(set(first) | set(second)):
+        before_value = _measured(first, name)
+        after_value = _measured(second, name)
         lines.append(
-            f"| {_cell(name)} | {_cell(_shown(first.get(name)))} "
-            f"| {_cell(_shown(second.get(name)))} "
-            f"| {_cell(_delta(first.get(name), second.get(name)))} |"
+            f"| {_cell(name)} | {_cell(_shown(before_value))} "
+            f"| {_cell(_shown(after_value))} "
+            f"| {_cell(_delta(before_value, after_value))} |"
         )
     return "\n".join(lines) + "\n"

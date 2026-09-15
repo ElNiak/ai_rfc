@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pytest
 
+from ai_rfc.draft.checkpoint import MANIFEST_FILE
 from ai_rfc.draft.gate import draft_text
 from ai_rfc.draft.lint import lint
 from ai_rfc.experiment.quality import (
@@ -80,6 +81,12 @@ def test_each_revision_is_linted_against_its_own_frozen_manifest(two_tag_workspa
     # Revision 01 cited every claim ITS OWN checkpoint knew. Linted against the
     # final manifest it would report the second cluster's claims as uncited.
     assert rows[0]["citations"]["uncited"] == []
+    # The discriminator. `uncited == []` alone is satisfied just as well by "no
+    # manifest was read at all", because `lint` initialises it empty and only
+    # fills it when handed a manifest. `cited_fraction` is None in that case
+    # and a real float here, so it is what tells the two causes apart.
+    assert rows[0]["citations"]["cited_fraction"] == 1.0
+    assert rows[0]["manifest_error"] is None
 
 
 def test_the_live_manifest_calls_the_first_revision_incomplete(two_tag_workspace):
@@ -122,6 +129,7 @@ def test_the_reduction_keeps_the_report_field_names(two_tag_workspace):
     )
     reduced = reduce_lint(lint(text, manifest=frozen))
     assert set(reduced) == {
+        "manifest_error",
         "sections",
         "abstract",
         "keywords",
@@ -134,6 +142,56 @@ def test_the_reduction_keeps_the_report_field_names(two_tag_workspace):
     assert reduced["citations"]["tokens"] == 1
     assert reduced["citations"]["cited_fraction"] == 1.0
     assert reduced["abstract"]["word_count"] > 0
+
+
+def _make_frozen_manifest_unreadable(workspace: Path, cluster_id: str) -> None:
+    """Corrupt one revision's frozen manifest, as a stale pilot workspace has.
+
+    The aioquic pilot's C1 checkpoint carries a ``level`` the current enum will
+    not load, and a frozen workspace is evidence that is never re-gated — so an
+    unreadable frozen manifest is a real state, not a hypothetical one.
+    """
+    (workspace / "checkpoints" / cluster_id / MANIFEST_FILE).write_text("rfc: [\n")
+
+
+def test_an_unreadable_frozen_manifest_is_reported_not_silently_zeroed(
+    two_tag_workspace,
+):
+    """R16: "not measured" must never be recorded as "measured, and clean".
+
+    Without the reason in the payload, a revision whose manifest failed to load
+    is byte-identical to one that cited everything: ``uncited`` is empty and
+    ``cited_fraction`` is None either way as far as the row shows.
+    """
+    clean = revision_lints(two_tag_workspace)
+    _make_frozen_manifest_unreadable(two_tag_workspace, clean[0]["cluster_id"])
+    damaged = revision_lints(two_tag_workspace)
+
+    assert damaged[0]["manifest_error"] is not None
+    assert damaged[1]["manifest_error"] is None
+    assert damaged[0]["citations"]["cited_fraction"] is None
+    assert damaged[1]["citations"]["cited_fraction"] == 1.0
+    # The text-only metrics are still measured: losing the manifest costs the
+    # comparison, not the whole revision.
+    assert damaged[0]["citations"]["tokens"] == clean[0]["citations"]["tokens"]
+
+
+def test_the_table_will_not_show_an_unmeasured_metric_as_a_number(two_tag_workspace):
+    """R16 downstream: two unreadable revisions must not render as "no change"."""
+    clean = revision_lints(two_tag_workspace)
+    _make_frozen_manifest_unreadable(two_tag_workspace, clean[0]["cluster_id"])
+    damaged = revision_lints(two_tag_workspace)
+    table = compare_lints(
+        damaged[0], damaged[1], before_label=FIRST_TAG, after_label=SECOND_TAG
+    )
+
+    assert "| citations.uncited | — | 0 | — |" in table
+    assert "| structures.defined | — | 0 | — |" in table
+    # The reason is a row of its own, so the dashes are explained and not a
+    # second unexplained absence.
+    assert "| manifest_error | " in table
+    # What did not need the manifest is still a number.
+    assert "| citations.tokens | 1 | 2 | +1 |" in table
 
 
 def test_the_build_is_skipped_without_a_toolchain(tmp_path):
