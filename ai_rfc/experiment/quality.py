@@ -75,7 +75,9 @@ def reduce_lint(report: LintReport) -> dict[str, Any]:
         metric the manifest fed is ``None`` when there was no manifest to feed
         it, so a consumer needs no list of which those are. ``finding_count``
         is one of them: most of what it counts cannot be looked for without a
-        manifest.
+        manifest. What *can* be looked for without one is projected in its own
+        right, so an unmeasured row still carries every prose signal the text
+        alone shows.
     """
     structures = report.extra.get("structures", {})
     # What `lint` can only answer with a manifest in hand. Without one they are
@@ -95,12 +97,13 @@ def reduce_lint(report: LintReport) -> dict[str, Any]:
     # nothing in a plain int says so. Measured: one text scores 3 with its
     # manifest and 1 without, which reads as a two-point improvement.
     #
-    # What the table compares survives on its own — `sections.missing`,
-    # `abstract.word_count`, `keywords.must_fraction`, `blocks`,
-    # `citations.tokens`, `narration_count`. Four text-only findings do not:
+    # Nulling it would otherwise cost the four findings that need no manifest —
     # the stub-abstract flag, the reference totals, a figure with no caption
-    # citation and a malformed delimiter are each computed without a manifest
-    # and projected nowhere, so nulling the count does lose them.
+    # citation, and a malformed delimiter, which `lint` reads out even with no
+    # manifest because a broken delimiter is a draft-syntax defect no manifest
+    # is needed to see. Each is projected in its own right below, in the
+    # always-measured group, so an unmeasured row keeps every prose signal it
+    # can still measure (R21).
     from_manifest: dict[str, Any] = {
         "citations": {
             "uncited": list(report.citations["uncited"]),
@@ -117,19 +120,33 @@ def reduce_lint(report: LintReport) -> dict[str, Any]:
     }
     if report.manifest_error is not None:
         from_manifest = _unmeasured(from_manifest)
+    # Copied a record at a time: the report's own dicts are mutable, and this
+    # payload is a value a caller may store.
+    uncaptioned = [dict(f) for f in report.blocks["figures_without_caption_citation"]]
     return {
         "sections": {"missing": list(report.sections["missing"])},
-        "abstract": {"word_count": report.abstract["word_count"]},
+        "abstract": {
+            "is_stub": report.abstract["is_stub"],
+            "word_count": report.abstract["word_count"],
+        },
+        # The whole field, not a choice of its keys: `lint` returns
+        # ``dict[str, int]`` here, and choosing would be one more thing to
+        # revisit when it counts something else.
+        "references": dict(report.references),
         "keywords": {"must_fraction": report.keywords["must_fraction"]},
         "blocks": {
             "figures": report.blocks["figures"],
             "tables": report.blocks["tables"],
+            "figures_without_caption_citation": uncaptioned,
         },
         "citations": {
             "tokens": report.citations["tokens"],
             **from_manifest["citations"],
         },
-        "structures": from_manifest["structures"],
+        "structures": {
+            "malformed": list(structures.get("malformed", ())),
+            **from_manifest["structures"],
+        },
         "narration_count": len(report.narration),
         "finding_count": from_manifest["finding_count"],
         # Why those metrics are None, for a reader who has only the row.

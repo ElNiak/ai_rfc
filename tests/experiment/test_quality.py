@@ -34,6 +34,20 @@ from .test_fake_claude import _cluster_steps, _launch, _one_round
 
 FIRST_TAG = "draft-test-fixture-01"
 SECOND_TAG = "draft-test-fixture-02"
+#: Two defects a manifest is not needed to see: a fenced figure with no
+#: citation in the three lines after it closes, and a structure block that
+#: opens and never closes. Appended to a real draft, they make the text-only
+#: half of the projection non-empty whatever the checkpoint holds.
+TEXT_ONLY_DEFECTS = (
+    "\n"
+    "~~~\n"
+    "a diagram nobody cited\n"
+    "~~~\n"
+    "\n"
+    "{::comment}\n"
+    "ai_rfc:struct:never-closed begin\n"
+    "{:/comment}\n"
+)
 #: The claim the second cluster mines, which the first cluster's checkpoint
 #: has never heard of. It is the whole difference between the two manifests.
 LATER_CLAIM = "t:4.1"
@@ -135,6 +149,7 @@ def test_the_reduction_keeps_the_report_field_names(two_tag_workspace):
         "manifest_error",
         "sections",
         "abstract",
+        "references",
         "keywords",
         "blocks",
         "citations",
@@ -178,7 +193,14 @@ def test_an_unreadable_frozen_manifest_is_reported_not_silently_zeroed(
     # needs no list of which metrics those are.
     assert damaged[0]["citations"]["cited_fraction"] is None
     assert damaged[0]["citations"]["uncited"] is None
-    assert damaged[0]["structures"] == {"defined": None, "rendered": None}
+    # `malformed` is measured from the text alone, so it stays an empty list
+    # rather than joining its nulled neighbours: [] here means "looked for and
+    # not found", which is exactly what None next to it does not mean.
+    assert damaged[0]["structures"] == {
+        "malformed": [],
+        "defined": None,
+        "rendered": None,
+    }
     assert damaged[0]["finding_count"] is None
     assert damaged[1]["citations"]["cited_fraction"] == 1.0
     assert isinstance(damaged[1]["finding_count"], int)
@@ -260,6 +282,40 @@ def test_finding_count_is_unmeasured_when_no_manifest_fed_it(two_tag_workspace):
         == reduce_lint(measured)["narration_count"]
     )
     assert reduce_lint(unmeasured)["abstract"] == reduce_lint(measured)["abstract"]
+
+
+def test_a_row_with_no_manifest_still_reports_what_the_text_alone_shows(
+    two_tag_workspace,
+):
+    """R21: four findings need no manifest, so their fields must not need one.
+
+    They were the part of ``finding_count`` that still meant something on an
+    unmeasured row, and nulling the count took them with it. Only a lint with
+    no manifest at all can see that — which is the third time in this task that
+    a test sharing one condition across both its sides could not see the
+    condition.
+    """
+    _, text = draft_text(two_tag_workspace / "draft", FIRST_TAG)
+    report = lint(text + TEXT_ONLY_DEFECTS, manifest_error="the checkpoint is gone")
+    reduced = reduce_lint(report)
+
+    # Both defects survive, and they sit in the same blocks whose manifest-fed
+    # neighbours are None. That pairing is the contract: one block, two
+    # populations, and the row says which is which.
+    assert any("never-closed" in entry for entry in reduced["structures"]["malformed"])
+    assert reduced["structures"]["malformed"] == list(
+        report.extra["structures"]["malformed"]
+    )
+    assert reduced["structures"]["defined"] is None
+    assert reduced["blocks"]["figures_without_caption_citation"] == list(
+        report.blocks["figures_without_caption_citation"]
+    )
+    assert reduced["blocks"]["figures_without_caption_citation"]
+    assert reduced["citations"]["uncited"] is None
+    # The whole `references` field, not a choice of its keys.
+    assert reduced["references"] == report.references
+    assert reduced["abstract"]["is_stub"] is report.abstract["is_stub"]
+    assert reduced["finding_count"] is None
 
 
 def test_the_table_will_not_show_an_unmeasured_metric_as_a_number(two_tag_workspace):
