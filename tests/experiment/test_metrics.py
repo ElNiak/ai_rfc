@@ -162,13 +162,15 @@ def test_analyze_campaign_passes_the_build_request_through(
 ):
     """``analyze_campaign`` reaches the build only through this keyword.
 
-    Not a claim about the CLI: ``experiment/cli.py:1491`` calls
-    ``analyze_campaign(campaign)`` and the analyze verb has no ``--build``
-    flag today. What this pins is the keyword. Without it a mutant dropping
-    ``build=build`` from the comprehension is invisible, since nothing else
-    calls ``analyze_campaign(build=True)``; and the default is asserted here
-    too, since a mutant flipping it to True would otherwise just run builds
-    across the suite without failing anything.
+    What this pins is the keyword, at the level of the function. Without it a
+    mutant dropping ``build=build`` from the comprehension is invisible here;
+    and the default is asserted too, since a mutant flipping it to True would
+    otherwise just run builds across the suite without failing anything.
+
+    Not a claim about the CLI. The ``analyze`` verb's ``--build`` flag is what
+    reaches this keyword in practice, and a flag that parses without being
+    routed would leave both assertions below green — ``test_cli_campaign.py``
+    owns that half.
     """
     _run(campaign, write_scenario, {"A1": {"steps": COMPLETE_STEPS}})
     calls = []

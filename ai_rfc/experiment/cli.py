@@ -1074,6 +1074,16 @@ def configure(parser: argparse.ArgumentParser) -> None:
         "analyze", help="Recompute outcomes; write aggregate.json and report.md."
     )
     analyze.add_argument("campaign", type=Path, help="Campaign directory.")
+    analyze.add_argument(
+        "--build",
+        action="store_true",
+        help=(
+            "Also build the draft each run last tagged, and report the "
+            "result. Off by default because it clones the draft repository "
+            "and runs make once per run; output lands in "
+            "analysis/<run>/draft-build, never inside the run directory."
+        ),
+    )
 
     optimize = commands.add_parser(
         "optimize", help="Search for better skill texts, and apply what it finds."
@@ -1488,7 +1498,7 @@ def run(args: argparse.Namespace) -> int:
 
             campaign = load_campaign(args.campaign.resolve())
             audit_campaign(campaign)
-            aggregate = analyze_campaign(campaign)
+            aggregate = analyze_campaign(campaign, build=args.build)
             report_path = campaign.analysis_dir / "report.md"
             report_path.write_text(render_report(aggregate))
             print(f"aggregate: {campaign.analysis_dir / 'aggregate.json'}")

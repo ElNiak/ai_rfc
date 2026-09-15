@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from ai_rfc.driver.session import SessionResult
-from ai_rfc.experiment import ExperimentError, cli
+from ai_rfc.experiment import ExperimentError, cli, metrics
 from ai_rfc.experiment.config import git_describe
 
 from .conftest import COMPLETE_STEPS, FAKE_CLAUDE
@@ -92,6 +92,86 @@ def test_campaign_init_run_audit_analyze_round_trip(
     assert (campaign_dir / "analysis" / "aggregate.json").exists()
     report = (campaign_dir / "analysis" / "report.md").read_text()
     assert "# Campaign pilot-test" in report and "| A |" in report
+
+
+def _completed_campaign(tmp_path, pristine, write_scenario, capsys, toolchain_record):
+    """A campaign whose every run has finished, so it has revisions to measure.
+
+    An analysis of a campaign nothing has run is not a weaker version of this
+    — it enumerates no runs at all, so an assertion about what the analysis
+    did per run cannot fail there.
+
+    Returns:
+        The campaign directory and its run order.
+    """
+    _, _, campaign_dir = _init(tmp_path, pristine, capsys, toolchain_record)
+    order = json.loads((campaign_dir / "campaign.json").read_text())["run_order"]
+    for run_id in order:
+        write_scenario(
+            tmp_path / "root" / "profile",
+            run_id,
+            {"arm": run_id[0], "cost": 1.0, "steps": COMPLETE_STEPS},
+        )
+    assert cli.main(["run", str(campaign_dir)]) == 0
+    capsys.readouterr()
+    return campaign_dir, order
+
+
+def test_analyze_reports_quality(
+    tmp_path, pristine, write_scenario, capsys, toolchain_record
+):
+    """The section reaches the report, carrying a real run's real revision.
+
+    Rendered from the payload ``analyze_campaign`` actually built, which the
+    renderer's own tests cannot do: they hand it a record written by hand, so
+    a field this section reads under a name the instrument does not write
+    would pass there and fail only here.
+    """
+    campaign_dir, _ = _completed_campaign(
+        tmp_path, pristine, write_scenario, capsys, toolchain_record
+    )
+    assert cli.main(["analyze", str(campaign_dir)]) == 0
+
+    report = (campaign_dir / "analysis" / "report.md").read_text()
+    assert "## Quality" in report
+    assert "| draft-test-fixture-00 | 0 |" in report
+
+
+def _recording_build(calls):
+    """Stand in for ``final_build``, recording that it was reached at all."""
+
+    def recording(workspace, toolchain_path, out):
+        calls.append(out)
+        return {"exit_code": 0, "findings": [], "broken_references": []}
+
+    return recording
+
+
+def test_the_analyze_build_flag_reaches_the_campaign(
+    tmp_path, pristine, write_scenario, capsys, toolchain_record, monkeypatch
+):
+    """The flag is routed, not merely parsed.
+
+    ``cli.run`` is an ``if``/``elif`` chain with no ``else``, so a flag added
+    to the parser and never read reaches the fall-through ``return 0`` and
+    exits successfully having done nothing. Asserting the exit code, or that
+    the flag parses, cannot tell that apart from a flag that works.
+
+    The build is recorded rather than run: ``_init`` freezes a real toolchain,
+    so an unrecorded call would clone the draft repository and run ``make``
+    once per run.
+    """
+    campaign_dir, order = _completed_campaign(
+        tmp_path, pristine, write_scenario, capsys, toolchain_record
+    )
+    calls = []
+    monkeypatch.setattr(metrics, "final_build", _recording_build(calls))
+
+    assert cli.main(["analyze", str(campaign_dir)]) == 0
+    assert calls == []
+
+    assert cli.main(["analyze", str(campaign_dir), "--build"]) == 0
+    assert len(calls) == len(order)
 
 
 def test_the_campaign_shim_actually_runs(campaign):
