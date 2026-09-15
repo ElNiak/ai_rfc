@@ -24,13 +24,7 @@ from ai_rfc.draft.lint import LintReport, lint
 from ai_rfc.schema import SchemaError, load
 
 from ..lifecycle.workspace import REFCACHE_DIR
-from .report import _cell, _fmt, _separator
-
-#: The comparison table's columns. It is also what sizes the separator: the
-#: labels go through ``_cell``, which escapes a pipe rather than removing it,
-#: and ``_separator`` counts pipes — so a label carrying one would otherwise
-#: buy the table a fifth column the header does not have.
-_RAILS = "| metric | before | after | delta |"
+from .markdown import cell, fmt, separator
 
 #: The metrics :func:`~ai_rfc.draft.lint.lint` can only compute with a manifest
 #: in hand. When the manifest could not be read they are not zero and not
@@ -247,7 +241,7 @@ def _delta(before: Any, after: Any) -> str | None:
     if first is None or second is None:
         return None
     change = second - first
-    text = _fmt(change)
+    text = fmt(change)
     return f"+{text}" if change > 0 else text
 
 
@@ -271,9 +265,9 @@ def compare_lints(
 
     Both records are flattened to dotted metric names first, so a nested
     projection and a flat one compare the same way. Every cell goes through
-    the campaign report's own escaper: a metric name carrying a pipe must not
-    be able to add a column, and the values are agent-controlled prose in the
-    end.
+    :func:`~ai_rfc.experiment.markdown.cell`: a metric name or a label
+    carrying a pipe must not be able to add a column, and the values are
+    agent-controlled prose in the end.
 
     A record carrying a ``manifest_error`` renders the metrics that needed the
     manifest as the em dash rather than as a number, and the error itself is a
@@ -289,14 +283,14 @@ def compare_lints(
         The table, header row first, one row per metric either side carries.
     """
     first, second = _flatten(before), _flatten(after)
-    header = f"| metric | {_cell(before_label)} | {_cell(after_label)} | delta |"
-    lines = [header, _separator(_RAILS)]
+    header = f"| metric | {cell(before_label)} | {cell(after_label)} | delta |"
+    lines = [header, separator(header)]
     for name in sorted(set(first) | set(second)):
         before_value = _measured(first, name)
         after_value = _measured(second, name)
         lines.append(
-            f"| {_cell(name)} | {_cell(_shown(before_value))} "
-            f"| {_cell(_shown(after_value))} "
-            f"| {_cell(_delta(before_value, after_value))} |"
+            f"| {cell(name)} | {cell(_shown(before_value))} "
+            f"| {cell(_shown(after_value))} "
+            f"| {cell(_delta(before_value, after_value))} |"
         )
     return "\n".join(lines) + "\n"

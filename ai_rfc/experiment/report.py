@@ -7,15 +7,7 @@ from typing import Any
 
 from ai_rfc.driver import printable
 
-
-def _fmt(value: Any, digits: int = 3) -> str:
-    if value is None:
-        return "—"
-    if isinstance(value, bool):
-        return "yes" if value else "no"
-    if isinstance(value, float):
-        return f"{value:.{digits}f}"
-    return str(value)
+from .markdown import cell, fmt, separator
 
 
 def _code(value: Any) -> str:
@@ -46,47 +38,21 @@ def _code(value: Any) -> str:
     return f"{fence}{pad}{text}{pad}{fence}"
 
 
-def _cell(value: Any) -> str:
-    """One value as a table cell that cannot add a column or a row.
-
-    :func:`~ai_rfc.driver.printable` runs first, so every character that ends a
-    line is already a visible escape before the backslashes it wrote are
-    doubled; a pipe is escaped after that doubling, so its own backslash stays
-    single.
-
-    Args:
-        value: Any value.
-
-    Returns:
-        The cell text with pipes escaped and every line ending made visible.
-    """
-    return printable(str(_fmt(value))).replace("\\", "\\\\").replace("|", "\\|")
-
-
-def _separator(header: str) -> str:
-    """The ``---`` row for a markdown table, sized from its own header.
-
-    Counting the header's columns keeps the two in step; a hand-written width
-    silently misrenders the table when a column is added.
-    """
-    return "|" + "---|" * (header.count("|") - 1)
-
-
 def _arm_rows(arms: dict[str, dict[str, Any]]) -> list[str]:
     header = (
         "| arm | runs | completed (mean / min) | artifacts mean | pass^k mean | integrity | "
         "bypass | errors c1/c2 | hand edits | cost total / mean | failure-cost share | "
         "cost per completed | tokens→first | AUC mean | timeouts | nonzero exits |"
     )
-    rows = [header, _separator(header)]
+    rows = [header, separator(header)]
     for arm, s in arms.items():
         rows.append(
-            f"| {_cell(arm)} | {_cell(s['runs'])} | {_cell(s['completed_fraction_mean'])} / {_cell(s['completed_fraction_min'])} | "
-            f"{_cell(s['artifacts_fraction_mean'])} | {_cell(s['pass_k_mean'])} | {_cell(s['integrity_rate'])} | "
-            f"{_cell(s['bypass_attempts'])} | {_cell(s['errors_class1'])}/{_cell(s['errors_class2'])} | {_cell(s['hand_edits'])} | "
-            f"{_cell(_fmt(s['cost_total'], 2))} / {_cell(_fmt(s['cost_mean'], 2))} | {_cell(s['failure_cost_share'])} | "
-            f"{_cell(_fmt(s['cost_per_completed_cluster'], 2))} | {_cell(_fmt(s['tokens_to_first_completion_mean'], 0))} | "
-            f"{_cell(s['auc_mean'])} | {_cell(s['timed_out_runs'])} | {_cell(s['nonzero_exit_runs'])} |"
+            f"| {cell(arm)} | {cell(s['runs'])} | {cell(s['completed_fraction_mean'])} / {cell(s['completed_fraction_min'])} | "
+            f"{cell(s['artifacts_fraction_mean'])} | {cell(s['pass_k_mean'])} | {cell(s['integrity_rate'])} | "
+            f"{cell(s['bypass_attempts'])} | {cell(s['errors_class1'])}/{cell(s['errors_class2'])} | {cell(s['hand_edits'])} | "
+            f"{cell(fmt(s['cost_total'], 2))} / {cell(fmt(s['cost_mean'], 2))} | {cell(s['failure_cost_share'])} | "
+            f"{cell(fmt(s['cost_per_completed_cluster'], 2))} | {cell(fmt(s['tokens_to_first_completion_mean'], 0))} | "
+            f"{cell(s['auc_mean'])} | {cell(s['timed_out_runs'])} | {cell(s['nonzero_exit_runs'])} |"
         )
     return rows
 
@@ -97,7 +63,7 @@ def _run_rows(runs: dict[str, dict[str, Any]]) -> list[str]:
         "gates m/c | cost | turns | tokens | duration ms | integrity | bypass | "
         "errors c1/c2 |"
     )
-    rows = [header, _separator(header)]
+    rows = [header, separator(header)]
     for run_id, r in runs.items():
         usage = r["cost"].get("usage") or {}
         tokens = sum(
@@ -113,12 +79,12 @@ def _run_rows(runs: dict[str, dict[str, Any]]) -> list[str]:
         completed = sum(1 for c in r["clusters"] if c.get("completed"))
         artifacts = sum(1 for c in r["clusters"] if c.get("artifacts"))
         rows.append(
-            f"| {_cell(run_id)} | {_cell(r['arm'])} | {_cell(r['status']['exit_code'])} | {_cell(r['status']['timed_out'])} | "
-            f"{_cell(completed)}/{_cell(r['window_size'])} | {_cell(artifacts)} | {_cell(r['gates']['manifest_exit'])}/{_cell(r['gates']['citation_exit'])} | "
-            f"{_cell(_fmt(r['cost'].get('total_cost_usd'), 2))} | {_cell(r['cost'].get('num_turns'))} | {_cell(tokens)} | "
-            f"{_cell(r['cost'].get('duration_ms'))} | {_cell(audit.get('integrity'))} | "
-            f"{_cell((audit.get('bypass_attempts') or {}).get('count'))} | "
-            f"{_cell((audit.get('errors') or {}).get('class1'))}/{_cell((audit.get('errors') or {}).get('class2'))} |"
+            f"| {cell(run_id)} | {cell(r['arm'])} | {cell(r['status']['exit_code'])} | {cell(r['status']['timed_out'])} | "
+            f"{cell(completed)}/{cell(r['window_size'])} | {cell(artifacts)} | {cell(r['gates']['manifest_exit'])}/{cell(r['gates']['citation_exit'])} | "
+            f"{cell(fmt(r['cost'].get('total_cost_usd'), 2))} | {cell(r['cost'].get('num_turns'))} | {cell(tokens)} | "
+            f"{cell(r['cost'].get('duration_ms'))} | {cell(audit.get('integrity'))} | "
+            f"{cell((audit.get('bypass_attempts') or {}).get('count'))} | "
+            f"{cell((audit.get('errors') or {}).get('class1'))}/{cell((audit.get('errors') or {}).get('class2'))} |"
         )
     return rows
 
@@ -137,11 +103,11 @@ def _cluster_rows(arms: dict[str, dict[str, Any]]) -> list[str]:
         for cluster_id in s["pass_k"]:
             if cluster_id not in cluster_ids:
                 cluster_ids.append(cluster_id)
-    header = "| cluster | " + " | ".join(_cell(name) for name in names) + " |"
-    rows = [header, "|" + "---|" * (len(names) + 1)]
+    header = "| cluster | " + " | ".join(cell(name) for name in names) + " |"
+    rows = [header, separator(header)]
     for cluster_id in cluster_ids:
         marks = " | ".join(_pass_mark(arms[a]["pass_k"].get(cluster_id)) for a in names)
-        rows.append(f"| {_cell(cluster_id)} | {marks} |")
+        rows.append(f"| {cell(cluster_id)} | {marks} |")
     return rows
 
 

@@ -229,6 +229,21 @@ def test_the_comparison_table_escapes_a_pipe_in_a_metric_name():
     assert row.count("|") - row.count("\\|") == 5
 
 
+def test_a_pipe_in_a_label_cannot_widen_the_separator():
+    """The rule row is sized from the header, so an escaped pipe must not count.
+
+    ``cell`` escapes a pipe rather than removing it, so a header carrying one
+    holds five structural rails and one escape. A separator that counted every
+    pipe would lay five columns of rule under a four-column header — which is
+    why this table used to be sized from a constant rail rather than from the
+    header it sits under.
+    """
+    table = compare_lints({"m": 1}, {"m": 2}, before_label="be|fore", after_label="a")
+    header, rule = table.splitlines()[:2]
+    assert header.count("|") - header.count("\\|") == 5
+    assert rule == "|---|---|---|---|"
+
+
 def test_the_comparison_table_flattens_and_subtracts(two_tag_workspace):
     """The reduction is nested, so the table names a metric by its full path."""
     rows = revision_lints(two_tag_workspace)

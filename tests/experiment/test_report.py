@@ -219,7 +219,7 @@ def test_no_line_ending_in_a_cell_can_add_a_row(breaker):
 
 @pytest.mark.parametrize("breaker", LINE_BREAKERS)
 def test_no_line_ending_in_a_code_span_can_add_a_line(breaker):
-    """``_code`` carries the same duty as ``_cell``: one value, one line."""
+    """``_code`` carries the same duty as ``cell``: one value, one line."""
     benign = render_report(_aggregate(target="r1r2"))
     hostile = render_report(_aggregate(target="r1" + breaker + "r2"))
 
