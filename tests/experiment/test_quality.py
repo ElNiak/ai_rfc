@@ -16,6 +16,7 @@ import shutil
 from pathlib import Path
 
 import pytest
+import yaml
 
 from ai_rfc.draft.checkpoint import MANIFEST_FILE
 from ai_rfc.draft.gate import draft_text
@@ -384,6 +385,40 @@ def test_a_revision_map_an_arm_deleted_is_reported_not_raised(two_tag_workspace)
 
     assert payload["revisions"] == []
     assert payload["revisions_status"] == "missing"
+    assert "revisions.yaml" in payload["revisions_error"]
+
+
+def test_a_revision_map_that_is_not_valid_yaml_is_reported(two_tag_workspace):
+    """R30: the parser refusing the bytes is damaged evidence, like a bad shape.
+
+    **This state does not reach here through ``analyze_run`` today**, and that
+    was measured rather than assumed: ``cluster_artifacts`` runs at
+    ``metrics.py:324`` and reaches ``ledger._entries``, which turns the same
+    ``yaml.YAMLError`` into a ``LedgerParseError`` (``ledger.py:135-137``)
+    before ``quality`` is built at ``:350``. So a campaign aborts in the ledger
+    first — C10's arm, ruled open. This test calls ``revision_lints``
+    directly, which runs no ledger, which is the only reason the arm is
+    reachable at all.
+
+    Guarded anyway because ``_revision_map`` would otherwise be the only one of
+    this file's three readers without the guard — ``latest_tag`` catches
+    ``yaml.YAMLError`` at ``gate.py:160`` — so whenever C10's ledger arm is
+    made tolerant, this would silently become the new campaign-wide abort site.
+
+    The assertion compares against the parser's *own* message rather than
+    quoting its wording, so a PyYAML rewording does not make this a false red.
+    """
+    text = "revisions:\n  draft-test-fixture-01: {cluster_id: c1\n"
+    (two_tag_workspace / "revisions.yaml").write_text(text)
+    with pytest.raises(yaml.YAMLError) as refused:
+        yaml.safe_load(text)
+    payload = revision_lints(two_tag_workspace)
+
+    assert payload["revisions"] == []
+    assert payload["revisions_status"] == "unreadable"
+    assert str(refused.value) in payload["revisions_error"]
+    # The parser says `in "<unicode string>"`, never the file, so the path is
+    # added rather than left for a reader to guess at.
     assert "revisions.yaml" in payload["revisions_error"]
 
 

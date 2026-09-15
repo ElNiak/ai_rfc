@@ -17,6 +17,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Mapping
 
+import yaml
+
 from ai_rfc.draft.build import BuildReport, build, load_toolchain
 from ai_rfc.draft.checkpoint import MANIFEST_FILE
 from ai_rfc.draft.gate import (
@@ -65,7 +67,8 @@ REVISIONS_READ = "read"
 #: treats absence as a legitimate state, and an arm can delete it — which is
 #: why `revisions.yaml` is in `audit.STATE_FILES` (R29).
 REVISIONS_MISSING = "missing"
-#: The map is there and `load_revisions` refused its shape, so how many
+#: The map is there and could not be turned into revisions — the parser
+#: refused the bytes, or `load_revisions` refused the shape — so how many
 #: revisions the run has is unknown. Arms hand-edit `revisions.yaml` — it is in
 #: `audit.STATE_FILES` for that reason — so this is reachable by an agent, not
 #: only by a damaged disk.
@@ -283,6 +286,16 @@ def _revision_map(path: Path) -> tuple[tuple[Any, ...] | None, str | None, str]:
     :func:`ai_rfc.ledger._entries` — another reader of this same file — has
     always treated absence as a legitimate state (R29).
 
+    A map that is not valid YAML joins the wrong-shape map on
+    :data:`REVISIONS_UNREADABLE` (R30): the parser refusing the bytes is
+    damaged evidence in the same way the loader refusing the shape is, and a
+    bad hand-edit produces it more readily than a valid-YAML-wrong-shape
+    document. It is guarded here although nothing reaches it through
+    :func:`~ai_rfc.experiment.metrics.analyze_run` today — ``ledger`` raises
+    on the same bytes first — because ``latest_tag`` and ``ledger._entries``,
+    the file's other two readers, both already guard it, and this would be the
+    only one that did not.
+
     Every other :exc:`OSError` still propagates, so R17's split stays intact
     for a path that exists and cannot be read. :exc:`FileNotFoundError` is
     caught rather than the path tested, for the reason
@@ -309,6 +322,12 @@ def _revision_map(path: Path) -> tuple[tuple[Any, ...] | None, str | None, str]:
         return None, f"no revision map at {path}", REVISIONS_MISSING
     except GateError as failure:
         return None, str(failure), REVISIONS_UNREADABLE
+    except yaml.YAMLError as failure:
+        # The path is added because the parser will not name it: it reports
+        # `in "<unicode string>"`, having been handed text rather than a file,
+        # which would send a reader hunting for a file by that name.
+        # `ledger._entries` prefixes its own YAML guard for the same reason.
+        return None, f"{path}: {failure}", REVISIONS_UNREADABLE
 
 
 def _unmeasured_lint() -> dict[str, Any]:
