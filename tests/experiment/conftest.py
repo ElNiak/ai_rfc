@@ -234,15 +234,23 @@ COMPLETE_STEPS = [
 
 
 def append_untagged_revision(workspace: Path, tag: str, cluster_id: str) -> None:
-    """Record a revision the way a run killed before ``git tag`` leaves one.
+    """Register a revision the draft repository has no tag for, doubly damaged.
 
-    ``COMPLETE_STEPS`` shows the real sequence: the entry is appended to
-    ``revisions.yaml`` and only then is the tag created, so a kill between the
-    two leaves an entry the draft repository holds no tag for — and, since the
-    checkpoint is written later still, no frozen manifest for it either. Both
-    halves of that state matter: a tag deleted after the fact would leave the
-    checkpoint behind and could not tell a row that keeps its manifest reason
-    from one that drops it.
+    ``COMPLETE_STEPS`` records the revision and only then creates the tag, so a
+    run killed between the two leaves an entry the draft repository holds no
+    tag for. That is the state R23 rules on, and it is the first half of what
+    this builds.
+
+    The second half is constructed rather than replayed, and the distinction is
+    worth stating because it is easy to get backwards: the entry names a
+    cluster the workspace has no checkpoint for, so the row's manifest is
+    missing as well as its draft. A real kill in that window would leave the
+    checkpoint behind — ``COMPLETE_STEPS`` checkpoints before it records the
+    revision, and ``ai_rfc.server.core.revisions`` refuses to record one at all
+    until the cluster's ``checkpoint.json`` exists, since it reads
+    ``manifest_sha256`` out of it. The damage is added because without it
+    ``manifest_error`` would be ``None`` on the row either way, and nothing
+    could tell a row that keeps its manifest reason from one that drops it.
 
     The body is copied from the last recorded revision rather than written out
     here, so it stays whatever ``ai_rfc.server.core.revisions`` actually

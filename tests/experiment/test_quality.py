@@ -38,8 +38,8 @@ SECOND_TAG = "draft-test-fixture-02"
 #: A third revision the fixture never tags; see `append_untagged_revision`.
 UNTAGGED = "draft-test-fixture-03"
 #: The cluster that third revision names. No checkpoint directory carries it,
-#: so the revision has no frozen manifest either — which is what a kill before
-#: `git tag` really leaves, since the checkpoint is written later still.
+#: so the row's manifest is missing as well as its draft. That second damage is
+#: constructed, not what a kill leaves; `append_untagged_revision` says why.
 UNCHECKPOINTED_CLUSTER = "c0009-never-ran"
 #: The row keys that are provenance rather than measurement. They stay real on
 #: a row with no draft; everything else in it must be None.
@@ -286,10 +286,11 @@ def test_a_tag_the_draft_repository_never_got_is_reported_not_raised(
     assert [row["draft_status"] for row in rows] == ["read", "read", "unreadable"]
     assert UNTAGGED in absent["draft_error"]
     assert measured["draft_error"] is None
-    # The kill took the checkpoint along with the tag, so the row carries both
-    # reasons: nulling `manifest_error` with the metrics would leave
-    # `manifest_status` asserting "missing" with nothing to say why.
+    # The row is damaged twice over, so it carries both reasons: nulling
+    # `manifest_error` with the metrics would leave `manifest_status` asserting
+    # "missing" with nothing to say why.
     assert absent["manifest_status"] == "missing"
+    assert absent["manifest_error"] is not None
     assert UNCHECKPOINTED_CLUSTER in absent["manifest_error"]
 
     # The key sets are compared rather than a list of metric names kept here,
