@@ -155,11 +155,20 @@ def _quality_run_rows(runs: dict[str, dict[str, Any]]) -> list[str]:
 def _quality_revision_rows(runs: dict[str, dict[str, Any]]) -> list[str]:
     """One row per revision, over every run that enumerated its map.
 
-    The two status columns are what make the dashes readable: a metric is
-    ``None`` because no frozen manifest fed it, or because the draft
-    repository yielded no text at the tag, and the row says which. The
-    columns a manifest does not feed stay real in the first of those cases,
-    so an unmeasured row is still worth reading.
+    The two status columns are what make most of the dashes readable: a
+    metric is ``None`` because no frozen manifest fed it, or because the
+    draft repository yielded no text at the tag, and the statuses say which.
+    The columns a manifest does not feed stay real in the first of those
+    cases, so an unmeasured row is still worth reading.
+
+    The statuses do not explain every dash, and the exception is the
+    ``cited`` column alone: a frozen manifest that loaded and declares no
+    claims leaves ``cited_fraction`` null on a row whose two statuses both
+    read ``read``, because :func:`~ai_rfc.draft.lint._citations` will not
+    divide by a claim count of zero. That dash is honest rather than a
+    failure to measure — a fraction over no claims is not a number — and it
+    is the one dash a reader has to read off the ``cited`` column's meaning
+    instead of off a status beside it.
 
     Args:
         runs: The aggregate's ``runs``.

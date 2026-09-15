@@ -86,10 +86,15 @@ BUILD_NO_TOOLCHAIN = "no toolchain"
 #: findings, is still a build that was measured, and `exit_code` is the column
 #: that answers that question.
 BUILD_BUILT = "built"
-#: The build could not start, and `build_error` says why: the ref the run last
-#: tagged does not resolve to a single draft, or the toolchain record itself is
-#: unreadable. Reported rather than raised for the reason `_draft_at`,
-#: `_frozen_manifest` and `_revision_map` carry (R31).
+#: The build refused to start, and `build_error` says why. Stated as that
+#: predicate and not as a list of causes, because the causes are open: every
+#: `BuildError` raised before a report exists lands here, among them an
+#: unreadable toolchain record, one that lacks a required key, a ref that
+#: resolves to no commit or to other than exactly one draft at it, and a failed
+#: clone or checkout of the draft repository. What is ruled *out* is a build
+#: that ran: one that exits non-zero is `BUILD_BUILT`, and `exit_code` says so.
+#: Reported rather than raised for the reason `_draft_at`, `_frozen_manifest`
+#: and `_revision_map` carry (R31).
 BUILD_FAILED = "failed"
 
 
@@ -511,20 +516,24 @@ def final_build(
     run directory is evidence, and writing a build into it would edit the
     thing being measured.
 
-    A build that cannot start is reported as :data:`BUILD_FAILED` and not
-    raised, which is the fourth arm of the ruling :func:`_frozen_manifest`,
-    :func:`_draft_at` and :func:`_revision_map` carry (R31). A tag the draft
-    repository does not hold is evidence about the run in exactly the way an
-    absent revision map is — an arm writes ``revisions.yaml``, and
-    :func:`~ai_rfc.draft.gate.latest_tag` reads the ref out of it — and
+    A build that refuses to start is reported as :data:`BUILD_FAILED` with
+    its reason in ``build_error``, and not raised — the fourth arm of the
+    ruling :func:`_frozen_manifest`, :func:`_draft_at` and
+    :func:`_revision_map` carry (R31) — because
     :func:`~ai_rfc.experiment.metrics.analyze_campaign` builds its runs in a
     comprehension, so raising would take the aggregate for every other run in
     the campaign down with it, including the runs that built cleanly.
 
-    An unreadable toolchain record reaches :data:`BUILD_FAILED` too. It is a
-    fact about the campaign rather than about any one run, and it reads as
-    one: every run reports the same message, which is what says the toolchain
-    and not the draft is what is damaged.
+    The reason is reported and not classified further. The arms do not all
+    read alike: a tag the draft repository does not hold is evidence about
+    the run in exactly the way an absent revision map is — an arm writes
+    ``revisions.yaml``, and :func:`~ai_rfc.draft.gate.latest_tag` reads the
+    ref out of it — while a toolchain record that will not load is a fact
+    about the campaign, and reads as one because every run of that campaign
+    reports the same message. Others read as neither. Sorting them here
+    would mean parsing git's stderr, which is the trade ``draft_status``
+    already declined, so :exc:`~ai_rfc.draft.build.BuildError` is caught
+    whole and the message carries the distinction to the reader.
 
     :exc:`OSError` still propagates, so R17's split stays intact: a build whose
     own tools cannot be invoked is a broken instrument and not a finding.
