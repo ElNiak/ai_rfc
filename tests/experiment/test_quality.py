@@ -275,7 +275,8 @@ def test_the_final_build_builds_the_highest_numbered_tag(
         "broken_references": [],
         "diagnostic_counts": {},
     }
-    # The caller's `out` is honoured: nothing was written into the run.
+    # The caller's `out` is honoured: the build report landed under it. That
+    # the run directory stayed untouched is not something this read observes.
     stored = json.loads((out / "build" / "build-report.json").read_text())
     assert stored["ref"] == SECOND_TAG
 
