@@ -115,16 +115,28 @@ def test_the_run_record_carries_a_lint_row_per_revision(campaign, write_scenario
     assert [r["tag"] for r in result["quality"]["revisions"]] == [
         "draft-test-fixture-00"
     ]
-    # Default is build-off, so no clone and no make in the test suite.
+    # Default is build-off, so no clone and no make in the test suite. The
+    # status is what says so: a null build alone would not tell this apart
+    # from a campaign that froze no toolchain, or from one that failed.
     assert result["quality"]["build"] is None
+    assert result["quality"]["build_status"] == "not requested"
+    assert result["quality"]["build_error"] is None
 
 
 def _recording_build(calls):
-    """Stand in for ``final_build``, recording the arguments it was handed."""
+    """Stand in for ``final_build``, recording the arguments it was handed.
+
+    It answers the three-key record the real function answers, and the tests
+    below assert ``build_status`` as well as ``build``. A stand-in still
+    shaped like a bare reduced report would splat ``exit_code`` into
+    ``quality`` itself, leaving ``quality["build"]`` absent — and every
+    assertion that only read ``build`` would stay green against a payload the
+    instrument never writes.
+    """
 
     def recording(workspace, toolchain_path, out):
         calls.append({"workspace": workspace, "toolchain": toolchain_path, "out": out})
-        return {"exit_code": 0}
+        return {"build": {"exit_code": 0}, "build_status": "built", "build_error": None}
 
     return recording
 
@@ -149,6 +161,7 @@ def test_a_requested_build_is_routed_outside_the_run_directory(
 
     result = analyze_run(campaign, "A1", build=True)
     assert result["quality"]["build"] == {"exit_code": 0}
+    assert result["quality"]["build_status"] == "built"
     (call,) = calls
     assert call["workspace"] == campaign.runs_dir / "A1" / "workspace"
     # The `str` path the campaign froze, passed through as it is stored.
@@ -184,6 +197,50 @@ def test_analyze_campaign_passes_the_build_request_through(
         campaign.analysis_dir / "A1" / "draft-build"
     ]
     assert aggregate["runs"]["A1"]["quality"]["build"] == {"exit_code": 0}
+    assert aggregate["runs"]["A1"]["quality"]["build_status"] == "built"
+
+
+def test_a_build_that_cannot_start_does_not_abort_the_campaigns_analysis(
+    campaign, write_scenario
+):
+    """R31 where the defect lives: ``analyze_campaign``'s dict comprehension.
+
+    Every run is built inside one comprehension, so a ``BuildError`` raised
+    for one of them takes the whole aggregate down: ``aggregate.json`` is
+    never written, and no run's analysis survives — not the damaged one's, and
+    not the intact ones', whose drafts would have built. A unit test of
+    ``final_build`` cannot observe that, because the comprehension is what
+    turns one damaged run into a campaign with no analysis at all.
+
+    ``A1``'s tag is deleted from its draft repository after the run, so
+    ``latest_tag`` still names it out of ``revisions.yaml`` and the build is
+    refused before any clone. ``B1`` is left intact and really built —
+    ``toolchain_record``'s ``make`` is a no-op that exits zero — which is the
+    half that says the failure was contained, rather than that nothing built.
+    """
+    _run(
+        campaign,
+        write_scenario,
+        {
+            "A1": {"arm": "A", "cost": 1.0, "steps": COMPLETE_STEPS},
+            "B1": {"arm": "B", "cost": 1.0, "steps": COMPLETE_STEPS},
+        },
+    )
+    draft = campaign.runs_dir / "A1" / "workspace" / "draft"
+    _vcs(draft, "tag", "-d", "draft-test-fixture-00")
+
+    aggregate = analyze_campaign(campaign, build=True)
+
+    assert (campaign.analysis_dir / "aggregate.json").is_file()
+    damaged = aggregate["runs"]["A1"]["quality"]
+    assert damaged["build"] is None and damaged["build_status"] == "failed"
+    assert "draft-test-fixture-00: not a commit in " in damaged["build_error"]
+    # The intact run kept both its analysis and its build, and the build
+    # landed where it was routed.
+    intact = aggregate["runs"]["B1"]["quality"]
+    assert intact["build_status"] == "built" and intact["build"]["exit_code"] == 0
+    assert (campaign.analysis_dir / "B1" / "draft-build" / "build").is_dir()
+    assert aggregate["runs"]["A1"]["completed_fraction"] is not None
 
 
 def test_analyze_does_not_write_inside_the_run_workspace(campaign, write_scenario):

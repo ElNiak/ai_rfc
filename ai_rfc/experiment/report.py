@@ -113,6 +113,12 @@ def _quality_run_rows(runs: dict[str, dict[str, Any]]) -> list[str]:
     has no revisions to put in a row, and it is exactly the run a reader most
     needs to see.
 
+    Each of the two instruments gets a status column and an error column
+    beside it, for the same reason: the three measured build columns are null
+    on a run that was never asked for a build, on a campaign that froze no
+    toolchain, and on a build that could not start, and only the status tells
+    those apart.
+
     Args:
         runs: The aggregate's ``runs``.
 
@@ -120,8 +126,8 @@ def _quality_run_rows(runs: dict[str, dict[str, Any]]) -> list[str]:
         The header, the separator, and one row per run.
     """
     header = (
-        "| run | revisions | map | map error | build exit | build findings | "
-        "broken refs |"
+        "| run | revisions | map | map error | build | build error | "
+        "build exit | build findings | broken refs |"
     )
     rows = [header, separator(header)]
     for run_id, result in runs.items():
@@ -137,6 +143,8 @@ def _quality_run_rows(runs: dict[str, dict[str, Any]]) -> list[str]:
         rows.append(
             f"| {cell(run_id)} | {cell(counted)} | {cell(status)} "
             f"| {cell(quality.get('revisions_error'))} "
+            f"| {cell(quality.get('build_status'))} "
+            f"| {cell(quality.get('build_error'))} "
             f"| {cell(build.get('exit_code'))} "
             f"| {cell(_count(build.get('findings')))} "
             f"| {cell(_count(build.get('broken_references')))} |"

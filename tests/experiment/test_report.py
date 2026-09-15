@@ -227,6 +227,15 @@ GATE_REFUSAL = (
     "draft-x|02: could not list its tree: " "fatal: Not a valid object name draft-x|02"
 )
 
+#: A ref the build would not resolve, as ``quality.final_build`` reports it.
+#: Measured the same way :data:`GATE_REFUSAL` was: this is git's own stderr for
+#: ``rev-parse --verify`` on a ref no repository holds, in the sentence
+#: ``draft.build.build`` wraps it in. One line, so what this value tests is the
+#: pipe — and the ref is the tag the run last recorded, read out of an
+#: agent-writable ``revisions.yaml``. The multi-line case stays
+#: :data:`YAML_REFUSAL`'s.
+BUILD_REFUSAL = "draft-x|03: not a commit in /w/draft: fatal: Needed a single revision"
+
 
 def _revision(**overrides):
     """One reduced lint row, carrying the fields the report reads.
@@ -271,11 +280,16 @@ def _quality_aggregate():
       was built.
     * ``C1`` has a map the parser refused, so its revision count is unknown
       rather than zero, and its error is six lines of free text. Its build was
-      never asked for, so every build column of its row is unmeasured.
+      never asked for, which its build status says and its three measured
+      build columns cannot.
+    * ``D1`` recorded no revision at all — a count of zero, which is a
+      measurement — and its build was asked for and could not start. It is the
+      run that would have aborted the whole campaign's analysis before R31.
 
-    Each of the three free-text columns carries a pipe here. A cluster id
+    Each of the four free-text columns carries a pipe here. A cluster id
     reaches the frozen manifest's path and so reaches ``manifest_error``, and
-    a tag reaches ``draft_error``; both come out of files an arm can write.
+    a tag reaches both ``draft_error`` and ``build_error``; all come out of
+    files an arm can write.
 
     Returns:
         The aggregate record.
@@ -321,12 +335,24 @@ def _quality_aggregate():
                 "idnits": {},
                 "diagnostic_counts": {},
             },
+            "build_status": "built",
+            "build_error": None,
         },
         "C1": {
             "revisions": [],
             "revisions_status": "unreadable",
             "revisions_error": YAML_REFUSAL,
             "build": None,
+            "build_status": "not requested",
+            "build_error": None,
+        },
+        "D1": {
+            "revisions": [],
+            "revisions_status": "read",
+            "revisions_error": None,
+            "build": None,
+            "build_status": "failed",
+            "build_error": BUILD_REFUSAL,
         },
     }
     for run_id, quality in qualities.items():
@@ -407,7 +433,10 @@ def test_a_revision_map_that_would_not_load_has_no_revision_count():
     assert [line for line in section if line.startswith("| B1 | 3 | read |")]
     (row,) = [line for line in section if line.startswith("| C1 |")]
     assert row.startswith("| C1 | — | unreadable |")
-    assert row.endswith("| — | — | — |")
+    assert row.endswith("| not requested | — | — | — | — |")
+    # `D1` recorded no revision and its map loaded, which is a zero and must
+    # not render as `C1`'s dash.
+    assert [line for line in section if line.startswith("| D1 | 0 | read |")]
 
 
 def test_a_build_that_ran_reports_its_counts_and_one_that_did_not_dashes_them():
@@ -424,11 +453,45 @@ def test_a_build_that_ran_reports_its_counts_and_one_that_did_not_dashes_them():
     runs, _ = _quality_tables(render_report(_quality_aggregate()))
 
     assert [line for line in runs if line.startswith("| B1 |")] == [
-        "| B1 | 3 | read | — | 1 | 2 | 1 |"
+        "| B1 | 3 | read | — | built | — | 1 | 2 | 1 |"
     ]
     assert [line for line in runs if line.startswith("| C1 |")][0].endswith(
-        "| — | — | — |"
+        "| not requested | — | — | — | — |"
     )
+
+
+def test_three_ways_of_having_no_build_do_not_render_alike():
+    """R31 and the ambiguity Task 3 left: a null build now says why it is null.
+
+    All three rows carry ``build: None`` and dash all three measured columns,
+    so the status column is the only thing that separates them. Without it a
+    reader could not tell an analysis that declined to build from a campaign
+    with no toolchain, nor either from a build that was asked for and could
+    not start — and the last of those is a finding about the run.
+
+    The reason is a cell of its own, and it is the fourth free-text column: a
+    build error names the ref twice over in ``draft.build``, and a ref is a
+    tag read out of an agent-writable ``revisions.yaml``, so its pipes are
+    content and unescaped would buy the row a column.
+    """
+    runs, _ = _quality_tables(render_report(_quality_aggregate()))
+    statuses = {
+        row.split(" | ")[0].lstrip("| "): row.split(" | ")[4] for row in runs[2:]
+    }
+
+    assert statuses == {
+        "A1": "—",
+        "B1": "built",
+        "C1": "not requested",
+        "D1": "failed",
+    }
+    (row,) = [line for line in runs if line.startswith("| D1 |")]
+    assert row == (
+        "| D1 | 0 | read | — | failed | draft-x\\|03: not a commit in /w/draft: "
+        "fatal: Needed a single revision | — | — | — |"
+    )
+    # Nine columns, so ten structural pipes.
+    assert row.count("|") - row.count("\\|") == 10
 
 
 def test_a_revision_with_no_draft_text_measures_nothing_and_stays_one_cell():
@@ -466,14 +529,14 @@ def test_a_multi_line_map_error_cannot_add_rows_to_the_quality_tables():
     """
     section = _section(render_report(_quality_aggregate()), "## Quality")
 
-    # Two tables: a header and a separator each, three run rows, and three
+    # Two tables: a header and a separator each, four run rows, and three
     # revision rows from the one run whose map enumerated.
-    assert len([line for line in section if line.strip()]) == 10
+    assert len([line for line in section if line.strip()]) == 11
     (row,) = [line for line in section if line.startswith("| C1 |")]
     assert "expected <block end>" in row
-    # Seven columns, so eight structural pipes. The one inside the error is
+    # Nine columns, so ten structural pipes. The one inside the error is
     # content, and an unescaped one there would buy the row a column.
-    assert row.count("|") - row.count("\\|") == 8
+    assert row.count("|") - row.count("\\|") == 10
 
 
 def test_a_run_analyzed_before_the_instrument_reports_nothing_measured():
@@ -486,7 +549,7 @@ def test_a_run_analyzed_before_the_instrument_reports_nothing_measured():
     section = _section(render_report(_quality_aggregate()), "## Quality")
 
     assert [line for line in section if line.startswith("| A1 |")] == [
-        "| A1 | — | — | — | — | — | — |"
+        "| A1 | — | — | — | — | — | — | — | — |"
     ]
 
 

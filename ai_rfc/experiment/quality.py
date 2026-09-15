@@ -19,7 +19,7 @@ from typing import Any, Mapping
 
 import yaml
 
-from ai_rfc.draft.build import BuildReport, build, load_toolchain
+from ai_rfc.draft.build import BuildError, BuildReport, build, load_toolchain
 from ai_rfc.draft.checkpoint import MANIFEST_FILE
 from ai_rfc.draft.gate import (
     GateError,
@@ -73,6 +73,24 @@ REVISIONS_MISSING = "missing"
 #: `audit.STATE_FILES` for that reason — so this is reachable by an agent, not
 #: only by a damaged disk.
 REVISIONS_UNREADABLE = "unreadable"
+
+#: No build was asked for. The default, and the reason `build` is null on
+#: almost every analysis ever written: `analyze` only builds under `--build`.
+BUILD_NOT_REQUESTED = "not requested"
+#: A build was asked for and the campaign froze no toolchain to run one with,
+#: so there was nothing to build against. A property of the campaign, not of
+#: the run — every run of such a campaign reports it.
+BUILD_NO_TOOLCHAIN = "no toolchain"
+#: The build ran and produced a report. It says nothing about whether the
+#: draft compiled: a build that exits non-zero, or that idnits filled with
+#: findings, is still a build that was measured, and `exit_code` is the column
+#: that answers that question.
+BUILD_BUILT = "built"
+#: The build could not start, and `build_error` says why: the ref the run last
+#: tagged does not resolve to a single draft, or the toolchain record itself is
+#: unreadable. Reported rather than raised for the reason `_draft_at`,
+#: `_frozen_manifest` and `_revision_map` carry (R31).
+BUILD_FAILED = "failed"
 
 
 def _unmeasured(measured: Any) -> Any:
@@ -450,9 +468,39 @@ def _reduce_build(report: BuildReport) -> dict[str, Any]:
     }
 
 
+def _build_record(
+    reduced: dict[str, Any] | None, status: str, error: str | None
+) -> dict[str, Any]:
+    """The three keys an analysis stores about one run's build.
+
+    Args:
+        reduced: The reduced build report, or None when there is not one.
+        status: One of the four ``BUILD_*`` statuses.
+        error: Why the build could not start, or None.
+
+    Returns:
+        The record, ready to splat into a run's ``quality``.
+    """
+    return {"build": reduced, "build_status": status, "build_error": error}
+
+
+def build_not_requested() -> dict[str, Any]:
+    """The build record of an analysis that was not asked for a build.
+
+    The status exists so that a null ``build`` is not ambiguous. It was null
+    on every analysis before ``--build``, and a reader could not tell an
+    analysis that declined to build from a campaign that had no toolchain to
+    build with — the distinction Task 3 left open until something rendered it.
+
+    Returns:
+        The record, with :data:`BUILD_NOT_REQUESTED` and no build.
+    """
+    return _build_record(None, BUILD_NOT_REQUESTED, None)
+
+
 def final_build(
     workspace: Path, toolchain_path: str | None, out: Path
-) -> dict[str, Any] | None:
+) -> dict[str, Any]:
     """Build the draft as the run last tagged it, and reduce the report.
 
     The run's own sealed reference cache is used when it has one, so the build
@@ -463,6 +511,24 @@ def final_build(
     run directory is evidence, and writing a build into it would edit the
     thing being measured.
 
+    A build that cannot start is reported as :data:`BUILD_FAILED` and not
+    raised, which is the fourth arm of the ruling :func:`_frozen_manifest`,
+    :func:`_draft_at` and :func:`_revision_map` carry (R31). A tag the draft
+    repository does not hold is evidence about the run in exactly the way an
+    absent revision map is — an arm writes ``revisions.yaml``, and
+    :func:`~ai_rfc.draft.gate.latest_tag` reads the ref out of it — and
+    :func:`~ai_rfc.experiment.metrics.analyze_campaign` builds its runs in a
+    comprehension, so raising would take the aggregate for every other run in
+    the campaign down with it, including the runs that built cleanly.
+
+    An unreadable toolchain record reaches :data:`BUILD_FAILED` too. It is a
+    fact about the campaign rather than about any one run, and it reads as
+    one: every run reports the same message, which is what says the toolchain
+    and not the draft is what is damaged.
+
+    :exc:`OSError` still propagates, so R17's split stays intact: a build whose
+    own tools cannot be invoked is a broken instrument and not a finding.
+
     Args:
         workspace: The run's workspace.
         toolchain_path: The path a campaign froze in ``Campaign.toolchain``,
@@ -470,26 +536,27 @@ def final_build(
         out: Directory to receive ``build/``; supplied by the caller.
 
     Returns:
-        ``exit_code``, ``findings``, ``idnits``, ``broken_references`` and
-        ``diagnostic_counts``; or None when the campaign froze no toolchain.
+        ``build`` — ``exit_code``, ``findings``, ``idnits``,
+        ``broken_references`` and ``diagnostic_counts``, or None when no build
+        was produced — with ``build_status`` and ``build_error``.
 
     Raises:
-        BuildError: If the toolchain record is unreadable or the ref does not
-            resolve to a single draft.
         OSError: If the build's own tools cannot be invoked.
     """
     if toolchain_path is None:
-        return None
+        return _build_record(None, BUILD_NO_TOOLCHAIN, None)
     sealed = workspace / REFCACHE_DIR
-    return _reduce_build(
-        build(
+    try:
+        report = build(
             workspace / "draft",
             toolchain=load_toolchain(Path(toolchain_path)),
             out=out,
             ref=latest_tag(workspace),
             refcache=sealed if sealed.is_dir() else None,
         )
-    )
+    except BuildError as failure:
+        return _build_record(None, BUILD_FAILED, str(failure))
+    return _build_record(_reduce_build(report), BUILD_BUILT, None)
 
 
 def _flatten(record: Mapping[str, Any], prefix: str = "") -> dict[str, Any]:

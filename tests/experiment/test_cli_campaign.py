@@ -138,11 +138,20 @@ def test_analyze_reports_quality(
 
 
 def _recording_build(calls):
-    """Stand in for ``final_build``, recording that it was reached at all."""
+    """Stand in for ``final_build``, recording that it was reached at all.
+
+    It answers the three-key record the real function answers; a stand-in
+    still shaped like a bare reduced report would splat its keys into
+    ``quality`` itself and leave ``quality["build"]`` absent.
+    """
 
     def recording(workspace, toolchain_path, out):
         calls.append(out)
-        return {"exit_code": 0, "findings": [], "broken_references": []}
+        return {
+            "build": {"exit_code": 0, "findings": [], "broken_references": []},
+            "build_status": "built",
+            "build_error": None,
+        }
 
     return recording
 

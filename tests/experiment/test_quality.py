@@ -21,18 +21,23 @@ import yaml
 from ai_rfc.draft.checkpoint import MANIFEST_FILE
 from ai_rfc.draft.gate import draft_text
 from ai_rfc.draft.lint import lint
+from ai_rfc.experiment import quality
 from ai_rfc.experiment.quality import (
     _flatten,
+    build_not_requested,
     compare_lints,
     final_build,
     reduce_lint,
     revision_lints,
 )
+from ai_rfc.experiment.report import render_report
 from ai_rfc.experiment.workspace import copy_workspace
 from ai_rfc.schema import load
+from ai_rfc.server.testing import git as _vcs
 
 from .conftest import REPO_ROOT, append_untagged_revision
 from .test_fake_claude import _cluster_steps, _launch, _one_round
+from .test_report import _aggregate, _quality_tables
 
 FIRST_TAG = "draft-test-fixture-01"
 SECOND_TAG = "draft-test-fixture-02"
@@ -533,7 +538,22 @@ def test_the_table_will_not_show_an_unmeasured_metric_as_a_number(two_tag_worksp
 
 
 def test_the_build_is_skipped_without_a_toolchain(tmp_path):
-    assert final_build(tmp_path, None, tmp_path / "out") is None
+    """No toolchain is a status of its own, not an unexplained null.
+
+    It is the case Task 3 left folded together with "no build was asked for":
+    ``build`` is null in both, and before the status a reader had no way to
+    tell a campaign that could not build from an analysis that chose not to.
+    """
+    assert final_build(tmp_path, None, tmp_path / "out") == {
+        "build": None,
+        "build_status": "no toolchain",
+        "build_error": None,
+    }
+    assert build_not_requested() == {
+        "build": None,
+        "build_status": "not requested",
+        "build_error": None,
+    }
 
 
 def test_the_final_build_builds_the_highest_numbered_tag(
@@ -547,16 +567,103 @@ def test_the_final_build_builds_the_highest_numbered_tag(
     out = tmp_path / "analysis" / "draft-build"
     record = final_build(two_tag_workspace, str(toolchain_record), out)
     assert record == {
-        "exit_code": 0,
-        "findings": [],
-        "idnits": {},
-        "broken_references": [],
-        "diagnostic_counts": {},
+        "build": {
+            "exit_code": 0,
+            "findings": [],
+            "idnits": {},
+            "broken_references": [],
+            "diagnostic_counts": {},
+        },
+        "build_status": "built",
+        "build_error": None,
     }
     # The caller's `out` is honoured: the build report landed under it. That
     # the run directory stayed untouched is not something this read observes.
     stored = json.loads((out / "build" / "build-report.json").read_text())
     assert stored["ref"] == SECOND_TAG
+
+
+def test_a_tag_the_build_cannot_resolve_is_reported_not_raised(
+    two_tag_workspace, toolchain_record, tmp_path
+):
+    """R31: the fourth member of the class R23, R27 and R29 closed.
+
+    The tag the run last recorded is deleted from the draft repository, so
+    ``latest_tag`` still names it out of ``revisions.yaml`` and ``rev-parse``
+    refuses it — the state a run killed between tagging and pushing leaves,
+    and one an arm with shell access can produce outright.
+
+    ``build`` stays null rather than becoming an empty report: nothing was
+    measured, and a zeroed report would say the draft built clean.
+    """
+    _vcs(two_tag_workspace / "draft", "tag", "-d", SECOND_TAG)
+
+    record = final_build(
+        two_tag_workspace, str(toolchain_record), tmp_path / "analysis" / "draft-build"
+    )
+
+    assert record["build"] is None and record["build_status"] == "failed"
+    assert record["build_error"].startswith(f"{SECOND_TAG}: not a commit in ")
+    assert "Needed a single revision" in record["build_error"]
+
+
+def test_a_build_whose_instrument_is_broken_is_raised_and_not_reported(
+    two_tag_workspace, toolchain_record, tmp_path, monkeypatch
+):
+    """R17's split, on the arm R31 just widened: distinguish, do not widen.
+
+    Only :exc:`BuildError` is a finding about the run. A build that cannot
+    invoke its own tools is a broken instrument, and reporting it as a run's
+    quality would publish an aggregate over measurements nothing took.
+    """
+
+    def _cannot_run(*_args, **_kwargs):
+        raise OSError("make: cannot execute")
+
+    monkeypatch.setattr(quality, "build", _cannot_run)
+
+    with pytest.raises(OSError):
+        final_build(
+            two_tag_workspace,
+            str(toolchain_record),
+            tmp_path / "analysis" / "draft-build",
+        )
+
+
+def test_the_renderer_reads_the_rows_revision_lints_really_writes(two_tag_workspace):
+    """The renderer against the producer, on a shape the fixtures hand-write.
+
+    ``test_report.py`` builds its damaged rows by hand, so a key renamed in
+    :func:`reduce_lint` or :func:`revision_lints` would leave every test there
+    green against a shape that no longer occurs. This drives the real producer
+    over a real workspace and renders what comes back, which is why it lives
+    beside the fixture that builds the workspace rather than beside the
+    renderer's other tests.
+
+    The damaged shape is the unreadable draft: a tag the revision map
+    registers and the draft repository does not hold. A measured revision is
+    in the same render, so the dashes are this row's condition and not what
+    the table does to every row.
+    """
+    append_untagged_revision(two_tag_workspace, UNTAGGED, UNCHECKPOINTED_CLUSTER)
+    aggregate = _aggregate()
+    aggregate["runs"]["A1"]["quality"] = {
+        **revision_lints(two_tag_workspace),
+        **build_not_requested(),
+    }
+
+    runs, revisions = _quality_tables(render_report(aggregate))
+
+    assert runs[2] == "| A1 | 3 | read | — | not requested | — | — | — | — |"
+    # Header, separator and one row per revision: the unreadable row is one
+    # row, and the error git wrote into it did not break out of its cell.
+    assert len(revisions) == 5
+    measured, damaged = revisions[2], revisions[-1]
+    assert measured.startswith(f"| A1 | {FIRST_TAG} | 1 | cluster | read | read | 1")
+    assert damaged.startswith(
+        f"| A1 | {UNTAGGED} | 3 | cluster | missing | unreadable | — | — | — | — |"
+    )
+    assert f"{UNTAGGED}: " in damaged and damaged.count("|") == 13
 
 
 def test_the_comparison_table_escapes_a_pipe_in_a_metric_name():

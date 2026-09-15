@@ -31,7 +31,7 @@ from ai_rfc.driver.stream import (
 from .. import ledger
 from . import ExperimentError
 from .config import Campaign
-from .quality import final_build, revision_lints
+from .quality import build_not_requested, final_build, revision_lints
 from .runner import RESULT_FILE, load_status
 
 DEFINITIONS = {
@@ -46,7 +46,8 @@ DEFINITIONS = {
     "auc": "integral over normalized cumulative tokens of completed_so_far/window_size, as a right-continuous step function",
     "checked_fraction": "the substrate's honesty metric, reported per checkpoint; expected 0.0 without interviews or runtime anchors",
     "quality_revisions": "one lint of the draft at every tag the run recorded, each against the manifest its own checkpoint froze; linting an early revision against the final manifest would report a later cluster's claims as uncited; a tag the draft repository does not hold is a row with no lint at all, and draft_status says so",
-    "quality_build": "the draft at the run's highest-numbered tag, built with the campaign's frozen toolchain; null both when the analysis was not asked for a build, which is the default, and when the campaign froze no toolchain",
+    "quality_build": "the draft at the run's highest-numbered tag, built with the campaign's frozen toolchain; null whenever no build report was produced, and build_status is what says which of those cases it was",
+    "quality_build_status": "not requested when the analysis was not asked for a build, which is the default; no toolchain when it was and the campaign froze none; built when a build report was produced, whatever its exit code; failed when the build could not start, with build_error carrying the reason and the aggregate still reporting every other run (R31)",
     "quality_revisions_status": "read when the run's revisions.yaml loaded, missing when there is none, unreadable when it is there in a shape the loader refuses; on either of the last two the revisions list is empty because the map could not be enumerated and not because the run recorded none, and revisions_error says which it was",
     "quality_unmeasured": "null in a lint row means unmeasured and never zero: the metrics a frozen manifest feeds are null unless manifest_status is read, while the metrics the draft text alone shows stay real so long as draft_status is read; a row whose draft_status is unreadable has no text to measure and every metric in it is null",
 }
@@ -296,13 +297,12 @@ def analyze_run(
 
     Raises:
         ExperimentError: If the run has no status record.
-        BuildError: If ``build`` and the toolchain record is unreadable or
-            the run's last tag does not resolve to a single draft.
 
-    No ``GateError`` reaches a caller. A revision map that is absent or will
-    not load, and a tag it registers that the draft repository does not hold,
-    are all reported in ``quality`` (R23, R27, R29): one damaged run must not
-    abort the aggregate for every other, which is what
+    No ``GateError`` and no ``BuildError`` reaches a caller. A revision map
+    that is absent or will not load, a tag it registers that the draft
+    repository does not hold, and a build that could not start on that tag,
+    are all reported in ``quality`` (R23, R27, R29, R31): one damaged run must
+    not abort the aggregate for every other, which is what
     :func:`analyze_campaign`'s comprehension would do with a raise.
     """
     run_dir = campaign.runs_dir / run_id
@@ -349,14 +349,14 @@ def analyze_run(
         # makes it with its parents.
         "quality": {
             **revision_lints(workspace),
-            "build": (
+            **(
                 final_build(
                     workspace,
                     campaign.toolchain,
                     campaign.analysis_dir / run_id / "draft-build",
                 )
                 if build
-                else None
+                else build_not_requested()
             ),
         },
         "claims": {
