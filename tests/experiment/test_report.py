@@ -1,3 +1,5 @@
+import copy
+
 import pytest
 
 from ai_rfc.experiment.report import render_report
@@ -198,6 +200,188 @@ def test_a_pipe_in_a_cluster_id_cannot_add_a_column():
 def test_a_newline_in_a_run_id_cannot_break_the_table():
     aggregate = _aggregate(run_id="r1\nr2")
     assert "r1\nr2" not in render_report(aggregate)
+
+
+#: A revision map the YAML parser refused, shaped as ``quality._revision_map``
+#: reports it: the path it prefixes, the parser's own two location lines, and
+#: the caret it draws under the offending column. Six lines and a pipe, which
+#: is the point — this is the one value in the payload that is multi-line free
+#: text, and a table cell is a single line by construction.
+YAML_REFUSAL = (
+    "/w/revisions.yaml: while parsing a block mapping\n"
+    '  in "<unicode string>", line 2, column 3:\n'
+    "      nope: a | b\n"
+    "      ^\n"
+    "expected <block end>, but found '?'\n"
+    '  in "<unicode string>", line 4, column 3'
+)
+
+
+def _revision(**overrides):
+    """One reduced lint row, carrying the fields the report reads.
+
+    Args:
+        **overrides: Fields to replace in the measured baseline.
+
+    Returns:
+        The row.
+    """
+    row = {
+        "tag": "draft-x-00",
+        "number": 0,
+        "cluster_id": "c0001-a",
+        "kind": "cluster",
+        "manifest_status": "read",
+        "draft_status": "read",
+        "draft_error": None,
+        "manifest_error": None,
+        "citations": {"cited_fraction": 0.5},
+        "abstract": {"word_count": 40},
+        "narration_count": 2,
+        "finding_count": 3,
+    }
+    row.update(overrides)
+    return row
+
+
+def _quality_aggregate():
+    """``_aggregate`` plus the two quality shapes its own run cannot show.
+
+    Three runs, one per state the section must keep apart — because an
+    assertion about any one of them proves nothing unless another run in the
+    same render is in a different state:
+
+    * ``A1`` is ``_aggregate``'s own run and carries no ``quality`` key at
+      all, which is an aggregate archived before the instrument existed. It is
+      left exactly as it is, since it is also what the older tests render.
+    * ``B1`` enumerated its map and has two revisions, one measured against a
+      frozen manifest and one whose manifest was missing.
+    * ``C1`` has a map the parser refused, so its revision count is unknown
+      rather than zero, and its error is six lines of free text.
+
+    Returns:
+        The aggregate record.
+    """
+    aggregate = _aggregate()
+    qualities = {
+        "B1": {
+            "revisions": [
+                _revision(),
+                _revision(
+                    tag="draft-x-01",
+                    number=1,
+                    cluster_id="c0002-b",
+                    manifest_status="missing",
+                    manifest_error="no frozen manifest at /w/cp/c0002-b/manifest.yaml",
+                    citations={"cited_fraction": None},
+                    abstract={"word_count": 55},
+                    narration_count=4,
+                    finding_count=None,
+                ),
+            ],
+            "revisions_status": "read",
+            "revisions_error": None,
+            "build": None,
+        },
+        "C1": {
+            "revisions": [],
+            "revisions_status": "unreadable",
+            "revisions_error": YAML_REFUSAL,
+            "build": None,
+        },
+    }
+    for run_id, quality in qualities.items():
+        run = copy.deepcopy(aggregate["runs"]["A1"])
+        run["run_id"] = run_id
+        run["quality"] = quality
+        aggregate["runs"][run_id] = run
+        aggregate["run_order"].append(run_id)
+    return aggregate
+
+
+def _section(text: str, heading: str) -> list[str]:
+    """The lines under one ``##`` heading, up to the next one.
+
+    Args:
+        text: A rendered report.
+        heading: The heading line, hashes included.
+
+    Returns:
+        The lines between that heading and the next ``## ``.
+    """
+    lines = text.splitlines()
+    rest = lines[lines.index(heading) + 1 :]
+    end = next((i for i, line in enumerate(rest) if line.startswith("## ")), len(rest))
+    return rest[:end]
+
+
+def test_the_quality_section_dashes_what_no_manifest_could_measure():
+    """The payload's one rule, rendered: null is unmeasured and never zero.
+
+    Both rows come from the same draft repository and differ only in whether
+    their frozen manifest was there, so the columns that change across them
+    are exactly the ones a manifest feeds. The text-only metrics stay real
+    across that difference, which is the half a reader would lose if an
+    unmeasured row were nulled wholesale.
+    """
+    section = _section(render_report(_quality_aggregate()), "## Quality")
+    rows = [line for line in section if line.startswith("| B1 | draft-x-")]
+
+    assert rows == [
+        "| B1 | draft-x-00 | 0 | cluster | read | read | 0.500 | 3 | 2 | 40 | — | — |",
+        "| B1 | draft-x-01 | 1 | cluster | missing | read | — | — | 4 | 55 "
+        "| no frozen manifest at /w/cp/c0002-b/manifest.yaml | — |",
+    ]
+
+
+def test_a_revision_map_that_would_not_load_has_no_revision_count():
+    """Zero revisions and an unknown number of them must not render alike.
+
+    ``revisions`` is ``[]`` in both cases, so a renderer taking its length
+    would print ``0`` for a map nothing could enumerate. ``B1`` is in the same
+    render to show the count is real when the map did load — without it this
+    would pass against a renderer that dashed every count.
+    """
+    section = _section(render_report(_quality_aggregate()), "## Quality")
+
+    assert [line for line in section if line.startswith("| B1 | 2 | read |")]
+    (row,) = [line for line in section if line.startswith("| C1 |")]
+    assert row.startswith("| C1 | — | unreadable |")
+    assert row.endswith("| — | — | — |")
+
+
+def test_a_multi_line_map_error_cannot_add_rows_to_the_quality_tables():
+    """PyYAML's message spans six lines; a table cell is one by construction.
+
+    The count is over every non-blank line of the section and not over the
+    lines that look like table rows: an error rendered raw breaks into
+    continuation lines that start with a space, and counting rows alone would
+    not see them.
+    """
+    section = _section(render_report(_quality_aggregate()), "## Quality")
+
+    # Two tables: a header and a separator each, three run rows, and two
+    # revision rows from the one run whose map enumerated.
+    assert len([line for line in section if line.strip()]) == 9
+    (row,) = [line for line in section if line.startswith("| C1 |")]
+    assert "expected <block end>" in row
+    # Seven columns, so eight structural pipes. The one inside the error is
+    # content, and an unescaped one there would buy the row a column.
+    assert row.count("|") - row.count("\\|") == 8
+
+
+def test_a_run_analyzed_before_the_instrument_reports_nothing_measured():
+    """D-30: ``_aggregate``'s run has no ``quality`` key and must still render.
+
+    Dropping such a run from the section would be the same defect as printing
+    zeros for it: a reader could not tell it from a run that was measured and
+    scored nothing.
+    """
+    section = _section(render_report(_quality_aggregate()), "## Quality")
+
+    assert [line for line in section if line.startswith("| A1 |")] == [
+        "| A1 | — | — | — | — | — | — |"
+    ]
 
 
 @pytest.mark.parametrize("breaker", LINE_BREAKERS)

@@ -89,6 +89,98 @@ def _run_rows(runs: dict[str, dict[str, Any]]) -> list[str]:
     return rows
 
 
+def _count(value: Any) -> int | None:
+    """How many, or None when there was nothing to count.
+
+    ``len`` of an unmeasured metric raises, and a zero written in its place
+    would read as a measured emptiness — which is the one thing this report
+    must never say about something nothing looked at.
+
+    Args:
+        value: A list the analysis measured, or None.
+
+    Returns:
+        Its length, or None.
+    """
+    return None if value is None else len(value)
+
+
+def _quality_run_rows(runs: dict[str, dict[str, Any]]) -> list[str]:
+    """One row per run: whether its revision map enumerated, and its build.
+
+    Split from the per-revision table below because these are facts about the
+    map rather than about any revision in it. A run whose map would not load
+    has no revisions to put in a row, and it is exactly the run a reader most
+    needs to see.
+
+    Args:
+        runs: The aggregate's ``runs``.
+
+    Returns:
+        The header, the separator, and one row per run.
+    """
+    header = (
+        "| run | revisions | map | map error | build exit | build findings | "
+        "broken refs |"
+    )
+    rows = [header, separator(header)]
+    for run_id, result in runs.items():
+        # Guarded: an aggregate archived before the instrument existed carries
+        # runs with no `quality` at all, and it still has to render.
+        quality = result.get("quality") or {}
+        status = quality.get("revisions_status")
+        # Not `len(revisions)`. The list is empty both for a run that recorded
+        # no revision and for a map nothing could enumerate, and only the
+        # first of those is a count of zero.
+        counted = len(quality["revisions"]) if status == "read" else None
+        build = quality.get("build") or {}
+        rows.append(
+            f"| {cell(run_id)} | {cell(counted)} | {cell(status)} "
+            f"| {cell(quality.get('revisions_error'))} "
+            f"| {cell(build.get('exit_code'))} "
+            f"| {cell(_count(build.get('findings')))} "
+            f"| {cell(_count(build.get('broken_references')))} |"
+        )
+    return rows
+
+
+def _quality_revision_rows(runs: dict[str, dict[str, Any]]) -> list[str]:
+    """One row per revision, over every run that enumerated its map.
+
+    The two status columns are what make the dashes readable: a metric is
+    ``None`` because no frozen manifest fed it, or because the draft
+    repository yielded no text at the tag, and the row says which. The
+    columns a manifest does not feed stay real in the first of those cases,
+    so an unmeasured row is still worth reading.
+
+    Args:
+        runs: The aggregate's ``runs``.
+
+    Returns:
+        The header, the separator, and one row per revision.
+    """
+    header = (
+        "| run | tag | rev | kind | manifest | draft | cited | findings | "
+        "narration | abstract words | manifest error | draft error |"
+    )
+    rows = [header, separator(header)]
+    for run_id, result in runs.items():
+        for revision in (result.get("quality") or {}).get("revisions") or ():
+            rows.append(
+                f"| {cell(run_id)} | {cell(revision['tag'])} "
+                f"| {cell(revision['number'])} | {cell(revision['kind'])} "
+                f"| {cell(revision['manifest_status'])} "
+                f"| {cell(revision['draft_status'])} "
+                f"| {cell(revision['citations']['cited_fraction'])} "
+                f"| {cell(revision['finding_count'])} "
+                f"| {cell(revision['narration_count'])} "
+                f"| {cell(revision['abstract']['word_count'])} "
+                f"| {cell(revision['manifest_error'])} "
+                f"| {cell(revision['draft_error'])} |"
+            )
+    return rows
+
+
 def _pass_mark(value: Any) -> str:
     """Three-way: passed, failed, or not yet decided by enough repeats."""
     if value is None:
@@ -147,6 +239,12 @@ def render_report(aggregate: dict[str, Any]) -> str:
         "## Per cluster (pass^k)",
         "",
         *_cluster_rows(aggregate["arms"]),
+        "",
+        "## Quality",
+        "",
+        *_quality_run_rows(aggregate["runs"]),
+        "",
+        *_quality_revision_rows(aggregate["runs"]),
         "",
         "## Definitions",
         "",
