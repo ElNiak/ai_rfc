@@ -80,6 +80,11 @@ def test_claim_upsert_parity(make_workspace, capsys):
     assert (tool_arm / "manifest.yaml").read_bytes() == (
         cli_arm / "manifest.yaml"
     ).read_bytes()
+    # Equal-and-unwritten is what byte-equality alone cannot see: two arms
+    # that both no-opped leave two untouched copies of the fixture's manifest
+    # and compare equal. The claim this verb was asked to add is the proof
+    # either arm wrote at all.
+    assert "t:5.1" in (tool_arm / "manifest.yaml").read_text()
 
 
 def test_record_status_parity(make_workspace, capsys):
@@ -102,6 +107,9 @@ def test_read_parity_adjudicate(make_workspace, capsys):
     assert cli.main(["claim", "check"]) == 0
     from_cli = json.loads(capsys.readouterr().out)
     assert from_tool == from_cli
+    # An empty preview compares equal to an empty preview, so the fixture's
+    # own two claims are what prove either arm adjudicated anything.
+    assert {row["id"] for row in from_tool} == {"t:1.1", "t:2.1"}
 
 
 PARITY_TABLE = Path(__file__).resolve().parents[2] / "docs" / "parity.md"
@@ -138,20 +146,28 @@ def _cells(row: str) -> list[str]:
     return [cell.strip().replace("\\|", "|") for cell in _BOUNDARY.split(row)[1:-1]]
 
 
-def _verb_column() -> dict[str, str]:
-    """The parity table's tool name to its CLI cell.
+def _verb_column() -> list[tuple[str, str]]:
+    """The parity table's tool name and its CLI cell, one pair per row.
+
+    Pairs rather than a dict, and the difference is a real hole: a dict keyed
+    on the tool name **collapses a duplicated row into one**, so a table that
+    listed `ai_rfc_gate` twice — with two different verbs, even — would satisfy
+    a set comparison against `ALL_TOOLS` and lose the second cell unchecked.
+    Of the edits a reader could make to the table, that is the only one the
+    guard would otherwise not see.
 
     Returns:
-        ``{tool name: middle cell}`` for every row of the tool table. Rows are
-        recognised by their first cell, so the exit-code table below it and the
-        prose around it are not rows.
+        ``(tool name, middle cell)`` for every row of the tool table, in the
+        order the document lists them. Rows are recognised by their first
+        cell, so the exit-code table below and the prose around it are not
+        rows.
     """
-    return {
-        cells[0].strip("`"): cells[1]
+    return [
+        (cells[0].strip("`"), cells[1])
         for line in PARITY_TABLE.read_text().splitlines()
         if line.startswith("| `ai_rfc_")
         for cells in [_cells(line)]
-    }
+    ]
 
 
 def _subcommands(parser: argparse.ArgumentParser) -> argparse._SubParsersAction | None:
@@ -205,9 +221,13 @@ def test_the_parity_table_names_a_verb_the_parser_owns():
     it drives both arms rather than reading either name.
     """
     parser = cli.build_parser()
-    column = _verb_column()
-    assert set(column) == {tool.__name__ for tool in tools.ALL_TOOLS}
-    for tool_name, cell in column.items():
+    rows = _verb_column()
+    names = [name for name, _ in rows]
+    # Before the set comparison, which cannot see a repeat: two rows for one
+    # tool would satisfy it while leaving one of the two cells unread.
+    assert len(names) == len(set(names)), "a tool is listed twice"
+    assert set(names) == {tool.__name__ for tool in tools.ALL_TOOLS}
+    for tool_name, cell in rows:
         if tool_name == "ai_rfc_status":
             assert cell == MCP_ONLY, cell
             continue
@@ -292,6 +312,8 @@ def test_structure_upsert_parity(make_workspace, capsys):
     assert (tool_arm / "manifest.yaml").read_bytes() == (
         cli_arm / "manifest.yaml"
     ).read_bytes()
+    # A refused upsert leaves both manifests the fixture's, byte for byte.
+    assert "Message header" in (tool_arm / "manifest.yaml").read_text()
 
 
 def test_draft_render_parity(make_workspace, capsys):
@@ -403,6 +425,9 @@ def test_consolidation_checkpoint_and_revision_parity(make_workspace, capsys):
         assert payload["stderr"] == [f"note: checkpoint written to {arm / written}"]
     for name in ("revisions.yaml", "consolidations/01/checkpoint.json"):
         assert (tool_arm / name).read_bytes() == (cli_arm / name).read_bytes()
+    # Two unwritten registers are byte-identical too, and nothing else here
+    # reads what `revision record` put in one.
+    assert "draft-test-spec-00" in (tool_arm / "revisions.yaml").read_text()
     record = json.loads((tool_arm / "consolidations/01/checkpoint.json").read_text())
     # Both arms share one core, so byte equality alone cannot tell a real
     # consolidation from a degenerate re-freeze of the cluster's manifest.
