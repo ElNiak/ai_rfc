@@ -24,10 +24,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, ClassVar
 
-import yaml
-
 from ai_rfc.draft.build import BuildError, BuildReport, build, load_toolchain
-from ai_rfc.draft.gate import GateError, load_revisions
+from ai_rfc.draft.gate import latest_tag
 
 from ...lifecycle.workspace import REFCACHE_DIR
 from .. import ExperimentError
@@ -168,15 +166,6 @@ def campaign_id_for(counter: int, example: Example, candidate_sha: str) -> str:
     return f"e{counter:04d}-{example.kind}-{candidate_sha[:8]}"
 
 
-def _latest_tag(workspace: Path) -> str:
-    """The highest-numbered revision tag a run recorded, or ``HEAD``."""
-    try:
-        entries = load_revisions(workspace / "revisions.yaml")
-    except (GateError, OSError, yaml.YAMLError):
-        return "HEAD"
-    return max(entries, key=lambda entry: entry.number).tag if entries else "HEAD"
-
-
 def draft_build_report(
     campaign: Campaign, workspace: Path, *, log: Callable[[str], None] = print
 ) -> BuildReport | None:
@@ -207,7 +196,7 @@ def draft_build_report(
             workspace / "draft",
             toolchain=load_toolchain(Path(campaign.toolchain)),
             out=workspace.parent / BUILD_DIR,
-            ref=_latest_tag(workspace),
+            ref=latest_tag(workspace),
             refcache=sealed if sealed.is_dir() else None,
         )
     except (BuildError, OSError) as error:

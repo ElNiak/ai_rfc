@@ -139,6 +139,29 @@ def load_revisions(path: Path) -> tuple[RevisionEntry, ...]:
     return tuple(entries)
 
 
+def latest_tag(workspace: Path) -> str:
+    """The highest-numbered revision tag a run recorded, or ``HEAD``.
+
+    It lives beside :func:`load_revisions`, its only reader, rather than in
+    ``experiment.optimize.evaluator`` where it was written: the draft-quality
+    instrument needs it too, and reaching it through that module would make
+    every caller import the optimization backend to name one tag.
+
+    Args:
+        workspace: The run's workspace, holding ``revisions.yaml``.
+
+    Returns:
+        The tag of the highest-numbered revision, or ``HEAD`` when the run
+        tagged nothing or its revision map cannot be read — a run that tagged
+        nothing is read at ``HEAD``, which is the last thing it committed.
+    """
+    try:
+        entries = load_revisions(workspace / "revisions.yaml")
+    except (GateError, OSError, yaml.YAMLError):
+        return "HEAD"
+    return max(entries, key=lambda entry: entry.number).tag if entries else "HEAD"
+
+
 def _cluster_ordinals(timeline_dir: Path) -> dict[str, int]:
     rows = (timeline_dir / "clusters.jsonl").read_text().splitlines()
     return {
