@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from ai_rfc.driver import printable
+
 
 def _fmt(value: Any, digits: int = 3) -> str:
     if value is None:
@@ -22,6 +24,13 @@ def _code(value: Any) -> str:
     A run of backticks inside the value is fenced by a longer run outside it,
     per CommonMark; a leading or trailing backtick needs the padding space.
 
+    :func:`~ai_rfc.driver.printable` runs first, so a character that would end
+    the line is already a visible escape by the time the fence is measured. It
+    is the predicate over the whole unprintable category, which is what this
+    needs: neutralising ``\\n`` alone left CR — CommonMark's other line ending
+    — and five further characters :meth:`str.splitlines` breaks on. Nothing
+    else is escaped, because a code span's content is literal.
+
     Args:
         value: Any value; ``None`` renders as the em dash, never as a span.
 
@@ -30,7 +39,7 @@ def _code(value: Any) -> str:
     """
     if value is None:
         return "—"
-    text = str(value).replace("\n", " ")
+    text = printable(str(value))
     longest = max((len(m) for m in re.findall(r"`+", text)), default=0)
     fence = "`" * (longest + 1)
     pad = " " if text.startswith("`") or text.endswith("`") else ""
@@ -40,13 +49,18 @@ def _code(value: Any) -> str:
 def _cell(value: Any) -> str:
     """One value as a table cell that cannot add a column or a row.
 
+    :func:`~ai_rfc.driver.printable` runs first, so every character that ends a
+    line is already a visible escape before the backslashes it wrote are
+    doubled; a pipe is escaped after that doubling, so its own backslash stays
+    single.
+
     Args:
         value: Any value.
 
     Returns:
-        The cell text with pipes escaped and newlines flattened.
+        The cell text with pipes escaped and every line ending made visible.
     """
-    return str(_fmt(value)).replace("\\", "\\\\").replace("|", "\\|").replace("\n", " ")
+    return printable(str(_fmt(value))).replace("\\", "\\\\").replace("|", "\\|")
 
 
 def _separator(header: str) -> str:
@@ -142,7 +156,10 @@ def render_report(aggregate: dict[str, Any]) -> str:
     """
     git = aggregate.get("git") or {}
     lines = [
-        f"# Campaign {aggregate['campaign']}",
+        # The heading, not a span: `_code` would change how it renders. A
+        # campaign id is never charset-validated, and a line ending inside one
+        # ends the heading, so everything after it parses as fresh markdown.
+        f"# Campaign {printable(str(aggregate['campaign']))}",
         "",
         f"- target: {_code(aggregate['target'])}, window {aggregate['window']}",
         f"- model: {_code(aggregate['model'])}, effort {_code(aggregate['effort'])}, harness {_code(aggregate['claude_version'])}",
@@ -151,7 +168,7 @@ def render_report(aggregate: dict[str, Any]) -> str:
         # package's own root under PANTHER's label.
         f"- git: ai_rfc {_code(git.get('ai_rfc'))}",
         f"- parity pre-run: {aggregate.get('parity_pre_run')}",
-        f"- run order: {_cell(', '.join(aggregate['run_order']))}",
+        f"- run order: {', '.join(_code(r) for r in aggregate['run_order'])}",
         "",
         "## Per arm",
         "",

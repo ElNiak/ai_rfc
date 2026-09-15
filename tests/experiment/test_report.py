@@ -1,4 +1,24 @@
+import pytest
+
 from ai_rfc.experiment.report import render_report
+
+#: One representative of each character that ends a line. CR and LF are
+#: CommonMark's two line endings, so either one ends a GFM table row, and the
+#: rest additionally split :meth:`str.splitlines`, which the assertions below
+#: call. Seven characters are a *sample* of the category, never the category:
+#: that is why the renderer's fix is :func:`ai_rfc.driver.printable`'s
+#: predicate over ``isprintable`` rather than a list like this one. Written
+#: with :func:`chr` so the source carries no unprintable character of its own,
+#: which ``tests/substrate/test_source_hygiene.py`` forbids.
+LINE_BREAKERS = (
+    "\r",
+    "\n",
+    chr(0x0B),
+    chr(0x0C),
+    chr(0x85),
+    chr(0x2028),
+    chr(0x2029),
+)
 
 
 def _aggregate(*, target="fixture", run_id="A1", cluster_id="c0002-x"):
@@ -148,13 +168,16 @@ def test_an_undecided_cluster_is_not_rendered_as_a_failure():
 def test_a_backtick_in_a_value_cannot_break_its_code_span():
     """A target carrying a backtick must not escape its span into raw markup.
 
-    Today `report.py:112` emits a single-backtick span, so a backtick in the
-    value closes it early and the rest goes live as markup. `_code` fences with
-    a run one longer than the longest run inside, so the span opens with two.
+    The line that is now `report.py:164` emitted a single-backtick span, so a
+    backtick in the value closed it early and the rest went live as markup.
+    `_code` fences with a run one longer than the longest run inside, so the
+    span opens with two.
     """
     aggregate = _aggregate(target="repo`<b>bold</b>`x")
     target_line = next(
-        l for l in render_report(aggregate).splitlines() if l.startswith("- target:")
+        line
+        for line in render_report(aggregate).splitlines()
+        if line.startswith("- target:")
     )
     assert target_line.startswith("- target: ``")
 
@@ -162,7 +185,11 @@ def test_a_backtick_in_a_value_cannot_break_its_code_span():
 def test_a_pipe_in_a_cluster_id_cannot_add_a_column():
     """cluster_id reaches a table cell and is derived from repo history."""
     aggregate = _aggregate(cluster_id="c1|evil|x")
-    rows = [l for l in render_report(aggregate).splitlines() if l.startswith("| c1")]
+    rows = [
+        line
+        for line in render_report(aggregate).splitlines()
+        if line.startswith("| c1")
+    ]
     assert len(rows) == 1
     # Structural pipes are one per arm column plus the two outer rails.
     assert rows[0].count("|") - rows[0].count("\\|") == len(aggregate["arms"]) + 2
@@ -171,3 +198,33 @@ def test_a_pipe_in_a_cluster_id_cannot_add_a_column():
 def test_a_newline_in_a_run_id_cannot_break_the_table():
     aggregate = _aggregate(run_id="r1\nr2")
     assert "r1\nr2" not in render_report(aggregate)
+
+
+@pytest.mark.parametrize("breaker", LINE_BREAKERS)
+def test_no_line_ending_in_a_cell_can_add_a_row(breaker):
+    """A table row is one line, so a value that ends a line ends the table.
+
+    The newline test above is this one's first member. Neutralising ``\\n``
+    alone is the enumeration that predicate escaping exists to retire: CR ends
+    a row under CommonMark exactly as LF does, and five further characters end
+    one under :meth:`str.splitlines`.
+    """
+    benign = render_report(_aggregate(run_id="r1r2"))
+    hostile = render_report(_aggregate(run_id="r1" + breaker + "r2"))
+
+    assert len(hostile.splitlines()) == len(benign.splitlines())
+    row = next(line for line in hostile.splitlines() if line.startswith("| r1"))
+    assert "r2 |" in row
+
+
+@pytest.mark.parametrize("breaker", LINE_BREAKERS)
+def test_no_line_ending_in_a_code_span_can_add_a_line(breaker):
+    """``_code`` carries the same duty as ``_cell``: one value, one line."""
+    benign = render_report(_aggregate(target="r1r2"))
+    hostile = render_report(_aggregate(target="r1" + breaker + "r2"))
+
+    assert len(hostile.splitlines()) == len(benign.splitlines())
+    target_line = next(
+        line for line in hostile.splitlines() if line.startswith("- target:")
+    )
+    assert "r2`" in target_line
