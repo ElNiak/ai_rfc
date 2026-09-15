@@ -21,6 +21,7 @@ from ai_rfc.draft.checkpoint import MANIFEST_FILE
 from ai_rfc.draft.gate import draft_text
 from ai_rfc.draft.lint import lint
 from ai_rfc.experiment.quality import (
+    _flatten,
     compare_lints,
     final_build,
     reduce_lint,
@@ -29,11 +30,29 @@ from ai_rfc.experiment.quality import (
 from ai_rfc.experiment.workspace import copy_workspace
 from ai_rfc.schema import load
 
-from .conftest import REPO_ROOT
+from .conftest import REPO_ROOT, append_untagged_revision
 from .test_fake_claude import _cluster_steps, _launch, _one_round
 
 FIRST_TAG = "draft-test-fixture-01"
 SECOND_TAG = "draft-test-fixture-02"
+#: A third revision the fixture never tags; see `append_untagged_revision`.
+UNTAGGED = "draft-test-fixture-03"
+#: The cluster that third revision names. No checkpoint directory carries it,
+#: so the revision has no frozen manifest either — which is what a kill before
+#: `git tag` really leaves, since the checkpoint is written later still.
+UNCHECKPOINTED_CLUSTER = "c0009-never-ran"
+#: The row keys that are provenance rather than measurement. They stay real on
+#: a row with no draft; everything else in it must be None.
+PROVENANCE = {
+    "tag",
+    "number",
+    "cluster_id",
+    "kind",
+    "manifest_status",
+    "manifest_error",
+    "draft_status",
+    "draft_error",
+}
 #: Two defects a manifest is not needed to see: a fenced figure with no
 #: citation in the three lines after it closes, and a structure block that
 #: opens and never closes. Appended to a real draft, they make the text-only
@@ -240,6 +259,73 @@ def test_a_frozen_manifest_that_exists_and_will_not_open_is_raised(two_tag_works
     frozen = two_tag_workspace / "checkpoints" / rows[0]["cluster_id"] / MANIFEST_FILE
     frozen.unlink()
     frozen.mkdir()
+    with pytest.raises(OSError):
+        revision_lints(two_tag_workspace)
+
+
+def test_a_tag_the_draft_repository_never_got_is_reported_not_raised(
+    two_tag_workspace,
+):
+    """R23: a run killed between appending the entry and tagging is evidence.
+
+    Raising would not stop at the revision: ``analyze_campaign`` builds its
+    runs in a dict comprehension, so one such run would abort the aggregate
+    for every run in the campaign — the failure class the ``salvage_stream``
+    comment in ``metrics.py`` already rules on, and the reason a GEPA
+    evaluation of a candidate that died in that window would lose its score
+    outright rather than be scored.
+
+    Both sides are asserted in the one workspace. A workspace where every
+    revision were absent would prove as little as one where none is: it could
+    not tell this apart from an instrument that reports every row unmeasured.
+    """
+    append_untagged_revision(two_tag_workspace, UNTAGGED, UNCHECKPOINTED_CLUSTER)
+    rows = revision_lints(two_tag_workspace)
+    measured, absent = rows[1], rows[2]
+
+    assert [row["draft_status"] for row in rows] == ["read", "read", "unreadable"]
+    assert UNTAGGED in absent["draft_error"]
+    assert measured["draft_error"] is None
+    # The kill took the checkpoint along with the tag, so the row carries both
+    # reasons: nulling `manifest_error` with the metrics would leave
+    # `manifest_status` asserting "missing" with nothing to say why.
+    assert absent["manifest_status"] == "missing"
+    assert UNCHECKPOINTED_CLUSTER in absent["manifest_error"]
+
+    # The key sets are compared rather than a list of metric names kept here,
+    # so a metric `reduce_lint` grows later cannot end up measured on one row
+    # and absent from the other.
+    flat_absent, flat_measured = _flatten(absent), _flatten(measured)
+    assert set(flat_absent) == set(flat_measured)
+    assert all(flat_absent[name] is None for name in set(flat_absent) - PROVENANCE)
+    # None and not zero. Linting the empty string would score each of these,
+    # and an absent revision would then read as an empty draft.
+    assert absent["citations"]["tokens"] is None
+    assert absent["narration_count"] is None
+    assert absent["abstract"]["word_count"] is None
+    assert absent["references"] == {
+        "normative": None,
+        "informative": None,
+        "inline": None,
+    }
+    # The sibling beside it in the same workspace still measures.
+    assert measured["citations"]["cited_fraction"] == 1.0
+    assert measured["narration_count"] is not None
+
+
+def test_git_that_cannot_be_invoked_is_raised_and_not_reported(
+    two_tag_workspace, monkeypatch
+):
+    """The swallow is for the evidence, not for a broken instrument.
+
+    ``_draft_at`` catches ``GateError`` alone, so git that cannot be run at
+    all still fails loudly instead of reporting every revision unmeasured — a
+    row of nulls per revision is exactly what a caught ``Exception`` would
+    produce here, and it would be indistinguishable from a run that tagged
+    nothing. An empty ``PATH`` is that failure deterministically, and
+    ``load_revisions`` runs no git, so the loop is reached first.
+    """
+    monkeypatch.setenv("PATH", "")
     with pytest.raises(OSError):
         revision_lints(two_tag_workspace)
 

@@ -16,7 +16,7 @@ from ai_rfc.experiment.metrics import (
 )
 from ai_rfc.server.testing import git as _vcs
 
-from .conftest import COMPLETE_STEPS
+from .conftest import COMPLETE_STEPS, append_untagged_revision
 
 
 def _one_bash_call(command: str) -> list[dict]:
@@ -208,6 +208,44 @@ def test_analyze_campaign_aggregates_per_arm(campaign, write_scenario):
     assert arms["C"]["cost_per_completed_cluster"] == 1.1
     assert arms["A"]["integrity_rate"] == 1.0 and arms["A"]["runs"] == 1
     assert aggregate["definitions"]["completed"]
+    stored = json.loads((campaign.analysis_dir / "aggregate.json").read_text())
+    assert stored == aggregate
+
+
+def test_one_untagged_revision_does_not_abort_the_whole_aggregate(
+    campaign, write_scenario
+):
+    """R23 at the level the comprehension makes it matter.
+
+    ``runs`` is built in a dict comprehension, so a revision the draft
+    repository never got would take down the aggregate for every other run in
+    the campaign and not just its own. A test that exercised ``analyze_run``
+    alone could not see that: the damaged run would report its row and the
+    aggregate would still be the thing that never got built.
+    """
+    _run(
+        campaign,
+        write_scenario,
+        {
+            "A1": {"arm": "A", "cost": 1.0, "steps": COMPLETE_STEPS},
+            "C1": {"arm": "C", "cost": 1.1, "steps": COMPLETE_STEPS},
+        },
+    )
+    append_untagged_revision(
+        campaign.runs_dir / "A1" / "workspace",
+        "draft-test-fixture-09",
+        "c0009-never-ran",
+    )
+    aggregate = analyze_campaign(campaign)
+
+    assert set(aggregate["runs"]) == {"A1", "C1"}
+    damaged = aggregate["runs"]["A1"]["quality"]["revisions"]
+    intact = aggregate["runs"]["C1"]["quality"]["revisions"]
+    assert [r["draft_status"] for r in damaged] == ["read", "unreadable"]
+    assert [r["draft_status"] for r in intact] == ["read"]
+    assert damaged[1]["citations"]["tokens"] is None
+    assert intact[0]["citations"]["tokens"] is not None
+    # D-33 again: the nulled row must survive the round trip like any other.
     stored = json.loads((campaign.analysis_dir / "aggregate.json").read_text())
     assert stored == aggregate
 

@@ -45,9 +45,9 @@ DEFINITIONS = {
     "tokens_to_first_completion": "cumulative tokens (input+output+cache_creation+cache_read) at the checkpoint call of the first cluster that ends up completed",
     "auc": "integral over normalized cumulative tokens of completed_so_far/window_size, as a right-continuous step function",
     "checked_fraction": "the substrate's honesty metric, reported per checkpoint; expected 0.0 without interviews or runtime anchors",
-    "quality_revisions": "one lint of the draft at every tag the run recorded, each against the manifest its own checkpoint froze; linting an early revision against the final manifest would report a later cluster's claims as uncited",
+    "quality_revisions": "one lint of the draft at every tag the run recorded, each against the manifest its own checkpoint froze; linting an early revision against the final manifest would report a later cluster's claims as uncited; a tag the draft repository does not hold is a row with no lint at all, and draft_status says so",
     "quality_build": "the draft at the run's highest-numbered tag, built with the campaign's frozen toolchain; null both when the analysis was not asked for a build, which is the default, and when the campaign froze no toolchain",
-    "quality_unmeasured": "null in a lint row means unmeasured and never zero: the metrics a frozen manifest feeds are null unless manifest_status is read, while the metrics the draft text alone shows stay real",
+    "quality_unmeasured": "null in a lint row means unmeasured and never zero: the metrics a frozen manifest feeds are null unless manifest_status is read, while the metrics the draft text alone shows stay real so long as draft_status is read; a row whose draft_status is unreadable has no text to measure and every metric in it is null",
 }
 #: Arm B's command prefixes, from the one declaration in :mod:`driver.arms`.
 #: The trajectory is the third reader of it: a literal here that fell behind
@@ -295,8 +295,9 @@ def analyze_run(
 
     Raises:
         ExperimentError: If the run has no status record.
-        GateError: If the revision map is malformed, or a tag it registers
-            cannot be read out of the draft repository.
+        GateError: If the revision map is malformed. A tag it registers that
+            the draft repository does not hold is a lint row, not a raise
+            (R23): one such run must not abort the aggregate for every other.
         BuildError: If ``build`` and the toolchain record is unreadable or
             the run's last tag does not resolve to a single draft.
     """

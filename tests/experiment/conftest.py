@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FAKE_CLAUDE = Path(__file__).parent / "fake_claude" / "claude"
@@ -230,6 +231,37 @@ COMPLETE_STEPS = [
     },
     {"kind": "tag", "tag": "draft-test-fixture-00"},
 ]
+
+
+def append_untagged_revision(workspace: Path, tag: str, cluster_id: str) -> None:
+    """Record a revision the way a run killed before ``git tag`` leaves one.
+
+    ``COMPLETE_STEPS`` shows the real sequence: the entry is appended to
+    ``revisions.yaml`` and only then is the tag created, so a kill between the
+    two leaves an entry the draft repository holds no tag for — and, since the
+    checkpoint is written later still, no frozen manifest for it either. Both
+    halves of that state matter: a tag deleted after the fact would leave the
+    checkpoint behind and could not tell a row that keeps its manifest reason
+    from one that drops it.
+
+    The body is copied from the last recorded revision rather than written out
+    here, so it stays whatever ``ai_rfc.server.core.revisions`` actually
+    writes; only ``cluster_id`` is replaced.
+
+    Args:
+        workspace: The run's workspace, holding ``revisions.yaml``.
+        tag: The tag to register. Its two-digit suffix must sort after every
+            recorded one, since the rows come back in revision-number order.
+        cluster_id: A cluster id the workspace has no checkpoint directory for.
+    """
+    path = workspace / "revisions.yaml"
+    document = yaml.safe_load(path.read_text())
+    recorded = document["revisions"]
+    body = dict(recorded[max(recorded)])
+    body["cluster_id"] = cluster_id
+    recorded[tag] = body
+    path.write_text(yaml.safe_dump(document, sort_keys=True))
+
 
 INTERVIEW_TRANSCRIPT = "int-001.md"
 INTERVIEW_AUTHOR = "Robin Alder"

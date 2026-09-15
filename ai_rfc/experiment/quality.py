@@ -19,7 +19,13 @@ from typing import Any, Mapping
 
 from ai_rfc.draft.build import BuildReport, build, load_toolchain
 from ai_rfc.draft.checkpoint import MANIFEST_FILE
-from ai_rfc.draft.gate import _checkpoint_dir, draft_text, latest_tag, load_revisions
+from ai_rfc.draft.gate import (
+    GateError,
+    _checkpoint_dir,
+    draft_text,
+    latest_tag,
+    load_revisions,
+)
 from ai_rfc.draft.lint import LintReport, lint
 from ai_rfc.schema import SchemaError, load
 
@@ -34,6 +40,13 @@ MANIFEST_READ = "read"
 MANIFEST_MISSING = "missing"
 #: The document was there and the schema refused it.
 MANIFEST_UNLOADABLE = "unloadable"
+
+#: The draft at the tag was read out of the draft repository.
+DRAFT_READ = "read"
+#: The revision map registers the tag and the draft repository yields no draft
+#: at it. A run killed between appending the entry and running `git tag`
+#: leaves exactly this.
+DRAFT_UNREADABLE = "unreadable"
 
 
 def _unmeasured(measured: Any) -> Any:
@@ -191,16 +204,69 @@ def _frozen_manifest(path: Path) -> tuple[Manifest | None, str | None, str]:
         return None, str(failure), MANIFEST_UNLOADABLE
 
 
+def _draft_at(
+    draft_repo: Path, tag: str
+) -> tuple[tuple[str, str] | None, str | None, str]:
+    """The draft at a tag, or why the repository would not yield one.
+
+    Reported rather than raised, for the reason :func:`_frozen_manifest`
+    records: a tag the revision map registers and the draft repository does
+    not hold is evidence about the run — it is what a run killed between
+    appending the entry and running ``git tag`` leaves behind — and
+    :func:`~ai_rfc.experiment.metrics.analyze_campaign` builds its runs in a
+    comprehension, so raising would take the aggregate for every other run in
+    the campaign down with it (R23).
+
+    Every :exc:`GateError` arm is reported, not the absent tag alone: a ref
+    holding no ``draft-*.md`` or several is damaged evidence too, and the
+    message says which. :exc:`OSError` still propagates — git that cannot be
+    invoked is a broken instrument, not a finding about the run.
+
+    Args:
+        draft_repo: The run's nested prose-draft git repository.
+        tag: The revision tag to read.
+
+    Returns:
+        The file name and text, or None; the reason or None; and which
+        outcome fired — :data:`DRAFT_READ` or :data:`DRAFT_UNREADABLE`.
+
+    Raises:
+        OSError: If git cannot be invoked at all.
+    """
+    try:
+        return draft_text(draft_repo, tag), None, DRAFT_READ
+    except GateError as failure:
+        return None, str(failure), DRAFT_UNREADABLE
+
+
+def _unmeasured_lint() -> dict[str, Any]:
+    """The projection :func:`reduce_lint` returns, with every metric ``None``.
+
+    The keys are derived by projecting a lint of the empty string and nulling
+    every leaf, never written out here, so a metric :func:`reduce_lint` grows
+    later is unmeasured-correct with no second edit. The empty text is a
+    source of *keys* and never of values: :func:`_unmeasured` discards every
+    number it scores, so a revision with no draft reports ``None`` and not the
+    zeros an empty draft would earn.
+
+    Returns:
+        The projection over ``None``.
+    """
+    return _unmeasured(reduce_lint(lint("")))
+
+
 def revision_lints(workspace: Path) -> list[dict[str, Any]]:
     """Lint every revision a run tagged, each against its own frozen manifest.
 
     A frozen manifest that is absent, or that is there and will not load, is
     reported as a lint finding rather than raised: the draft at that tag is
     still worth measuring, and the lint has a parameter for exactly this.
-    :func:`_frozen_manifest` says which of the two happened. A tag missing from
-    the draft repository is not handled here — that is the citation gate's
-    finding, and hiding it would make an absent revision look like an empty
-    one.
+    :func:`_frozen_manifest` says which of the two happened.
+
+    A tag the draft repository will not yield a draft at is reported the same
+    way, by :func:`_draft_at`. There is no text to lint in that case, so every
+    metric in the row is ``None`` rather than the zeros an empty draft would
+    score: an absent revision must not read as an empty one.
 
     Args:
         workspace: The run's workspace, holding ``revisions.yaml``, the
@@ -209,14 +275,14 @@ def revision_lints(workspace: Path) -> list[dict[str, Any]]:
     Returns:
         One record per revision in revision-number order, carrying the tag,
         number, cluster id and kind from the revision map, the
-        ``manifest_status`` its frozen manifest resolved to, and the metrics
-        :func:`reduce_lint` projects.
+        ``manifest_status`` its frozen manifest resolved to, the
+        ``draft_status`` its tag resolved to with the ``draft_error`` that
+        explains it, and the metrics :func:`reduce_lint` projects.
 
     Raises:
-        GateError: If the revision map is malformed or a tag cannot be read
-            out of the draft repository.
-        OSError: If the revision map cannot be read, or a frozen manifest is
-            there and cannot be opened.
+        GateError: If the revision map is malformed.
+        OSError: If the revision map cannot be read, a frozen manifest is
+            there and cannot be opened, or git cannot be invoked.
     """
     draft_repo = workspace / "draft"
     checkpoints = workspace / "checkpoints"
@@ -225,22 +291,34 @@ def revision_lints(workspace: Path) -> list[dict[str, Any]]:
     # `load_revisions` returns its entries ordered by revision number.
     for entry in load_revisions(workspace / "revisions.yaml"):
         frozen_path = _checkpoint_dir(entry, checkpoints, consolidations)
-        frozen, error, status = _frozen_manifest(frozen_path / MANIFEST_FILE)
-        name, text = draft_text(draft_repo, entry.tag)
-        report = lint(
-            text,
-            manifest=frozen,
-            manifest_error=error,
-            source={"path": name, "ref": entry.tag},
-        )
+        frozen, error, manifest_status = _frozen_manifest(frozen_path / MANIFEST_FILE)
+        drafted, draft_error, draft_status = _draft_at(draft_repo, entry.tag)
+        if drafted is None:
+            metrics = _unmeasured_lint()
+            # `manifest_error` explains the manifest and not the text, so it is
+            # known whether or not there was a draft to lint. Nulling it with
+            # the metrics would leave `manifest_status` unexplained.
+            metrics["manifest_error"] = error
+        else:
+            name, text = drafted
+            metrics = reduce_lint(
+                lint(
+                    text,
+                    manifest=frozen,
+                    manifest_error=error,
+                    source={"path": name, "ref": entry.tag},
+                )
+            )
         rows.append(
             {
                 "tag": entry.tag,
                 "number": entry.number,
                 "cluster_id": entry.cluster_id,
                 "kind": entry.kind,
-                "manifest_status": status,
-                **reduce_lint(report),
+                "manifest_status": manifest_status,
+                "draft_status": draft_status,
+                "draft_error": draft_error,
+                **metrics,
             }
         )
     return rows
