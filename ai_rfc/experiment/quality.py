@@ -35,14 +35,16 @@ from .markdown import cell, fmt, separator
 
 #: The frozen manifest loaded.
 MANIFEST_READ = "read"
-#: Nothing was at the path. A recorded revision always had a checkpoint —
-#: `record_revision` refuses to record one until its `checkpoint.json` exists
+#: Nothing was at the path: any entry whose resolved checkpoint directory holds
+#: no `manifest.yaml`, however it came to. Stated as that predicate and not as a
+#: list of causes, because the causes are open — a checkpoint deleted after it
+#: was recorded, a consolidation whose `checkpoint` path `_checkpoint_dir`
+#: resolves elsewhere than the writer guarded, and an entry written straight
+#: into the map, which bypasses the writer altogether, all reach it. What is
+#: ruled *out* is a kill between tagging and checkpointing: `record_revision`
+#: will not record a revision until its `checkpoint.json` exists
 #: (`server/core/revisions.py:67-71`), and the checkpoint step writes
-#: `manifest.yaml` beside it — so no kill between tagging and checkpointing
-#: reaches here. Two things do: a workspace whose checkpoint went missing after
-#: it was recorded, and a consolidation whose recorded `checkpoint` path
-#: `_checkpoint_dir` resolves elsewhere than the writer guarded, since it keeps
-#: only the basename and the writer accepts any workspace-relative path.
+#: `manifest.yaml` beside it, so a recorded revision always had one.
 MANIFEST_MISSING = "missing"
 #: The document was there and the schema refused it.
 MANIFEST_UNLOADABLE = "unloadable"
@@ -54,6 +56,15 @@ DRAFT_READ = "read"
 #: exactly this — and leaves the checkpoint *present*, since that is written
 #: before the entry can be recorded at all.
 DRAFT_UNREADABLE = "unreadable"
+
+#: The revision map loaded. Its revisions may still be zero: a workspace no run
+#: has tagged in yet reads `revisions: {}`, and that is a measurement.
+REVISIONS_READ = "read"
+#: The revision map is there and `load_revisions` refused its shape, so how many
+#: revisions the run has is unknown. Arms hand-edit `revisions.yaml` — it is in
+#: `audit.STATE_FILES` for that reason — so this is reachable by an agent, not
+#: only by a damaged disk.
+REVISIONS_UNREADABLE = "unreadable"
 
 
 def _unmeasured(measured: Any) -> Any:
@@ -249,6 +260,39 @@ def _draft_at(
         return None, str(failure), DRAFT_UNREADABLE
 
 
+def _revision_map(path: Path) -> tuple[tuple[Any, ...] | None, str | None, str]:
+    """The revisions a run recorded, or why the map could not be read.
+
+    The third arm of the same ruling :func:`_draft_at` and
+    :func:`_frozen_manifest` carry (R27). A map an arm hand-edited into a shape
+    :func:`~ai_rfc.draft.gate.load_revisions` refuses is evidence about the run
+    — ``revisions.yaml`` is in :data:`~ai_rfc.experiment.audit.STATE_FILES`
+    precisely because arms edit it — and raising here would abort
+    :func:`~ai_rfc.experiment.metrics.analyze_campaign`'s comprehension for
+    every other run in the campaign, and lose a GEPA candidate its score.
+
+    :exc:`OSError` propagates, which is the instrument arm: the caller
+    computed this path, and a workspace with no ``revisions.yaml`` is not a
+    workspace.
+
+    Args:
+        path: Where the run's ``revisions.yaml`` should be.
+
+    Returns:
+        The entries or None, the reason or None, and which outcome fired —
+        :data:`REVISIONS_READ` or :data:`REVISIONS_UNREADABLE`. An empty tuple
+        with :data:`REVISIONS_READ` is a run that has recorded no revision yet,
+        which is a measurement and not an absence.
+
+    Raises:
+        OSError: If the map cannot be read at all.
+    """
+    try:
+        return load_revisions(path), None, REVISIONS_READ
+    except GateError as failure:
+        return None, str(failure), REVISIONS_UNREADABLE
+
+
 def _unmeasured_lint() -> dict[str, Any]:
     """The projection :func:`reduce_lint` returns, with every metric ``None``.
 
@@ -265,41 +309,55 @@ def _unmeasured_lint() -> dict[str, Any]:
     return _unmeasured(reduce_lint(lint("")))
 
 
-def revision_lints(workspace: Path) -> list[dict[str, Any]]:
+def revision_lints(workspace: Path) -> dict[str, Any]:
     """Lint every revision a run tagged, each against its own frozen manifest.
 
-    A frozen manifest that is absent, or that is there and will not load, is
-    reported as a lint finding rather than raised: the draft at that tag is
-    still worth measuring, and the lint has a parameter for exactly this.
-    :func:`_frozen_manifest` says which of the two happened.
+    Three conditions are reported rather than raised, one per level of the
+    evidence, and each names the level it belongs to.
 
-    A tag the draft repository will not yield a draft at is reported the same
-    way, by :func:`_draft_at`. There is no text to lint in that case, so every
-    metric in the row is ``None`` rather than the zeros an empty draft would
-    score: an absent revision must not read as an empty one.
+    A frozen manifest that is absent, or that is there and will not load, is
+    reported as a lint finding: the draft at that tag is still worth measuring,
+    and the lint has a parameter for exactly this. :func:`_frozen_manifest`
+    says which of the two happened.
+
+    A tag the draft repository will not yield a draft at is reported by
+    :func:`_draft_at`. There is no text to lint in that case, so every metric
+    in the row is ``None`` rather than the zeros an empty draft would score:
+    an absent revision must not read as an empty one.
+
+    A revision map that will not load is reported by :func:`_revision_map`,
+    and it is why this returns a record rather than the bare list it once did.
+    There are no rows to null when the map is unreadable — there is nothing to
+    enumerate — so the status belongs to the payload instead. ``revisions`` is
+    then ``[]``, and ``revisions_status`` is the only thing separating *this
+    run recorded none* from *this run's count is unknown*; a reader that takes
+    the empty list for zero revisions is wrong in the second case.
 
     Args:
         workspace: The run's workspace, holding ``revisions.yaml``, the
             checkpoint roots and the nested ``draft`` repository.
 
     Returns:
-        One record per revision in revision-number order, carrying the tag,
-        number, cluster id and kind from the revision map, the
-        ``manifest_status`` its frozen manifest resolved to, the
+        ``revisions``, ``revisions_status`` and ``revisions_error``.
+        ``revisions`` holds one record per revision in revision-number order,
+        carrying the tag, number, cluster id and kind from the revision map,
+        the ``manifest_status`` its frozen manifest resolved to, the
         ``draft_status`` its tag resolved to with the ``draft_error`` that
         explains it, and the metrics :func:`reduce_lint` projects.
 
     Raises:
-        GateError: If the revision map is malformed.
         OSError: If the revision map cannot be read, a frozen manifest is
             there and cannot be opened, or git cannot be invoked.
     """
+    entries, revisions_error, revisions_status = _revision_map(
+        workspace / "revisions.yaml"
+    )
     draft_repo = workspace / "draft"
     checkpoints = workspace / "checkpoints"
     consolidations = workspace / "consolidations"
     rows: list[dict[str, Any]] = []
     # `load_revisions` returns its entries ordered by revision number.
-    for entry in load_revisions(workspace / "revisions.yaml"):
+    for entry in entries or ():
         frozen_path = _checkpoint_dir(entry, checkpoints, consolidations)
         frozen, error, manifest_status = _frozen_manifest(frozen_path / MANIFEST_FILE)
         drafted, draft_error, draft_status = _draft_at(draft_repo, entry.tag)
@@ -331,7 +389,11 @@ def revision_lints(workspace: Path) -> list[dict[str, Any]]:
                 **metrics,
             }
         )
-    return rows
+    return {
+        "revisions": rows,
+        "revisions_status": revisions_status,
+        "revisions_error": revisions_error,
+    }
 
 
 def _reduce_build(report: BuildReport) -> dict[str, Any]:

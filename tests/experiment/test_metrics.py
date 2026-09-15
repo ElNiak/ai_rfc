@@ -160,10 +160,22 @@ def test_a_requested_build_is_routed_outside_the_run_directory(
 def test_analyze_campaign_passes_the_build_request_through(
     campaign, write_scenario, monkeypatch
 ):
-    """The campaign verb's flag reaches the build only through this keyword."""
+    """``analyze_campaign`` reaches the build only through this keyword.
+
+    Not a claim about the CLI: ``experiment/cli.py:1491`` calls
+    ``analyze_campaign(campaign)`` and the analyze verb has no ``--build``
+    flag today. What this pins is the keyword. Without it a mutant dropping
+    ``build=build`` from the comprehension is invisible, since nothing else
+    calls ``analyze_campaign(build=True)``; and the default is asserted here
+    too, since a mutant flipping it to True would otherwise just run builds
+    across the suite without failing anything.
+    """
     _run(campaign, write_scenario, {"A1": {"steps": COMPLETE_STEPS}})
     calls = []
     monkeypatch.setattr(metrics, "final_build", _recording_build(calls))
+
+    assert analyze_campaign(campaign)["runs"]["A1"]["quality"]["build"] is None
+    assert calls == []
 
     aggregate = analyze_campaign(campaign, build=True)
     assert [call["out"] for call in calls] == [
@@ -246,6 +258,55 @@ def test_one_untagged_revision_does_not_abort_the_whole_aggregate(
     assert damaged[1]["citations"]["tokens"] is None
     assert intact[0]["citations"]["tokens"] is not None
     # D-33 again: the nulled row must survive the round trip like any other.
+    stored = json.loads((campaign.analysis_dir / "aggregate.json").read_text())
+    assert stored == aggregate
+
+
+def test_one_unreadable_revision_map_does_not_abort_the_whole_aggregate(
+    campaign, write_scenario
+):
+    """R27 through the comprehension, which ``analyze_run`` alone cannot reach.
+
+    ``revisions.yaml`` is in ``audit.STATE_FILES`` because arms hand-edit it,
+    so a map in a shape ``load_revisions`` refuses is agent-reachable. Before
+    R27 one such run took the aggregate down for every other run in the
+    campaign.
+    """
+    _run(
+        campaign,
+        write_scenario,
+        {
+            "A1": {"arm": "A", "cost": 1.0, "steps": COMPLETE_STEPS},
+            "C1": {"arm": "C", "cost": 1.1, "steps": COMPLETE_STEPS},
+        },
+    )
+    # The malformation is chosen, not arbitrary: a tag that carries no
+    # two-digit revision suffix is one `load_revisions` refuses and
+    # `ledger._entries` tolerates, so what fails here is R27's path alone. A
+    # scalar `revisions:` would instead die in `ledger._entries` with an
+    # `AttributeError` before `quality` is ever built — a separate, older
+    # defect that R27 does not reach.
+    revisions = campaign.runs_dir / "A1" / "workspace" / "revisions.yaml"
+    revisions.write_text(
+        "revisions:\n"
+        "  nope:\n"
+        "    cluster_id: c0001-x\n"
+        "    checkpoint_manifest_sha256: x\n"
+        "    normative_change: true\n"
+    )
+    aggregate = analyze_campaign(campaign)
+
+    assert set(aggregate["runs"]) == {"A1", "C1"}
+    damaged = aggregate["runs"]["A1"]["quality"]
+    intact = aggregate["runs"]["C1"]["quality"]
+    assert damaged["revisions"] == []
+    assert damaged["revisions_status"] == "unreadable"
+    assert "nope" in damaged["revisions_error"]
+    # The sibling's map still enumerates. A campaign whose every map were
+    # damaged would prove nothing about either side.
+    assert [r["tag"] for r in intact["revisions"]] == ["draft-test-fixture-00"]
+    assert intact["revisions_status"] == "read"
+    assert intact["revisions_error"] is None
     stored = json.loads((campaign.analysis_dir / "aggregate.json").read_text())
     assert stored == aggregate
 

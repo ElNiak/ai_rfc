@@ -110,7 +110,7 @@ def two_tag_workspace(wide_pristine, tmp_path, scenario_workspace) -> Path:
 
 def test_each_revision_is_linted_against_its_own_frozen_manifest(two_tag_workspace):
     """R3: the live manifest would mark every early structure unrendered."""
-    rows = revision_lints(two_tag_workspace)
+    rows = revision_lints(two_tag_workspace)["revisions"]
     assert [row["number"] for row in rows] == [1, 2]
     # Revision 01 cited every claim ITS OWN checkpoint knew. Linted against the
     # final manifest it would report the second cluster's claims as uncited.
@@ -139,7 +139,7 @@ def test_the_live_manifest_calls_the_first_revision_incomplete(two_tag_workspace
 
 def test_every_revision_names_the_checkpoint_its_own_entry_pins(two_tag_workspace):
     """The rows carry the revision map's own provenance, not an ordinal."""
-    rows = revision_lints(two_tag_workspace)
+    rows = revision_lints(two_tag_workspace)["revisions"]
     assert [row["tag"] for row in rows] == [FIRST_TAG, SECOND_TAG]
     assert [row["kind"] for row in rows] == ["cluster", "cluster"]
     assert all(row["cluster_id"] for row in rows)
@@ -152,13 +152,13 @@ def test_the_reduction_survives_a_json_round_trip(two_tag_workspace):
     ``test_metrics.py`` asserts the stored analysis equals the value in hand,
     so any tuple that reached this payload would fail there rather than here.
     """
-    rows = revision_lints(two_tag_workspace)
+    rows = revision_lints(two_tag_workspace)["revisions"]
     assert json.loads(json.dumps(rows)) == rows
 
 
 def test_the_reduction_keeps_the_report_field_names(two_tag_workspace):
     """A caller reads ``row["citations"]["uncited"]``, so the nesting is contract."""
-    rows = revision_lints(two_tag_workspace)
+    rows = revision_lints(two_tag_workspace)["revisions"]
     _, text = draft_text(two_tag_workspace / "draft", FIRST_TAG)
     frozen = load(
         two_tag_workspace / "checkpoints" / rows[0]["cluster_id"] / "manifest.yaml"
@@ -200,9 +200,9 @@ def test_an_unreadable_frozen_manifest_is_reported_not_silently_zeroed(
     is byte-identical to one that cited everything: ``uncited`` is empty and
     ``cited_fraction`` is None either way as far as the row shows.
     """
-    clean = revision_lints(two_tag_workspace)
+    clean = revision_lints(two_tag_workspace)["revisions"]
     _make_frozen_manifest_unreadable(two_tag_workspace, clean[0]["cluster_id"])
-    damaged = revision_lints(two_tag_workspace)
+    damaged = revision_lints(two_tag_workspace)["revisions"]
 
     assert damaged[0]["manifest_status"] == "unloadable"
     assert damaged[1]["manifest_status"] == "read"
@@ -238,9 +238,9 @@ def test_a_checkpoint_that_never_landed_is_a_different_report_from_a_broken_one(
     "the checkpoint never landed" and "the checkpoint is there and will not
     load" are different facts about the run.
     """
-    clean = revision_lints(two_tag_workspace)
+    clean = revision_lints(two_tag_workspace)["revisions"]
     shutil.rmtree(two_tag_workspace / "checkpoints" / clean[0]["cluster_id"])
-    rows = revision_lints(two_tag_workspace)
+    rows = revision_lints(two_tag_workspace)["revisions"]
 
     assert [row["manifest_status"] for row in rows] == ["missing", "read"]
     assert clean[0]["cluster_id"] in rows[0]["manifest_error"]
@@ -255,7 +255,7 @@ def test_a_frozen_manifest_that_exists_and_will_not_open_is_raised(two_tag_works
     path this function has just computed. A directory where the manifest
     belongs is that refusal, deterministically and without touching a mode.
     """
-    rows = revision_lints(two_tag_workspace)
+    rows = revision_lints(two_tag_workspace)["revisions"]
     frozen = two_tag_workspace / "checkpoints" / rows[0]["cluster_id"] / MANIFEST_FILE
     frozen.unlink()
     frozen.mkdir()
@@ -280,7 +280,7 @@ def test_a_tag_the_draft_repository_never_got_is_reported_not_raised(
     not tell this apart from an instrument that reports every row unmeasured.
     """
     append_untagged_revision(two_tag_workspace, UNTAGGED, UNCHECKPOINTED_CLUSTER)
-    rows = revision_lints(two_tag_workspace)
+    rows = revision_lints(two_tag_workspace)["revisions"]
     measured, absent = rows[1], rows[2]
 
     assert [row["draft_status"] for row in rows] == ["read", "read", "unreadable"]
@@ -320,13 +320,58 @@ def test_git_that_cannot_be_invoked_is_raised_and_not_reported(
     """The swallow is for the evidence, not for a broken instrument.
 
     ``_draft_at`` catches ``GateError`` alone, so git that cannot be run at
-    all still fails loudly instead of reporting every revision unmeasured — a
-    row of nulls per revision is exactly what a caught ``Exception`` would
-    produce here, and it would be indistinguishable from a run that tagged
-    nothing. An empty ``PATH`` is that failure deterministically, and
-    ``load_revisions`` runs no git, so the loop is reached first.
+    all still fails loudly instead of reporting every revision unmeasured. A
+    caught ``Exception`` would produce a row of nulls per revision, and
+    ``draft_status`` could not separate that from a run that tagged nothing:
+    it reads ``unreadable`` either way. Only ``draft_error`` carries the
+    distinction — ``No such file or directory: 'git'`` rather than ``could not
+    list its tree: fatal: ...`` — so a reader grouping by the status alone
+    would lose it. An empty ``PATH`` is that failure deterministically, and
+    reading the revision map runs no git, so the loop is reached first.
     """
     monkeypatch.setenv("PATH", "")
+    with pytest.raises(OSError):
+        revision_lints(two_tag_workspace)
+
+
+def test_an_unreadable_map_and_a_map_recording_none_do_not_collapse(
+    two_tag_workspace,
+):
+    """R27: an empty ``revisions`` means "none recorded" or "could not tell".
+
+    A workspace no run has tagged in legitimately reads ``revisions: {}``, so
+    the empty list cannot carry the difference by itself — the same
+    "unmeasured is not zero" rule the rows already enforce, one level up. The
+    two sides are built in the one workspace and the list is held *fixed*, so
+    only the status can tell them apart.
+    """
+    measured = revision_lints(two_tag_workspace)
+    assert measured["revisions_status"] == "read"
+    assert measured["revisions_error"] is None
+    assert len(measured["revisions"]) == 2
+
+    path = two_tag_workspace / "revisions.yaml"
+    path.write_text("revisions: {}\n")
+    none_recorded = revision_lints(two_tag_workspace)
+    path.write_text("this is not a revision map\n")
+    unreadable = revision_lints(two_tag_workspace)
+
+    assert none_recorded["revisions"] == unreadable["revisions"] == []
+    assert none_recorded["revisions_status"] == "read"
+    assert unreadable["revisions_status"] == "unreadable"
+    assert none_recorded["revisions_error"] is None
+    assert "revisions.yaml" in unreadable["revisions_error"]
+
+
+def test_a_workspace_with_no_revision_map_at_all_is_raised(two_tag_workspace):
+    """R17 on the map: the swallow is for a bad shape, not for a bad path.
+
+    A workspace with no ``revisions.yaml`` is not a workspace, and the caller
+    computed the path — so this is the instrument looking in the wrong place,
+    and it must fail loudly rather than report every run as having recorded
+    nothing measurable.
+    """
+    (two_tag_workspace / "revisions.yaml").unlink()
     with pytest.raises(OSError):
         revision_lints(two_tag_workspace)
 
@@ -344,7 +389,7 @@ def test_finding_count_is_unmeasured_when_no_manifest_fed_it(two_tag_workspace):
     manifest, and so could not see any of this: the same checks were missing
     from both sides of the comparison.
     """
-    rows = revision_lints(two_tag_workspace)
+    rows = revision_lints(two_tag_workspace)["revisions"]
     _, text = draft_text(two_tag_workspace / "draft", FIRST_TAG)
     frozen = load(
         two_tag_workspace / "checkpoints" / rows[0]["cluster_id"] / MANIFEST_FILE
@@ -407,9 +452,9 @@ def test_a_row_with_no_manifest_still_reports_what_the_text_alone_shows(
 
 def test_the_table_will_not_show_an_unmeasured_metric_as_a_number(two_tag_workspace):
     """R16 downstream: two unreadable revisions must not render as "no change"."""
-    clean = revision_lints(two_tag_workspace)
+    clean = revision_lints(two_tag_workspace)["revisions"]
     _make_frozen_manifest_unreadable(two_tag_workspace, clean[0]["cluster_id"])
-    damaged = revision_lints(two_tag_workspace)
+    damaged = revision_lints(two_tag_workspace)["revisions"]
     table = compare_lints(
         damaged[0], damaged[1], before_label=FIRST_TAG, after_label=SECOND_TAG
     )
@@ -476,7 +521,7 @@ def test_a_pipe_in_a_label_cannot_widen_the_separator():
 
 def test_the_comparison_table_flattens_and_subtracts(two_tag_workspace):
     """The reduction is nested, so the table names a metric by its full path."""
-    rows = revision_lints(two_tag_workspace)
+    rows = revision_lints(two_tag_workspace)["revisions"]
     table = compare_lints(
         rows[0], rows[1], before_label=FIRST_TAG, after_label=SECOND_TAG
     )
