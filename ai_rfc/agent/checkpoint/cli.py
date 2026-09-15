@@ -83,9 +83,14 @@ def run(args: argparse.Namespace) -> int:
         args: The parsed arguments, from either door.
 
     Returns:
-        The freeze's own exit code, passed through rather than collapsed: 0
-        clean, 1 when the environment or an input is refused, 3 when the freeze
-        reported findings.
+        The freeze's own exit code, passed through rather than collapsed —
+        which for this verb is **0 or 1**, and nothing else. A checkpoint has
+        no findings concept and no strict mode, so 3 was never available to
+        it: ``core.gates._freeze_checkpoint`` returns literal 0 on a write and
+        literal 1 for the family it catches, and ``core.reported`` can only add
+        a further 1. An earlier revision of this docstring claimed a 3, and
+        that claim reached the one-door spec before it was corrected there;
+        anyone matching on 3 here is matching on nothing.
     """
     return perform(partial(_checkpoint, args))
 
