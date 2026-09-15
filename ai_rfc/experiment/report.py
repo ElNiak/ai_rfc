@@ -138,7 +138,7 @@ def _quality_run_rows(runs: dict[str, dict[str, Any]]) -> list[str]:
         # Not `len(revisions)`. The list is empty both for a run that recorded
         # no revision and for a map nothing could enumerate, and only the
         # first of those is a count of zero.
-        counted = len(quality["revisions"]) if status == "read" else None
+        counted = len(quality.get("revisions") or ()) if status == "read" else None
         build = quality.get("build") or {}
         rows.append(
             f"| {cell(run_id)} | {cell(counted)} | {cell(status)} "
