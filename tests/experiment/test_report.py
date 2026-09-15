@@ -216,6 +216,17 @@ YAML_REFUSAL = (
     '  in "<unicode string>", line 4, column 3'
 )
 
+#: A tag the draft repository would not yield a draft at, as
+#: ``quality._draft_at`` reports it. Measured, not invented: this is what
+#: ``draft.gate.draft_text`` actually raised for this ref, interpolating git's
+#: own stderr. One line — every arm of that function reachable from here
+#: produced one — so what this value tests is the *pipe*, which is real twice
+#: over, the ref being a tag name read out of an agent-writable
+#: ``revisions.yaml``. The multi-line case is :data:`YAML_REFUSAL`'s.
+GATE_REFUSAL = (
+    "draft-x|02: could not list its tree: " "fatal: Not a valid object name draft-x|02"
+)
+
 
 def _revision(**overrides):
     """One reduced lint row, carrying the fields the report reads.
@@ -254,10 +265,17 @@ def _quality_aggregate():
     * ``A1`` is ``_aggregate``'s own run and carries no ``quality`` key at
       all, which is an aggregate archived before the instrument existed. It is
       left exactly as it is, since it is also what the older tests render.
-    * ``B1`` enumerated its map and has two revisions, one measured against a
-      frozen manifest and one whose manifest was missing.
+    * ``B1`` enumerated its map and has three revisions — one measured against
+      a frozen manifest, one whose manifest was missing, and one the draft
+      repository would not yield any text for — and it is the run whose draft
+      was built.
     * ``C1`` has a map the parser refused, so its revision count is unknown
-      rather than zero, and its error is six lines of free text.
+      rather than zero, and its error is six lines of free text. Its build was
+      never asked for, so every build column of its row is unmeasured.
+
+    Each of the three free-text columns carries a pipe here. A cluster id
+    reaches the frozen manifest's path and so reaches ``manifest_error``, and
+    a tag reaches ``draft_error``; both come out of files an arm can write.
 
     Returns:
         The aggregate record.
@@ -270,18 +288,39 @@ def _quality_aggregate():
                 _revision(
                     tag="draft-x-01",
                     number=1,
-                    cluster_id="c0002-b",
+                    cluster_id="c0002|b",
                     manifest_status="missing",
-                    manifest_error="no frozen manifest at /w/cp/c0002-b/manifest.yaml",
+                    manifest_error="no frozen manifest at /w/cp/c0002|b/manifest.yaml",
                     citations={"cited_fraction": None},
                     abstract={"word_count": 55},
                     narration_count=4,
                     finding_count=None,
                 ),
+                # What `revision_lints` builds when `_draft_at` reports: every
+                # metric nulled by `_unmeasured_lint`, since there is no text
+                # to measure, and `manifest_error` left as the manifest's own
+                # — which here is None, the frozen manifest having loaded.
+                _revision(
+                    tag="draft-x|02",
+                    number=2,
+                    cluster_id="c0003-c",
+                    draft_status="unreadable",
+                    draft_error=GATE_REFUSAL,
+                    citations={"cited_fraction": None},
+                    abstract={"word_count": None},
+                    narration_count=None,
+                    finding_count=None,
+                ),
             ],
             "revisions_status": "read",
             "revisions_error": None,
-            "build": None,
+            "build": {
+                "exit_code": 1,
+                "findings": ["stub abstract", "idnits warned"],
+                "broken_references": ["RFC9999"],
+                "idnits": {},
+                "diagnostic_counts": {},
+            },
         },
         "C1": {
             "revisions": [],
@@ -315,6 +354,23 @@ def _section(text: str, heading: str) -> list[str]:
     return rest[:end]
 
 
+def _quality_tables(text: str) -> tuple[list[str], list[str]]:
+    """The section's two tables, split where the second header starts.
+
+    Both tables' first column is ``run``, so a row filtered by run id alone
+    can come from either. Both headers open ``| run |`` and only they do.
+
+    Args:
+        text: A rendered report.
+
+    Returns:
+        The run-level rows and the revision-level rows, headers included.
+    """
+    rows = [line for line in _section(text, "## Quality") if line.startswith("|")]
+    split = next(i for i, line in enumerate(rows[1:], 1) if line.startswith("| run |"))
+    return rows[:split], rows[split:]
+
+
 def test_the_quality_section_dashes_what_no_manifest_could_measure():
     """The payload's one rule, rendered: null is unmeasured and never zero.
 
@@ -325,12 +381,16 @@ def test_the_quality_section_dashes_what_no_manifest_could_measure():
     unmeasured row were nulled wholesale.
     """
     section = _section(render_report(_quality_aggregate()), "## Quality")
-    rows = [line for line in section if line.startswith("| B1 | draft-x-")]
+    rows = [
+        line
+        for line in section
+        if line.startswith(("| B1 | draft-x-00 |", "| B1 | draft-x-01 |"))
+    ]
 
     assert rows == [
         "| B1 | draft-x-00 | 0 | cluster | read | read | 0.500 | 3 | 2 | 40 | — | — |",
         "| B1 | draft-x-01 | 1 | cluster | missing | read | — | — | 4 | 55 "
-        "| no frozen manifest at /w/cp/c0002-b/manifest.yaml | — |",
+        "| no frozen manifest at /w/cp/c0002\\|b/manifest.yaml | — |",
     ]
 
 
@@ -344,10 +404,56 @@ def test_a_revision_map_that_would_not_load_has_no_revision_count():
     """
     section = _section(render_report(_quality_aggregate()), "## Quality")
 
-    assert [line for line in section if line.startswith("| B1 | 2 | read |")]
+    assert [line for line in section if line.startswith("| B1 | 3 | read |")]
     (row,) = [line for line in section if line.startswith("| C1 |")]
     assert row.startswith("| C1 | — | unreadable |")
     assert row.endswith("| — | — | — |")
+
+
+def test_a_build_that_ran_reports_its_counts_and_one_that_did_not_dashes_them():
+    """The three build columns, on both sides of having been measured.
+
+    ``B1`` was built and ``C1`` was not, in the same render. Without the
+    measured side, a renderer that hard-coded the em dash for all three — or a
+    ``_count`` that answered None for everything — would satisfy every other
+    test here, since no other fixture in this module carries a build at all.
+
+    ``exit_code`` is 1 on purpose: a zero would not tell a rendered exit code
+    apart from a nulled one that had been read as a zero.
+    """
+    runs, _ = _quality_tables(render_report(_quality_aggregate()))
+
+    assert [line for line in runs if line.startswith("| B1 |")] == [
+        "| B1 | 3 | read | — | 1 | 2 | 1 |"
+    ]
+    assert [line for line in runs if line.startswith("| C1 |")][0].endswith(
+        "| — | — | — |"
+    )
+
+
+def test_a_revision_with_no_draft_text_measures_nothing_and_stays_one_cell():
+    """A tag the draft repository does not hold: every metric unmeasured.
+
+    An absent revision must not read as an empty one, so this row is dashes
+    where the rows above it carry numbers — the two are in the same render, so
+    the dashes are this revision's condition and not what the table does to
+    every row.
+
+    It is also the third free-text column's escaping. ``draft_error`` embeds
+    the ref twice, and a tag comes out of an agent-writable ``revisions.yaml``,
+    so the pipes in it are content: unescaped they would buy the row two
+    columns.
+    """
+    section = _section(render_report(_quality_aggregate()), "## Quality")
+    (row,) = [line for line in section if line.startswith("| B1 | draft-x\\|02 |")]
+
+    assert row == (
+        "| B1 | draft-x\\|02 | 2 | cluster | read | unreadable | — | — | — | — | — "
+        "| draft-x\\|02: could not list its tree: "
+        "fatal: Not a valid object name draft-x\\|02 |"
+    )
+    # Twelve columns, so thirteen structural pipes.
+    assert row.count("|") - row.count("\\|") == 13
 
 
 def test_a_multi_line_map_error_cannot_add_rows_to_the_quality_tables():
@@ -360,9 +466,9 @@ def test_a_multi_line_map_error_cannot_add_rows_to_the_quality_tables():
     """
     section = _section(render_report(_quality_aggregate()), "## Quality")
 
-    # Two tables: a header and a separator each, three run rows, and two
+    # Two tables: a header and a separator each, three run rows, and three
     # revision rows from the one run whose map enumerated.
-    assert len([line for line in section if line.strip()]) == 9
+    assert len([line for line in section if line.strip()]) == 10
     (row,) = [line for line in section if line.startswith("| C1 |")]
     assert "expected <block end>" in row
     # Seven columns, so eight structural pipes. The one inside the error is
