@@ -31,6 +31,7 @@ from ai_rfc.driver.stream import (
 from .. import ledger
 from . import ExperimentError
 from .config import Campaign
+from .quality import final_build, revision_lints
 from .runner import RESULT_FILE, load_status
 
 DEFINITIONS = {
@@ -44,6 +45,9 @@ DEFINITIONS = {
     "tokens_to_first_completion": "cumulative tokens (input+output+cache_creation+cache_read) at the checkpoint call of the first cluster that ends up completed",
     "auc": "integral over normalized cumulative tokens of completed_so_far/window_size, as a right-continuous step function",
     "checked_fraction": "the substrate's honesty metric, reported per checkpoint; expected 0.0 without interviews or runtime anchors",
+    "quality_revisions": "one lint of the draft at every tag the run recorded, each against the manifest its own checkpoint froze; linting an early revision against the final manifest would report a later cluster's claims as uncited",
+    "quality_build": "the draft at the run's highest-numbered tag, built with the campaign's frozen toolchain; null both when the analysis was not asked for a build, which is the default, and when the campaign froze no toolchain",
+    "quality_unmeasured": "null in a lint row means unmeasured and never zero: the metrics a frozen manifest feeds are null unless manifest_status is read, while the metrics the draft text alone shows stay real",
 }
 #: Arm B's command prefixes, from the one declaration in :mod:`driver.arms`.
 #: The trajectory is the third reader of it: a literal here that fell behind
@@ -272,18 +276,29 @@ def trajectory(
     }
 
 
-def analyze_run(campaign: Campaign, run_id: str) -> dict[str, Any]:
+def analyze_run(
+    campaign: Campaign, run_id: str, *, build: bool = False
+) -> dict[str, Any]:
     """Every outcome of one run, recomputed from its artifacts.
 
     Args:
         campaign: The frozen campaign.
         run_id: The run to analyze.
+        build: Whether to build the draft the run last tagged. Off by
+            default, because a build clears its scratch directory, clones the
+            draft repository and runs make — work no caller of the other
+            metrics asked for, and which a campaign that froze a toolchain
+            would otherwise pay for on every analysis.
 
     Returns:
         The run's analysis record.
 
     Raises:
         ExperimentError: If the run has no status record.
+        GateError: If the revision map is malformed, or a tag it registers
+            cannot be read out of the draft repository.
+        BuildError: If ``build`` and the toolchain record is unreadable or
+            the run's last tag does not resolve to a single draft.
     """
     run_dir = campaign.runs_dir / run_id
     status = load_status(run_dir)
@@ -322,6 +337,23 @@ def analyze_run(campaign: Campaign, run_id: str) -> dict[str, Any]:
         ),
         "completed_fraction": len(completed) / window_size if window_size else 0.0,
         "gates": gates,
+        # The graded view of the artifact the gates only pass or fail. The
+        # build's output root is beside the analysis and never under `runs/`:
+        # a run directory is the evidence being measured, and a build writing
+        # into it would edit that. Nothing creates the root here — `build`
+        # makes it with its parents.
+        "quality": {
+            "revisions": revision_lints(workspace),
+            "build": (
+                final_build(
+                    workspace,
+                    campaign.toolchain,
+                    campaign.analysis_dir / run_id / "draft-build",
+                )
+                if build
+                else None
+            ),
+        },
         "claims": {
             c["cluster_id"]: claim_stats(workspace, c["cluster_id"], campaign)
             for c in clusters
@@ -480,17 +512,19 @@ def _arm_summary(
     }
 
 
-def analyze_campaign(campaign: Campaign) -> dict[str, Any]:
+def analyze_campaign(campaign: Campaign, *, build: bool = False) -> dict[str, Any]:
     """Analyze every run with a status record and write ``analysis/aggregate.json``.
 
     Args:
         campaign: The frozen campaign.
+        build: Whether each run's draft is built as well as linted; off by
+            default, as :func:`analyze_run` describes.
 
     Returns:
         The aggregate record, also written to the campaign's analysis directory.
     """
     runs = {
-        run_id: analyze_run(campaign, run_id)
+        run_id: analyze_run(campaign, run_id, build=build)
         for run_id in campaign.run_order
         if load_status(campaign.runs_dir / run_id) is not None
     }

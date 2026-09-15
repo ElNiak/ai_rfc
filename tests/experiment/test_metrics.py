@@ -3,6 +3,7 @@ import json
 from ai_rfc.driver.arms import arm_profile
 from ai_rfc.driver.enforcement import bash_prefixes
 from ai_rfc.driver.stream import parse_stream
+from ai_rfc.experiment import metrics
 from ai_rfc.experiment.audit import audit_campaign
 from ai_rfc.experiment.campaign_runs import launch_pending
 from ai_rfc.experiment.metrics import (
@@ -106,6 +107,84 @@ def test_gate_failure_after_tagging_zeroes_completion(campaign, write_scenario):
     assert result["gates"]["manifest_exit"] == 3 and not result["gates"]["clean"]
     assert result["artifacts_fraction"] == 1.0 and result["completed_fraction"] == 0.0
     assert result["audit"]["hand_edits"]["manifest.yaml"] == 3
+
+
+def test_the_run_record_carries_a_lint_row_per_revision(campaign, write_scenario):
+    _run(campaign, write_scenario, {"A1": {"steps": COMPLETE_STEPS}})
+    result = analyze_run(campaign, "A1")
+    assert [r["tag"] for r in result["quality"]["revisions"]] == [
+        "draft-test-fixture-00"
+    ]
+    # Default is build-off, so no clone and no make in the test suite.
+    assert result["quality"]["build"] is None
+
+
+def _recording_build(calls):
+    """Stand in for ``final_build``, recording the arguments it was handed."""
+
+    def recording(workspace, toolchain_path, out):
+        calls.append({"workspace": workspace, "toolchain": toolchain_path, "out": out})
+        return {"exit_code": 0}
+
+    return recording
+
+
+def test_a_requested_build_is_routed_outside_the_run_directory(
+    campaign, write_scenario, monkeypatch
+):
+    """Where the build would land, and that it is skipped unless asked for.
+
+    The build is recorded rather than run: the campaign fixture freezes a real
+    toolchain, so an unrecorded call would clone the draft repository and run
+    make. Recording is also the only way to read the output root, which is the
+    one thing the mtime guard below cannot observe — it watches ``workspace/``
+    and the path this pins against is ``runs/<id>/draft-build``, its sibling.
+    """
+    _run(campaign, write_scenario, {"A1": {"steps": COMPLETE_STEPS}})
+    calls = []
+    monkeypatch.setattr(metrics, "final_build", _recording_build(calls))
+
+    assert analyze_run(campaign, "A1")["quality"]["build"] is None
+    assert calls == []
+
+    result = analyze_run(campaign, "A1", build=True)
+    assert result["quality"]["build"] == {"exit_code": 0}
+    (call,) = calls
+    assert call["workspace"] == campaign.runs_dir / "A1" / "workspace"
+    # The `str` path the campaign froze, passed through as it is stored.
+    assert call["toolchain"] == campaign.toolchain
+    assert call["out"] == campaign.analysis_dir / "A1" / "draft-build"
+    assert campaign.runs_dir not in call["out"].parents
+
+
+def test_analyze_campaign_passes_the_build_request_through(
+    campaign, write_scenario, monkeypatch
+):
+    """The campaign verb's flag reaches the build only through this keyword."""
+    _run(campaign, write_scenario, {"A1": {"steps": COMPLETE_STEPS}})
+    calls = []
+    monkeypatch.setattr(metrics, "final_build", _recording_build(calls))
+
+    aggregate = analyze_campaign(campaign, build=True)
+    assert [call["out"] for call in calls] == [
+        campaign.analysis_dir / "A1" / "draft-build"
+    ]
+    assert aggregate["runs"]["A1"]["quality"]["build"] == {"exit_code": 0}
+
+
+def test_analyze_does_not_write_inside_the_run_workspace(campaign, write_scenario):
+    """R5 guard: passes today, and must keep passing. Not a RED.
+
+    What it discriminates after this task is the nested draft repository:
+    ``rglob`` reaches ``workspace/draft/.git``, and reading a revision now runs
+    ``git ls-tree`` and ``git show`` in there. Those are plumbing reads, but a
+    lock file or a rewritten index would be caught here.
+    """
+    _run(campaign, write_scenario, {"A1": {"steps": COMPLETE_STEPS}})
+    ws = campaign.runs_dir / "A1" / "workspace"
+    before = {p: p.stat().st_mtime_ns for p in ws.rglob("*") if p.is_file()}
+    analyze_run(campaign, "A1")
+    assert {p: p.stat().st_mtime_ns for p in ws.rglob("*") if p.is_file()} == before
 
 
 def test_analyze_campaign_aggregates_per_arm(campaign, write_scenario):
