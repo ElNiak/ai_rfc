@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 
@@ -13,6 +14,39 @@ def _fmt(value: Any, digits: int = 3) -> str:
     if isinstance(value, float):
         return f"{value:.{digits}f}"
     return str(value)
+
+
+def _code(value: Any) -> str:
+    """One value as a Markdown code span that its own content cannot break.
+
+    A run of backticks inside the value is fenced by a longer run outside it,
+    per CommonMark; a leading or trailing backtick needs the padding space.
+
+    Args:
+        value: Any value; ``None`` renders as the em dash, never as a span.
+
+    Returns:
+        The fenced span, or ``"—"`` for ``None``.
+    """
+    if value is None:
+        return "—"
+    text = str(value).replace("\n", " ")
+    longest = max((len(m) for m in re.findall(r"`+", text)), default=0)
+    fence = "`" * (longest + 1)
+    pad = " " if text.startswith("`") or text.endswith("`") else ""
+    return f"{fence}{pad}{text}{pad}{fence}"
+
+
+def _cell(value: Any) -> str:
+    """One value as a table cell that cannot add a column or a row.
+
+    Args:
+        value: Any value.
+
+    Returns:
+        The cell text with pipes escaped and newlines flattened.
+    """
+    return str(_fmt(value)).replace("\\", "\\\\").replace("|", "\\|").replace("\n", " ")
 
 
 def _separator(header: str) -> str:
@@ -33,12 +67,12 @@ def _arm_rows(arms: dict[str, dict[str, Any]]) -> list[str]:
     rows = [header, _separator(header)]
     for arm, s in arms.items():
         rows.append(
-            f"| {arm} | {s['runs']} | {_fmt(s['completed_fraction_mean'])} / {_fmt(s['completed_fraction_min'])} | "
-            f"{_fmt(s['artifacts_fraction_mean'])} | {_fmt(s['pass_k_mean'])} | {_fmt(s['integrity_rate'])} | "
-            f"{s['bypass_attempts']} | {s['errors_class1']}/{s['errors_class2']} | {s['hand_edits']} | "
-            f"{_fmt(s['cost_total'], 2)} / {_fmt(s['cost_mean'], 2)} | {_fmt(s['failure_cost_share'])} | "
-            f"{_fmt(s['cost_per_completed_cluster'], 2)} | {_fmt(s['tokens_to_first_completion_mean'], 0)} | "
-            f"{_fmt(s['auc_mean'])} | {s['timed_out_runs']} | {s['nonzero_exit_runs']} |"
+            f"| {_cell(arm)} | {_cell(s['runs'])} | {_cell(s['completed_fraction_mean'])} / {_cell(s['completed_fraction_min'])} | "
+            f"{_cell(s['artifacts_fraction_mean'])} | {_cell(s['pass_k_mean'])} | {_cell(s['integrity_rate'])} | "
+            f"{_cell(s['bypass_attempts'])} | {_cell(s['errors_class1'])}/{_cell(s['errors_class2'])} | {_cell(s['hand_edits'])} | "
+            f"{_cell(_fmt(s['cost_total'], 2))} / {_cell(_fmt(s['cost_mean'], 2))} | {_cell(s['failure_cost_share'])} | "
+            f"{_cell(_fmt(s['cost_per_completed_cluster'], 2))} | {_cell(_fmt(s['tokens_to_first_completion_mean'], 0))} | "
+            f"{_cell(s['auc_mean'])} | {_cell(s['timed_out_runs'])} | {_cell(s['nonzero_exit_runs'])} |"
         )
     return rows
 
@@ -65,12 +99,12 @@ def _run_rows(runs: dict[str, dict[str, Any]]) -> list[str]:
         completed = sum(1 for c in r["clusters"] if c.get("completed"))
         artifacts = sum(1 for c in r["clusters"] if c.get("artifacts"))
         rows.append(
-            f"| {run_id} | {r['arm']} | {_fmt(r['status']['exit_code'])} | {_fmt(r['status']['timed_out'])} | "
-            f"{completed}/{r['window_size']} | {artifacts} | {r['gates']['manifest_exit']}/{r['gates']['citation_exit']} | "
-            f"{_fmt(r['cost'].get('total_cost_usd'), 2)} | {_fmt(r['cost'].get('num_turns'))} | {tokens} | "
-            f"{_fmt(r['cost'].get('duration_ms'))} | {_fmt(audit.get('integrity'))} | "
-            f"{_fmt((audit.get('bypass_attempts') or {}).get('count'))} | "
-            f"{_fmt((audit.get('errors') or {}).get('class1'))}/{_fmt((audit.get('errors') or {}).get('class2'))} |"
+            f"| {_cell(run_id)} | {_cell(r['arm'])} | {_cell(r['status']['exit_code'])} | {_cell(r['status']['timed_out'])} | "
+            f"{_cell(completed)}/{_cell(r['window_size'])} | {_cell(artifacts)} | {_cell(r['gates']['manifest_exit'])}/{_cell(r['gates']['citation_exit'])} | "
+            f"{_cell(_fmt(r['cost'].get('total_cost_usd'), 2))} | {_cell(r['cost'].get('num_turns'))} | {_cell(tokens)} | "
+            f"{_cell(r['cost'].get('duration_ms'))} | {_cell(audit.get('integrity'))} | "
+            f"{_cell((audit.get('bypass_attempts') or {}).get('count'))} | "
+            f"{_cell((audit.get('errors') or {}).get('class1'))}/{_cell((audit.get('errors') or {}).get('class2'))} |"
         )
     return rows
 
@@ -89,10 +123,11 @@ def _cluster_rows(arms: dict[str, dict[str, Any]]) -> list[str]:
         for cluster_id in s["pass_k"]:
             if cluster_id not in cluster_ids:
                 cluster_ids.append(cluster_id)
-    rows = ["| cluster | " + " | ".join(names) + " |", "|" + "---|" * (len(names) + 1)]
+    header = "| cluster | " + " | ".join(_cell(name) for name in names) + " |"
+    rows = [header, "|" + "---|" * (len(names) + 1)]
     for cluster_id in cluster_ids:
         marks = " | ".join(_pass_mark(arms[a]["pass_k"].get(cluster_id)) for a in names)
-        rows.append(f"| {cluster_id} | {marks} |")
+        rows.append(f"| {_cell(cluster_id)} | {marks} |")
     return rows
 
 
@@ -109,14 +144,14 @@ def render_report(aggregate: dict[str, Any]) -> str:
     lines = [
         f"# Campaign {aggregate['campaign']}",
         "",
-        f"- target: `{aggregate['target']}`, window {aggregate['window']}",
-        f"- model: `{aggregate['model']}`, effort `{aggregate['effort']}`, harness `{aggregate['claude_version']}`",
+        f"- target: {_code(aggregate['target'])}, window {aggregate['window']}",
+        f"- model: {_code(aggregate['model'])}, effort {_code(aggregate['effort'])}, harness {_code(aggregate['claude_version'])}",
         # An archived aggregate also carries `panther`; it is read straight
         # past rather than printed, because the value it holds described this
         # package's own root under PANTHER's label.
-        f"- git: ai_rfc `{git.get('ai_rfc')}`",
+        f"- git: ai_rfc {_code(git.get('ai_rfc'))}",
         f"- parity pre-run: {aggregate.get('parity_pre_run')}",
-        f"- run order: {', '.join(aggregate['run_order'])}",
+        f"- run order: {_cell(', '.join(aggregate['run_order']))}",
         "",
         "## Per arm",
         "",

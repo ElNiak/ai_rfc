@@ -1,15 +1,30 @@
 from ai_rfc.experiment.report import render_report
 
 
-def _aggregate():
+def _aggregate(*, target="fixture", run_id="A1", cluster_id="c0002-x"):
+    """The one campaign aggregate every test here renders.
+
+    The three values are parameters rather than literals because each reaches
+    the report by a different route — a code span, a table cell, and a row
+    key — so a test of what the renderer does to a hostile value has to be
+    able to say which route it is testing.
+
+    Args:
+        target: The campaign's target, rendered as a code span.
+        run_id: The key of ``runs`` and the run's own ``run_id``.
+        cluster_id: The key of ``pass_k`` and the cluster's own ``cluster_id``.
+
+    Returns:
+        The aggregate record, shaped as ``metrics.analyze_campaign`` builds it.
+    """
     cluster = {
-        "cluster_id": "c0002-x",
+        "cluster_id": cluster_id,
         "ordinal": 2,
         "completed": True,
         "artifacts": True,
     }
     run = {
-        "run_id": "A1",
+        "run_id": run_id,
         "arm": "A",
         "repeat": 1,
         "status": {"exit_code": 0, "timed_out": False},
@@ -47,7 +62,7 @@ def _aggregate():
         "completed_fraction_min": 1.0,
         "artifacts_fraction_mean": 1.0,
         "gates_clean_runs": 1,
-        "pass_k": {"c0002-x": True},
+        "pass_k": {cluster_id: True},
         "pass_k_mean": 1.0,
         "integrity_rate": 1.0,
         "bypass_attempts": 0,
@@ -65,7 +80,7 @@ def _aggregate():
     }
     return {
         "campaign": "pilot-test",
-        "target": "fixture",
+        "target": target,
         "window": [2, 2],
         "model": "m",
         "effort": "high",
@@ -73,7 +88,7 @@ def _aggregate():
         "git": {"panther": "abc", "ai_rfc": "def"},
         "parity_pre_run": {"passed": True, "summary": "ok"},
         "run_order": ["A1"],
-        "runs": {"A1": run},
+        "runs": {run_id: run},
         "arms": {"A": arm},
         "definitions": {"completed": "artifacts AND gates"},
     }
@@ -128,3 +143,31 @@ def test_an_undecided_cluster_is_not_rendered_as_a_failure():
     text = render_report(aggregate)
     assert "| c0002-x | \u2014 |" in text
     assert "\u2717" not in text
+
+
+def test_a_backtick_in_a_value_cannot_break_its_code_span():
+    """A target carrying a backtick must not escape its span into raw markup.
+
+    Today `report.py:112` emits a single-backtick span, so a backtick in the
+    value closes it early and the rest goes live as markup. `_code` fences with
+    a run one longer than the longest run inside, so the span opens with two.
+    """
+    aggregate = _aggregate(target="repo`<b>bold</b>`x")
+    target_line = next(
+        l for l in render_report(aggregate).splitlines() if l.startswith("- target:")
+    )
+    assert target_line.startswith("- target: ``")
+
+
+def test_a_pipe_in_a_cluster_id_cannot_add_a_column():
+    """cluster_id reaches a table cell and is derived from repo history."""
+    aggregate = _aggregate(cluster_id="c1|evil|x")
+    rows = [l for l in render_report(aggregate).splitlines() if l.startswith("| c1")]
+    assert len(rows) == 1
+    # Structural pipes are one per arm column plus the two outer rails.
+    assert rows[0].count("|") - rows[0].count("\\|") == len(aggregate["arms"]) + 2
+
+
+def test_a_newline_in_a_run_id_cannot_break_the_table():
+    aggregate = _aggregate(run_id="r1\nr2")
+    assert "r1\nr2" not in render_report(aggregate)
