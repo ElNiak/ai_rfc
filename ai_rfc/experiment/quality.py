@@ -35,8 +35,14 @@ from .markdown import cell, fmt, separator
 
 #: The frozen manifest loaded.
 MANIFEST_READ = "read"
-#: Nothing was at the path. A run killed between tagging a revision and
-#: writing its checkpoint leaves exactly this.
+#: Nothing was at the path. A recorded revision always had a checkpoint —
+#: `record_revision` refuses to record one until its `checkpoint.json` exists
+#: (`server/core/revisions.py:67-71`), and the checkpoint step writes
+#: `manifest.yaml` beside it — so no kill between tagging and checkpointing
+#: reaches here. Two things do: a workspace whose checkpoint went missing after
+#: it was recorded, and a consolidation whose recorded `checkpoint` path
+#: `_checkpoint_dir` resolves elsewhere than the writer guarded, since it keeps
+#: only the basename and the writer accepts any workspace-relative path.
 MANIFEST_MISSING = "missing"
 #: The document was there and the schema refused it.
 MANIFEST_UNLOADABLE = "unloadable"
@@ -44,8 +50,9 @@ MANIFEST_UNLOADABLE = "unloadable"
 #: The draft at the tag was read out of the draft repository.
 DRAFT_READ = "read"
 #: The revision map registers the tag and the draft repository yields no draft
-#: at it. A run killed between appending the entry and running `git tag`
-#: leaves exactly this.
+#: at it. A run killed between recording the entry and running `git tag` leaves
+#: exactly this — and leaves the checkpoint *present*, since that is written
+#: before the entry can be recorded at all.
 DRAFT_UNREADABLE = "unreadable"
 
 
@@ -172,14 +179,17 @@ def _frozen_manifest(path: Path) -> tuple[Manifest | None, str | None, str]:
 
     Three outcomes, kept apart because two of them are evidence about the run
     and the third is a broken instrument. ``missing`` is reported and the
-    analysis continues, because a run killed mid-round legitimately leaves a
-    tag whose checkpoint never landed. ``unloadable`` is reported too: a frozen
-    workspace is evidence that is never re-gated, so a pilot whose manifest
-    predates a vocabulary change is unloadable for good, and raising would let
-    one such revision take a campaign's good ones down with it. Every other
-    :exc:`OSError` propagates — an instrument that cannot open a file at a path
-    it has just computed is broken, and a broken instrument must fail loudly
-    rather than emit zeros.
+    analysis continues for the reason ``unloadable`` is: this reads a frozen
+    workspace long after the run, and one revision whose checkpoint is not
+    where this function looks must not take a campaign's good ones down with
+    it. What actually reaches that branch is recorded on the constant — not a
+    kill mid-round, which the revision writer's ordering forbids. ``unloadable``
+    is reported too: a frozen workspace is evidence that is never re-gated, so
+    a pilot whose manifest predates a vocabulary change is unloadable for good,
+    and raising would let one such revision take a campaign's good ones down
+    with it. Every other :exc:`OSError` propagates — an instrument that cannot
+    open a file at a path it has just computed is broken, and a broken
+    instrument must fail loudly rather than emit zeros.
 
     :exc:`FileNotFoundError` is caught rather than the path tested, because
     :meth:`~pathlib.Path.exists` answers False for a permission failure too and
