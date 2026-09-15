@@ -12,6 +12,7 @@ that they do.
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -84,9 +85,11 @@ def test_each_revision_is_linted_against_its_own_frozen_manifest(two_tag_workspa
     # The discriminator. `uncited == []` alone is satisfied just as well by "no
     # manifest was read at all", because `lint` initialises it empty and only
     # fills it when handed a manifest. `cited_fraction` is None in that case
-    # and a real float here, so it is what tells the two causes apart.
+    # and a real float here, so it is what tells the two causes apart — and
+    # `manifest_status` names the cause outright.
     assert rows[0]["citations"]["cited_fraction"] == 1.0
     assert rows[0]["manifest_error"] is None
+    assert [row["manifest_status"] for row in rows] == ["read", "read"]
 
 
 def test_the_live_manifest_calls_the_first_revision_incomplete(two_tag_workspace):
@@ -167,13 +170,70 @@ def test_an_unreadable_frozen_manifest_is_reported_not_silently_zeroed(
     _make_frozen_manifest_unreadable(two_tag_workspace, clean[0]["cluster_id"])
     damaged = revision_lints(two_tag_workspace)
 
+    assert damaged[0]["manifest_status"] == "unloadable"
+    assert damaged[1]["manifest_status"] == "read"
     assert damaged[0]["manifest_error"] is not None
     assert damaged[1]["manifest_error"] is None
+    # Every metric the manifest fed carries its own "unmeasured", so a consumer
+    # needs no list of which metrics those are.
     assert damaged[0]["citations"]["cited_fraction"] is None
+    assert damaged[0]["citations"]["uncited"] is None
+    assert damaged[0]["structures"] == {"defined": None, "rendered": None}
     assert damaged[1]["citations"]["cited_fraction"] == 1.0
     # The text-only metrics are still measured: losing the manifest costs the
     # comparison, not the whole revision.
     assert damaged[0]["citations"]["tokens"] == clean[0]["citations"]["tokens"]
+
+
+def test_a_checkpoint_that_never_landed_is_a_different_report_from_a_broken_one(
+    two_tag_workspace,
+):
+    """A run killed mid-round leaves a tag with no checkpoint; that is evidence.
+
+    It is reported and the analysis continues, so the revisions either side of
+    it still measure. The class is recorded, not just a message, because
+    "the checkpoint never landed" and "the checkpoint is there and will not
+    load" are different facts about the run.
+    """
+    clean = revision_lints(two_tag_workspace)
+    shutil.rmtree(two_tag_workspace / "checkpoints" / clean[0]["cluster_id"])
+    rows = revision_lints(two_tag_workspace)
+
+    assert [row["manifest_status"] for row in rows] == ["missing", "read"]
+    assert clean[0]["cluster_id"] in rows[0]["manifest_error"]
+    assert rows[0]["citations"]["cited_fraction"] is None
+    assert rows[1]["citations"]["cited_fraction"] == 1.0
+
+
+def test_a_frozen_manifest_that_exists_and_will_not_open_is_raised(two_tag_workspace):
+    """A broken instrument fails loudly instead of emitting zeros.
+
+    The swallow exists for stale evidence, not for a filesystem that refuses a
+    path this function has just computed. A directory where the manifest
+    belongs is that refusal, deterministically and without touching a mode.
+    """
+    rows = revision_lints(two_tag_workspace)
+    frozen = two_tag_workspace / "checkpoints" / rows[0]["cluster_id"] / MANIFEST_FILE
+    frozen.unlink()
+    frozen.mkdir()
+    with pytest.raises(OSError):
+        revision_lints(two_tag_workspace)
+
+
+def test_an_unreadable_manifest_is_not_counted_as_a_prose_regression(two_tag_workspace):
+    """The instrument's own failure must not read as one more thing to fix.
+
+    ``LintReport.findings`` prepends a line whenever ``manifest_error`` is set,
+    so a ``finding_count`` taken straight off it moves by one for a reason that
+    is nothing to do with the draft.
+    """
+    _, text = draft_text(two_tag_workspace / "draft", FIRST_TAG)
+    # The +1 this pins is exactly what the reduction has to leave out.
+    assert len(lint(text, manifest_error="x").findings) == len(lint(text).findings) + 1
+    assert (
+        reduce_lint(lint(text, manifest_error="x"))["finding_count"]
+        == reduce_lint(lint(text))["finding_count"]
+    )
 
 
 def test_the_table_will_not_show_an_unmeasured_metric_as_a_number(two_tag_workspace):

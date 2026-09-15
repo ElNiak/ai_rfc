@@ -14,6 +14,7 @@ uncited and score an early draft down for prose it could not have written.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -24,20 +25,16 @@ from ai_rfc.draft.lint import LintReport, lint
 from ai_rfc.schema import SchemaError, load
 
 from ..lifecycle.workspace import REFCACHE_DIR
+from ..models import Manifest
 from .markdown import cell, fmt, separator
 
-#: The metrics :func:`~ai_rfc.draft.lint.lint` can only compute with a manifest
-#: in hand. When the manifest could not be read they are not zero and not
-#: empty — they are unmeasured, and the table must not let a reader mistake
-#: the one for the other.
-_MANIFEST_DEPENDENT = frozenset(
-    {
-        "citations.uncited",
-        "citations.cited_fraction",
-        "structures.defined",
-        "structures.rendered",
-    }
-)
+#: The frozen manifest loaded.
+MANIFEST_READ = "read"
+#: Nothing was at the path. A run killed between tagging a revision and
+#: writing its checkpoint leaves exactly this.
+MANIFEST_MISSING = "missing"
+#: The document was there and the schema refused it.
+MANIFEST_UNLOADABLE = "unloadable"
 
 
 def reduce_lint(report: LintReport) -> dict[str, Any]:
@@ -48,17 +45,41 @@ def reduce_lint(report: LintReport) -> dict[str, Any]:
     ``structures`` is the one that is not a field: the lint carries it under
     ``extra``, and it is lifted here to sit beside the rest.
 
-    Only scalars and lists come out. ``LintReport.findings`` is a tuple, and a
-    tuple anywhere in this payload deserialises as a list, so an analysis
-    written to disk and read back would no longer equal the value in hand.
+    Only scalars, ``None`` and lists come out. ``LintReport.findings`` is a
+    tuple, and a tuple anywhere in this payload deserialises as a list, so an
+    analysis written to disk and read back would no longer equal the value in
+    hand.
 
     Args:
         report: What :func:`ai_rfc.draft.lint.lint` returned.
 
     Returns:
-        The projection, nested one level under the report's field names.
+        The projection, nested one level under the report's field names. Every
+        metric the manifest fed is ``None`` when there was no manifest to feed
+        it, so a consumer needs no list of which those are.
     """
     structures = report.extra.get("structures", {})
+    # What `lint` can only answer with a manifest in hand. Without one they are
+    # not zero and not empty — `lint` initialises `uncited` to `[]` and
+    # `cited_fraction` to None and fills neither — so a reduction that emitted
+    # the initial values would report "cited everything" about a revision whose
+    # manifest it never read. Nulling the whole block, rather than a list of
+    # metric names kept somewhere else, is what makes a metric added here later
+    # unmeasured-correct without a second edit.
+    from_manifest: dict[str, dict[str, Any]] = {
+        "citations": {
+            "uncited": list(report.citations["uncited"]),
+            "cited_fraction": report.citations["cited_fraction"],
+        },
+        "structures": {
+            "defined": structures.get("defined", 0),
+            "rendered": structures.get("rendered", 0),
+        },
+    }
+    if report.manifest_error is not None:
+        from_manifest = {
+            block: dict.fromkeys(metrics) for block, metrics in from_manifest.items()
+        }
     return {
         "sections": {"missing": list(report.sections["missing"])},
         "abstract": {"word_count": report.abstract["word_count"]},
@@ -69,32 +90,69 @@ def reduce_lint(report: LintReport) -> dict[str, Any]:
         },
         "citations": {
             "tokens": report.citations["tokens"],
-            "uncited": list(report.citations["uncited"]),
-            "cited_fraction": report.citations["cited_fraction"],
+            **from_manifest["citations"],
         },
-        "structures": {
-            "defined": structures.get("defined", 0),
-            "rendered": structures.get("rendered", 0),
-        },
+        "structures": from_manifest["structures"],
         "narration_count": len(report.narration),
-        "finding_count": len(report.findings),
-        # Without this every manifest-dependent metric above is indistinguishable
-        # from a clean measurement: `lint` initialises `uncited` to `[]` and
-        # `cited_fraction` to None, and only populates them when it was handed a
-        # manifest. A reduction that dropped the reason would report "cited
-        # everything" about a revision whose manifest it never read.
+        # The manifest finding is the instrument's failing, not the draft's:
+        # `findings` prepends one whenever `manifest_error` is set, so counting
+        # it would read an unreadable checkpoint as a one-point prose
+        # regression. Asking the report for its findings with the reason
+        # cleared counts the draft's own, and keeps counting them if `lint`
+        # ever reports the manifest as something other than a single line.
+        "finding_count": len(replace(report, manifest_error=None).findings),
+        # Why those metrics are None, for a reader who has only the row.
         "manifest_error": report.manifest_error,
     }
+
+
+def _frozen_manifest(path: Path) -> tuple[Manifest | None, str | None, str]:
+    """The manifest a checkpoint froze, or why it could not be read.
+
+    Three outcomes, kept apart because two of them are evidence about the run
+    and the third is a broken instrument. ``missing`` is reported and the
+    analysis continues, because a run killed mid-round legitimately leaves a
+    tag whose checkpoint never landed. ``unloadable`` is reported too: a frozen
+    workspace is evidence that is never re-gated, so a pilot whose manifest
+    predates a vocabulary change is unloadable for good, and raising would let
+    one such revision take a campaign's good ones down with it. Every other
+    :exc:`OSError` propagates — an instrument that cannot open a file at a path
+    it has just computed is broken, and a broken instrument must fail loudly
+    rather than emit zeros.
+
+    :exc:`FileNotFoundError` is caught rather than the path tested, because
+    :meth:`~pathlib.Path.exists` answers False for a permission failure too and
+    would fold "broken" back into "missing".
+
+    Args:
+        path: Where the frozen ``manifest.yaml`` should be.
+
+    Returns:
+        The manifest or None, the reason or None, and which outcome fired —
+        one of :data:`MANIFEST_READ`, :data:`MANIFEST_MISSING` or
+        :data:`MANIFEST_UNLOADABLE`.
+
+    Raises:
+        OSError: If the document is there and still cannot be read.
+    """
+    try:
+        return load(path), None, MANIFEST_READ
+    except FileNotFoundError:
+        return None, f"no frozen manifest at {path}", MANIFEST_MISSING
+    except SchemaError as failure:
+        return None, str(failure), MANIFEST_UNLOADABLE
 
 
 def revision_lints(workspace: Path) -> list[dict[str, Any]]:
     """Lint every revision a run tagged, each against its own frozen manifest.
 
-    A frozen manifest that cannot be read is reported as a lint finding rather
-    than raised: the draft at that tag is still worth measuring, and the lint
-    has a parameter for exactly this. A tag missing from the draft repository
-    is not handled here — that is the citation gate's finding, and hiding it
-    would make an absent revision look like an empty one.
+    A frozen manifest that is absent, or that is there and will not load, is
+    reported as a lint finding rather than raised: the draft at that tag is
+    still worth measuring, and the lint has a parameter for exactly this.
+    :func:`_frozen_manifest` says which of the two happened. A tag missing from
+    the draft repository is not handled here — that is the citation gate's
+    finding, and hiding it would make an absent revision look like an empty
+    one.
 
     Args:
         workspace: The run's workspace, holding ``revisions.yaml``, the
@@ -102,13 +160,15 @@ def revision_lints(workspace: Path) -> list[dict[str, Any]]:
 
     Returns:
         One record per revision in revision-number order, carrying the tag,
-        number, cluster id and kind from the revision map and the metrics
+        number, cluster id and kind from the revision map, the
+        ``manifest_status`` its frozen manifest resolved to, and the metrics
         :func:`reduce_lint` projects.
 
     Raises:
         GateError: If the revision map is malformed or a tag cannot be read
             out of the draft repository.
-        OSError: If the revision map cannot be read.
+        OSError: If the revision map cannot be read, or a frozen manifest is
+            there and cannot be opened.
     """
     draft_repo = workspace / "draft"
     checkpoints = workspace / "checkpoints"
@@ -117,10 +177,7 @@ def revision_lints(workspace: Path) -> list[dict[str, Any]]:
     # `load_revisions` returns its entries ordered by revision number.
     for entry in load_revisions(workspace / "revisions.yaml"):
         frozen_path = _checkpoint_dir(entry, checkpoints, consolidations)
-        try:
-            frozen, error = load(frozen_path / MANIFEST_FILE), None
-        except (SchemaError, OSError) as failure:
-            frozen, error = None, str(failure)
+        frozen, error, status = _frozen_manifest(frozen_path / MANIFEST_FILE)
         name, text = draft_text(draft_repo, entry.tag)
         report = lint(
             text,
@@ -134,6 +191,7 @@ def revision_lints(workspace: Path) -> list[dict[str, Any]]:
                 "number": entry.number,
                 "cluster_id": entry.cluster_id,
                 "kind": entry.kind,
+                "manifest_status": status,
                 **reduce_lint(report),
             }
         )
@@ -245,19 +303,6 @@ def _delta(before: Any, after: Any) -> str | None:
     return f"+{text}" if change > 0 else text
 
 
-def _measured(record: Mapping[str, Any], name: str) -> Any:
-    """One metric's value, or None when its record never read a manifest.
-
-    A revision whose frozen manifest could not be read has an empty ``uncited``
-    and a zero ``defined`` because nothing was compared, not because nothing
-    was wrong. Rendering those as numbers would report "no change" about
-    something the instrument never measured.
-    """
-    if name in _MANIFEST_DEPENDENT and record.get("manifest_error"):
-        return None
-    return record.get(name)
-
-
 def compare_lints(
     before: dict, after: dict, *, before_label: str, after_label: str
 ) -> str:
@@ -269,9 +314,11 @@ def compare_lints(
     carrying a pipe must not be able to add a column, and the values are
     agent-controlled prose in the end.
 
-    A record carrying a ``manifest_error`` renders the metrics that needed the
-    manifest as the em dash rather than as a number, and the error itself is a
-    row of its own, so an unmeasured revision cannot be read as a clean one.
+    An unmeasured metric renders as the em dash rather than as a number, and
+    it does so without this function knowing which metrics need a manifest:
+    :func:`reduce_lint` writes ``None`` for what it could not measure, and
+    ``None`` is already the value that has no magnitude and no delta. The
+    reason is a row of its own, so the dashes are explained.
 
     Args:
         before: A reduced lint record, nested or flat.
@@ -286,8 +333,8 @@ def compare_lints(
     header = f"| metric | {cell(before_label)} | {cell(after_label)} | delta |"
     lines = [header, separator(header)]
     for name in sorted(set(first) | set(second)):
-        before_value = _measured(first, name)
-        after_value = _measured(second, name)
+        before_value = first.get(name)
+        after_value = second.get(name)
         lines.append(
             f"| {cell(name)} | {cell(_shown(before_value))} "
             f"| {cell(_shown(after_value))} "
