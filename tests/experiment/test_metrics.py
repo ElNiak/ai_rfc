@@ -14,6 +14,7 @@ from ai_rfc.experiment.metrics import (
     surface,
     trajectory,
 )
+from ai_rfc.experiment.report import render_report
 from ai_rfc.server.testing import git as _vcs
 
 from .conftest import COMPLETE_STEPS, append_untagged_revision
@@ -241,6 +242,14 @@ def test_a_build_that_cannot_start_does_not_abort_the_campaigns_analysis(
     assert intact["build_status"] == "built" and intact["build"]["exit_code"] == 0
     assert (campaign.analysis_dir / "B1" / "draft-build" / "build").is_dir()
     assert aggregate["runs"]["A1"]["completed_fraction"] is not None
+    # The renderer against the payload the instrument really built.
+    # `test_report.py` writes its failed row by hand, so a status column
+    # reading a key under a name nothing writes would pass there and fail here.
+    rendered = render_report(aggregate).splitlines()
+    (damaged_row,) = [row for row in rendered if row.startswith("| A1 | 1 | read |")]
+    (intact_row,) = [row for row in rendered if row.startswith("| B1 | 1 | read |")]
+    assert " | failed | " in damaged_row and "not a commit in " in damaged_row
+    assert intact_row.endswith(" | built | — | 0 | 0 | 0 |")
 
 
 def test_analyze_does_not_write_inside_the_run_workspace(campaign, write_scenario):
