@@ -179,7 +179,9 @@ def test_an_unreadable_frozen_manifest_is_reported_not_silently_zeroed(
     assert damaged[0]["citations"]["cited_fraction"] is None
     assert damaged[0]["citations"]["uncited"] is None
     assert damaged[0]["structures"] == {"defined": None, "rendered": None}
+    assert damaged[0]["finding_count"] is None
     assert damaged[1]["citations"]["cited_fraction"] == 1.0
+    assert isinstance(damaged[1]["finding_count"], int)
     # The text-only metrics are still measured: losing the manifest costs the
     # comparison, not the whole revision.
     assert damaged[0]["citations"]["tokens"] == clean[0]["citations"]["tokens"]
@@ -220,20 +222,43 @@ def test_a_frozen_manifest_that_exists_and_will_not_open_is_raised(two_tag_works
         revision_lints(two_tag_workspace)
 
 
-def test_an_unreadable_manifest_is_not_counted_as_a_prose_regression(two_tag_workspace):
-    """The instrument's own failure must not read as one more thing to fix.
+def test_finding_count_is_unmeasured_when_no_manifest_fed_it(two_tag_workspace):
+    """R20: most of what ``findings`` counts cannot be looked for without a manifest.
 
-    ``LintReport.findings`` prepends a line whenever ``manifest_error`` is set,
-    so a ``finding_count`` taken straight off it moves by one for a reason that
-    is nothing to do with the draft.
+    Five of its classes — an unknown citation, an unrendered, stale or unknown
+    structure, and an unbound data-model claim — are structurally empty when
+    ``lint`` was handed none. What survives is a count of the checks that still
+    ran, and a plain int does not say so, so it is reported as unmeasured with
+    the rest.
+
+    The earlier version of this test compared two reports that both had no
+    manifest, and so could not see any of this: the same checks were missing
+    from both sides of the comparison.
     """
+    rows = revision_lints(two_tag_workspace)
     _, text = draft_text(two_tag_workspace / "draft", FIRST_TAG)
-    # The +1 this pins is exactly what the reduction has to leave out.
-    assert len(lint(text, manifest_error="x").findings) == len(lint(text).findings) + 1
-    assert (
-        reduce_lint(lint(text, manifest_error="x"))["finding_count"]
-        == reduce_lint(lint(text))["finding_count"]
+    frozen = load(
+        two_tag_workspace / "checkpoints" / rows[0]["cluster_id"] / MANIFEST_FILE
     )
+    # A citation to a claim no manifest declares: a finding only a manifest can
+    # make, in prose that is byte-identical either way.
+    hostile = text + "\nThe field is `ai_rfc:t:9.9` wide.\n"
+    measured = lint(hostile, manifest=frozen)
+    unmeasured = lint(hostile, manifest_error="the checkpoint will not load")
+
+    # The vanishing itself: the check is not failed, it is not made.
+    assert any("t:9.9" in finding for finding in measured.findings)
+    assert not any("t:9.9" in finding for finding in unmeasured.findings)
+
+    assert isinstance(reduce_lint(measured)["finding_count"], int)
+    assert reduce_lint(unmeasured)["finding_count"] is None
+    # Nothing measurable is lost by nulling it: every text-derived signal it
+    # summarised is projected on its own.
+    assert (
+        reduce_lint(unmeasured)["narration_count"]
+        == reduce_lint(measured)["narration_count"]
+    )
+    assert reduce_lint(unmeasured)["abstract"] == reduce_lint(measured)["abstract"]
 
 
 def test_the_table_will_not_show_an_unmeasured_metric_as_a_number(two_tag_workspace):

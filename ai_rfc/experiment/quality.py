@@ -14,7 +14,6 @@ uncited and score an early draft down for prose it could not have written.
 
 from __future__ import annotations
 
-from dataclasses import replace
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -37,6 +36,24 @@ MANIFEST_MISSING = "missing"
 MANIFEST_UNLOADABLE = "unloadable"
 
 
+def _unmeasured(measured: Any) -> Any:
+    """The same shape with every leaf ``None``.
+
+    Deriving the unmeasured payload from the measured one is what keeps a
+    metric added to the projection later correct without a second edit
+    somewhere else.
+
+    Args:
+        measured: A metric, or a mapping of them, as it would be reported.
+
+    Returns:
+        ``None`` for a metric, and for a mapping the same keys over ``None``.
+    """
+    if isinstance(measured, dict):
+        return {key: _unmeasured(value) for key, value in measured.items()}
+    return None
+
+
 def reduce_lint(report: LintReport) -> dict[str, Any]:
     """Project one lint report down to the numbers an instrument aggregates.
 
@@ -56,7 +73,9 @@ def reduce_lint(report: LintReport) -> dict[str, Any]:
     Returns:
         The projection, nested one level under the report's field names. Every
         metric the manifest fed is ``None`` when there was no manifest to feed
-        it, so a consumer needs no list of which those are.
+        it, so a consumer needs no list of which those are. ``finding_count``
+        is one of them: most of what it counts cannot be looked for without a
+        manifest.
     """
     structures = report.extra.get("structures", {})
     # What `lint` can only answer with a manifest in hand. Without one they are
@@ -66,7 +85,20 @@ def reduce_lint(report: LintReport) -> dict[str, Any]:
     # manifest it never read. Nulling the whole block, rather than a list of
     # metric names kept somewhere else, is what makes a metric added here later
     # unmeasured-correct without a second edit.
-    from_manifest: dict[str, dict[str, Any]] = {
+    #
+    # `finding_count` belongs in here for the same reason, which is less
+    # obvious: five of the classes `LintReport.findings` draws need the
+    # manifest — an unknown citation, an unrendered, stale or unknown
+    # structure, and an unbound data-model claim — and every one of them is
+    # structurally empty without it. The count that survives is not a smaller
+    # count of the same thing, it is a count of the checks that still ran, and
+    # nothing in a plain int says so. Measured: one text scores 3 with its
+    # manifest and 1 without, which reads as a two-point improvement. Nothing
+    # is lost by nulling it, because every text-derived signal it summarises is
+    # already projected on its own — `sections.missing`, `abstract.word_count`,
+    # `keywords.must_fraction`, `blocks`, `citations.tokens`,
+    # `narration_count`.
+    from_manifest: dict[str, Any] = {
         "citations": {
             "uncited": list(report.citations["uncited"]),
             "cited_fraction": report.citations["cited_fraction"],
@@ -75,11 +107,13 @@ def reduce_lint(report: LintReport) -> dict[str, Any]:
             "defined": structures.get("defined", 0),
             "rendered": structures.get("rendered", 0),
         },
+        # `findings` prepends a line of its own whenever `manifest_error` is
+        # set. It needs no subtracting here: the count is nulled in exactly the
+        # case that line exists.
+        "finding_count": len(report.findings),
     }
     if report.manifest_error is not None:
-        from_manifest = {
-            block: dict.fromkeys(metrics) for block, metrics in from_manifest.items()
-        }
+        from_manifest = _unmeasured(from_manifest)
     return {
         "sections": {"missing": list(report.sections["missing"])},
         "abstract": {"word_count": report.abstract["word_count"]},
@@ -94,13 +128,7 @@ def reduce_lint(report: LintReport) -> dict[str, Any]:
         },
         "structures": from_manifest["structures"],
         "narration_count": len(report.narration),
-        # The manifest finding is the instrument's failing, not the draft's:
-        # `findings` prepends one whenever `manifest_error` is set, so counting
-        # it would read an unreadable checkpoint as a one-point prose
-        # regression. Asking the report for its findings with the reason
-        # cleared counts the draft's own, and keeps counting them if `lint`
-        # ever reports the manifest as something other than a single line.
-        "finding_count": len(replace(report, manifest_error=None).findings),
+        "finding_count": from_manifest["finding_count"],
         # Why those metrics are None, for a reader who has only the row.
         "manifest_error": report.manifest_error,
     }
