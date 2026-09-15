@@ -93,11 +93,14 @@ def reduce_lint(report: LintReport) -> dict[str, Any]:
     # structurally empty without it. The count that survives is not a smaller
     # count of the same thing, it is a count of the checks that still ran, and
     # nothing in a plain int says so. Measured: one text scores 3 with its
-    # manifest and 1 without, which reads as a two-point improvement. Nothing
-    # is lost by nulling it, because every text-derived signal it summarises is
-    # already projected on its own — `sections.missing`, `abstract.word_count`,
-    # `keywords.must_fraction`, `blocks`, `citations.tokens`,
-    # `narration_count`.
+    # manifest and 1 without, which reads as a two-point improvement.
+    #
+    # What the table compares survives on its own — `sections.missing`,
+    # `abstract.word_count`, `keywords.must_fraction`, `blocks`,
+    # `citations.tokens`, `narration_count`. Four text-only findings do not:
+    # the stub-abstract flag, the reference totals, a figure with no caption
+    # citation and a malformed delimiter are each computed without a manifest
+    # and projected nowhere, so nulling the count does lose them.
     from_manifest: dict[str, Any] = {
         "citations": {
             "uncited": list(report.citations["uncited"]),

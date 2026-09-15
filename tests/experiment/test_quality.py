@@ -252,8 +252,9 @@ def test_finding_count_is_unmeasured_when_no_manifest_fed_it(two_tag_workspace):
 
     assert isinstance(reduce_lint(measured)["finding_count"], int)
     assert reduce_lint(unmeasured)["finding_count"] is None
-    # Nothing measurable is lost by nulling it: every text-derived signal it
-    # summarised is projected on its own.
+    # The signals the comparison table is built on are reported on their own,
+    # so nulling the count does not cost the row its prose measurements. These
+    # two are members of that set, not the whole of it.
     assert (
         reduce_lint(unmeasured)["narration_count"]
         == reduce_lint(measured)["narration_count"]
