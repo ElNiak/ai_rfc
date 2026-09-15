@@ -60,7 +60,12 @@ DRAFT_UNREADABLE = "unreadable"
 #: The revision map loaded. Its revisions may still be zero: a workspace no run
 #: has tagged in yet reads `revisions: {}`, and that is a measurement.
 REVISIONS_READ = "read"
-#: The revision map is there and `load_revisions` refused its shape, so how many
+#: Nothing was at the path. Incomplete evidence rather than a broken
+#: instrument: `ledger._entries`, a sibling reader of the same file, already
+#: treats absence as a legitimate state, and an arm can delete it — which is
+#: why `revisions.yaml` is in `audit.STATE_FILES` (R29).
+REVISIONS_MISSING = "missing"
+#: The map is there and `load_revisions` refused its shape, so how many
 #: revisions the run has is unknown. Arms hand-edit `revisions.yaml` — it is in
 #: `audit.STATE_FILES` for that reason — so this is reachable by an agent, not
 #: only by a damaged disk.
@@ -271,24 +276,37 @@ def _revision_map(path: Path) -> tuple[tuple[Any, ...] | None, str | None, str]:
     :func:`~ai_rfc.experiment.metrics.analyze_campaign`'s comprehension for
     every other run in the campaign, and lose a GEPA candidate its score.
 
-    :exc:`OSError` propagates, which is the instrument arm: the caller
-    computed this path, and a workspace with no ``revisions.yaml`` is not a
-    workspace.
+    A map that is not there at all is reported too, and for the same reason
+    rather than as a widening of the rule: the instrument computed the right
+    path and the file is absent, which is incomplete evidence exactly as an
+    absent tag is. An arm with shell access can delete it, and
+    :func:`ai_rfc.ledger._entries` — another reader of this same file — has
+    always treated absence as a legitimate state (R29).
+
+    Every other :exc:`OSError` still propagates, so R17's split stays intact
+    for a path that exists and cannot be read. :exc:`FileNotFoundError` is
+    caught rather than the path tested, for the reason
+    :func:`_frozen_manifest` records: :meth:`~pathlib.Path.exists` answers
+    False for a permission failure too, and would fold "broken" back into
+    "missing".
 
     Args:
         path: Where the run's ``revisions.yaml`` should be.
 
     Returns:
         The entries or None, the reason or None, and which outcome fired —
-        :data:`REVISIONS_READ` or :data:`REVISIONS_UNREADABLE`. An empty tuple
-        with :data:`REVISIONS_READ` is a run that has recorded no revision yet,
+        :data:`REVISIONS_READ`, :data:`REVISIONS_MISSING` or
+        :data:`REVISIONS_UNREADABLE`. An empty tuple with
+        :data:`REVISIONS_READ` is a run that has recorded no revision yet,
         which is a measurement and not an absence.
 
     Raises:
-        OSError: If the map cannot be read at all.
+        OSError: If the map is there and still cannot be read.
     """
     try:
         return load_revisions(path), None, REVISIONS_READ
+    except FileNotFoundError:
+        return None, f"no revision map at {path}", REVISIONS_MISSING
     except GateError as failure:
         return None, str(failure), REVISIONS_UNREADABLE
 
@@ -325,13 +343,14 @@ def revision_lints(workspace: Path) -> dict[str, Any]:
     in the row is ``None`` rather than the zeros an empty draft would score:
     an absent revision must not read as an empty one.
 
-    A revision map that will not load is reported by :func:`_revision_map`,
-    and it is why this returns a record rather than the bare list it once did.
-    There are no rows to null when the map is unreadable — there is nothing to
-    enumerate — so the status belongs to the payload instead. ``revisions`` is
-    then ``[]``, and ``revisions_status`` is the only thing separating *this
-    run recorded none* from *this run's count is unknown*; a reader that takes
-    the empty list for zero revisions is wrong in the second case.
+    A revision map that is absent, or that is there and will not load, is
+    reported by :func:`_revision_map`, and it is why this returns a record
+    rather than the bare list it once did. There are no rows to null in either
+    case — there is nothing to enumerate — so the status belongs to the
+    payload instead. ``revisions`` is then ``[]``, and ``revisions_status`` is
+    the only thing separating *this run recorded none* from *this run's count
+    is unknown*; a reader that takes the empty list for zero revisions is
+    wrong in both of the latter cases.
 
     Args:
         workspace: The run's workspace, holding ``revisions.yaml``, the
@@ -346,8 +365,9 @@ def revision_lints(workspace: Path) -> dict[str, Any]:
         explains it, and the metrics :func:`reduce_lint` projects.
 
     Raises:
-        OSError: If the revision map cannot be read, a frozen manifest is
-            there and cannot be opened, or git cannot be invoked.
+        OSError: If the revision map is there and cannot be read, a frozen
+            manifest is there and cannot be opened, or git cannot be invoked.
+            An absent map and an absent frozen manifest are both reported.
     """
     entries, revisions_error, revisions_status = _revision_map(
         workspace / "revisions.yaml"

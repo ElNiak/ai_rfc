@@ -282,10 +282,13 @@ def test_one_unreadable_revision_map_does_not_abort_the_whole_aggregate(
     )
     # The malformation is chosen, not arbitrary: a tag that carries no
     # two-digit revision suffix is one `load_revisions` refuses and
-    # `ledger._entries` tolerates, so what fails here is R27's path alone. A
-    # scalar `revisions:` would instead die in `ledger._entries` with an
-    # `AttributeError` before `quality` is ever built — a separate, older
-    # defect that R27 does not reach.
+    # `ledger._entries` tolerates, so what fails here is R27's path alone. The
+    # form to avoid is a NON-NULL scalar such as `revisions: hello`, which dies
+    # in `ledger._entries` with an `AttributeError` before `quality` is ever
+    # built — a separate, older defect R27 does not reach. A bare `revisions:`
+    # is not that form: it parses to None, `_entries` does
+    # `(document.get("revisions") or {})` and tolerates it, so it is one more
+    # R27 case.
     revisions = campaign.runs_dir / "A1" / "workspace" / "revisions.yaml"
     revisions.write_text(
         "revisions:\n"
@@ -307,6 +310,40 @@ def test_one_unreadable_revision_map_does_not_abort_the_whole_aggregate(
     assert [r["tag"] for r in intact["revisions"]] == ["draft-test-fixture-00"]
     assert intact["revisions_status"] == "read"
     assert intact["revisions_error"] is None
+    stored = json.loads((campaign.analysis_dir / "aggregate.json").read_text())
+    assert stored == aggregate
+
+
+def test_a_deleted_revision_map_does_not_abort_the_whole_aggregate(
+    campaign, write_scenario
+):
+    """R29 through the comprehension, where the regression actually bit.
+
+    Deleting the file is the state an arm with shell access can leave, and
+    before R29 it raised ``OSError`` out of the instrument arm and took every
+    other run's analysis with it. ``analyze_run`` alone cannot show that.
+    """
+    _run(
+        campaign,
+        write_scenario,
+        {
+            "A1": {"arm": "A", "cost": 1.0, "steps": COMPLETE_STEPS},
+            "C1": {"arm": "C", "cost": 1.1, "steps": COMPLETE_STEPS},
+        },
+    )
+    (campaign.runs_dir / "A1" / "workspace" / "revisions.yaml").unlink()
+    aggregate = analyze_campaign(campaign)
+
+    assert set(aggregate["runs"]) == {"A1", "C1"}
+    damaged = aggregate["runs"]["A1"]["quality"]
+    intact = aggregate["runs"]["C1"]["quality"]
+    assert damaged["revisions"] == []
+    assert damaged["revisions_status"] == "missing"
+    assert "revisions.yaml" in damaged["revisions_error"]
+    # The sibling still enumerates, so the empty list above is this run's
+    # condition and not something the analysis does to every run.
+    assert [r["tag"] for r in intact["revisions"]] == ["draft-test-fixture-00"]
+    assert intact["revisions_status"] == "read"
     stored = json.loads((campaign.analysis_dir / "aggregate.json").read_text())
     assert stored == aggregate
 

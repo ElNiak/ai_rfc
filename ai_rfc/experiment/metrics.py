@@ -47,7 +47,7 @@ DEFINITIONS = {
     "checked_fraction": "the substrate's honesty metric, reported per checkpoint; expected 0.0 without interviews or runtime anchors",
     "quality_revisions": "one lint of the draft at every tag the run recorded, each against the manifest its own checkpoint froze; linting an early revision against the final manifest would report a later cluster's claims as uncited; a tag the draft repository does not hold is a row with no lint at all, and draft_status says so",
     "quality_build": "the draft at the run's highest-numbered tag, built with the campaign's frozen toolchain; null both when the analysis was not asked for a build, which is the default, and when the campaign froze no toolchain",
-    "quality_revisions_status": "whether the run's revisions.yaml could be read at all; when it is unreadable the revisions list is empty because the map could not be enumerated, not because the run recorded none, and revisions_error says what the map got wrong",
+    "quality_revisions_status": "read when the run's revisions.yaml loaded, missing when there is none, unreadable when it is there in a shape the loader refuses; on either of the last two the revisions list is empty because the map could not be enumerated and not because the run recorded none, and revisions_error says which it was",
     "quality_unmeasured": "null in a lint row means unmeasured and never zero: the metrics a frozen manifest feeds are null unless manifest_status is read, while the metrics the draft text alone shows stay real so long as draft_status is read; a row whose draft_status is unreadable has no text to measure and every metric in it is null",
 }
 #: Arm B's command prefixes, from the one declaration in :mod:`driver.arms`.
@@ -299,11 +299,11 @@ def analyze_run(
         BuildError: If ``build`` and the toolchain record is unreadable or
             the run's last tag does not resolve to a single draft.
 
-    No ``GateError`` reaches a caller. A revision map that will not load, and a
-    tag it registers that the draft repository does not hold, are both reported
-    in ``quality`` (R23, R27): one damaged run must not abort the aggregate for
-    every other, which is what :func:`analyze_campaign`'s comprehension would
-    do with a raise.
+    No ``GateError`` reaches a caller. A revision map that is absent or will
+    not load, and a tag it registers that the draft repository does not hold,
+    are all reported in ``quality`` (R23, R27, R29): one damaged run must not
+    abort the aggregate for every other, which is what
+    :func:`analyze_campaign`'s comprehension would do with a raise.
     """
     run_dir = campaign.runs_dir / run_id
     status = load_status(run_dir)

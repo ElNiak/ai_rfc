@@ -355,23 +355,52 @@ def test_an_unreadable_map_and_a_map_recording_none_do_not_collapse(
     none_recorded = revision_lints(two_tag_workspace)
     path.write_text("this is not a revision map\n")
     unreadable = revision_lints(two_tag_workspace)
+    path.unlink()
+    absent = revision_lints(two_tag_workspace)
 
+    # Three states, one list. Only the status separates them.
     assert none_recorded["revisions"] == unreadable["revisions"] == []
+    assert absent["revisions"] == []
     assert none_recorded["revisions_status"] == "read"
     assert unreadable["revisions_status"] == "unreadable"
+    assert absent["revisions_status"] == "missing"
     assert none_recorded["revisions_error"] is None
     assert "revisions.yaml" in unreadable["revisions_error"]
+    assert "revisions.yaml" in absent["revisions_error"]
 
 
-def test_a_workspace_with_no_revision_map_at_all_is_raised(two_tag_workspace):
-    """R17 on the map: the swallow is for a bad shape, not for a bad path.
+def test_a_revision_map_an_arm_deleted_is_reported_not_raised(two_tag_workspace):
+    """R29: absence is incomplete evidence, not a mis-addressed instrument.
 
-    A workspace with no ``revisions.yaml`` is not a workspace, and the caller
-    computed the path — so this is the instrument looking in the wrong place,
-    and it must fail loudly rather than report every run as having recorded
-    nothing measurable.
+    The path is the right one and the file is not at it, which is the same
+    shape as a tag the draft repository does not hold. Two facts put it on the
+    evidence side rather than the instrument side: ``ledger._entries``, another
+    reader of this same file, has always returned ``{}`` on absence; and
+    ``revisions.yaml`` is in ``audit.STATE_FILES`` *because arms hand-edit it*,
+    and an arm has shell access, so an arm deleting it is reachable.
     """
     (two_tag_workspace / "revisions.yaml").unlink()
+    payload = revision_lints(two_tag_workspace)
+
+    assert payload["revisions"] == []
+    assert payload["revisions_status"] == "missing"
+    assert "revisions.yaml" in payload["revisions_error"]
+
+
+def test_a_revision_map_that_exists_and_will_not_open_is_raised(two_tag_workspace):
+    """R17's propagate arm, which R29 must not widen away.
+
+    Absence is reported; a path that *is* there and cannot be read is a broken
+    instrument and still fails loudly. A directory where the map belongs is
+    that refusal deterministically and without touching a mode — the idiom
+    ``test_a_frozen_manifest_that_exists_and_will_not_open_is_raised`` already
+    uses. It is also why ``FileNotFoundError`` is caught rather than
+    ``exists()`` tested: ``exists()`` answers False for a permission failure
+    too, which would fold this case back into ``missing``.
+    """
+    path = two_tag_workspace / "revisions.yaml"
+    path.unlink()
+    path.mkdir()
     with pytest.raises(OSError):
         revision_lints(two_tag_workspace)
 
