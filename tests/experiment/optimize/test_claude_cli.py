@@ -14,6 +14,7 @@ from ai_rfc.experiment.optimize.claude_cli import (
     PREFIX,
     ClaudeCliCall,
     ClaudeCliError,
+    ClaudeCliSurfaceError,
     cli_model,
     quota,
 )
@@ -85,6 +86,30 @@ def test_repr_is_the_form_the_result_file_records(profile, tmp_path):
 # --- the call -------------------------------------------------------------
 
 
+#: The argv every call carries, whichever regime it runs under.
+SHARED_ARGV = [
+    "-p",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--model",
+    "some-model",
+    "--effort",
+    "high",
+    "--safe-mode",
+    "--setting-sources",
+    "",
+    "--permission-mode",
+    "dontAsk",
+    "--tools",
+    "",
+    "--no-session-persistence",
+]
+
+#: What the strict regime adds on top, in the order ``argv`` emits it.
+STRICT_ARGV = ["--strict-mcp-config", "--exclude-dynamic-system-prompt-sections"]
+
+
 def test_the_argv_is_exact_and_the_prompt_travels_on_stdin(profile, tmp_path):
     control(profile, reply="fenced", proposal="NEW")
 
@@ -92,27 +117,51 @@ def test_the_argv_is_exact_and_the_prompt_travels_on_stdin(profile, tmp_path):
 
     assert reply == "```\nNEW\n```"
     (recorded,) = calls(profile)
-    assert recorded["argv"][1:] == [
-        "-p",
-        "--output-format",
-        "stream-json",
-        "--verbose",
-        "--model",
-        "some-model",
-        "--effort",
-        "high",
-        "--safe-mode",
-        "--setting-sources",
-        "",
-        "--permission-mode",
-        "dontAsk",
-        "--tools",
-        "",
-        "--no-session-persistence",
-    ]
+    assert recorded["argv"][1:] == SHARED_ARGV + STRICT_ARGV
     assert recorded["stdin"] == "Rewrite it."
     assert "Rewrite it." not in " ".join(recorded["argv"])
     assert recorded["cwd"] == str(tmp_path / "cwd")
+
+
+def test_the_proposer_regime_argv_is_the_one_measured_on_2_1_260(profile, tmp_path):
+    """U1 ruled the union for the judge and said nothing about the GEPA
+    proposer, which shares this class. Off the gate, its argv is byte-for-byte
+    the list that loop has always sent."""
+    control(profile, reply="fenced", proposal="NEW")
+
+    call(profile, tmp_path, effort="high", strict_surface=False)("Rewrite it.")
+
+    (recorded,) = calls(profile)
+    assert recorded["argv"][1:] == SHARED_ARGV
+
+
+@pytest.mark.parametrize("strict_surface", [True, False])
+def test_a_system_prompt_travels_as_a_flag_not_on_stdin(
+    profile, tmp_path, strict_surface
+):
+    """It rides on its own argument rather than the gate, so naming one is
+    never silently dropped by the regime the call runs under."""
+    control(profile, reply="fenced", proposal="NEW")
+
+    call(
+        profile,
+        tmp_path,
+        effort="high",
+        strict_surface=strict_surface,
+        system_prompt="Grade one claim.",
+    )("Rewrite it.")
+
+    (recorded,) = calls(profile)
+    argv = recorded["argv"][1:]
+    assert argv[-2:] == ["--system-prompt", "Grade one claim."]
+    assert recorded["stdin"] == "Rewrite it."
+
+
+def test_no_system_prompt_means_no_flag(profile, tmp_path):
+    call(profile, tmp_path)("x")
+
+    (recorded,) = calls(profile)
+    assert "--system-prompt" not in recorded["argv"]
 
 
 def test_the_environment_is_the_profile_and_nothing_the_shell_holds(
@@ -272,6 +321,149 @@ def test_quota_reads_the_last_rate_limit_event():
     ]
     assert quota(events) == {"a": 2}
     assert quota([{"type": "result"}]) is None
+
+
+# --- the surface the session reports ---------------------------------------
+
+
+def test_a_session_that_reported_no_init_is_refused(profile, tmp_path):
+    """A guard written ``if init is not None`` passes this case without ever
+    evaluating, so the session that sends no init is the one that proves the
+    guard is not vacuous."""
+    control(profile, reply="raw", text="{}", no_init=True)
+
+    with pytest.raises(ClaudeCliSurfaceError, match="no init event"):
+        call(profile, tmp_path)("grade this")
+
+
+@pytest.mark.parametrize("key", ["tools", "mcp_servers"])
+def test_a_session_whose_init_omits_the_key_is_refused(profile, tmp_path, key):
+    """Absent is not empty. ``init.get(key, [])`` and ``init.get(key) or []``
+    both read a key that was never reported as a surface measured empty."""
+    control(profile, reply="raw", text="{}", omit_init=[key])
+
+    with pytest.raises(ClaudeCliSurfaceError, match=key):
+        call(profile, tmp_path)("grade this")
+
+
+@pytest.mark.parametrize("key", ["tools", "mcp_servers"])
+def test_a_session_reporting_the_key_as_null_is_refused(profile, tmp_path, key):
+    """``or []`` collapses absent, null and empty into one. Null is a session
+    declining to answer, so it is refused like an absent key."""
+    control(profile, reply="raw", text="{}", **{key: None})
+
+    with pytest.raises(ClaudeCliSurfaceError, match=key):
+        call(profile, tmp_path)("grade this")
+
+
+def test_a_session_that_held_tools_is_refused(profile, tmp_path):
+    control(profile, reply="raw", text="{}", tools=["Bash"])
+
+    with pytest.raises(ClaudeCliSurfaceError, match="tools") as caught:
+        call(profile, tmp_path)("grade this")
+
+    assert "Bash" in str(caught.value)
+
+
+def test_a_session_that_mounted_a_server_is_refused(profile, tmp_path):
+    """The spec's third settled fact: assert the init event, never the flags."""
+    control(
+        profile,
+        reply="raw",
+        text="{}",
+        mcp_servers=[{"name": "x", "status": "connected"}],
+    )
+
+    with pytest.raises(ClaudeCliSurfaceError, match="mcp_servers") as caught:
+        call(profile, tmp_path)("grade this")
+
+    # Every caller of this transport catches ClaudeCliError, so a refusal has
+    # to arrive inside that hierarchy rather than past it.
+    assert isinstance(caught.value, ClaudeCliError)
+
+
+def test_a_server_named_as_a_bare_string_is_refused(profile, tmp_path):
+    """``stream.mcp_servers`` keeps only the entries that are mappings, so a
+    guard written on its result reads a list of bare names as no servers at
+    all. The guard reads the reported value itself."""
+    control(profile, reply="raw", text="{}", mcp_servers=["x"])
+
+    with pytest.raises(ClaudeCliSurfaceError, match="mcp_servers"):
+        call(profile, tmp_path)("grade this")
+
+
+def test_the_empty_surface_the_argv_produces_is_accepted(profile, tmp_path):
+    """The passing side of every refusal above: the stub derives its ``tools``
+    from ``--tools ""`` and reports no servers, and that call goes through."""
+    control(profile, reply="raw", text="ok")
+
+    assert call(profile, tmp_path)("grade this") == "ok"
+
+
+# --- what the call cost ------------------------------------------------------
+
+
+def test_the_transport_records_what_the_call_cost(profile, tmp_path):
+    control(profile, reply="raw", text="{}", cost=0.0125)
+    wrapper = call(profile, tmp_path)
+
+    wrapper("grade this")
+
+    assert wrapper.last_cost_usd == 0.0125
+
+
+def test_there_is_no_cost_before_the_first_call(profile, tmp_path):
+    assert call(profile, tmp_path).last_cost_usd is None
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"omit_result": ["total_cost_usd"]},
+        {"cost": None},
+        {"cost": "0.0125"},
+        {"cost": True},
+    ],
+    ids=["absent", "null", "string", "bool"],
+)
+def test_a_cost_that_is_not_a_number_is_recorded_as_unmeasured(
+    profile, tmp_path, payload
+):
+    """A reply is not refused over this field — the envelope's shape is
+    version-dependent — but an unmeasured cost is recorded as unmeasured
+    rather than as a figure someone could report."""
+    control(profile, reply="raw", text="{}", **payload)
+    wrapper = call(profile, tmp_path)
+
+    wrapper("grade this")
+
+    assert wrapper.last_cost_usd is None
+
+
+def test_a_later_call_never_leaves_the_earlier_cost_standing(profile, tmp_path):
+    """One wrapper serves every judge call, so a cost held past its own call
+    would be recorded against the next one."""
+    wrapper = call(profile, tmp_path)
+    control(profile, reply="raw", text="{}", cost=0.5)
+    wrapper("grade this")
+    assert wrapper.last_cost_usd == 0.5
+
+    control(profile, reply="raw", text="{}", omit_result=["total_cost_usd"])
+    wrapper("grade that")
+
+    assert wrapper.last_cost_usd is None
+
+
+def test_a_failed_call_leaves_no_cost_behind(profile, tmp_path):
+    wrapper = call(profile, tmp_path)
+    control(profile, reply="raw", text="{}", cost=0.5)
+    wrapper("grade this")
+
+    control(profile, reply="nonzero", stderr="down\n")
+    with pytest.raises(ClaudeCliError):
+        wrapper("grade that")
+
+    assert wrapper.last_cost_usd is None
 
 
 # --- as the judge's transport ------------------------------------------------

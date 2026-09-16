@@ -17,7 +17,12 @@ from pathlib import Path
 from typing import Any
 
 from ai_rfc.driver import DriverError
-from ai_rfc.driver.stream import assistant_text, parse_stream, result_event
+from ai_rfc.driver.stream import (
+    assistant_text,
+    init_event,
+    parse_stream,
+    result_event,
+)
 
 from ...lifecycle.profile import profile_env
 from .. import ExperimentError
@@ -68,6 +73,22 @@ class ClaudeCliError(ExperimentError):
         self.stderr_tail = stderr_tail
 
 
+class ClaudeCliSurfaceError(ClaudeCliError):
+    """Raised when a session does not report the empty surface it was launched
+    with.
+
+    A probe for this row had a model claim tools its argv had not given it, so
+    what the flags asked for is not evidence of what the session got. The init
+    event is, and a session that reports nothing has reported nothing: an
+    absent key and a null one are refused exactly like a populated one.
+    """
+
+
+#: The keys an init event must carry, each as an empty list, for a call to be
+#: taken as isolated.
+_SURFACE_KEYS = ("tools", "mcp_servers")
+
+
 def quota(events: list[dict[str, Any]]) -> dict[str, Any] | None:
     """The last ``rate_limit_event``'s ``rate_limit_info``, if the stream had one.
 
@@ -108,6 +129,29 @@ def _decoded(data: str | bytes | None) -> str:
     return data if isinstance(data, str) else data.decode("utf-8", "replace")
 
 
+def _cost(final: dict[str, Any]) -> float | None:
+    """What a result event says the call cost, when it says it in a number.
+
+    A reply is never refused over this field: the envelope's shape moved
+    between CLI 2.1.260 and 2.1.268, so a version that omits it or spells it
+    differently must still be usable. What that costs is a value nobody
+    measured, and this returns it as unmeasured rather than as a figure a
+    manifest could carry.
+
+    Args:
+        final: The result event.
+
+    Returns:
+        The cost, or ``None`` when the event carried no ``total_cost_usd``, a
+        null, or anything that is not a number. ``bool`` is not a number here:
+        ``True`` would otherwise be recorded as one dollar.
+    """
+    value = final.get("total_cost_usd")
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value)
+
+
 class ClaudeCliCall:
     """One ``claude -p`` per call, on a model, through a profile.
 
@@ -124,6 +168,20 @@ class ClaudeCliCall:
             to exist.
         effort: The CLI's ``--effort`` level.
         timeout_s: Seconds before the child is killed and the call raises.
+        system_prompt: Sent as ``--system-prompt`` when given, so a role a
+            call must hold never competes with the prompt on stdin. Carried
+            on its own rather than on ``strict_surface``, so naming one is
+            never silently dropped by the regime the call runs under.
+        strict_surface: Whether the argv also carries the two flags the
+            judge's regime adds. The GEPA proposer's argv was measured
+            without them and was not part of that ruling, so it passes
+            False. This gates the argv only: every call, in either regime,
+            refuses a session that reports a surface.
+
+    Attributes:
+        last_cost_usd: What the last call cost, per its result event; ``None``
+            before the first call, after a call that failed, and after one
+            whose result reported no usable figure.
     """
 
     def __init__(
@@ -135,6 +193,8 @@ class ClaudeCliCall:
         cwd: Path,
         effort: str = "high",
         timeout_s: int = 120,
+        system_prompt: str | None = None,
+        strict_surface: bool = True,
     ) -> None:
         self.claude_bin = claude_bin
         self.profile_dir = profile_dir
@@ -142,6 +202,9 @@ class ClaudeCliCall:
         self.cwd = cwd
         self.effort = effort
         self.timeout_s = timeout_s
+        self.system_prompt = system_prompt
+        self.strict_surface = strict_surface
+        self.last_cost_usd: float | None = None
 
     def __repr__(self) -> str:
         return f"{PREFIX}{self.model}"
@@ -155,8 +218,18 @@ class ClaudeCliCall:
         ``--setting-sources ""`` and ``--permission-mode dontAsk`` closed
         that. ``--tools ""`` makes the proposer a model rather than an agent
         that could load the very skills it is rewriting.
+
+        Under ``strict_surface`` the vector is the union of that set and the
+        one the design spec verified on 2.1.259, neither being a superset of
+        the other. All eight flags were measured as *accepted* on the
+        installed 2.1.272; what the two added ones prevent is not measured
+        here, and the init assertion in :meth:`__call__` is what decides
+        whether a session was actually isolated.
+
+        Returns:
+            The argv, the binary first.
         """
-        return [
+        argv = [
             self.claude_bin,
             "-p",
             "--output-format",
@@ -175,10 +248,57 @@ class ClaudeCliCall:
             "",
             "--no-session-persistence",
         ]
+        if self.strict_surface:
+            argv += ["--strict-mcp-config", "--exclude-dynamic-system-prompt-sections"]
+        if self.system_prompt is not None:
+            argv += ["--system-prompt", self.system_prompt]
+        return argv
 
     def env(self) -> dict[str, str]:
         """The child's whole environment; nothing else is inherited."""
         return profile_env(self.profile_dir)
+
+    def _check_surface(self, events: list[dict[str, Any]]) -> None:
+        """Refuse a session that did not report holding nothing.
+
+        The shape is :func:`ai_rfc.experiment.preflight._arm_surface_check`'s
+        -- the same two init keys, read the same way round -- without its
+        defaulting: that check reads a whole probe matrix and reports what it
+        found, while this one decides a single call and so has to tell a key
+        reported empty from a key never reported at all.
+
+        Args:
+            events: The call's parsed stream-json events.
+
+        Raises:
+            ClaudeCliSurfaceError: If the session sent no init event, if its
+                init omits either key, or if either is anything other than an
+                empty list.
+        """
+        init = init_event(events)
+        if init is None:
+            raise ClaudeCliSurfaceError(
+                f"{self!r} ran a session that sent no init event, so nothing "
+                "it held was measured"
+            )
+        missing = [key for key in _SURFACE_KEYS if key not in init]
+        if missing:
+            raise ClaudeCliSurfaceError(
+                f"{self!r} ran a session whose init omits {', '.join(missing)}, "
+                "so what it held was not measured"
+            )
+        for key in _SURFACE_KEYS:
+            # The reported value itself decides, not a helper's reading of it:
+            # ``stream.mcp_servers`` keeps only the entries that are mappings
+            # and defaults an absent key to ``{}``, so a guard written on its
+            # result takes a list of bare names for no servers at all.
+            value = init[key]
+            if isinstance(value, list) and not value:
+                continue
+            raise ClaudeCliSurfaceError(
+                f"{self!r} ran a session reporting {key}={json.dumps(value)}; "
+                "an isolated session reports an empty list"
+            )
 
     def __call__(self, prompt: str | list[dict[str, Any]]) -> str:
         """Send one prompt and return the model's reply text.
@@ -194,8 +314,14 @@ class ClaudeCliCall:
                 cwd that cannot be created, a non-zero exit, a timeout,
                 output that is not stream-json, a result marked as an error,
                 or an empty reply.
+            ClaudeCliSurfaceError: If the session did not report holding
+                nothing.
         """
         text = prompt if isinstance(prompt, str) else _flatten(prompt)
+        # Cleared before the call, not after it: one wrapper serves every call
+        # of a run, so a figure left standing past its own call would be read
+        # as the next one's.
+        self.last_cost_usd = None
         try:
             self.cwd.mkdir(parents=True, exist_ok=True)
             completed = subprocess.run(
@@ -241,6 +367,7 @@ class ClaudeCliCall:
                 exit_code=completed.returncode,
                 stderr_tail=tail,
             ) from None
+        self._check_surface(events)
         final = result_event(events)
         if final is None:
             raise ClaudeCliError(
@@ -255,6 +382,7 @@ class ClaudeCliCall:
                 exit_code=completed.returncode,
                 stderr_tail=tail,
             )
+        self.last_cost_usd = _cost(final)
         reply = str(final.get("result") or assistant_text(events))
         if not reply.strip():
             raise ClaudeCliError(

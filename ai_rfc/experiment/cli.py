@@ -451,6 +451,9 @@ def _optimize_run(args: argparse.Namespace, root: Path) -> int:
         if proposer is None:
             reflection_lm = args.reflection_lm
         else:
+            # The union argv was ruled for the judge alone, and this loop's
+            # own vector is the one measured on 2.1.260, so it keeps it. The
+            # init assertion is not part of that gate and holds here too.
             reflection_lm = ClaudeCliCall(
                 claude_bin,
                 profile,
@@ -458,6 +461,7 @@ def _optimize_run(args: argparse.Namespace, root: Path) -> int:
                 cwd=calls_dir,
                 effort=args.effort,
                 timeout_s=args.timeout_s,
+                strict_surface=False,
             )
         model = args.model
         build = None
