@@ -61,10 +61,10 @@ def _emit_preamble(control: dict, number: int) -> None:
     # claiming one it was not given is the lie a caller asserting on this
     # event exists to catch.
     tools = [tool for tool in (_flag("--tools") or "").split(",") if tool]
-    # ``slash_commands`` has no flag at all, in this argv or in the real
-    # CLI's: the session lists the skills it found on disk, which survive
-    # ``--tools ""`` because they are named rather than invocable. That is a
-    # recorded, accepted leak in the judge's blinding, so the manifest has to
+    # ``slash_commands`` has no flag in this argv at all: the session lists
+    # the skills it found on disk, which the design spec measured as
+    # surviving ``--tools ""`` -- named, so not invocable, but still in the
+    # prompt. That leak is recorded and accepted, so the manifest has to
     # state it -- and a consumer can only be shown to state it against a stub
     # whose list is not empty. The control file is the only way to fill one.
     # ``--model``, unlike those two, does arrive with a real value, so its
