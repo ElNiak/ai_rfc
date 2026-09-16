@@ -1494,6 +1494,7 @@ def run(args: argparse.Namespace) -> int:
             from .audit import audit_campaign
             from .config import load_campaign
             from .metrics import analyze_campaign
+            from .quality import build_tally
             from .report import render_report
 
             campaign = load_campaign(args.campaign.resolve())
@@ -1503,6 +1504,14 @@ def run(args: argparse.Namespace) -> int:
             report_path.write_text(render_report(aggregate))
             print(f"aggregate: {campaign.analysis_dir / 'aggregate.json'}")
             print(f"report: {report_path}")
+            # Only when a build was asked for: without the flag every run is
+            # `not requested`, and a line saying so is noise. The exit code is
+            # deliberately not touched. R31 made a refused build a status and
+            # not an abort, and failing the verb on it would put that same
+            # poisoning back at the exit-code level, where one damaged run
+            # would again degrade the signal for the whole campaign.
+            if args.build:
+                print(f"builds: {build_tally(aggregate['runs'])}")
         elif args.command == "optimize" and args.verb == "seed":
             from .optimize.codec import encode, seed_from_plugin
 

@@ -10,6 +10,7 @@ import pytest
 from ai_rfc.driver.session import SessionResult
 from ai_rfc.experiment import ExperimentError, cli, metrics
 from ai_rfc.experiment.config import git_describe
+from ai_rfc.server.testing import git as _vcs
 
 from .conftest import COMPLETE_STEPS, FAKE_CLAUDE
 
@@ -181,6 +182,39 @@ def test_the_analyze_build_flag_reaches_the_campaign(
 
     assert cli.main(["analyze", str(campaign_dir), "--build"]) == 0
     assert len(calls) == len(order)
+
+
+def test_analyze_reports_how_every_build_ended_and_still_exits_zero(
+    tmp_path, pristine, write_scenario, capsys, toolchain_record
+):
+    """R31 at the door: the outcome reaches stdout, and the exit code does not.
+
+    An agent driving ``analyze`` reads the exit code, not the report, so a
+    campaign whose builds all refused to start looked from outside exactly
+    like one whose builds all succeeded. The line closes that without failing
+    the verb: a non-zero exit would put R31's poisoning back at the exit-code
+    level, where one damaged run again degrades the signal for every other run
+    in the campaign.
+
+    ``run_order[0]``'s tag is deleted after the run, as ``test_metrics.py``
+    deletes it — ``latest_tag`` still names it out of ``revisions.yaml``, so
+    the build is refused before any clone. The other runs really build against
+    the no-op ``make`` ``_init`` freezes, which is the half that says the
+    tally counts outcomes rather than runs the analysis reached.
+    """
+    campaign_dir, order = _completed_campaign(
+        tmp_path, pristine, write_scenario, capsys, toolchain_record
+    )
+    draft = campaign_dir / "runs" / order[0] / "workspace" / "draft"
+    _vcs(draft, "tag", "-d", "draft-test-fixture-00")
+
+    assert cli.main(["analyze", str(campaign_dir), "--build"]) == 0
+    assert f"builds: {len(order) - 1} built, 1 failed" in capsys.readouterr().out
+
+    # Without the flag there is no outcome to report: every run would count as
+    # `not requested`, and a line saying so beside every analysis is noise.
+    assert cli.main(["analyze", str(campaign_dir)]) == 0
+    assert "builds:" not in capsys.readouterr().out
 
 
 def test_the_campaign_shim_actually_runs(campaign):

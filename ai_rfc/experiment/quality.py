@@ -98,6 +98,45 @@ BUILD_BUILT = "built"
 BUILD_FAILED = "failed"
 
 
+def build_tally(runs: Mapping[str, Mapping[str, Any]]) -> str:
+    """How a campaign's builds ended, counted by status.
+
+    Every status is counted rather than the successes alone. A campaign that
+    froze no toolchain reports :data:`BUILD_NO_TOOLCHAIN` for every run, and a
+    line counting built and failed would say ``0 built, 0 failed`` about it —
+    which reads as nothing having gone wrong, of a campaign that measured
+    nothing. Counting the whole set is what keeps the line from re-introducing
+    at the summary what R31 removed from the exit code.
+
+    The order is fixed rather than the order the runs happen to arrive in, so
+    two campaigns' lines can be compared term by term.
+
+    Args:
+        runs: The aggregate's ``runs``. A run archived before the build
+            instrument existed carries no ``quality`` and falls under no
+            status, so it is counted in none of the terms.
+
+    Returns:
+        The non-zero counts, such as ``2 built, 1 failed``, or
+        ``nothing reported`` when no run carries a status at all.
+    """
+    counts: dict[Any, int] = {}
+    for result in runs.values():
+        status = (result.get("quality") or {}).get("build_status")
+        counts[status] = counts.get(status, 0) + 1
+    terms = [
+        f"{counts[status]} {status}"
+        for status in (
+            BUILD_BUILT,
+            BUILD_FAILED,
+            BUILD_NO_TOOLCHAIN,
+            BUILD_NOT_REQUESTED,
+        )
+        if counts.get(status)
+    ]
+    return ", ".join(terms) or "nothing reported"
+
+
 def _unmeasured(measured: Any) -> Any:
     """The same shape with every leaf ``None``.
 

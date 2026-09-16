@@ -25,6 +25,7 @@ from ai_rfc.experiment import quality
 from ai_rfc.experiment.quality import (
     _flatten,
     build_not_requested,
+    build_tally,
     compare_lints,
     final_build,
     reduce_lint,
@@ -633,6 +634,35 @@ def test_a_build_whose_instrument_is_broken_is_raised_and_not_reported(
             str(toolchain_record),
             tmp_path / "analysis" / "draft-build",
         )
+
+
+def test_the_build_tally_counts_every_status_and_not_the_successes():
+    """The summary line must not read as "all well" for a campaign that built none.
+
+    ``0 built, 0 failed`` is what a tally of successes alone would print for a
+    campaign that froze no toolchain — the summary-level form of exactly what
+    R31 took out of the exit code. The statuses go in on the constants, so a
+    renamed value fails here rather than silently changing what the door
+    prints; the expected string is written out, because it is the wording.
+
+    A run archived before the build instrument existed carries no ``quality``
+    and belongs under no status, so it is counted under none rather than under
+    an invented one.
+    """
+    assert build_tally({}) == "nothing reported"
+    assert build_tally({"A1": {}, "B1": {"quality": {}}}) == "nothing reported"
+    assert (
+        build_tally(
+            {
+                "A1": {"quality": {"build_status": quality.BUILD_FAILED}},
+                "B1": {"quality": {"build_status": quality.BUILD_NO_TOOLCHAIN}},
+                "C1": {"quality": {"build_status": quality.BUILD_BUILT}},
+                "D1": {"quality": {"build_status": quality.BUILD_BUILT}},
+                "E1": {"quality": {"build_status": quality.BUILD_NOT_REQUESTED}},
+            }
+        )
+        == "2 built, 1 failed, 1 no toolchain, 1 not requested"
+    )
 
 
 def test_the_renderer_reads_the_rows_revision_lints_really_writes(two_tag_workspace):
