@@ -251,11 +251,12 @@ def reduce_lint(report: LintReport) -> dict[str, Any]:
         "narration_count": len(report.narration),
         "finding_count": from_manifest["finding_count"],
         # Why those metrics are None whenever it is set, for a reader who has
-        # only the row — and the one dash it does not explain: a manifest that
-        # loaded and declares no claims leaves `cited_fraction` null with no
-        # error to report, because `_citations` will not divide by a claim
-        # count of zero (`lint.py:348-349`). It is the only one of them that
-        # can be; the rest are a list and three ints.
+        # only the row — and the one null it does not explain: `cited_fraction`
+        # is null with no error to report whenever `_citations` had no claims
+        # to divide by (`lint.py:341,348-349`). Stated as that predicate and
+        # not as the manifest that loaded and declares none, because a report
+        # linted with no manifest at all satisfies it too. It is the only one
+        # of them that can be; the rest are a list and three ints.
         "manifest_error": report.manifest_error,
     }
 
