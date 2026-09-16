@@ -2,6 +2,7 @@ import copy
 
 import pytest
 
+from ai_rfc.experiment.quality import _unmeasured_lint
 from ai_rfc.experiment.report import render_report
 
 #: One representative of each character that ends a line. CR and LF are
@@ -519,6 +520,49 @@ def test_a_revision_with_no_draft_text_measures_nothing_and_stays_one_cell():
     )
     # Twelve columns, so thirteen structural pipes.
     assert row.count("|") - row.count("\\|") == 13
+
+
+def test_an_unmeasured_row_renders_because_its_nesting_survives():
+    """The renderer's hidden dependency on how ``quality._unmeasured`` nulls.
+
+    ``_quality_revision_rows`` reaches ``cited`` and ``abstract words`` by
+    bracket *through* a nested dict, so an unmeasured row renders at all only
+    because ``_unmeasured`` recurses into a mapping and returns
+    ``{key: None}``. The plausible simplification — nulling one level,
+    ``{key: None for key in measured}`` — passes through ``revision_lints``,
+    which only splats the result and sets one key on it, and turns every
+    unmeasured row into a ``TypeError`` at render time. ``_unmeasured``'s own
+    docstring gives a different reason for the recursion, so the dependency
+    needs a test that names it rather than a row that dies elsewhere.
+
+    The row is built from ``_unmeasured_lint`` and the provenance keys exactly
+    as ``revision_lints`` builds one whose tag yields no draft, so the shape
+    under test is the producer's and not this file's.
+    """
+    aggregate = _aggregate()
+    aggregate["runs"]["A1"]["quality"] = {
+        "revisions": [
+            {
+                "tag": "draft-x-01",
+                "number": 1,
+                "cluster_id": "c0002-x",
+                "kind": "cluster",
+                "manifest_status": "read",
+                "draft_status": "unreadable",
+                "draft_error": "draft-x-01: could not list its tree",
+                **_unmeasured_lint(),
+            }
+        ],
+        "revisions_status": "read",
+        "revisions_error": None,
+    }
+
+    _, revisions = _quality_tables(render_report(aggregate))
+
+    assert revisions[2] == (
+        "| A1 | draft-x-01 | 1 | cluster | read | unreadable | — | — | — | — "
+        "| — | draft-x-01: could not list its tree |"
+    )
 
 
 def test_a_multi_line_map_error_cannot_add_rows_to_the_quality_tables():

@@ -183,6 +183,17 @@ def _quality_revision_rows(runs: dict[str, dict[str, Any]]) -> list[str]:
     rows = [header, separator(header)]
     for run_id, result in runs.items():
         for revision in (result.get("quality") or {}).get("revisions") or ():
+            # Two of these metrics are reached by bracket *through* a nested
+            # dict, so this loop depends on how `quality._unmeasured` nulls a
+            # row: it recurses into a mapping and returns `{key: None}`, where
+            # for a list it returns a bare `None`. A simplification that nulled
+            # one level would still pass through `revision_lints`, which only
+            # splats the result and sets one key on it, and would turn every
+            # unmeasured row into a `TypeError` here. `_unmeasured`'s own
+            # docstring gives a different reason for the recursion, so the
+            # dependency is written down where it is relied on, and
+            # `test_an_unmeasured_row_renders_because_its_nesting_survives`
+            # pins it.
             rows.append(
                 f"| {cell(run_id)} | {cell(revision['tag'])} "
                 f"| {cell(revision['number'])} | {cell(revision['kind'])} "
