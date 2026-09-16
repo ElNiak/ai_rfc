@@ -665,6 +665,32 @@ def test_the_build_tally_counts_every_status_and_not_the_successes():
     )
 
 
+def test_a_campaign_that_built_none_says_so_rather_than_counting_zeros():
+    """No run built, no run failed, and a real status reported all the same.
+
+    The mixed campaign above never varies that condition: ``built`` and
+    ``failed`` are both non-zero there, and the two ``nothing reported``
+    campaigns carry no status at all. So nothing pinned what the line does
+    when both success terms are empty beside a status that is not — the
+    campaign a reader is likeliest to misread as "we tried and nothing
+    failed".
+
+    The two campaigns below are the same three runs with one status changed,
+    so a tally that rendered every campaign alike could not pass both.
+    """
+    built_none = {
+        run_id: {"quality": {"build_status": quality.BUILD_NO_TOOLCHAIN}}
+        for run_id in ("A1", "B1", "C1")
+    }
+    assert build_tally(built_none) == "3 no toolchain"
+    assert (
+        build_tally(
+            {**built_none, "A1": {"quality": {"build_status": quality.BUILD_BUILT}}}
+        )
+        == "1 built, 2 no toolchain"
+    )
+
+
 def test_the_renderer_reads_the_rows_revision_lints_really_writes(two_tag_workspace):
     """The renderer against the producer, on a shape the fixtures hand-write.
 
