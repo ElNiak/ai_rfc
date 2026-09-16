@@ -662,3 +662,18 @@ def test_claude_lm_prices_the_call(lm_profile):
 
     assert result_event(parse_stream(priced.stdout))["total_cost_usd"] == 0.0125
     assert result_event(parse_stream(free.stdout))["total_cost_usd"] == 0.0
+
+
+@pytest.mark.parametrize(
+    "argv, expected", [([], "fake-lm"), (["--model", "opus"], "opus")]
+)
+def test_claude_lm_reports_the_model_its_argv_gave_it(lm_profile, argv, expected):
+    completed = _run_lm(lm_profile, "x", argv=argv)
+
+    assert parse_stream(completed.stdout)[0]["model"] == expected
+
+
+def test_claude_lm_lets_the_control_file_override_the_model_in_its_argv(lm_profile):
+    completed = _run_lm(lm_profile, "x", {"model": "sonnet"}, argv=["--model", "opus"])
+
+    assert parse_stream(completed.stdout)[0]["model"] == "sonnet"

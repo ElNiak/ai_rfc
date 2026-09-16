@@ -9,10 +9,11 @@ a ``nonzero`` reply printing the quota event first when it was given one.
 Stdlib only, so it runs under whichever ``python3`` is on the child's PATH.
 Never used outside the tests.
 
-Its init event reports the ``--tools`` its argv gave it, unless the control
-file's ``tools`` key overrides them, and the servers named by the control
-file's ``mcp_servers`` key -- never by argv. Its success result carries the
-control file's ``cost`` as ``total_cost_usd``.
+Its init event reports the ``--model`` and ``--tools`` its argv gave it
+(``fake-lm`` and no tools without them), unless the control file's ``model``
+or ``tools`` key overrides them, and the servers named by the control file's
+``mcp_servers`` key -- never by argv. Its success result carries the control
+file's ``cost`` as ``total_cost_usd``.
 """
 
 from __future__ import annotations
@@ -42,11 +43,16 @@ def _emit_preamble(control: dict) -> None:
     # the stub claim a surface it was not given, and claiming one it was not
     # given is the lie a caller asserting on this event exists to catch.
     tools = [tool for tool in (_flag("--tools") or "").split(",") if tool]
+    # ``--model``, unlike those two, does arrive with a real value, so its
+    # control key buys something different: it lets the stub report a model
+    # other than the one its caller asked for. Only against a stub that can
+    # disagree with its own flag can a consumer be shown to record the model
+    # the session reported rather than the model it requested.
     _emit(
         {
             "type": "system",
             "subtype": "init",
-            "model": "fake-lm",
+            "model": control.get("model", _flag("--model", "fake-lm")),
             "tools": control.get("tools", tools),
             "mcp_servers": control.get("mcp_servers", []),
         }
