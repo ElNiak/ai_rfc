@@ -616,11 +616,11 @@ def test_a_build_whose_instrument_is_broken_is_raised_and_not_reported(
     An :exc:`OSError` is not a finding about the run, whatever a
     :exc:`BuildError` is: a build that cannot invoke its own tools is a broken
     instrument, and reporting it as a run's quality would publish an aggregate
-    over measurements nothing took. That is the half this test pins, and it is
-    the only half sorted. A caught :exc:`BuildError` says the build refused to
-    start and ``build_error`` says why; which of its arms are evidence about
-    the run and which read as a damaged instrument is not sorted here, for the
-    reason :func:`final_build` records.
+    over measurements nothing took. That is the half this test pins. A caught
+    :exc:`BuildError` says the build refused to start and ``build_error`` says
+    why; which of its arms are evidence about the run and which read as a
+    damaged instrument is not sorted here, for the reason :func:`final_build`
+    records.
     """
 
     def _cannot_run(*_args, **_kwargs):
