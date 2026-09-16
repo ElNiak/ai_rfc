@@ -215,6 +215,19 @@ def scenario_workspace(write_scenario, tmp_path):
     return make
 
 
+@pytest.fixture
+def lm_profile(tmp_path: Path) -> Path:
+    """An empty ``CLAUDE_CONFIG_DIR`` for the ``claude-lm`` stub.
+
+    The stub reads its control file from this directory and records every
+    call it is given under it, so a test that drives the stub needs one of
+    its own.
+    """
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    return profile
+
+
 #: One cluster's complete loop. Its ``ordinal`` is payload — the cluster the
 #: checkpoint and the revision act on — so these steps carry no ``round`` and
 #: every session replays them, whichever cluster it was dispatched for.

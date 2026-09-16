@@ -493,11 +493,11 @@ def test_fake_answers_version():
     assert completed.stdout.strip() == "fake-claude 0.0.0"
 
 
-def _run_lm(profile, prompt, control=None, timeout=10):
+def _run_lm(profile, prompt, control=None, timeout=10, argv=()):
     if control is not None:
         (profile / "fake-lm.json").write_text(json.dumps(control))
     return subprocess.run(
-        [str(FAKE_CLAUDE_LM), "-p", "--output-format", "stream-json"],
+        [str(FAKE_CLAUDE_LM), "-p", "--output-format", "stream-json", *argv],
         input=prompt,
         cwd=profile,
         env={
@@ -509,13 +509,6 @@ def _run_lm(profile, prompt, control=None, timeout=10):
         text=True,
         timeout=timeout,
     )
-
-
-@pytest.fixture
-def lm_profile(tmp_path):
-    profile = tmp_path / "profile"
-    profile.mkdir()
-    return profile
 
 
 def test_claude_lm_is_executable():
