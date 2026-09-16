@@ -219,10 +219,12 @@ YAML_REFUSAL = (
 #: A tag the draft repository would not yield a draft at, as
 #: ``quality._draft_at`` reports it. Measured, not invented: this is what
 #: ``draft.gate.draft_text`` actually raised for this ref, interpolating git's
-#: own stderr. One line — every arm of that function reachable from here
-#: produced one — so what this value tests is the *pipe*, which is real twice
-#: over, the ref being a tag name read out of an agent-writable
-#: ``revisions.yaml``. The multi-line case is :data:`YAML_REFUSAL`'s.
+#: own stderr. One line as git wrote it for this ref, and nothing more is
+#: claimed: two of that function's three arms interpolate ``stderr`` verbatim,
+#: so the shape is not bounded to one line, and no probe over refs could bound
+#: it. What this value tests is the *pipe*, which is real twice over, the ref
+#: being a tag name read out of an agent-writable ``revisions.yaml``. The
+#: multi-line case is :data:`YAML_REFUSAL`'s.
 GATE_REFUSAL = (
     "draft-x|02: could not list its tree: " "fatal: Not a valid object name draft-x|02"
 )
@@ -466,8 +468,8 @@ def test_three_ways_of_having_no_build_do_not_render_alike():
     All three rows carry ``build: None`` and dash all three measured columns,
     so the status column is the only thing that separates them. Without it a
     reader could not tell an analysis that declined to build from a campaign
-    with no toolchain, nor either from a build that was asked for and could
-    not start — and the last of those is a finding about the run.
+    with no toolchain, nor either from a build that was asked for and refused
+    to start — and only the last of those has a reason to report.
 
     The reason is a cell of its own, and it is the fourth free-text column: a
     build error names the ref twice over in ``draft.build``, and a ref is a
