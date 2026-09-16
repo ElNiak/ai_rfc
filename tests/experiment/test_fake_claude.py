@@ -616,3 +616,49 @@ def test_claude_lm_numbers_its_calls(lm_profile):
 
     names = sorted(p.name for p in (lm_profile / "fake-lm-calls").iterdir())
     assert names == ["1.json", "2.json"]
+
+
+@pytest.mark.parametrize(
+    "argv, expected",
+    [([], []), (["--tools", ""], []), (["--tools", "Bash,Read"], ["Bash", "Read"])],
+)
+def test_claude_lm_reports_the_tools_its_argv_gave_it(lm_profile, argv, expected):
+    completed = _run_lm(lm_profile, "x", argv=argv)
+
+    init = parse_stream(completed.stdout)[0]
+    assert init["tools"] == expected
+    assert init["mcp_servers"] == []
+
+
+def test_claude_lm_lets_the_control_file_override_the_tools_in_its_argv(lm_profile):
+    completed = _run_lm(
+        lm_profile,
+        "x",
+        {"tools": ["mcp__ai_rfc__status"]},
+        argv=["--tools", "Bash,Read"],
+    )
+
+    assert parse_stream(completed.stdout)[0]["tools"] == ["mcp__ai_rfc__status"]
+
+
+def test_claude_lm_mounts_the_servers_the_control_file_names(lm_profile):
+    completed = _run_lm(
+        lm_profile, "x", {"mcp_servers": [{"name": "ai_rfc", "status": "connected"}]}
+    )
+
+    init = parse_stream(completed.stdout)[0]
+    assert init["mcp_servers"] == [{"name": "ai_rfc", "status": "connected"}]
+
+
+def test_claude_lm_returns_a_raw_reply_unchanged(lm_profile):
+    completed = _run_lm(lm_profile, "x", {"reply": "raw", "text": '{"score": 1}'})
+
+    assert result_event(parse_stream(completed.stdout))["result"] == '{"score": 1}'
+
+
+def test_claude_lm_prices_the_call(lm_profile):
+    priced = _run_lm(lm_profile, "x", {"cost": 0.0125})
+    free = _run_lm(lm_profile, "y", {})
+
+    assert result_event(parse_stream(priced.stdout))["total_cost_usd"] == 0.0125
+    assert result_event(parse_stream(free.stdout))["total_cost_usd"] == 0.0

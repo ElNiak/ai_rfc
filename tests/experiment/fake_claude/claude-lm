@@ -8,6 +8,11 @@ on stdin. It reads what to answer from ``$CLAUDE_CONFIG_DIR/fake-lm.json``
 a ``nonzero`` reply printing the quota event first when it was given one.
 Stdlib only, so it runs under whichever ``python3`` is on the child's PATH.
 Never used outside the tests.
+
+Its init event reports the ``--tools`` its argv gave it, unless the control
+file's ``tools`` key overrides them, and the servers named by the control
+file's ``mcp_servers`` key -- never by argv. Its success result carries the
+control file's ``cost`` as ``total_cost_usd``.
 """
 
 from __future__ import annotations
@@ -18,6 +23,12 @@ import sys
 import time
 from pathlib import Path
 
+ARGS = sys.argv[1:]
+
+
+def _flag(name: str, default: str | None = None) -> str | None:
+    return ARGS[ARGS.index(name) + 1] if name in ARGS else default
+
 
 def _emit(event: dict) -> None:
     sys.stdout.write(json.dumps(event, sort_keys=True) + "\n")
@@ -25,7 +36,21 @@ def _emit(event: dict) -> None:
 
 
 def _emit_preamble(control: dict) -> None:
-    _emit({"type": "system", "subtype": "init", "model": "fake-lm", "tools": []})
+    # ``ClaudeCliCall.argv`` is fixed: it always passes ``--tools ""`` and
+    # never ``--mcp-config``, so a call through it can only ever derive an
+    # empty surface from its argv. The control file is the one way to make
+    # the stub claim a surface it was not given, and claiming one it was not
+    # given is the lie a caller asserting on this event exists to catch.
+    tools = [tool for tool in (_flag("--tools") or "").split(",") if tool]
+    _emit(
+        {
+            "type": "system",
+            "subtype": "init",
+            "model": "fake-lm",
+            "tools": control.get("tools", tools),
+            "mcp_servers": control.get("mcp_servers", []),
+        }
+    )
     if "rate_limit" in control:
         _emit({"type": "rate_limit_event", "rate_limit_info": control["rate_limit"]})
 
@@ -81,6 +106,8 @@ def main() -> int:
         text = json.dumps(
             {"score": control.get("score", 1), "rationale": "stub verdict"}
         )
+    elif reply == "raw":
+        text = str(control.get("text", ""))
     else:
         text = "```\n" + str(control.get("proposal", "PROPOSAL")) + "\n```"
     _emit(
@@ -99,6 +126,7 @@ def main() -> int:
             "is_error": False,
             "result": text,
             "num_turns": 1,
+            "total_cost_usd": float(control.get("cost", 0.0)),
         }
     )
     return 0
