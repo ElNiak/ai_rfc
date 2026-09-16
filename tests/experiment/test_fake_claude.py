@@ -704,7 +704,8 @@ def test_claude_lm_omits_only_the_init_when_it_prints_a_quota(lm_profile):
 
 
 @pytest.mark.parametrize(
-    "omitted", [["tools"], ["model"], ["mcp_servers", "session_id"]]
+    "omitted",
+    [["tools"], ["model"], ["mcp_servers", "session_id"], ["slash_commands"]],
 )
 def test_claude_lm_can_drop_a_key_from_its_init_event(lm_profile, omitted):
     silent = _run_lm(lm_profile, "x", {"omit_init": omitted})
@@ -712,6 +713,9 @@ def test_claude_lm_can_drop_a_key_from_its_init_event(lm_profile, omitted):
 
     dropped = init_event(parse_stream(silent.stdout))
     reported = init_event(parse_stream(spoken.stdout))
+    # Without this, naming a key the init never emits passes vacuously: both
+    # sides simply lack it and the set difference is a no-op.
+    assert set(omitted) <= set(reported)
     assert set(dropped) == set(reported) - set(omitted)
     assert reported["tools"] == []
 
@@ -775,3 +779,28 @@ def test_claude_lm_refuses_a_raw_reply_that_is_not_text(lm_profile):
     assert mapping.returncode == 2
     assert "must be a string" in mapping.stderr
     assert "{'score': 1}" not in mapping.stdout
+
+
+def test_claude_lm_lists_the_slash_commands_the_control_file_names(lm_profile):
+    bare = _run_lm(lm_profile, "x")
+    skilled = _run_lm(lm_profile, "y", {"slash_commands": ["/commit", "/review"]})
+
+    assert init_event(parse_stream(bare.stdout))["slash_commands"] == []
+    assert init_event(parse_stream(skilled.stdout))["slash_commands"] == [
+        "/commit",
+        "/review",
+    ]
+
+
+@pytest.mark.parametrize(
+    "key, omitted", [("omit_init", "tools"), ("omit_result", "total_cost_usd")]
+)
+def test_claude_lm_refuses_an_omission_that_is_not_a_list(lm_profile, key, omitted):
+    listed = _run_lm(lm_profile, "x", {key: [omitted]})
+    bare = _run_lm(lm_profile, "y", {key: omitted})
+
+    assert listed.returncode == 0
+    assert all(omitted not in event for event in parse_stream(listed.stdout))
+    assert bare.returncode == 2
+    assert f"{key!r} must be a list" in bare.stderr
+    assert bare.stdout == ""

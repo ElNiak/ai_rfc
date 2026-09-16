@@ -11,20 +11,22 @@ Never used outside the tests.
 
 Its init event reports the ``--model`` and ``--tools`` its argv gave it
 (``fake-lm`` and no tools without them), unless the control file's ``model``
-or ``tools`` key overrides them, and the servers named by the control file's
-``mcp_servers`` key -- never by argv. It also reports a ``session_id``
-numbering this profile's calls from one and an ``apiKeySource`` of ``none``,
-both overridable the same way. Its success result carries the control file's
-``cost`` as ``total_cost_usd``, passed through as given: a string, or
-``null``, reaches the event unconverted.
+or ``tools`` key overrides them, and reports the ``mcp_servers`` and
+``slash_commands`` that file names -- neither of those two ever from argv.
+It also reports a ``session_id`` numbering this profile's calls from one and
+an ``apiKeySource`` of ``none``, both overridable the same way. Its success
+result carries the control file's ``cost`` as ``total_cost_usd``, passed
+through as given: a string, or ``null``, reaches the event unconverted.
 
 The control file can also make the stub report less than it knows.
 ``no_init`` suppresses the init event alone, so a quota event still prints
 without one; ``omit_init`` and ``omit_result`` drop the keys they name from
 the init and from the success result, which is how a consumer is shown to
-tell a key reported empty from a key never reported at all. A ``raw``
-reply's ``text`` must be a string -- anything else exits 2 rather than print
-a Python repr that a caller would read as JSON.
+tell a key reported empty from a key never reported at all. Both must be
+lists of key names -- anything else exits 2 rather than match a bare string
+against each key in turn. A ``raw`` reply's ``text`` must be a string --
+anything else exits 2 rather than print a Python repr that a caller would
+read as JSON.
 """
 
 from __future__ import annotations
@@ -59,6 +61,12 @@ def _emit_preamble(control: dict, number: int) -> None:
     # claiming one it was not given is the lie a caller asserting on this
     # event exists to catch.
     tools = [tool for tool in (_flag("--tools") or "").split(",") if tool]
+    # ``slash_commands`` has no flag at all, in this argv or in the real
+    # CLI's: the session lists the skills it found on disk, which survive
+    # ``--tools ""`` because they are named rather than invocable. That is a
+    # recorded, accepted leak in the judge's blinding, so the manifest has to
+    # state it -- and a consumer can only be shown to state it against a stub
+    # whose list is not empty. The control file is the only way to fill one.
     # ``--model``, unlike those two, does arrive with a real value, so its
     # control key buys something different: it lets the stub report a model
     # other than the one its caller asked for. Only against a stub that can
@@ -81,6 +89,7 @@ def _emit_preamble(control: dict, number: int) -> None:
                     "model": control.get("model", _flag("--model", "fake-lm")),
                     "tools": control.get("tools", tools),
                     "mcp_servers": control.get("mcp_servers", []),
+                    "slash_commands": control.get("slash_commands", []),
                     "apiKeySource": control.get("apiKeySource", "none"),
                 },
                 control.get("omit_init"),
@@ -111,6 +120,19 @@ def main() -> int:
             sort_keys=True,
         )
     )
+
+    for key in ("omit_init", "omit_result"):
+        if not isinstance(control.get(key, []), list):
+            # ``_without`` tests ``key not in omitted``, so a bare string was
+            # a substring match: ``"omit_init": "tools"`` dropped ``tools`` by
+            # accident, a shorter one dropped nothing, and a longer one could
+            # drop several. A stub that exists to lie exactly as instructed
+            # must refuse an instruction it can only approximate.
+            sys.stderr.write(
+                f"control file: {key!r} must be a list of key names, "
+                f"not {type(control[key]).__name__}\n"
+            )
+            return 2
 
     reply = control.get("reply", "fenced")
     if reply == "nonzero":
