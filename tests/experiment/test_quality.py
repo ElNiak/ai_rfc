@@ -671,6 +671,55 @@ def test_the_renderer_reads_the_rows_revision_lints_really_writes(two_tag_worksp
     assert f"{UNTAGGED}: " in damaged and damaged.count("|") == 13
 
 
+def test_a_row_missing_only_its_manifest_keeps_its_text_metrics_in_the_render(
+    two_tag_workspace,
+):
+    """The partial nulling, driven by a producer instead of hand-written.
+
+    What the payload exists to carry is that a row missing only its frozen
+    manifest still shows every metric the draft text alone measures. The shape
+    that says so — ``manifest_status`` missing beside a ``draft_status`` of
+    read — reaches the renderer in ``test_report.py`` only as a hand-written
+    record, so a producer that stopped emitting it, or emitted it under other
+    keys, would leave that test green. The producer-tied damaged row this file
+    already renders is the *other* one, missing manifest and unreadable draft
+    together, and it nulls everything: it cannot tell a partial nulling from a
+    total one, which is the whole contract.
+
+    Deleting the checkpoint directory is the damage
+    ``test_a_checkpoint_that_never_landed_is_a_different_report_from_a_broken_one``
+    measures at the record level — what a run killed mid-round leaves behind.
+    The intact revision is in the same render, so the dashes belong to this
+    row's condition and not to what the table does to every row.
+    """
+    cluster_id = revision_lints(two_tag_workspace)["revisions"][0]["cluster_id"]
+    shutil.rmtree(two_tag_workspace / "checkpoints" / cluster_id)
+    measured = revision_lints(two_tag_workspace)
+    aggregate = _aggregate()
+    aggregate["runs"]["A1"]["quality"] = {**measured, **build_not_requested()}
+
+    _, revisions = _quality_tables(render_report(aggregate))
+
+    assert len(revisions) == 4
+    damaged, intact = revisions[2], revisions[3]
+    # Read off the producer's own row: "real" here means its numbers reached
+    # the table, not merely that the cells are not dashes. Measured: this
+    # fixture's draft narrates nothing, so that cell reads 0 — which is still
+    # not the em dash a nulled metric renders as, and `word_count` is the
+    # non-zero half.
+    row = measured["revisions"][0]
+    narration, words = row["narration_count"], row["abstract"]["word_count"]
+    assert isinstance(narration, int) and isinstance(words, int) and words
+    assert damaged.startswith(
+        f"| A1 | {FIRST_TAG} | 1 | cluster | missing | read | — | — "
+        f"| {narration} | {words} |"
+    )
+    # Only the manifest is gone, so its reason is in the row and the last
+    # column, the draft's, stays empty.
+    assert cluster_id in damaged and damaged.endswith(" | — |")
+    assert intact.startswith(f"| A1 | {SECOND_TAG} | 2 | cluster | read | read |")
+
+
 def test_the_comparison_table_escapes_a_pipe_in_a_metric_name():
     table = compare_lints(
         {"sections|x": 1}, {"sections|x": 2}, before_label="b", after_label="a"
