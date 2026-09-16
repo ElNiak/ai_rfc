@@ -12,8 +12,19 @@ Never used outside the tests.
 Its init event reports the ``--model`` and ``--tools`` its argv gave it
 (``fake-lm`` and no tools without them), unless the control file's ``model``
 or ``tools`` key overrides them, and the servers named by the control file's
-``mcp_servers`` key -- never by argv. Its success result carries the control
-file's ``cost`` as ``total_cost_usd``.
+``mcp_servers`` key -- never by argv. It also reports a ``session_id``
+numbering this profile's calls from one and an ``apiKeySource`` of ``none``,
+both overridable the same way. Its success result carries the control file's
+``cost`` as ``total_cost_usd``, passed through as given: a string, or
+``null``, reaches the event unconverted.
+
+The control file can also make the stub report less than it knows.
+``no_init`` suppresses the init event alone, so a quota event still prints
+without one; ``omit_init`` and ``omit_result`` drop the keys they name from
+the init and from the success result, which is how a consumer is shown to
+tell a key reported empty from a key never reported at all. A ``raw``
+reply's ``text`` must be a string -- anything else exits 2 rather than print
+a Python repr that a caller would read as JSON.
 """
 
 from __future__ import annotations
@@ -36,27 +47,45 @@ def _emit(event: dict) -> None:
     sys.stdout.flush()
 
 
-def _emit_preamble(control: dict) -> None:
-    # ``ClaudeCliCall.argv`` is fixed: it always passes ``--tools ""`` and
-    # never ``--mcp-config``, so a call through it can only ever derive an
-    # empty surface from its argv. The control file is the one way to make
-    # the stub claim a surface it was not given, and claiming one it was not
-    # given is the lie a caller asserting on this event exists to catch.
+def _without(event: dict, omitted: list | None) -> dict:
+    return {key: value for key, value in event.items() if key not in (omitted or ())}
+
+
+def _emit_preamble(control: dict, number: int) -> None:
+    # ``ClaudeCliCall.argv`` never varies these two flags: it always passes
+    # ``--tools ""`` and never ``--mcp-config``, so a call through it can
+    # only ever derive an empty surface from its argv. The control file is
+    # the one way to make the stub claim a surface it was not given, and
+    # claiming one it was not given is the lie a caller asserting on this
+    # event exists to catch.
     tools = [tool for tool in (_flag("--tools") or "").split(",") if tool]
     # ``--model``, unlike those two, does arrive with a real value, so its
     # control key buys something different: it lets the stub report a model
     # other than the one its caller asked for. Only against a stub that can
     # disagree with its own flag can a consumer be shown to record the model
     # the session reported rather than the model it requested.
-    _emit(
-        {
-            "type": "system",
-            "subtype": "init",
-            "model": control.get("model", _flag("--model", "fake-lm")),
-            "tools": control.get("tools", tools),
-            "mcp_servers": control.get("mcp_servers", []),
-        }
-    )
+    #
+    # Reporting nothing and reporting an empty surface are different claims,
+    # and a guard that runs only when an init is present can be shown to
+    # have a hole only against a session that sends none -- what ``no_init``
+    # makes reachable. It suppresses the init alone: the quota event below
+    # has its own key, and silencing that too would make ``rate_limit``
+    # inert whenever both keys were set.
+    if not control.get("no_init"):
+        _emit(
+            _without(
+                {
+                    "type": "system",
+                    "subtype": "init",
+                    "session_id": control.get("session_id", f"fake-lm-{number}"),
+                    "model": control.get("model", _flag("--model", "fake-lm")),
+                    "tools": control.get("tools", tools),
+                    "mcp_servers": control.get("mcp_servers", []),
+                    "apiKeySource": control.get("apiKeySource", "none"),
+                },
+                control.get("omit_init"),
+            )
+        )
     if "rate_limit" in control:
         _emit({"type": "rate_limit_event", "rate_limit_info": control["rate_limit"]})
 
@@ -86,7 +115,7 @@ def main() -> int:
     reply = control.get("reply", "fenced")
     if reply == "nonzero":
         if "rate_limit" in control:
-            _emit_preamble(control)
+            _emit_preamble(control, number)
         sys.stderr.write(control.get("stderr", "the stub was told to fail\n"))
         return int(control.get("exit_code", 3))
     if reply == "hang":
@@ -96,7 +125,7 @@ def main() -> int:
         sys.stdout.write("this is not stream-json\n")
         return 0
 
-    _emit_preamble(control)
+    _emit_preamble(control, number)
     if reply == "error":
         _emit(
             {
@@ -113,7 +142,15 @@ def main() -> int:
             {"score": control.get("score", 1), "rationale": "stub verdict"}
         )
     elif reply == "raw":
-        text = str(control.get("text", ""))
+        text = control.get("text", "")
+        if not isinstance(text, str):
+            # ``str()`` on a mapping yields a Python repr -- single-quoted,
+            # so not JSON -- which a caller reading this reply as a payload
+            # would take for text and then fail to parse. Refuse instead.
+            sys.stderr.write(
+                f"raw reply: 'text' must be a string, not {type(text).__name__}\n"
+            )
+            return 2
     else:
         text = "```\n" + str(control.get("proposal", "PROPOSAL")) + "\n```"
     _emit(
@@ -126,14 +163,17 @@ def main() -> int:
         }
     )
     _emit(
-        {
-            "type": "result",
-            "subtype": "success",
-            "is_error": False,
-            "result": text,
-            "num_turns": 1,
-            "total_cost_usd": float(control.get("cost", 0.0)),
-        }
+        _without(
+            {
+                "type": "result",
+                "subtype": "success",
+                "is_error": False,
+                "result": text,
+                "num_turns": 1,
+                "total_cost_usd": control.get("cost", 0.0),
+            },
+            control.get("omit_result"),
+        )
     )
     return 0
 

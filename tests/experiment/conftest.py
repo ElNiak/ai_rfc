@@ -217,11 +217,12 @@ def scenario_workspace(write_scenario, tmp_path):
 
 @pytest.fixture
 def lm_profile(tmp_path: Path) -> Path:
-    """An empty ``CLAUDE_CONFIG_DIR`` for the ``claude-lm`` stub.
+    """An empty directory for one ``claude-lm`` stub call to work in.
 
-    The stub reads its control file from this directory and records every
-    call it is given under it, so a test that drives the stub needs one of
-    its own.
+    The stub reads its control file from ``$CLAUDE_CONFIG_DIR`` and records
+    every call it is given under it, so a test that drives the stub needs a
+    directory of its own. The fixture sets no environment: the caller passes
+    this path to the child as ``CLAUDE_CONFIG_DIR``, as ``_run_lm`` does.
     """
     profile = tmp_path / "profile"
     profile.mkdir()

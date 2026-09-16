@@ -10,6 +10,7 @@ import yaml
 from ai_rfc.draft.questions import load_questions
 from ai_rfc.driver.stream import (
     denials,
+    init_event,
     parse_stream,
     result_event,
     session_ids,
@@ -677,3 +678,100 @@ def test_claude_lm_lets_the_control_file_override_the_model_in_its_argv(lm_profi
     completed = _run_lm(lm_profile, "x", {"model": "sonnet"}, argv=["--model", "opus"])
 
     assert parse_stream(completed.stdout)[0]["model"] == "sonnet"
+
+
+def test_claude_lm_can_omit_its_init_event(lm_profile):
+    silent = _run_lm(lm_profile, "x", {"no_init": True})
+    spoken = _run_lm(lm_profile, "y", {})
+
+    assert init_event(parse_stream(silent.stdout)) is None
+    assert init_event(parse_stream(spoken.stdout)) is not None
+    assert result_event(parse_stream(silent.stdout))["result"] == "```\nPROPOSAL\n```"
+
+
+def test_claude_lm_omits_only_the_init_when_it_prints_a_quota(lm_profile):
+    completed = _run_lm(
+        lm_profile,
+        "x",
+        {
+            "no_init": True,
+            "rate_limit": {"unifiedWindows": {"five_hour": {"utilization": 1.0}}},
+        },
+    )
+
+    events = parse_stream(completed.stdout)
+    assert [e["type"] for e in events] == ["rate_limit_event", "assistant", "result"]
+
+
+@pytest.mark.parametrize(
+    "omitted", [["tools"], ["model"], ["mcp_servers", "session_id"]]
+)
+def test_claude_lm_can_drop_a_key_from_its_init_event(lm_profile, omitted):
+    silent = _run_lm(lm_profile, "x", {"omit_init": omitted})
+    spoken = _run_lm(lm_profile, "y", {"tools": []})
+
+    dropped = init_event(parse_stream(silent.stdout))
+    reported = init_event(parse_stream(spoken.stdout))
+    assert set(dropped) == set(reported) - set(omitted)
+    assert reported["tools"] == []
+
+
+def test_claude_lm_numbers_the_session_of_every_call(lm_profile):
+    first = _run_lm(lm_profile, "x")
+    second = _run_lm(lm_profile, "y")
+    told = _run_lm(lm_profile, "z", {"session_id": "s-9"})
+
+    assert init_event(parse_stream(first.stdout))["session_id"] == "fake-lm-1"
+    assert init_event(parse_stream(second.stdout))["session_id"] == "fake-lm-2"
+    assert init_event(parse_stream(told.stdout))["session_id"] == "s-9"
+
+
+def test_claude_lm_reports_where_its_credentials_came_from(lm_profile):
+    default = _run_lm(lm_profile, "x")
+    keyed = _run_lm(lm_profile, "y", {"apiKeySource": "ANTHROPIC_API_KEY"})
+
+    keyed_init = init_event(parse_stream(keyed.stdout))
+    assert init_event(parse_stream(default.stdout))["apiKeySource"] == "none"
+    assert keyed_init["apiKeySource"] == "ANTHROPIC_API_KEY"
+
+
+def test_claude_lm_can_leave_its_call_unpriced(lm_profile):
+    priced = _run_lm(lm_profile, "x", {"cost": 0.0125})
+    unpriced = _run_lm(lm_profile, "y", {"omit_result": ["total_cost_usd"]})
+
+    assert result_event(parse_stream(priced.stdout))["total_cost_usd"] == 0.0125
+    assert "total_cost_usd" not in result_event(parse_stream(unpriced.stdout))
+
+
+def test_claude_lm_prices_a_call_with_something_that_is_not_a_number(lm_profile):
+    numeric = _run_lm(lm_profile, "x", {"cost": 0.5})
+    words = _run_lm(lm_profile, "y", {"cost": "free"})
+
+    assert result_event(parse_stream(numeric.stdout))["total_cost_usd"] == 0.5
+    assert result_event(parse_stream(words.stdout))["total_cost_usd"] == "free"
+
+
+def test_claude_lm_never_mounts_a_server_its_argv_names(lm_profile):
+    from_argv = _run_lm(lm_profile, "x", argv=["--mcp-config", "servers.json"])
+    from_control = _run_lm(
+        lm_profile,
+        "y",
+        {"mcp_servers": [{"name": "ai_rfc", "status": "connected"}]},
+        argv=["--mcp-config", "servers.json"],
+    )
+
+    assert init_event(parse_stream(from_argv.stdout))["mcp_servers"] == []
+    assert init_event(parse_stream(from_control.stdout))["mcp_servers"] == [
+        {"name": "ai_rfc", "status": "connected"}
+    ]
+
+
+def test_claude_lm_refuses_a_raw_reply_that_is_not_text(lm_profile):
+    text = _run_lm(lm_profile, "x", {"reply": "raw", "text": '{"score": 1}'})
+    mapping = _run_lm(lm_profile, "y", {"reply": "raw", "text": {"score": 1}})
+
+    assert text.returncode == 0
+    assert result_event(parse_stream(text.stdout))["result"] == '{"score": 1}'
+    assert mapping.returncode == 2
+    assert "must be a string" in mapping.stderr
+    assert "{'score': 1}" not in mapping.stdout
