@@ -88,13 +88,13 @@ BUILD_NO_TOOLCHAIN = "no toolchain"
 BUILD_BUILT = "built"
 #: The build refused to start, and `build_error` says why. Stated as that
 #: predicate and not as a list of causes, because the causes are open: every
-#: `BuildError` raised before a report exists lands here, among them an
-#: unreadable toolchain record, one that lacks a required key, a ref that
-#: resolves to no commit or to other than exactly one draft at it, and a failed
-#: clone or checkout of the draft repository. What is ruled *out* is a build
-#: that ran: one that exits non-zero is `BUILD_BUILT`, and `exit_code` says so.
-#: Reported rather than raised for the reason `_draft_at`, `_frozen_manifest`
-#: and `_revision_map` carry (R31).
+#: `BuildError` the instrument meets before it has a report lands here, among
+#: them an unreadable toolchain record, one that lacks a required key, a ref
+#: that resolves to no commit or to other than exactly one draft at it, and a
+#: failed clone or checkout of the draft repository. What is ruled *out* is a
+#: build that ran: one that exits non-zero is `BUILD_BUILT`, and `exit_code`
+#: says so. Reported rather than raised for the reason `_draft_at`,
+#: `_frozen_manifest` and `_revision_map` carry (R31).
 BUILD_FAILED = "failed"
 
 
@@ -530,10 +530,10 @@ def final_build(
     ``revisions.yaml``, and :func:`~ai_rfc.draft.gate.latest_tag` reads the
     ref out of it — while a toolchain record that will not load is a fact
     about the campaign, and reads as one because every run of that campaign
-    reports the same message. Others read as neither. Sorting them here
-    would mean parsing git's stderr, which is the trade ``draft_status``
-    already declined, so :exc:`~ai_rfc.draft.build.BuildError` is caught
-    whole and the message carries the distinction to the reader.
+    reports the same message. The rest are not sorted here: doing it would
+    mean parsing git's stderr, which is the trade ``draft_status`` already
+    declined, so :exc:`~ai_rfc.draft.build.BuildError` is caught whole and
+    ``build_error`` carries the reason to the reader.
 
     :exc:`OSError` still propagates, so R17's split stays intact: a build whose
     own tools cannot be invoked is a broken instrument and not a finding.
