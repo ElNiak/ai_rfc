@@ -1675,10 +1675,13 @@ def run(args: argparse.Namespace) -> int:
     Returns:
         0 on success, 1 when the harness refused or an input was unusable, and
         3 when a gate said no — ``preflight`` not reaching "go", the parity
-        suite failing, or ``judge`` not finding every quote its judge gave in
-        the draft it was shown. All three write their evidence before they
-        return it: the code reports the finding, it does not replace the
-        record. 2 is left to ``argparse``, as everywhere else in this
+        suite failing, or ``judge`` finding a quote its judge gave that the
+        draft it was shown does not contain *or* finding that the quotes were
+        never checked at all. Those last two are different claims and both
+        return 3, because a report nobody checked must not inherit the code
+        that means checked-and-all-found. All three write their evidence
+        before they return it: the code reports the finding, it does not
+        replace the record. 2 is left to ``argparse``, as everywhere else in this
         package: a caller must be able to tell a mistyped flag from a gate that
         must stop a campaign, and the two call for opposite responses.
     """
