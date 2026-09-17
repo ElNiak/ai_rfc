@@ -23,6 +23,7 @@ import pytest
 
 from ai_rfc.experiment import ExperimentError
 from ai_rfc.experiment.metrics import window_clusters
+from ai_rfc.experiment.optimize.claude_cli import ClaudeCliSurfaceError
 from ai_rfc.experiment.optimize.codec import decode, encode, seed_from_plugin
 from ai_rfc.experiment.optimize.evaluator import (
     Evaluator,
@@ -400,33 +401,50 @@ def test_stage_one_optimizes_end_to_end_without_a_model_call(
 
 @requires_gepa
 @pytest.mark.slow
-def test_an_evaluator_abort_propagates_out_of_run(tmp_path, plugin_root, loop_example):
-    """A harness abort must stop the run rather than burn out the budget.
+@pytest.mark.parametrize(
+    "escaping,message",
+    [
+        (EvaluatorAbort, "the harness cannot be reached"),
+        (ClaudeCliSurfaceError, 'ran a session reporting tools=["Bash"]'),
+    ],
+    ids=["abort", "contaminated"],
+)
+def test_an_evaluator_exception_propagates_out_of_run(
+    tmp_path, plugin_root, loop_example, escaping, message
+):
+    """An exception out of the evaluator must stop the run, not score 0.0.
 
     This is what ``raise_on_exception=True`` in :func:`~.run.gepa_config`
-    buys: with it False, gepa would instead catch ``EvaluatorAbort`` at the
+    buys: with it False, gepa would instead catch the exception at the
     evaluator wrapper and score the call 0.0, spending the rest of the eval
     budget on a run that should have stopped.
+
+    Both classes are driven because both reach gepa the same way and neither
+    is discriminated by class there — so the mechanism holds for one exactly
+    as it holds for the other, and only a trip through it shows that for a
+    given class. ``ClaudeCliSurfaceError`` is the one that costs money to get
+    wrong: it says a judge call answered while holding a surface the run is
+    not measuring, and a 0.0 in its place would enter the mean as a verdict.
     """
 
-    class AbortsOnFirstCall:
-        """Stands in for :class:`Evaluator`; aborts before scoring anything."""
+    class RaisesOnFirstCall:
+        """Stands in for :class:`Evaluator`; raises before scoring anything."""
 
         def __init__(self, seed):
             self.settings = SimpleNamespace(seed=seed)
 
         def __call__(self, candidate, example):
-            raise EvaluatorAbort("the harness cannot be reached")
+            raise escaping(message)
 
     settings = _settings(
-        name="abort",
+        name="escape",
         root=tmp_path / "experiments",
         examples=(loop_example,),
-        # The abort lands on the first evaluation, before any proposal, but
+        # The raise lands on the first evaluation, before any proposal, but
         # that is gepa's ordering rather than this test's business: a string
         # id here would reach litellm the moment it changed.
         reflection_lm=SeedEchoLM(encode(seed_from_plugin(plugin_root))),
     )
 
-    with pytest.raises(EvaluatorAbort):
-        run(settings, AbortsOnFirstCall(seed_from_plugin(plugin_root)))
+    with pytest.raises(escaping):
+        run(settings, RaisesOnFirstCall(seed_from_plugin(plugin_root)))
