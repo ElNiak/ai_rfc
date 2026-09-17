@@ -454,12 +454,27 @@ def test_a_later_call_never_leaves_the_earlier_cost_standing(profile, tmp_path):
     assert wrapper.last_cost_usd is None
 
 
-def test_a_failed_call_leaves_no_cost_behind(profile, tmp_path):
+@pytest.mark.parametrize(
+    "failure",
+    [
+        {"reply": "nonzero", "stderr": "down\n"},
+        {"reply": "raw", "text": "{}", "tools": ["Bash"]},
+        {"reply": "error", "message": "no"},
+        {"reply": "raw", "text": "", "cost": 0.3},
+    ],
+    ids=["nonzero", "refused-surface", "error-result", "empty-reply"],
+)
+def test_a_failed_call_leaves_no_cost_behind(profile, tmp_path, failure):
+    """Each mode raises from a different point of ``__call__``, and the last
+    one raises *past* the result event the cost is read from. Only that mode
+    tells where the assignment sits; the first three would pass with it
+    anywhere below the parse, and the error result carries no cost key at all.
+    """
     wrapper = call(profile, tmp_path)
     control(profile, reply="raw", text="{}", cost=0.5)
     wrapper("grade this")
 
-    control(profile, reply="nonzero", stderr="down\n")
+    control(profile, **failure)
     with pytest.raises(ClaudeCliError):
         wrapper("grade that")
 

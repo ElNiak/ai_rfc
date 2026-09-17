@@ -382,7 +382,6 @@ class ClaudeCliCall:
                 exit_code=completed.returncode,
                 stderr_tail=tail,
             )
-        self.last_cost_usd = _cost(final)
         reply = str(final.get("result") or assistant_text(events))
         if not reply.strip():
             raise ClaudeCliError(
@@ -390,4 +389,8 @@ class ClaudeCliCall:
                 exit_code=completed.returncode,
                 stderr_tail=tail,
             )
+        # Below the empty-reply refusal rather than beside ``final``, so that
+        # every raise leaves the figure cleared. Read from the result event
+        # this call raised on, it would stand as the last good call's.
+        self.last_cost_usd = _cost(final)
         return reply
