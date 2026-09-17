@@ -40,6 +40,12 @@ Transport = Callable[[str], str]
 #: How much of an unreadable reply an error carries.
 _REPLY_EXCERPT = 200
 
+#: The grading scale, stated once. ``RUBRIC`` asks for it and :func:`_parse`
+#: admits nothing else, and they are the same constant because a prompt that
+#: asks for one range beside a parser that accepts another records a number
+#: nobody graded on.
+_SCORE_SCALE = range(1, 6)
+
 #: Prefix for the directory a judge call runs in. Two characters and a dash:
 #: the whole point is that the path says nothing, and a longer name is another
 #: chance to say something.
@@ -72,7 +78,8 @@ sounds important, and do not reward or penalise it for the system it describes
 rather than for how it describes it.
 
 Grade each dimension you are asked for on an integer scale of 1 to 5, where 1
-is unusable and 5 is what a reader would accept from a published standard.
+is unusable and 5 is what a reader would accept from a published standard. A
+number outside that scale is not a grade on it, and the whole reply is refused.
 
 Support your grades with short verbatim quotations from the document. Every
 quotation must be copied from the document below exactly as it appears there.
@@ -103,9 +110,11 @@ class JudgeReport:
     """One judge's grades for one draft, and what it quoted to support them.
 
     Attributes:
-        scores: The grade per dimension, as the judge gave it. The pinned
-            shape is an integer per dimension and says nothing about a range,
-            so a grade outside the rubric's scale reaches a caller as itself.
+        scores: The grade per dimension, on the scale the rubric states. A
+            number off that scale never reaches here -- the reply is refused
+            -- because a number graded on some other scale is not a
+            measurement on this one, and recording it as one would leave a
+            reader worse off than an absent figure.
         quotes: The spans the judge says it copied out of the draft, in reply
             order. Nothing here is verified; :func:`verify_quotes` is what
             checks them, and it is a separate step because an unverified quote
@@ -206,7 +215,7 @@ def _parse(
 
     Raises:
         JudgeError: If the reply carries no JSON object, or one outside the
-            pinned shape.
+            pinned shape, which includes a grade off the rubric's scale.
     """
     try:
         payload, _ = json.JSONDecoder().raw_decode(reply, reply.index("{"))
@@ -236,6 +245,12 @@ def _parse(
         if isinstance(value, bool) or not isinstance(value, int):
             raise JudgeError(
                 f"the judge scored {name!r} as {value!r}, which is not an integer"
+            )
+        if value not in _SCORE_SCALE:
+            raise JudgeError(
+                f"the judge scored {name!r} as {value}, off the "
+                f"{_SCORE_SCALE.start} to {_SCORE_SCALE[-1]} scale the rubric "
+                f"states; a number off the scale is not a grade on it"
             )
         graded[name] = value
     # Absent means no quotes; an explicit null is a different claim and is

@@ -11,12 +11,14 @@ included.
 """
 
 import json
+import re
 import string
 from pathlib import Path
 
 import pytest
 
 from ai_rfc.experiment.judge import (
+    _SCORE_SCALE,
     RUBRIC,
     JudgeError,
     JudgeReport,
@@ -253,17 +255,48 @@ def test_a_reply_outside_the_pinned_shape_is_refused(reply):
         judge_draft(DRAFT, lambda prompt: reply, dimensions=DIMENSIONS)
 
 
-def test_a_score_outside_the_rubric_scale_is_still_read():
-    """The pinned shape says "an int" and says nothing about a range, so a 9 is
-    a datum about the judge rather than a parse failure. Task 8 decides what to
-    do with it; this refuses to decide for it."""
+def test_the_rubric_states_the_scale_the_parser_enforces():
+    """The rubric is what the model grades against and ``_parse`` is what
+    admits the answer, so the two naming different scales would refuse replies
+    the prompt itself asked for -- or admit ones it did not.
+
+    The bounds are read off the rubric's prose rather than assumed, because
+    the prose is the half a reader edits. This is the standing rule made
+    permanent: a claim citing another site is checked against that site.
+    """
+    stated = re.search(r"scale of (\d+) to (\d+)", RUBRIC)
+
+    assert stated is not None, "the rubric no longer states a scale at all"
+    assert (int(stated[1]), int(stated[2])) == (_SCORE_SCALE.start, _SCORE_SCALE[-1])
+
+
+@pytest.mark.parametrize("score", [-1, 0, 6, 9])
+def test_a_score_outside_the_rubric_scale_is_refused(score):
+    """A 9 on a 1-to-5 scale is not a measurement on that scale, so returning
+    it unmarked would put a figure in a manifest that nothing produced.
+
+    The inputs are written out rather than derived from ``_SCORE_SCALE``: a
+    mutant that widened the constant would move derived inputs along with it
+    and this test would never notice.
+    """
+    with pytest.raises(JudgeError, match="scale"):
+        judge_draft(
+            DRAFT,
+            lambda prompt: reply_text({"structure": score, "clarity": 3}),
+            dimensions=DIMENSIONS,
+        )
+
+
+@pytest.mark.parametrize("score", [1, 5])
+def test_both_endpoints_of_the_scale_are_graded(score):
+    """Both ends, or a bound that was one out at either end would pass."""
     report = judge_draft(
         DRAFT,
-        lambda prompt: reply_text({"structure": 9, "clarity": 0}),
+        lambda prompt: reply_text({"structure": score, "clarity": 3}),
         dimensions=DIMENSIONS,
     )
 
-    assert report.scores == {"structure": 9, "clarity": 0}
+    assert report.scores["structure"] == score
 
 
 # --- which model answered ----------------------------------------------------
