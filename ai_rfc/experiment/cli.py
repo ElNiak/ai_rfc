@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import hashlib
 import importlib.util
 import json
 import os
@@ -40,6 +41,7 @@ from .workspace import reseal as reseal_workspace
 
 if TYPE_CHECKING:
     from .config import Campaign
+    from .judge import JudgeReport
 
 #: Cluster rounds between consolidation rounds, read from the schema's declared
 #: default for ``sessions.consolidate_every`` rather than restated here. The
@@ -73,6 +75,54 @@ FAKE_MODEL = "fake-model"
 #: the largest seed run, so the default would add half an hour to each.
 JUDGE_EFFORT = "low"
 JUDGE_TIMEOUT_S = 120
+
+#: Where ``judge`` writes one draft's grades and the conditions they were
+#: given under, under the directory ``--out`` names.
+JUDGE_REPORT_FILE = "judge.json"
+
+#: What ``judge`` grades when ``--dimension`` names nothing. Four axes rather
+#: than one overall mark: a single number cannot say whether a draft reads
+#: badly or specifies too little, and those call for opposite revisions. They
+#: are the prose properties the deterministic lint cannot reach — it counts
+#: sections, citations and BCP 14 terms, none of which say whether a normative
+#: sentence can be read two ways.
+JUDGE_DIMENSIONS: tuple[str, ...] = (
+    "structure",
+    "precision",
+    "completeness",
+    "readability",
+)
+
+#: Seconds the version probe waits. A binary that reads its stdin rather than
+#: answering ``--version`` would otherwise hold the verb open forever.
+_VERSION_TIMEOUT_S = 30
+
+#: What the judge's manifest records where a session reported nothing. Said in
+#: words rather than left as an empty value, because an empty model id or an
+#: empty skill list reads as a measurement that came back empty, and that is
+#: the opposite claim: an absent ``slash_commands`` says the leak was not
+#: measured, not that it was closed.
+_NOT_REPORTED = "not reported"
+
+#: The blinding regime the judge runs under, and it is not provisional. The
+#: design spec framed the two residual leaks as lasting "until an API key is
+#: provisioned"; this project never uses one, and ``--bare`` — the only flag
+#: that stops ``CLAUDE.md`` being auto-discovered — refuses OAuth outright. So
+#: there is no end date to wait for and the manifest must not imply one.
+_JUDGE_BLINDING_REGIME = "oauth-permanent"
+
+#: How the accepted leak was measured, carried beside the claim itself. The
+#: probe ran under the design spec's flags on 2.1.259; the judge's argv is the
+#: union of that set with the one measured on 2.1.260 (see
+#: :meth:`.optimize.claude_cli.ClaudeCliCall.argv`), and nothing has re-run the
+#: probe under the union. A bare boolean would record the claim without the
+#: difference, turning an inherited measurement into an asserted one.
+_JUDGE_BLINDING_EVIDENCE = (
+    "measured 2026-09-03 on claude 2.1.259 under the design spec's flags; "
+    "this judge's argv adds --safe-mode, --setting-sources and "
+    "--permission-mode dontAsk, and no probe has re-measured the leak under "
+    "that union or under the claude_version recorded beside this field"
+)
 
 
 #: Evaluations one whole search round costs, as a multiple of the example
@@ -777,6 +827,227 @@ def _run_one_consolidation(
     return 0 if recorded else 1
 
 
+def _claude_version(claude_bin: str) -> str:
+    """What the binary says its version is, or that it said nothing.
+
+    A second copy of :func:`.preflight.run_preflight`'s probe rather than a
+    call into it, because the two want different things from a silent binary:
+    that one records the empty string beside a spike report, and an empty
+    version in a manifest reads as measured-and-blank. This one also closes
+    stdin and takes a timeout, so a binary that reads its input rather than
+    answering the flag cannot hold the verb open.
+
+    Args:
+        claude_bin: The binary to ask.
+
+    Returns:
+        The first line it printed, or :data:`_NOT_REPORTED` when it could not
+        be run, timed out, exited non-zero, or printed nothing.
+    """
+    try:
+        probe = subprocess.run(
+            [claude_bin, "--version"],
+            input="",
+            capture_output=True,
+            text=True,
+            timeout=_VERSION_TIMEOUT_S,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return _NOT_REPORTED
+    lines = probe.stdout.strip().splitlines()
+    if probe.returncode != 0 or not lines:
+        return _NOT_REPORTED
+    return lines[0].strip()
+
+
+def _judge_manifest(
+    transport: Any, *, dimensions: tuple[str, ...], claude_bin: str
+) -> dict[str, Any]:
+    """The conditions one judging call was made under, so its scores can be read.
+
+    What the session reported comes off its init event and never off the flags
+    that asked for it: a probe for this design had a model claim tools its
+    argv had not given it, so what was requested is not evidence of what ran.
+    A manifest taking the model from ``--model`` would name the model
+    requested rather than the one that answered.
+
+    Nothing absent is defaulted, for the reason the transport does not default
+    its own init: an absent ``slash_commands`` says the leak was not measured,
+    while a ``[]`` in its place says it was measured and found closed, and one
+    value for the two leaves a reader misinformed rather than uninformed.
+
+    Args:
+        transport: The call the grades were asked for through, after it was
+            made. Its ``last_init``, ``spend_usd`` and ``unpriced_calls`` are
+            what this reads; a call that raised has cleared the first and
+            kept the other two, which is why a refused call still prices.
+        dimensions: The dimensions the call asked for.
+        claude_bin: The binary that was launched, asked for its own version.
+
+    Returns:
+        The manifest.
+    """
+    from .judge import RUBRIC
+
+    init = transport.last_init if isinstance(transport.last_init, dict) else {}
+    return {
+        "argv": transport.argv(),
+        "model": init["model"] if "model" in init else _NOT_REPORTED,
+        "claude_version": _claude_version(claude_bin),
+        "rubric_sha256": hashlib.sha256(RUBRIC.encode()).hexdigest(),
+        "dimensions": list(dimensions),
+        "blinding": {
+            "regime": _JUDGE_BLINDING_REGIME,
+            "claude_md_loaded": True,
+            "slash_commands": (
+                init["slash_commands"] if "slash_commands" in init else _NOT_REPORTED
+            ),
+            "evidence": _JUDGE_BLINDING_EVIDENCE,
+        },
+        # Together, never one alone: a spend of 0.0 says either "nothing was
+        # billed" or "nothing was measured", and the count is what tells them
+        # apart. The running total rather than the last call's figure, because
+        # it is the one that survives a call that was billed and then refused.
+        "spend_usd": transport.spend_usd,
+        "unpriced_calls": transport.unpriced_calls,
+    }
+
+
+def _write_judgement(
+    out: Path,
+    *,
+    draft: Path,
+    manifest: dict[str, Any],
+    report: JudgeReport | None,
+    error: str | None,
+) -> Path:
+    """Write one judgement and the conditions it was produced under.
+
+    Args:
+        out: The directory to write into; created if it does not exist.
+        draft: The draft that was graded.
+        manifest: What :func:`_judge_manifest` produced.
+        report: The judge's report, or ``None`` when the call or the reply was
+            refused. Every field it would have filled is written as null
+            rather than as an empty one, so a reader never reads "graded and
+            scored nothing" where nothing was graded.
+        error: Why there is no report, or ``None`` when there is one. Present
+            on both paths so a reader has one key to look at either way.
+
+    Returns:
+        The file written.
+    """
+    payload = {
+        "draft": str(draft),
+        "judged_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "scores": None if report is None else dict(report.scores),
+        "quotes": None if report is None else list(report.quotes),
+        # ``None`` survives as null: it means the quotes were never checked,
+        # which is a different claim from an empty list's "checked, all found".
+        "unverified": (
+            None
+            if report is None or report.unverified is None
+            else list(report.unverified)
+        ),
+        "error": error,
+        "manifest": manifest,
+    }
+    out.mkdir(parents=True, exist_ok=True)
+    path = out / JUDGE_REPORT_FILE
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+    return path
+
+
+def _judge_run(args: argparse.Namespace, root: Path) -> int:
+    """Grade one draft, and record what its grades were produced under.
+
+    A non-empty ``unverified`` ships the scores rather than refusing them,
+    because :data:`~.judge.RUBRIC` tells the model that a quotation it cannot
+    find is *returned alongside the grades*, not that the reply is invalid;
+    refusing it here would punish a model for answering the contract it was
+    given. But a judge that cites text the draft does not contain has not read
+    the draft it graded, so the finding must be impossible to miss: it decides
+    the exit code, and the quote count is printed on every path, including the
+    clean one, so an absent finding is never what a reader has to rely on.
+
+    Args:
+        args: The parsed ``judge`` arguments.
+        root: The runs root, which the profile defaults under.
+
+    Returns:
+        0 when every quote the judge gave was checked and found in the body it
+        was shown, and 3 otherwise — a gate said no, and as with ``preflight``
+        the evidence is written before the code is returned.
+
+    Raises:
+        ExperimentError: Whatever the call or the reply raises, after the
+            manifest has been written: a refused call is a billed one, and its
+            cost is the figure that would otherwise be lost with it.
+    """
+    from .judge import judge_draft, judge_transport
+
+    draft = args.draft.resolve()
+    out = args.out.resolve()
+    dimensions = tuple(args.dimensions or JUDGE_DIMENSIONS)
+    profile = (args.profile_dir or profile_dir(root)).resolve()
+    # Read before the transport is built, so an unreadable draft costs no
+    # temporary directory and no manifest for a call nobody made.
+    text = draft.read_text()
+    transport = judge_transport(
+        args.claude_bin,
+        profile,
+        args.model,
+        effort=args.effort,
+        timeout_s=args.timeout_s,
+    )
+
+    def record(
+        report: JudgeReport | None, error: str | None
+    ) -> tuple[Path, dict[str, Any]]:
+        manifest = _judge_manifest(
+            transport, dimensions=dimensions, claude_bin=args.claude_bin
+        )
+        return (
+            _write_judgement(
+                out, draft=draft, manifest=manifest, report=report, error=error
+            ),
+            manifest,
+        )
+
+    try:
+        report = judge_draft(text, transport, dimensions=dimensions)
+    except ExperimentError as error:
+        path, _ = record(None, str(error))
+        _report(f"conditions recorded: {path}")
+        raise
+    path, manifest = record(report, None)
+    print(f"judge: {path}")
+    print(
+        "scores: " + "  ".join(f"{name}={report.scores[name]}" for name in dimensions)
+    )
+    # The model the session reported, not the one asked for, and said here as
+    # well as written: what a reader takes the scores to be worth turns on it.
+    print(f"model: {manifest['model']}")
+    if report.unverified is None:
+        print("quotes: not checked")
+        _report("finding: the judge's quotes were never checked against the draft")
+        return 3
+    found = len(report.quotes) - len(report.unverified)
+    print(f"quotes: {found} of {len(report.quotes)} verified")
+    if report.unverified:
+        _report(
+            f"finding: {len(report.unverified)} of {len(report.quotes)} quotes "
+            "are not in the draft the judge was shown"
+        )
+        for quote in report.unverified:
+            # Through ``printable``: the quote is the model's own text, and an
+            # unescaped line ending in it would reach stderr as several lines,
+            # any of which can be spelled to read like this verb's own.
+            _report(f"  {printable(quote)}")
+        return 3
+    return 0
+
+
 def _add_root(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--root",
@@ -1098,6 +1369,69 @@ def configure(parser: argparse.ArgumentParser) -> None:
         ),
     )
 
+    judge = commands.add_parser(
+        "judge",
+        help="Grade one draft's prose with a blinded model, recording what "
+        "the grades were produced under.",
+    )
+    _add_root(judge)
+    judge.add_argument(
+        "draft",
+        type=Path,
+        help="The kramdown-rfc draft to grade. Its front matter and its "
+        "harness citations come off before any judge sees it.",
+    )
+    judge.add_argument(
+        "--out",
+        type=Path,
+        required=True,
+        help=f"Directory to write {JUDGE_REPORT_FILE} into; created if absent. "
+        "Named rather than defaulted: a judgement is evidence about one draft, "
+        "and a shared default would let the next run overwrite it.",
+    )
+    judge.add_argument(
+        "--dimension",
+        dest="dimensions",
+        action="append",
+        default=None,
+        help="A dimension to grade, repeatable. Default: "
+        + ", ".join(JUDGE_DIMENSIONS)
+        + ".",
+    )
+    judge.add_argument(
+        "--model",
+        type=_model,
+        default=DEFAULT_MODEL,
+        help="Model to ask for (default: %(default)s). Which model answered is "
+        "recorded separately, off the session's own init event.",
+    )
+    judge.add_argument(
+        "--claude-bin",
+        default="claude",
+        help="Claude Code binary to launch (default: %(default)s).",
+    )
+    judge.add_argument(
+        "--profile-dir",
+        type=Path,
+        default=None,
+        help="The authenticated profile the call runs under (default: "
+        "<root>/profile).",
+    )
+    judge.add_argument(
+        "--effort",
+        choices=EFFORTS,
+        default="high",
+        help="Reasoning effort for the grading call (default: %(default)s). "
+        f"Higher than the per-claim judge's {JUDGE_EFFORT}: this one reads a "
+        "whole draft before it grades one.",
+    )
+    judge.add_argument(
+        "--timeout-s",
+        type=int,
+        default=JUDGE_TIMEOUT_S,
+        help="Seconds before the grading call is killed (default: %(default)s).",
+    )
+
     optimize = commands.add_parser(
         "optimize", help="Search for better skill texts, and apply what it finds."
     )
@@ -1315,8 +1649,11 @@ def run(args: argparse.Namespace) -> int:
 
     Returns:
         0 on success, 1 when the harness refused or an input was unusable, and
-        3 when a gate said no — ``preflight`` not reaching "go", or the parity
-        suite failing. 2 is left to ``argparse``, as everywhere else in this
+        3 when a gate said no — ``preflight`` not reaching "go", the parity
+        suite failing, or ``judge`` not finding every quote its judge gave in
+        the draft it was shown. All three write their evidence before they
+        return it: the code reports the finding, it does not replace the
+        record. 2 is left to ``argparse``, as everywhere else in this
         package: a caller must be able to tell a mistyped flag from a gate that
         must stop a campaign, and the two call for opposite responses.
     """
@@ -1525,6 +1862,8 @@ def run(args: argparse.Namespace) -> int:
             # would again degrade the signal for the whole campaign.
             if args.build:
                 print(f"builds: {build_tally(aggregate['runs'])}")
+        elif args.command == "judge":
+            return _judge_run(args, root)
         elif args.command == "optimize" and args.verb == "seed":
             from .optimize.codec import encode, seed_from_plugin
 
