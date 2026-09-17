@@ -17,12 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from ai_rfc.driver import DriverError
-from ai_rfc.driver.stream import (
-    assistant_text,
-    init_event,
-    parse_stream,
-    result_event,
-)
+from ai_rfc.driver.stream import assistant_text, init_event, parse_stream, result_event
 
 from ...lifecycle.profile import profile_env
 from .. import ExperimentError
@@ -186,6 +181,19 @@ class ClaudeCliCall:
             refuses a session that reports a surface.
 
     Attributes:
+        spend_usd: What every call that got as far as reading its stream for
+            a result event has cost, summed and never cleared. It answers
+            the question ``last_cost_usd`` cannot -- what a run spent --
+            and it counts a call that was billed and then refused, because
+            the session ran and the money went whatever the wrapper did with
+            the reply afterwards. A call whose child exited non-zero never
+            reaches that read: its stdout is parsed only to name a quota in
+            the error, and a figure lifted from a stream a failed child may
+            have left half-written is not one anybody measured.
+        unpriced_calls: How many of those same calls left no usable figure.
+            Without it a zero ``spend_usd`` says either "nothing was billed"
+            or "nothing was measured", and a field that cannot tell those
+            apart converts a reader from uninformed into misinformed.
         last_cost_usd: What the last call cost, per its result event; ``None``
             before the first call, after a call that failed, and after one
             whose result reported no usable figure.
@@ -224,6 +232,8 @@ class ClaudeCliCall:
         self.union_argv = union_argv
         self.last_cost_usd: float | None = None
         self.last_init: dict[str, Any] | None = None
+        self.spend_usd = 0.0
+        self.unpriced_calls = 0
 
     def __repr__(self) -> str:
         return f"{PREFIX}{self.model}"
@@ -355,6 +365,8 @@ class ClaudeCliCall:
 
         A call that returns leaves :attr:`last_init` and :attr:`last_cost_usd`
         describing that call; one that raises leaves both cleared.
+        :attr:`spend_usd` and :attr:`unpriced_calls` are cleared by neither:
+        they account for the run rather than describe a call.
 
         Args:
             prompt: The text, or a chat-messages list as gepa may pass one.
@@ -421,10 +433,20 @@ class ClaudeCliCall:
                 exit_code=completed.returncode,
                 stderr_tail=tail,
             ) from None
+        # Read before the surface check rather than after it, because every
+        # refusal from here down is billed-and-refused: the session ran, the
+        # money went, and the call then failed. Reading it after the check
+        # would drop a contaminated call's cost, and a contaminated call is
+        # the most expensive kind -- it answered in full.
+        final = result_event(events)
+        cost = None if final is None else _cost(final)
+        if cost is None:
+            self.unpriced_calls += 1
+        else:
+            self.spend_usd += cost
         init = self._check_surface(
             events, exit_code=completed.returncode, stderr_tail=tail
         )
-        final = result_event(events)
         if final is None:
             raise ClaudeCliError(
                 f"{self!r} ended without a result event",

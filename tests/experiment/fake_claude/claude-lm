@@ -14,14 +14,15 @@ Its init event reports the ``--model`` and ``--tools`` its argv gave it
 or ``tools`` key overrides them, and reports the ``mcp_servers`` and
 ``slash_commands`` that file names -- neither of those two ever from argv.
 It also reports a ``session_id`` numbering this profile's calls from one and
-an ``apiKeySource`` of ``none``, both overridable the same way. Its success
-result carries the control file's ``cost`` as ``total_cost_usd``, passed
+an ``apiKeySource`` of ``none``, both overridable the same way. Every result
+event it prints -- the success one and the error one alike, since both are
+billed -- carries the control file's ``cost`` as ``total_cost_usd``, passed
 through as given: a string, or ``null``, reaches the event unconverted.
 
 The control file can also make the stub report less than it knows.
 ``no_init`` suppresses the init event alone, so a quota event still prints
 without one; ``omit_init`` and ``omit_result`` drop the keys they name from
-the init and from the success result, which is how a consumer is shown to
+the init and from either result event, which is how a consumer is shown to
 tell a key reported empty from a key never reported at all. Both must be
 lists of key names -- anything else exits 2 rather than match a bare string
 against each key in turn. A ``raw`` reply's ``text`` must be a string --
@@ -149,14 +150,23 @@ def main() -> int:
 
     _emit_preamble(control, number)
     if reply == "error":
+        # Priced like the success result, and for the same reason a consumer
+        # needs it: an error result is billed-and-refused -- the session ran,
+        # the money went, and the call then failed. A consumer that accounts
+        # for what a run spent can only be shown to count this one against a
+        # stub whose error result carries a figure to count.
         _emit(
-            {
-                "type": "result",
-                "subtype": "error_during_execution",
-                "is_error": True,
-                "result": control.get("message", "the stub was told to error"),
-                "num_turns": 0,
-            }
+            _without(
+                {
+                    "type": "result",
+                    "subtype": "error_during_execution",
+                    "is_error": True,
+                    "result": control.get("message", "the stub was told to error"),
+                    "num_turns": 0,
+                    "total_cost_usd": control.get("cost", 0.0),
+                },
+                control.get("omit_result"),
+            )
         )
         return 0
     if reply == "verdict":

@@ -510,6 +510,92 @@ def test_a_failed_call_leaves_neither_the_cost_nor_the_surface_behind(
     assert wrapper.last_init is None
 
 
+# --- what the run has spent --------------------------------------------------
+
+
+def test_nothing_is_spent_before_the_first_call(profile, tmp_path):
+    wrapper = call(profile, tmp_path)
+
+    assert wrapper.spend_usd == 0.0
+    assert wrapper.unpriced_calls == 0
+
+
+def test_spend_is_the_sum_of_the_calls_and_never_the_last_of_them(profile, tmp_path):
+    """The one figure that can account for a run, which ``last_cost_usd``
+    cannot: it describes a single call and the next call clears it."""
+    wrapper = call(profile, tmp_path)
+    control(profile, reply="raw", text="{}", cost=0.25)
+
+    wrapper("grade this")
+    wrapper("grade that")
+
+    assert wrapper.spend_usd == pytest.approx(0.5)
+    assert wrapper.last_cost_usd == 0.25
+
+
+@pytest.mark.parametrize(
+    "failure,spent",
+    [
+        ({"reply": "nonzero", "stderr": "down\n", "cost": 0.5}, 0.0),
+        ({"reply": "raw", "text": "{}", "tools": ["Bash"], "cost": 0.5}, 0.5),
+        ({"reply": "error", "message": "no", "cost": 0.5}, 0.5),
+        ({"reply": "raw", "text": "", "cost": 0.5}, 0.5),
+    ],
+    ids=["nonzero", "refused-surface", "error-result", "empty-reply"],
+)
+def test_a_call_that_was_billed_and_then_failed_still_counts_as_spend(
+    profile, tmp_path, failure, spent
+):
+    """Three of these four are billed-and-refused: the session ran, the money
+    went, and the call then failed. A manifest that dropped them would report
+    a run as cheaper than it was.
+
+    ``nonzero`` is the one that contributes nothing, and not because the
+    control file withheld a figure — it names the same ``cost`` as the other
+    three. The child exited non-zero, so the stream is never read for a
+    result event at all; what it parses there it parses only to name a quota
+    in the error, from stdout a failed child may have left half-written.
+    """
+    wrapper = call(profile, tmp_path)
+    control(profile, reply="raw", text="{}", cost=0.25)
+    wrapper("grade this")
+
+    control(profile, **failure)
+    with pytest.raises(ClaudeCliError):
+        wrapper("grade that")
+
+    assert wrapper.spend_usd == pytest.approx(0.25 + spent)
+    # The per-call figure is still cleared by the failure; only the total is
+    # monotonic, so the two fields are shown to answer different questions.
+    assert wrapper.last_cost_usd is None
+
+
+def test_a_call_that_left_no_figure_is_counted_not_summed_as_nothing(profile, tmp_path):
+    """A ``spend_usd`` of zero says either "nothing was billed" or "nothing
+    was measured", and a field that cannot tell those apart is worse than no
+    field. The count is what tells them apart."""
+    wrapper = call(profile, tmp_path)
+    control(profile, reply="raw", text="{}", omit_result=["total_cost_usd"])
+
+    wrapper("grade this")
+
+    assert wrapper.spend_usd == 0.0
+    assert wrapper.unpriced_calls == 1
+
+
+def test_a_deep_copy_carries_the_running_total(profile, tmp_path):
+    """``result.json`` deep-copies a run's settings, and the wrapper is one of
+    them; a total that did not survive the copy would land there as zero."""
+    wrapper = call(profile, tmp_path)
+    control(profile, reply="raw", text="{}", cost=0.5)
+    wrapper("grade this")
+
+    twin = copy.deepcopy(wrapper)
+
+    assert twin.spend_usd == pytest.approx(0.5)
+    assert twin.unpriced_calls == 0
+
+
 # --- what the session reported -----------------------------------------------
 
 

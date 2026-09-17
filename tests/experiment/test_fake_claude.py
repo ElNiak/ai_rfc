@@ -739,6 +739,21 @@ def test_claude_lm_reports_where_its_credentials_came_from(lm_profile):
     assert keyed_init["apiKeySource"] == "ANTHROPIC_API_KEY"
 
 
+def test_claude_lm_prices_an_error_result_too(lm_profile):
+    """An error result is billed-and-refused, so it carries a figure as well.
+
+    Without one, a consumer that counts what a run spent could not be driven
+    over this outcome at all: the condition would be absent from every input.
+    """
+    priced = _run_lm(lm_profile, "x", {"reply": "error", "cost": 0.0125})
+    unpriced = _run_lm(
+        lm_profile, "y", {"reply": "error", "omit_result": ["total_cost_usd"]}
+    )
+
+    assert result_event(parse_stream(priced.stdout))["total_cost_usd"] == 0.0125
+    assert "total_cost_usd" not in result_event(parse_stream(unpriced.stdout))
+
+
 def test_claude_lm_can_leave_its_call_unpriced(lm_profile):
     priced = _run_lm(lm_profile, "x", {"cost": 0.0125})
     unpriced = _run_lm(lm_profile, "y", {"omit_result": ["total_cost_usd"]})
