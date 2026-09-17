@@ -126,14 +126,17 @@ shape, scoring every dimension you were asked for and no others:
 
 
 class JudgeError(ExperimentError):
-    """Raised when a judge call yields no report.
+    """Raised where a figure or a verdict would otherwise be recorded that
+    nothing produced.
 
-    Either the draft could not be put in front of a judge -- no body survives
-    the blinding, or no dimension was asked for -- or the reply came back
-    outside the pinned shape. A reply outside the shape is a fault and never a
-    low score: a model that answered something else was not grading on this
-    contract, and reading a number out of it anyway would put a figure in a
-    manifest that nothing produced.
+    That is the predicate, and it is deliberately not a list of the places it
+    is raised from: a judge call that cannot be made, a reply that did not
+    answer this contract, and a check that cannot be carried out are different
+    events with one thing in common worth refusing -- a number in a manifest,
+    or a clean bill on a report's quotes, with no measurement behind it. A
+    reply outside the pinned shape is a fault and never a low score: a model
+    that answered something else was not grading on this contract, and reading
+    a number out of it anyway produces exactly the figure this refuses.
     """
 
 
