@@ -21,7 +21,7 @@ from pathlib import Path
 import pytest
 
 from ai_rfc.experiment import cli
-from ai_rfc.experiment.judge import RUBRIC
+from ai_rfc.experiment.judge import RUBRIC, JudgeReport
 
 from .conftest import FAKE_CLAUDE_LM as STUB
 
@@ -150,11 +150,10 @@ def test_the_manifest_records_the_permanent_blinding_leak(tmp_path, lm_profile):
     # fact exists to prevent.
     assert blinding["claude_md_loaded"] is True
     assert blinding["evidence"] == (
-        "measured 2026-09-03 on claude 2.1.259 under the design spec's flags; "
-        "this judge's argv adds --safe-mode, --setting-sources and "
-        "--permission-mode dontAsk, and no probe has re-measured the leak "
-        "under that union or under the claude_version recorded beside this "
-        "field"
+        "measured 2026-09-03 on claude 2.1.259 under the design spec's probe "
+        "argv; this judge runs the different argv ClaudeCliCall.argv() "
+        "documents, and no probe has re-measured the leak under it or under "
+        "the claude_version recorded beside this field"
     )
     assert {"argv", "model", "claude_version", "rubric_sha256"} <= manifest.keys()
 
@@ -342,6 +341,33 @@ def test_a_fully_verified_judgement_says_that_too(tmp_path, lm_profile, capsys):
     assert code == 0
     assert _judgement(out)["unverified"] == []
     assert "quotes: 1 of 1 verified" in capsys.readouterr().out
+
+
+def test_a_judgement_whose_quotes_were_never_checked_is_not_a_clean_one(
+    tmp_path, lm_profile, monkeypatch, capsys
+):
+    """``None`` is not ``()``: unchecked and checked-and-clean are different
+    claims, and only the second earns a zero exit.
+
+    ``judge_draft`` always checks, so the branch is unreachable through it and
+    is driven by substituting it. It still decides an exit code, and a branch
+    that decides one while nothing exercises it is a claim waiting to be paid:
+    a later producer of a report — one that grades from a cached reply, say —
+    would otherwise inherit success by default.
+    """
+    from ai_rfc.experiment import judge as judge_module
+
+    monkeypatch.setattr(
+        judge_module,
+        "judge_draft",
+        lambda text, transport, *, dimensions: JudgeReport(
+            scores={name: 3 for name in dimensions}, body=text, unverified=None
+        ),
+    )
+    code, out = _judge(tmp_path, lm_profile, reply="raw", text="never sent")
+    assert code == 3
+    assert _judgement(out)["unverified"] is None
+    assert "quotes: not checked" in capsys.readouterr().out
 
 
 def test_a_model_controlled_quote_cannot_forge_a_line_of_output(

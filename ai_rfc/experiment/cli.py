@@ -111,17 +111,22 @@ _NOT_REPORTED = "not reported"
 #: there is no end date to wait for and the manifest must not imply one.
 _JUDGE_BLINDING_REGIME = "oauth-permanent"
 
-#: How the accepted leak was measured, carried beside the claim itself. The
-#: probe ran under the design spec's flags on 2.1.259; the judge's argv is the
-#: union of that set with the one measured on 2.1.260 (see
-#: :meth:`.optimize.claude_cli.ClaudeCliCall.argv`), and nothing has re-run the
-#: probe under the union. A bare boolean would record the claim without the
-#: difference, turning an inherited measurement into an asserted one.
+#: How the accepted leak was measured, carried beside the claim itself. A bare
+#: boolean would record the claim without its provenance, turning an inherited
+#: measurement into an asserted one.
+#:
+#: The difference in argv is named as a difference rather than as a list of
+#: flags. The spec's probe ran ``--tools "" --strict-mcp-config --system-prompt
+#: --exclude-dynamic-system-prompt-sections --model --output-format --verbose``;
+#: :meth:`.optimize.claude_cli.ClaudeCliCall.argv` adds five to that and drops
+#: one, and any enumeration here would be a second copy of a vector that is
+#: free to move — with the reader unable to tell a flag nobody listed from a
+#: flag that is not there.
 _JUDGE_BLINDING_EVIDENCE = (
-    "measured 2026-09-03 on claude 2.1.259 under the design spec's flags; "
-    "this judge's argv adds --safe-mode, --setting-sources and "
-    "--permission-mode dontAsk, and no probe has re-measured the leak under "
-    "that union or under the claude_version recorded beside this field"
+    "measured 2026-09-03 on claude 2.1.259 under the design spec's probe "
+    "argv; this judge runs the different argv ClaudeCliCall.argv() documents, "
+    "and no probe has re-measured the leak under it or under the "
+    "claude_version recorded beside this field"
 )
 
 
@@ -1027,7 +1032,9 @@ def _judge_run(args: argparse.Namespace, root: Path) -> int:
     )
     # The model the session reported, not the one asked for, and said here as
     # well as written: what a reader takes the scores to be worth turns on it.
-    print(f"model: {manifest['model']}")
+    # Through ``printable`` for the same reason the quotes below are: this is
+    # text the binary reported, not text this verb chose.
+    print(f"model: {printable(str(manifest['model']))}")
     if report.unverified is None:
         print("quotes: not checked")
         _report("finding: the judge's quotes were never checked against the draft")
