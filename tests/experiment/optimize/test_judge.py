@@ -11,6 +11,7 @@ import urllib.request
 
 import pytest
 
+from ai_rfc.experiment.optimize.claude_cli import ClaudeCliSurfaceError
 from ai_rfc.experiment.optimize.judge import (
     RUBRIC,
     JudgeError,
@@ -145,6 +146,55 @@ def test_a_batch_in_which_every_call_failed_is_raised_not_scored():
 
     with pytest.raises(JudgeError, match="could not be reached for any of 2"):
         build_judge(send)([hunk("t:1.1"), hunk("t:2.1", text="Two.")])
+
+
+def test_one_contaminated_call_among_clean_ones_is_raised_not_averaged():
+    """The leak that has to be driven is the *partial* one.
+
+    A session reporting a surface on every call already stops the batch: all
+    of them fail, and the all-failed check raises. What that path cannot
+    show is the mixed run — some calls clean, some contaminated — where the
+    contaminated ones would otherwise score 0.0 each, enter the mean beside
+    real verdicts, and bias the candidate downward with nothing saying so.
+    """
+    calls = []
+
+    def send(prompt):
+        calls.append(prompt)
+        if len(calls) == 2:
+            raise ClaudeCliSurfaceError(
+                "claude-cli:m ran a session reporting mcp_servers=[...]"
+            )
+        return '{"score": 1, "rationale": "implements it"}'
+
+    with pytest.raises(ClaudeCliSurfaceError, match="mcp_servers"):
+        build_judge(send)(
+            [hunk("t:1.1"), hunk("t:2.1", text="Two."), hunk("t:3.1", text="Three.")]
+        )
+
+    # It leaves by the hunk it happened to, so the third is never asked. The
+    # first two calls are what separates this from the all-failed path.
+    assert len(calls) == 2
+
+
+def test_a_wholly_contaminated_batch_reports_contamination_not_unreachability():
+    """The systematic leak was already safe; it was also mis-named.
+
+    Every call failing used to arrive as ``JudgeError`` — "the judge could
+    not be reached" — whose stated likeliest cause is a model id the endpoint
+    rejects. A session that answered every time and held tools it was not
+    given is the opposite of unreachable, and a reader sent after the wrong
+    cause loses the run twice. Nothing is remembered from it either.
+    """
+    cache = {}
+
+    def send(prompt):
+        raise ClaudeCliSurfaceError("claude-cli:m ran a session reporting tools=[...]")
+
+    with pytest.raises(ClaudeCliSurfaceError, match="tools"):
+        build_judge(send, cache=cache)([hunk("t:1.1"), hunk("t:2.1", text="Two.")])
+
+    assert cache == {}
 
 
 def test_a_cache_hit_counts_as_an_answer_when_every_live_call_fails():

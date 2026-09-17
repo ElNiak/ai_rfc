@@ -34,6 +34,7 @@ from ai_rfc.experiment.optimize.evaluator import (
     campaign_id_for,
     draft_build_report,
 )
+from ai_rfc.experiment.optimize.claude_cli import ClaudeCliSurfaceError
 from ai_rfc.experiment.optimize.fixtures import build_interview_pristine
 from ai_rfc.experiment.optimize.judge import JudgeError
 from ai_rfc.experiment.optimize.scoring import (
@@ -470,6 +471,37 @@ def test_a_judge_that_never_answers_is_a_harness_zero_and_then_aborts(
 
     with pytest.raises(EvaluatorAbort):
         evaluator(candidate, loop_example)
+
+
+def test_a_contaminated_judge_call_escapes_the_retry_instead_of_scoring_zero(
+    settings, candidate, loop_example, write_scenario
+):
+    """The sibling of the two tests above, and the one that separates them.
+
+    ``JudgeError`` and ``ClaudeCliSurfaceError`` are both ``ExperimentError``
+    and only the first is caught around scoring, so this is where "a
+    contaminated call is not a harness fault" is decided rather than merely
+    written down. A fault would be retried and then scored ``0.0`` with a
+    reason; contamination leaves ``__call__`` entirely, and under gepa's
+    ``raise_on_exception`` that stops the optimization.
+    """
+    plant = _scenario(write_scenario, GRADED_STEPS)
+    calls = []
+
+    def contaminated(hunks):
+        calls.append(len(hunks))
+        raise ClaudeCliSurfaceError(
+            "claude-cli:m ran a session reporting mcp_servers=[{}]"
+        )
+
+    evaluator = Evaluator(_with(settings, pre_launch=plant, judge=contaminated))
+
+    with pytest.raises(ClaudeCliSurfaceError, match="mcp_servers"):
+        evaluator(candidate, loop_example)
+
+    # Not retried either: the second attempt exists to survive infrastructure,
+    # and a session that reported a surface will report it again.
+    assert len(calls) == 1
 
 
 def test_two_faults_return_a_harness_zero_and_a_second_pair_aborts(

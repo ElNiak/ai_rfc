@@ -368,6 +368,12 @@ class Evaluator:
         relevance term of zero indistinguishable from a real verdict. Only
         that failure is caught here — any other exception out of scoring is a
         defect in the scorer and must stop the run.
+
+        One exception out of scoring is neither: a ``ClaudeCliSurfaceError``
+        says a judge call ran under conditions this experiment is not
+        measuring. It passes this catch on purpose. A fault here becomes a
+        harness zero, and a zero is what the search reads, while a session
+        that reported tools it was not given produced no score to read.
         """
         campaign: Campaign | None = None
         score: Score | None = None

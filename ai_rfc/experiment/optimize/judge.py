@@ -25,6 +25,7 @@ import urllib.request
 from typing import Callable, MutableMapping
 
 from .. import ExperimentError
+from .claude_cli import ClaudeCliSurfaceError
 from .scoring import ClaimHunk, Judge, Judgement
 
 #: Turns one prompt into one raw model reply.
@@ -222,6 +223,10 @@ def build_judge(
     that raises :class:`JudgeError` for the caller to treat as the harness
     fault it is.
 
+    A contaminated call is a third thing again, and the only one that leaves
+    the batch by the first hunk it happens to: see the ``Raises`` note on
+    :class:`~.claude_cli.ClaudeCliSurfaceError` below.
+
     Only a parsed judgement is remembered. Caching a failure would freeze a
     transient outage into a verdict that never gets retried.
 
@@ -237,6 +242,12 @@ def build_judge(
     Raises:
         JudgeError: When the judge is called with hunks and every one of them
             failed in transport. A cache hit counts as an answer.
+        ClaudeCliSurfaceError: On the first hunk whose call reports a tool
+            surface it was not launched with, leaving the rest ungraded. It
+            travels past the evaluator's own ``except JudgeError`` and so
+            stops the optimization, which is the reading: a contaminated
+            session produced no score to average, and the harness zero a
+            caught fault produces is still a zero the search reads as one.
     """
 
     def judge(hunks: list[ClaimHunk]) -> list[Judgement]:
@@ -254,6 +265,14 @@ def build_judge(
                 continue
             try:
                 reply = transport(_prompt(hunk))
+            except ClaudeCliSurfaceError:
+                # A contamination signal, not a transport failure. The call
+                # reached a model and came back; what it did not do is grade
+                # this hunk under the conditions the run is measuring. Scored
+                # zero it would enter the mean as a verdict, and only a
+                # *partial* leak would ever show — a total one already stops
+                # the batch below. So it leaves by the first hunk it hits.
+                raise
             except Exception as error:  # noqa: BLE001 - any transport may fail
                 failures.append(str(error))
                 judgements.append(
