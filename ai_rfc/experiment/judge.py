@@ -73,16 +73,30 @@ _CWD_PREFIX = "j-"
 #: naming neither the harness nor the claim.
 _PLACEHOLDER = "[citation]"
 
-#: The harness's own name inside backticks: the citation form
-#: ``ai_rfc:<claim-id>``, its legacy ``a_rfc:`` spelling, and the bare
-#: ``ai_rfc`` the Conventions section names when it explains the convention.
-#: One pattern over the name rather than three over the forms it is written
-#: in, so a fourth form is not the one that leaks.
-_BACKTICKED_TOKEN = re.compile(r"`\s*ai?_rfc[^`]*`")
+#: The harness's name, in whatever case and with whichever of its two
+#: separators it is written: ``ai_rfc`` is the package and the citation form,
+#: ``ai-rfc`` is the prose form this codebase already ships -- ``config.py``
+#: defaults a draft's author to "ai-rfc harness" -- ``a_rfc`` is the legacy
+#: citation spelling, and a sentence or a heading capitalises any of them.
+#: One pattern over the name rather than one per spelling, so a spelling
+#: nobody listed is not the one that leaks.
+#:
+#: The separator stops at ``_`` and ``-`` deliberately. Widening it to any
+#: non-word character costs a real sentence: one space is a non-word
+#: character, so "an AI RFC" would match and be cut out of the prose the
+#: judge is grading. What holds the name together as one token is exactly
+#: what belongs in this class, and a space does not.
+_NAME = r"ai?[_-]rfc"
+
+#: The name inside backticks: the citation form ``ai_rfc:<claim-id>`` and the
+#: bare ``ai_rfc`` the Conventions section names when it explains the
+#: convention.
+_BACKTICKED_TOKEN = re.compile(rf"`\s*{_NAME}[^`]*`", re.IGNORECASE)
 
 #: The same name outside backticks, which is how the structure-block
-#: delimiters inside ``{::comment}`` blocks spell it.
-_BARE_TOKEN = re.compile(r"\bai?_rfc\S*")
+#: delimiters inside ``{::comment}`` blocks spell it, and how prose naming the
+#: harness spells it.
+_BARE_TOKEN = re.compile(rf"\b{_NAME}\S*", re.IGNORECASE)
 
 RUBRIC = """\
 You are grading one Internet-Draft for the quality of its specification prose.
@@ -168,7 +182,9 @@ def blinded_body(text: str) -> str:
     places the front matter does not -- a backticked ``ai_rfc:<claim-id>``
     beside a normative sentence, the bare delimiters of a structure block
     inside a comment, and the Conventions sentence that explains the
-    convention by naming it.
+    convention by naming it. The sweep is over the name rather than over a
+    list of its spellings, so the case it is written in and which of its two
+    separators it carries do not decide whether it is caught.
 
     Comment blocks are kept. They are what the author left standing, and a
     draft still carrying its own authoring instructions is a draft in that

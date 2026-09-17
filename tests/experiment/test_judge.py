@@ -36,6 +36,13 @@ from .conftest import FAKE_CLAUDE_LM as STUB
 #: recognises, and one structure block whose delimiters carry the same token
 #: outside backticks. None of the three is in the skeleton; all three are in
 #: real drafts.
+#:
+#: The Conventions paragraph carries the name in the spellings that are not
+#: the package's own: the hyphenated form this codebase already ships (the
+#: default author is "ai-rfc harness", ``config.py``) and the capitalised
+#: forms a sentence or a heading produces. Its last sentence is the one the
+#: sweep must leave alone -- see
+#: ``test_a_sentence_ending_in_ai_before_an_rfc_number_survives``.
 AUTHORED = (
     "\n## Connection Close\n\n"
     "A peer MUST close the connection on a malformed frame. `ai_rfc:t:1.1`\n\n"
@@ -43,6 +50,9 @@ AUTHORED = (
     "{::comment}\nai_rfc:struct:header begin\n{:/comment}\n"
     "| Field | Width |\n"
     "{::comment}\nai_rfc:struct:header end\n{:/comment}\n"
+    "\n## Conventions\n\n"
+    "Citations here are emitted by the ai-rfc harness; AI-RFC and AI_RFC name\n"
+    "the same tool. This document is not an AI RFC; RFC 9000 governs it.\n"
 )
 
 #: A real draft: the skeleton's own front matter, filled as ``scaffold`` fills
@@ -75,6 +85,9 @@ LEAKS = (
     "ai_rfc",
     "a_rfc",
     "struct:header",
+    "ai-rfc",
+    "AI-RFC",
+    "AI_RFC",
 )
 
 
@@ -161,6 +174,23 @@ def test_the_prompt_carries_none_of_them(leak):
     assert leak not in prompt_sent(DRAFT)
 
 
+def test_the_two_halves_of_the_name_separated_by_a_space_are_not_the_name():
+    """What bounds the sweep's separator class.
+
+    The sweep matches the harness's name as one token, so its separator is
+    ``_`` or ``-``. Widening that to "any non-word character" would take a
+    space too, and "an AI RFC" would be cut out of the prose being graded.
+
+    The first draft of this test used "an AI. RFC 9000" and did not
+    discriminate at all: a widened class still matches only one character,
+    and there are two between those halves. The mutant survived, which is how
+    the sentence came to have exactly one separator in it.
+    """
+    body = blinded_body(DRAFT)
+
+    assert "This document is not an AI RFC; RFC 9000 governs it." in body
+
+
 def test_a_citation_leaves_a_placeholder_where_it_stood():
     """Whether a normative sentence carries a citation is a quality property,
     so the sentence must not silently lose its shape when the id goes."""
@@ -184,7 +214,7 @@ def test_the_prompt_names_no_file():
 def test_the_rubric_itself_leaks_nothing():
     """The rubric is most of the prompt, so the prompt assertions above would
     hold for a leaky rubric only as long as nobody wrote the leak into it."""
-    for leak in ("ai_rfc", "elniak", "PANTHER", ".md", "docname"):
+    for leak in ("ai_rfc", "ai-rfc", "elniak", "PANTHER", ".md", "docname"):
         assert leak not in RUBRIC
 
 
