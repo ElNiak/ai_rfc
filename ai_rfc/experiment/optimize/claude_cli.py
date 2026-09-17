@@ -132,11 +132,11 @@ def _decoded(data: str | bytes | None) -> str:
 def _cost(final: dict[str, Any]) -> float | None:
     """What a result event says the call cost, when it says it in a number.
 
-    A reply is never refused over this field: the envelope's shape moved
-    between CLI 2.1.260 and 2.1.268, so a version that omits it or spells it
-    differently must still be usable. What that costs is a value nobody
-    measured, and this returns it as unmeasured rather than as a figure a
-    manifest could carry.
+    A reply is never refused over this field. Nobody has measured the
+    stream-json result event's shape on 2.1.272, the installed version, so a
+    CLI that omits this key or spells it differently has to stay usable. What
+    that costs is a figure nobody measured, and this returns it as unmeasured
+    rather than as one a manifest could carry.
 
     Args:
         final: The result event.
@@ -262,10 +262,10 @@ class ClaudeCliCall:
         """Refuse a session that did not report holding nothing.
 
         The shape is :func:`ai_rfc.experiment.preflight._arm_surface_check`'s
-        -- the same two init keys, read the same way round -- without its
-        defaulting: that check reads a whole probe matrix and reports what it
-        found, while this one decides a single call and so has to tell a key
-        reported empty from a key never reported at all.
+        -- two of the three init keys it reads, taken the same way round --
+        without its defaulting: that check reads a whole probe matrix and
+        reports what it found, while this one decides a single call and so has
+        to tell a key reported empty from a key never reported at all.
 
         Args:
             events: The call's parsed stream-json events.
