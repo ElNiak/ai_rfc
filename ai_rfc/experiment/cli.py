@@ -76,6 +76,22 @@ FAKE_MODEL = "fake-model"
 JUDGE_EFFORT = "low"
 JUDGE_TIMEOUT_S = 120
 
+#: Seconds the whole-draft ``judge`` verb waits, and **not a measurement**.
+#: The only timing this package has is the one above, and it is of a
+#: different call in both of the ways that matter: that one grades a single
+#: claim, this one reads a whole draft -- 166,554 bytes of it on the MARK
+#: baseline, measured with ``wc -c`` -- and that one runs at ``low`` effort,
+#: which is what makes 120 s fit it, while this one runs at ``high``. Either
+#: difference alone would invalidate the budget; the default at ``high``
+#: effort already took 112 s on the short call.
+#: So this is headroom, not a figure: roughly five times the one datum there
+#: is, chosen on the asymmetry rather than on a model of the call. A budget
+#: that is too short does not save the money -- the child has already spent
+#: whatever it spent before the kill -- it loses the reply as well, while one
+#: that is too long only delays a wedged call. Replace it with a measurement:
+#: one real judge call against a real draft, before the pilot.
+JUDGE_DRAFT_TIMEOUT_S = 600
+
 #: Where ``judge`` writes one draft's grades and the conditions they were
 #: given under, under the directory ``--out`` names.
 JUDGE_REPORT_FILE = "judge.json"
@@ -1435,8 +1451,10 @@ def configure(parser: argparse.ArgumentParser) -> None:
     judge.add_argument(
         "--timeout-s",
         type=int,
-        default=JUDGE_TIMEOUT_S,
-        help="Seconds before the grading call is killed (default: %(default)s).",
+        default=JUDGE_DRAFT_TIMEOUT_S,
+        help="Seconds before the grading call is killed (default: %(default)s). "
+        f"Higher than the per-claim judge's {JUDGE_TIMEOUT_S} and not measured: "
+        "no whole-draft call has been timed, so the default is headroom.",
     )
 
     optimize = commands.add_parser(

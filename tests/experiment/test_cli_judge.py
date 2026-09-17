@@ -319,6 +319,36 @@ def test_the_manifest_never_reports_an_unmeasured_call_as_a_measured_zero(
     assert manifest["unpriced_calls"] == unpriced
 
 
+def test_the_whole_draft_judge_does_not_inherit_the_per_claim_budget(
+    tmp_path, lm_profile, monkeypatch
+):
+    """``--timeout-s`` defaults to the whole-draft budget, not to the one
+    measured on a short per-claim call at ``low`` effort.
+
+    Asserted where the value lands rather than off the parser, so a default
+    that argparse held but never handed to the transport would still fail.
+    The literal is spelled out rather than read off the constant under test,
+    which would move with any mutation of it.
+    """
+    from ai_rfc.experiment import judge as judge_module
+
+    seen: dict = {}
+    real = judge_module.judge_transport
+
+    def spy(*args, **kwargs):
+        seen.update(kwargs)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(judge_module, "judge_transport", spy)
+    _judge(tmp_path, lm_profile, reply="raw", text='{"scores":{"structure":4}}')
+
+    assert seen["timeout_s"] == 600
+    # Pinned and named both: the literal catches any change, and the
+    # comparison says what the number is for — a call that reads a whole
+    # draft at high effort gets more than one that grades a single claim.
+    assert seen["timeout_s"] > cli.JUDGE_TIMEOUT_S
+
+
 def test_a_billed_and_refused_call_still_records_what_it_spent(tmp_path, lm_profile):
     """An error result is billed: the session ran, the money went, the call
     then failed. Writing the manifest only on success would lose that figure,

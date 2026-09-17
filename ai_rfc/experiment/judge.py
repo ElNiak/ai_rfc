@@ -437,6 +437,9 @@ def judge_transport(
             the call's ``last_init``.
         effort: The CLI's ``--effort`` level.
         timeout_s: Seconds before the child is killed and the call raises.
+            The signature default is the short per-claim judge's budget and
+            is not a whole-draft one; what the ``judge`` verb passes is
+            ``cli.JUDGE_DRAFT_TIMEOUT_S``, which says what it is worth.
 
     Returns:
         The transport, in the judge's argv regime, marked as one whose
