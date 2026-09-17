@@ -464,11 +464,17 @@ def test_a_later_call_never_leaves_the_earlier_cost_standing(profile, tmp_path):
     ],
     ids=["nonzero", "refused-surface", "error-result", "empty-reply"],
 )
-def test_a_failed_call_leaves_no_cost_behind(profile, tmp_path, failure):
-    """Each mode raises from a different point of ``__call__``, and the last
-    one raises *past* the result event the cost is read from. Only that mode
-    tells where the assignment sits; the first three would pass with it
-    anywhere below the parse, and the error result carries no cost key at all.
+def test_a_failed_call_leaves_neither_the_cost_nor_the_surface_behind(
+    profile, tmp_path, failure
+):
+    """Each mode raises from a different point of ``__call__``, which is what
+    makes the four of them say where the two assignments sit.
+
+    ``refused-surface`` raises inside the guard, so nothing an accepted init
+    would have carried is recorded. ``error-result`` and ``empty-reply`` both
+    raise *after* an init the guard accepted, and ``empty-reply`` after the
+    result event the cost is read from: they are the two that refuse a record
+    written the moment its source is in hand. ``nonzero`` never parses at all.
     """
     wrapper = call(profile, tmp_path)
     control(profile, reply="raw", text="{}", cost=0.5)
@@ -479,6 +485,114 @@ def test_a_failed_call_leaves_no_cost_behind(profile, tmp_path, failure):
         wrapper("grade that")
 
     assert wrapper.last_cost_usd is None
+    assert wrapper.last_init is None
+
+
+# --- what the session reported -----------------------------------------------
+
+
+def test_the_model_recorded_is_the_one_that_answered_not_the_one_asked_for(
+    profile, tmp_path
+):
+    """The spec's third settled fact reaches the model id too. Both halves are
+    asserted here, or the test would not show the two sources disagreeing."""
+    control(profile, reply="raw", text="ok", model="reported-model")
+    wrapper = call(profile, tmp_path, model="asked-model")
+
+    wrapper("grade this")
+
+    assert wrapper.last_init["model"] == "reported-model"
+    (recorded,) = calls(profile)
+    assert recorded["argv"][recorded["argv"].index("--model") + 1] == "asked-model"
+
+
+@pytest.mark.parametrize(
+    "reported", [[], ["ai-rfc:draft", "ai-rfc:grade"]], ids=["empty", "populated"]
+)
+def test_the_slash_commands_recorded_are_the_ones_the_session_listed(
+    profile, tmp_path, reported
+):
+    """The residual blinding leak the design spec accepts on condition the
+    manifest states it. The populated case is what makes this a measurement:
+    against the empty default alone, a recorder that invented ``[]`` would
+    pass."""
+    control(profile, reply="raw", text="ok", slash_commands=reported)
+    wrapper = call(profile, tmp_path)
+
+    wrapper("grade this")
+
+    assert wrapper.last_init["slash_commands"] == reported
+
+
+def test_a_key_the_session_never_reported_is_absent_rather_than_empty(
+    profile, tmp_path
+):
+    """The distinction the surface guard exists for, kept at the reporting
+    layer: the manifest's claim about the leak turns on which of the two it
+    was, so one wrapper is driven through both."""
+    wrapper = call(profile, tmp_path)
+    control(profile, reply="raw", text="ok")
+    wrapper("grade this")
+    assert wrapper.last_init["slash_commands"] == []
+
+    control(profile, reply="raw", text="ok", omit_init=["slash_commands"])
+    wrapper("grade that")
+
+    assert "slash_commands" not in wrapper.last_init
+
+
+def test_the_session_id_and_key_source_are_carried_when_the_init_has_them(
+    profile, tmp_path
+):
+    """Both differ from the stub's own defaults, so neither assertion could
+    be met by a recorder that filled them in."""
+    control(
+        profile,
+        reply="raw",
+        text="ok",
+        session_id="s-9",
+        apiKeySource="temporary",
+    )
+    wrapper = call(profile, tmp_path)
+
+    wrapper("grade this")
+
+    assert wrapper.last_init["session_id"] == "s-9"
+    assert wrapper.last_init["apiKeySource"] == "temporary"
+
+
+def test_the_accepted_surface_is_recorded_as_the_empty_lists_it_reported(
+    profile, tmp_path
+):
+    """These two can only ever be empty here — the guard refuses every other
+    value — so the assertion pins that they are carried, not that they were
+    read. What discriminates the reading is the refused-surface case in
+    ``…leaves_neither_the_cost_nor_the_surface_behind``."""
+    control(profile, reply="raw", text="ok")
+    wrapper = call(profile, tmp_path)
+
+    wrapper("grade this")
+
+    assert wrapper.last_init["tools"] == []
+    assert wrapper.last_init["mcp_servers"] == []
+
+
+def test_there_is_no_surface_before_the_first_call(profile, tmp_path):
+    assert call(profile, tmp_path).last_init is None
+
+
+def test_a_later_call_never_leaves_the_earlier_surface_standing(profile, tmp_path):
+    """One wrapper serves every judge call, so a surface held past its own
+    call would be recorded as the next one's condition."""
+    wrapper = call(profile, tmp_path)
+    control(profile, reply="raw", text="ok", model="first-model")
+    wrapper("grade this")
+    assert wrapper.last_init["model"] == "first-model"
+
+    control(profile, reply="raw", text="ok", model="second-model")
+    wrapper("grade that")
+
+    assert wrapper.last_init["model"] == "second-model"
 
 
 # --- as the judge's transport ------------------------------------------------

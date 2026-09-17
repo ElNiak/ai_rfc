@@ -155,8 +155,9 @@ def _cost(final: dict[str, Any]) -> float | None:
 class ClaudeCliCall:
     """One ``claude -p`` per call, on a model, through a profile.
 
-    Holds only strings, paths and numbers: a run's settings are deep-copied
-    into ``result.json`` at the end, and its ``repr`` is what lands there.
+    Holds nothing a deep copy cannot carry -- strings, paths and numbers, and
+    the JSON one session reported: a run's settings are deep-copied into
+    ``result.json`` at the end, and its ``repr`` is what lands there.
 
     Args:
         claude_bin: The CLI to launch.
@@ -182,6 +183,17 @@ class ClaudeCliCall:
         last_cost_usd: What the last call cost, per its result event; ``None``
             before the first call, after a call that failed, and after one
             whose result reported no usable figure.
+        last_init: The init event the last call's session reported, whole and
+            as reported; ``None`` before the first call and after a call that
+            failed. It is what a run manifest records the scores' conditions
+            from, which is why it carries what the session said rather than
+            what the argv asked: a manifest built from ``--model`` would name
+            the model requested, not the one that answered. It is also why no
+            key is defaulted -- a key the session never reported is missing
+            from this mapping rather than present and empty, so a reader can
+            tell a surface measured empty from one never measured at all.
+            Never an init :meth:`_check_surface` refused, since it is what
+            that returned.
     """
 
     def __init__(
@@ -205,6 +217,7 @@ class ClaudeCliCall:
         self.system_prompt = system_prompt
         self.strict_surface = strict_surface
         self.last_cost_usd: float | None = None
+        self.last_init: dict[str, Any] | None = None
 
     def __repr__(self) -> str:
         return f"{PREFIX}{self.model}"
@@ -258,7 +271,7 @@ class ClaudeCliCall:
         """The child's whole environment; nothing else is inherited."""
         return profile_env(self.profile_dir)
 
-    def _check_surface(self, events: list[dict[str, Any]]) -> None:
+    def _check_surface(self, events: list[dict[str, Any]]) -> dict[str, Any]:
         """Refuse a session that did not report holding nothing.
 
         The shape is :func:`ai_rfc.experiment.preflight._arm_surface_check`'s
@@ -269,6 +282,11 @@ class ClaudeCliCall:
 
         Args:
             events: The call's parsed stream-json events.
+
+        Returns:
+            The accepted init event. A caller records this rather than reading
+            the stream a second time, so what it records can never be an init
+            this refused.
 
         Raises:
             ClaudeCliSurfaceError: If the session sent no init event, if its
@@ -299,9 +317,13 @@ class ClaudeCliCall:
                 f"{self!r} ran a session reporting {key}={json.dumps(value)}; "
                 "an isolated session reports an empty list"
             )
+        return init
 
     def __call__(self, prompt: str | list[dict[str, Any]]) -> str:
         """Send one prompt and return the model's reply text.
+
+        A call that returns leaves :attr:`last_init` and :attr:`last_cost_usd`
+        describing that call; one that raises leaves both cleared.
 
         Args:
             prompt: The text, or a chat-messages list as gepa may pass one.
@@ -319,9 +341,10 @@ class ClaudeCliCall:
         """
         text = prompt if isinstance(prompt, str) else _flatten(prompt)
         # Cleared before the call, not after it: one wrapper serves every call
-        # of a run, so a figure left standing past its own call would be read
+        # of a run, so anything left standing past its own call would be read
         # as the next one's.
         self.last_cost_usd = None
+        self.last_init = None
         try:
             self.cwd.mkdir(parents=True, exist_ok=True)
             completed = subprocess.run(
@@ -367,7 +390,7 @@ class ClaudeCliCall:
                 exit_code=completed.returncode,
                 stderr_tail=tail,
             ) from None
-        self._check_surface(events)
+        init = self._check_surface(events)
         final = result_event(events)
         if final is None:
             raise ClaudeCliError(
@@ -389,8 +412,10 @@ class ClaudeCliCall:
                 exit_code=completed.returncode,
                 stderr_tail=tail,
             )
-        # Below the empty-reply refusal rather than beside ``final``, so that
-        # every raise leaves the figure cleared. Read from the result event
-        # this call raised on, it would stand as the last good call's.
+        # Both below the empty-reply refusal rather than beside the events
+        # they come from, so that every raise leaves them cleared: a figure or
+        # a surface recorded by a call that then raised would stand as the
+        # last good call's.
         self.last_cost_usd = _cost(final)
+        self.last_init = init
         return reply
