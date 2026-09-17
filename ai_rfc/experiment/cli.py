@@ -82,8 +82,9 @@ JUDGE_TIMEOUT_S = 120
 #: claim, this one reads a whole draft -- 166,554 bytes of it on the MARK
 #: baseline, measured with ``wc -c`` -- and that one runs at ``low`` effort,
 #: which is what makes 120 s fit it, while this one runs at ``high``. Either
-#: difference alone would invalidate the budget; the default at ``high``
-#: effort already took 112 s on the short call.
+#: difference alone would invalidate the budget: at the wrapper's own default
+#: -- ``high``, per ``ClaudeCliCall.__init__`` -- the *short* call already
+#: took 112 s.
 #: So this is headroom, not a figure: roughly five times the one datum there
 #: is, chosen on the asymmetry rather than on a model of the call. A budget
 #: that is too short does not save the money -- the child has already spent
