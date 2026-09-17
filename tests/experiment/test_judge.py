@@ -27,6 +27,7 @@ from ai_rfc.experiment.judge import (
     judge_transport,
     verify_quotes,
 )
+from ai_rfc.experiment.optimize.claude_cli import ClaudeCliCall
 from ai_rfc.lifecycle.workspace import DRAFT_SKELETON
 
 from .conftest import FAKE_CLAUDE_LM as STUB
@@ -363,6 +364,41 @@ def test_the_judge_runs_from_a_directory_that_names_no_project(profile, tmp_path
         assert token not in recorded["cwd"]
     repository = Path(__file__).resolve().parents[2]
     assert not recorded["cwd"].startswith(str(repository))
+
+
+def test_a_cli_call_the_judge_did_not_build_is_refused(profile):
+    """The one guard that survives its own test suite being green.
+
+    Every other test here builds its transport through ``judge_transport``,
+    so an implementer who builds a ``ClaudeCliCall`` directly -- the natural
+    thing to do from the signature alone -- loses the blinding with this file
+    still passing. Measured before this guard existed: the call ran, from a
+    cwd naming both ``ai_rfc`` and ``PANTHER``, and came back with scores.
+
+    The guard is a provenance mark rather than a check on the directory,
+    because "this path names no project" is not decidable: ``TMPDIR`` can sit
+    under a project tree and ``~/ai-rfc-experiments`` is a home-directory
+    layout. What is decidable is who chose the directory.
+    """
+    control(profile, reply="raw", text=reply_text())
+    repository = Path(__file__).resolve().parents[2]
+    bare = ClaudeCliCall(str(STUB), profile, "m", cwd=repository)
+
+    with pytest.raises(JudgeError, match="judge_transport"):
+        judge_draft(DRAFT, bare, dimensions=DIMENSIONS)
+
+    assert not (
+        profile / "fake-lm-calls"
+    ).exists(), "the child ran before the refusal, so the cwd had already leaked"
+
+
+def test_a_transport_that_is_not_a_cli_call_is_asked_for_no_provenance():
+    """The mark is a claim about where a child process runs. A bare callable
+    starts none and has no directory to leak, and every test double in this
+    file is one."""
+    report = judge_draft(DRAFT, lambda prompt: reply_text(), dimensions=DIMENSIONS)
+
+    assert report.scores == {"structure": 4, "clarity": 3}
 
 
 def test_what_actually_reaches_the_child_is_blinded(profile, tmp_path):

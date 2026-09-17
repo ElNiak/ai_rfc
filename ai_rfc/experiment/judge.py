@@ -12,7 +12,9 @@ author and the target outright. The body has the front matter taken off it,
 because a kramdown ``docname`` says ``draft-<author>-<target>`` and the
 ``author:`` block says the rest. And the call runs from a directory outside
 any project tree, because the first probe for this design named the project
-from its working directory alone, with nothing in its prompt to say so.
+from its working directory alone, with nothing in its prompt to say so. That
+last part is the one a caller can undo by handing in its own CLI call, so
+:func:`judge_draft` refuses one :func:`judge_transport` did not build.
 
 The transport enforces the fourth part itself: a session that reports tools or
 MCP servers it was not launched with is refused rather than read, since what
@@ -51,6 +53,14 @@ _REPLY_EXCERPT = 200
 #: asks for one range beside a parser that accepts another records a number
 #: nobody graded on.
 _SCORE_SCALE = range(1, 6)
+
+#: What :func:`judge_transport` stamps on the call it builds and
+#: :func:`judge_draft` looks for. Provenance rather than a check on the
+#: directory itself, because "this path names no project" is not decidable:
+#: ``TMPDIR`` can sit under a project tree and ``~/ai-rfc-experiments`` is a
+#: home-directory layout. Who chose the directory is decidable, and it is the
+#: claim that actually carries the blinding.
+_NEUTRAL_CWD_MARK = "_judge_neutral_cwd"
 
 #: Prefix for the directory a judge call runs in. Two characters and a dash:
 #: the whole point is that the path says nothing, and a longer name is another
@@ -282,7 +292,11 @@ def judge_draft(
             whole to be able to take the front matter off.
         transport: Sends one prompt and returns the raw reply. A
             :class:`~.optimize.claude_cli.ClaudeCliCall` also reports which
-            session answered, and that is read when it is there.
+            session answered, and that is read when it is there; it must be
+            one :func:`judge_transport` built, since only that one is known
+            to run where nothing is named. Any other callable starts no child
+            process, so it has no working directory to leak and is asked for
+            nothing.
         dimensions: What to grade.
 
     Returns:
@@ -290,14 +304,24 @@ def judge_draft(
         call sent: ``unverified`` names the ones that are not in it.
 
     Raises:
-        JudgeError: If the draft cannot be put in front of a judge -- no
-            dimension was asked for, or nothing survives the blinding, and in
-            neither case is anything sent -- or if the reply comes back
+        JudgeError: If the transport is a CLI call this module did not
+            build, or if the draft cannot be put in front of a judge -- no
+            dimension was asked for, or nothing survives the blinding. In
+            none of the three is anything sent. Also if the reply comes back
             outside the pinned shape.
         ExperimentError: Whatever the transport raises; a
             :class:`ClaudeCliCall` raises its own subclasses for a call that
             failed and for a session that reported a surface it was not given.
     """
+    if isinstance(transport, ClaudeCliCall) and not getattr(
+        transport, _NEUTRAL_CWD_MARK, False
+    ):
+        raise JudgeError(
+            "this judge call would run from a working directory nothing "
+            "vouched for, and a CLI call made inside the project tree names "
+            "the project through its path alone; build the transport with "
+            "judge_transport()"
+        )
     dimensions = tuple(dimensions)
     if not dimensions:
         raise JudgeError("a judge call must name at least one dimension to grade")
@@ -396,9 +420,11 @@ def judge_transport(
         timeout_s: Seconds before the child is killed and the call raises.
 
     Returns:
-        The transport, in the judge's argv regime.
+        The transport, in the judge's argv regime, marked as one whose
+        working directory this module chose. :func:`judge_draft` refuses a
+        CLI call without that mark.
     """
-    return ClaudeCliCall(
+    call = ClaudeCliCall(
         claude_bin,
         profile_dir,
         model,
@@ -406,6 +432,8 @@ def judge_transport(
         effort=effort,
         timeout_s=timeout_s,
     )
+    setattr(call, _NEUTRAL_CWD_MARK, True)
+    return call
 
 
 __all__ = [
