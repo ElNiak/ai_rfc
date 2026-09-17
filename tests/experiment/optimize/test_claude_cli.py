@@ -550,9 +550,9 @@ def test_a_call_that_was_billed_and_then_failed_still_counts_as_spend(
     went, and the call then failed. A manifest that dropped them would report
     a run as cheaper than it was.
 
-    ``nonzero`` is the one that contributes nothing, and not because the
-    control file withheld a figure — it names the same ``cost`` as the other
-    three. The child exited non-zero, so the stream is never read for a
+    ``nonzero`` is the one that contributes nothing to the total, and not
+    because the control file withheld a figure — it names the same ``cost``
+    as the other three. The child exited non-zero, so the stream is never read for a
     result event at all; what it parses there it parses only to name a quota
     in the error, from stdout a failed child may have left half-written.
     """
@@ -588,9 +588,10 @@ def test_a_call_that_left_no_figure_is_counted_not_summed_as_nothing(
 
     The third id is the one that reaches the count by a different route: the
     stub exits clean having written nothing, so there is no result event to
-    read a figure out of rather than a result event without one. The call
-    still got as far as looking, which is the predicate, and it raises from
-    the surface guard a moment later.
+    read a figure out of rather than a result event without one. All three
+    got as far as looking — which is not itself the predicate, since a child
+    that leaves no figure is counted however far it got, but it is why this
+    one raises from the surface guard a moment later rather than earlier.
     """
     wrapper = call(profile, tmp_path)
     control(profile, **unpriced)
@@ -602,6 +603,64 @@ def test_a_call_that_left_no_figure_is_counted_not_summed_as_nothing(
 
     assert wrapper.spend_usd == 0.0
     assert wrapper.unpriced_calls == 1
+
+
+@pytest.mark.parametrize(
+    "outcome,unpriced",
+    [
+        ({"reply": "raw", "text": "{}", "cost": 0.0}, 0),
+        ({"reply": "hang", "seconds": 5}, 1),
+        ({"reply": "nonzero", "stderr": "down\n"}, 1),
+        ({"reply": "garbage"}, 1),
+    ],
+    ids=["a-measured-zero", "a-timeout", "a-non-zero-exit", "not-stream-json"],
+)
+def test_a_call_that_was_never_priced_is_not_a_call_that_cost_nothing(
+    profile, tmp_path, outcome, unpriced
+):
+    """All four end at ``spend_usd == 0.0``, so the count is the only field
+    that can tell them apart — which is the whole point of the pair, and why
+    the first id is here: a parametrization whose cases were all unpriced
+    would pass just as well against a wrapper that counted every call.
+
+    The first is a call that reported ``total_cost_usd: 0.0`` and was
+    believed — nothing billed, and measured. The other three are calls that
+    left no figure at all, one from each of the raises above the point the
+    stream is priced at, and a child was launched in every one of them: the
+    timeout killed a session that had already started thinking, the non-zero
+    exit killed one that had already run, and the third exited clean having
+    written something nobody can read a figure out of. What separates those
+    three from the first is that nobody measured them, not that they were
+    free.
+    """
+    wrapper = call(profile, tmp_path, timeout_s=1)
+    control(profile, **outcome)
+
+    try:
+        wrapper("grade this")
+    except ClaudeCliError:
+        pass
+
+    assert wrapper.spend_usd == 0.0
+    assert wrapper.unpriced_calls == unpriced
+
+
+def test_a_call_that_launched_no_child_is_not_an_unpriced_call(profile, tmp_path):
+    """The predicate is that a child ran, not that a call raised.
+
+    A binary that is not there spends nothing and leaves no figure to take,
+    so counting it would report a run as having lost a measurement it never
+    had the chance to make — the mirror of the defect the count exists for.
+    """
+    wrapper = ClaudeCliCall(
+        str(tmp_path / "not-a-binary"), profile, "some-model", cwd=tmp_path / "cwd"
+    )
+
+    with pytest.raises(ClaudeCliError, match="cannot run"):
+        wrapper("grade this")
+
+    assert wrapper.spend_usd == 0.0
+    assert wrapper.unpriced_calls == 0
 
 
 def test_a_deep_copy_carries_the_running_total(profile, tmp_path):

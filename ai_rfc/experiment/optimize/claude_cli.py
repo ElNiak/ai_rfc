@@ -189,8 +189,16 @@ class ClaudeCliCall:
             the reply afterwards. A call whose child exited non-zero never
             reaches that read: its stdout is parsed only to name a quota in
             the error, and a figure lifted from a stream a failed child may
-            have left half-written is not one anybody measured.
-        unpriced_calls: How many of those same calls left no usable figure.
+            have left half-written is not one anybody measured. Such a call
+            adds nothing here and is counted in ``unpriced_calls`` instead.
+        unpriced_calls: How many calls left no usable figure -- the ones that
+            read their stream and found no price in it, and equally the ones
+            that never got that far: a timeout, a non-zero exit, and stdout
+            that is not stream-json. The predicate is that a child was
+            launched and nothing usable came back, not that the stream was
+            read; a call that launched no child at all -- a missing binary, a
+            cwd that cannot be created -- is neither spend nor an unpriced
+            call, because nothing ran to be billed for.
             Without it a zero ``spend_usd`` says either "nothing was billed"
             or "nothing was measured", and a field that cannot tell those
             apart converts a reader from uninformed into misinformed.
@@ -404,6 +412,15 @@ class ClaudeCliCall:
                 f"{self!r} cannot run {self.claude_bin} in {self.cwd}: {failure}"
             ) from None
         except subprocess.TimeoutExpired as expired:
+            # Counted here, and at the two raises below, because a child was
+            # launched and no figure came back: the session ran and may well
+            # have been billed for the work it did before the kill. Leaving
+            # the count alone would write a 0.00 that a reader takes for a
+            # measurement, which is the one thing these two fields exist to
+            # prevent. Refusing to *read* a figure from a stream a failed
+            # child may have left half-written is a separate judgement, and
+            # it stands.
+            self.unpriced_calls += 1
             tail = _decoded(expired.stderr)[-_STDERR_TAIL:]
             raise ClaudeCliError(
                 f"{self!r} gave no reply within {self.timeout_s} s",
@@ -419,6 +436,7 @@ class ClaudeCliCall:
                 events = parse_stream(completed.stdout)
             except (ExperimentError, DriverError):
                 events = []
+            self.unpriced_calls += 1
             raise ClaudeCliError(
                 f"{self!r} exited {completed.returncode}: {tail}"
                 f"{_quota_suffix(events)}",
@@ -428,6 +446,7 @@ class ClaudeCliCall:
         try:
             events = parse_stream(completed.stdout)
         except (ExperimentError, DriverError) as error:
+            self.unpriced_calls += 1
             raise ClaudeCliError(
                 f"{self!r} wrote something that is not stream-json: {error}",
                 exit_code=completed.returncode,

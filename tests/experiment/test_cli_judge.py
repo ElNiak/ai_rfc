@@ -272,6 +272,53 @@ def test_a_run_that_priced_nothing_says_so_rather_than_reading_zero(
     assert manifest["unpriced_calls"] == 1
 
 
+@pytest.mark.parametrize(
+    "control,argv,code,unpriced",
+    [
+        (
+            {"reply": "raw", "text": '{"scores":{"structure":4}}', "cost": 0.0},
+            ("--dimension", "structure"),
+            0,
+            0,
+        ),
+        (
+            {"reply": "hang", "seconds": 5},
+            ("--dimension", "structure", "--timeout-s", "1"),
+            1,
+            1,
+        ),
+        (
+            {"reply": "nonzero", "stderr": "the stub was told to fail\n"},
+            ("--dimension", "structure"),
+            1,
+            1,
+        ),
+    ],
+    ids=["a-measured-zero", "a-timeout", "a-non-zero-exit"],
+)
+def test_the_manifest_never_reports_an_unmeasured_call_as_a_measured_zero(
+    tmp_path, lm_profile, control, argv, code, unpriced
+):
+    """All three manifests carry ``spend_usd: 0.0``, so the count is the only
+    field that can say which of them measured it.
+
+    The first id is what makes the other two mean anything: it is a call that
+    reported ``total_cost_usd: 0.0`` and was believed — nothing billed, and
+    that was measured. The timeout and the non-zero exit both launched a
+    child that may well have been billed for the thinking it had already
+    done, and neither left a figure behind. A manifest that reported the
+    three alike would be telling a reader that a killed call cost nothing,
+    which is the defect this whole pair of fields exists to prevent — and the
+    timeout is the failure a whole-draft call is likeliest to hit first.
+    """
+    got, out = _judge(tmp_path, lm_profile, argv=argv, **control)
+
+    assert got == code
+    manifest = _judgement(out)["manifest"]
+    assert manifest["spend_usd"] == 0.0
+    assert manifest["unpriced_calls"] == unpriced
+
+
 def test_a_billed_and_refused_call_still_records_what_it_spent(tmp_path, lm_profile):
     """An error result is billed: the session ran, the money went, the call
     then failed. Writing the manifest only on success would lose that figure,
