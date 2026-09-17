@@ -570,14 +570,35 @@ def test_a_call_that_was_billed_and_then_failed_still_counts_as_spend(
     assert wrapper.last_cost_usd is None
 
 
-def test_a_call_that_left_no_figure_is_counted_not_summed_as_nothing(profile, tmp_path):
+@pytest.mark.parametrize(
+    "unpriced",
+    [
+        {"reply": "raw", "text": "{}", "omit_result": ["total_cost_usd"]},
+        {"reply": "raw", "text": "{}", "cost": None},
+        {"reply": "hang", "seconds": 0},
+    ],
+    ids=["no-figure-in-the-result", "a-null-figure", "no-result-event-at-all"],
+)
+def test_a_call_that_left_no_figure_is_counted_not_summed_as_nothing(
+    profile, tmp_path, unpriced
+):
     """A ``spend_usd`` of zero says either "nothing was billed" or "nothing
     was measured", and a field that cannot tell those apart is worse than no
-    field. The count is what tells them apart."""
-    wrapper = call(profile, tmp_path)
-    control(profile, reply="raw", text="{}", omit_result=["total_cost_usd"])
+    field. The count is what tells them apart.
 
-    wrapper("grade this")
+    The third id is the one that reaches the count by a different route: the
+    stub exits clean having written nothing, so there is no result event to
+    read a figure out of rather than a result event without one. The call
+    still got as far as looking, which is the predicate, and it raises from
+    the surface guard a moment later.
+    """
+    wrapper = call(profile, tmp_path)
+    control(profile, **unpriced)
+
+    try:
+        wrapper("grade this")
+    except ClaudeCliError:
+        pass
 
     assert wrapper.spend_usd == 0.0
     assert wrapper.unpriced_calls == 1

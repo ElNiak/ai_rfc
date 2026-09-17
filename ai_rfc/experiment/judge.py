@@ -75,8 +75,8 @@ Grade each dimension you are asked for on an integer scale of 1 to 5, where 1
 is unusable and 5 is what a reader would accept from a published standard.
 
 Support your grades with short verbatim quotations from the document. Every
-quotation must be copied from the text above exactly as it appears there. A
-quotation that is not in the document invalidates the whole reply, so quote
+quotation must be copied from the document below exactly as it appears there.
+A quotation that is not in the document invalidates the whole reply, so quote
 nothing you cannot find, and quote nothing at all rather than paraphrase.
 
 Reply with ONLY a JSON object, no prose before or after it, in exactly this
@@ -177,8 +177,8 @@ def _prompt(text: str, *, dimensions: tuple[str, ...]) -> str:
     body = blinded_body(text)
     if not body.strip():
         raise JudgeError(
-            "the draft has no body to grade once its front matter is off; "
-            "nothing was sent to a judge"
+            "nothing survives the blinding: the draft has no body to grade "
+            "under its abstract, middle or back; nothing was sent to a judge"
         )
     asked = "\n".join(f"- {name}" for name in dimensions)
     return (
