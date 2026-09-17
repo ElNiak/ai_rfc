@@ -75,9 +75,17 @@ class JudgeError(ExperimentError):
     """Raised when the judge's transport cannot deliver a reply.
 
     Also raised by :func:`build_judge`'s judge when every call in one batch
-    failed, which is not a verdict of zero but a harness fault: the likeliest
-    cause is a model id the endpoint rejects on every request, and scoring it
-    would run a whole pilot on a relevance term that is identically zero.
+    failed in transport, which is not a verdict of zero but a harness fault:
+    the likeliest cause is a model id the endpoint rejects on every request,
+    and scoring it would run a whole pilot on a relevance term that is
+    identically zero.
+
+    "In transport" is load-bearing. A batch whose every call came back
+    contaminated also fails on every call, and raises
+    :class:`~.claude_cli.ClaudeCliSurfaceError` rather than this: a session
+    that answered each time while holding tools it was not given is the
+    opposite of unreachable, and this class's own diagnosis would send the
+    reader after a model id that is fine.
     """
 
 
