@@ -81,6 +81,12 @@ class ClaudeCliSurfaceError(ClaudeCliError):
     what the flags asked for is not evidence of what the session got. The init
     event is, and a session that reports nothing has reported nothing: an
     absent key and a null one are refused exactly like a populated one.
+
+    The parent's "a judge that raises scores that one claim zero" does not
+    hold for this subclass, and must not: a contaminated session did not
+    produce a low score, it produced no score, so averaging one in would bias
+    the run downward while looking like data. ``optimize.judge.build_judge``
+    lets this one class out of its batch instead.
     """
 
 
@@ -171,12 +177,12 @@ class ClaudeCliCall:
         timeout_s: Seconds before the child is killed and the call raises.
         system_prompt: Sent as ``--system-prompt`` when given, so a role a
             call must hold never competes with the prompt on stdin. Carried
-            on its own rather than on ``strict_surface``, so naming one is
-            never silently dropped by the regime the call runs under.
-        strict_surface: Whether the argv also carries the two flags the
-            judge's regime adds. The GEPA proposer's argv was measured
-            without them and was not part of that ruling, so it passes
-            False. This gates the argv only: every call, in either regime,
+            on its own rather than on ``union_argv``, so naming one is never
+            silently dropped by the regime the call runs under.
+        union_argv: Whether the argv also carries the two flags the judge's
+            regime adds. The GEPA proposer's argv was measured without them
+            and was not part of that ruling, so it passes False. Named for
+            what it gates and nothing more: every call, in either regime,
             refuses a session that reports a surface.
 
     Attributes:
@@ -206,7 +212,7 @@ class ClaudeCliCall:
         effort: str = "high",
         timeout_s: int = 120,
         system_prompt: str | None = None,
-        strict_surface: bool = True,
+        union_argv: bool = True,
     ) -> None:
         self.claude_bin = claude_bin
         self.profile_dir = profile_dir
@@ -215,7 +221,7 @@ class ClaudeCliCall:
         self.effort = effort
         self.timeout_s = timeout_s
         self.system_prompt = system_prompt
-        self.strict_surface = strict_surface
+        self.union_argv = union_argv
         self.last_cost_usd: float | None = None
         self.last_init: dict[str, Any] | None = None
 
@@ -232,11 +238,14 @@ class ClaudeCliCall:
         that. ``--tools ""`` makes the proposer a model rather than an agent
         that could load the very skills it is rewriting.
 
-        Under ``strict_surface`` the vector is the union of that set and the
-        one the design spec verified on 2.1.259, neither being a superset of
-        the other. All eight flags were measured as *accepted* on the
-        installed 2.1.272; what the two added ones prevent is not measured
-        here, and the init assertion in :meth:`__call__` is what decides
+        Under ``union_argv`` the vector is the union of that set and the one
+        the design spec verified on 2.1.259, neither being a superset of the
+        other. D-37 measured eight of the flags below as *accepted* on the
+        installed 2.1.272 -- the two this gate adds, plus ``--setting-sources``,
+        ``--safe-mode``, ``--no-session-persistence``, ``--system-prompt``,
+        ``--effort`` and ``--tools``; the rest of the vector was not part of
+        that measurement. What the two added ones *prevent* is measured
+        nowhere, and the init assertion in :meth:`__call__` is what decides
         whether a session was actually isolated.
 
         Returns:
@@ -261,7 +270,7 @@ class ClaudeCliCall:
             "",
             "--no-session-persistence",
         ]
-        if self.strict_surface:
+        if self.union_argv:
             argv += ["--strict-mcp-config", "--exclude-dynamic-system-prompt-sections"]
         if self.system_prompt is not None:
             argv += ["--system-prompt", self.system_prompt]
@@ -271,7 +280,13 @@ class ClaudeCliCall:
         """The child's whole environment; nothing else is inherited."""
         return profile_env(self.profile_dir)
 
-    def _check_surface(self, events: list[dict[str, Any]]) -> dict[str, Any]:
+    def _check_surface(
+        self,
+        events: list[dict[str, Any]],
+        *,
+        exit_code: int | None = None,
+        stderr_tail: str = "",
+    ) -> dict[str, Any]:
         """Refuse a session that did not report holding nothing.
 
         The shape is :func:`ai_rfc.experiment.preflight._arm_surface_check`'s
@@ -282,6 +297,11 @@ class ClaudeCliCall:
 
         Args:
             events: The call's parsed stream-json events.
+            exit_code: The child's exit status, carried onto a refusal so it
+                reads like its six sibling failures. Always zero in practice,
+                since a non-zero exit raises before this is reached.
+            stderr_tail: What the child wrote to stderr, carried for the same
+                reason.
 
         Returns:
             The accepted init event. A caller records this rather than reading
@@ -289,21 +309,30 @@ class ClaudeCliCall:
             this refused.
 
         Raises:
-            ClaudeCliSurfaceError: If the session sent no init event, if its
-                init omits either key, or if either is anything other than an
-                empty list.
+            ClaudeCliSurfaceError: If the session wrote no events at all, sent
+                no init event, omitted either key from its init, or reported
+                either as anything other than an empty list.
         """
         init = init_event(events)
         if init is None:
+            # This runs before the result-event check, so a session that
+            # exited clean having written nothing lands here rather than
+            # there. "No init event" would be true of it and still not say
+            # what happened, so the two states are named apart.
+            what = "wrote no events at all" if not events else "sent no init event"
             raise ClaudeCliSurfaceError(
-                f"{self!r} ran a session that sent no init event, so nothing "
-                "it held was measured"
+                f"{self!r} ran a session that {what}, so nothing it held "
+                "was measured",
+                exit_code=exit_code,
+                stderr_tail=stderr_tail,
             )
         missing = [key for key in _SURFACE_KEYS if key not in init]
         if missing:
             raise ClaudeCliSurfaceError(
                 f"{self!r} ran a session whose init omits {', '.join(missing)}, "
-                "so what it held was not measured"
+                "so what it held was not measured",
+                exit_code=exit_code,
+                stderr_tail=stderr_tail,
             )
         for key in _SURFACE_KEYS:
             # The reported value itself decides, not a helper's reading of it:
@@ -315,7 +344,9 @@ class ClaudeCliCall:
                 continue
             raise ClaudeCliSurfaceError(
                 f"{self!r} ran a session reporting {key}={json.dumps(value)}; "
-                "an isolated session reports an empty list"
+                "an isolated session reports an empty list",
+                exit_code=exit_code,
+                stderr_tail=stderr_tail,
             )
         return init
 
@@ -390,7 +421,9 @@ class ClaudeCliCall:
                 exit_code=completed.returncode,
                 stderr_tail=tail,
             ) from None
-        init = self._check_surface(events)
+        init = self._check_surface(
+            events, exit_code=completed.returncode, stderr_tail=tail
+        )
         final = result_event(events)
         if final is None:
             raise ClaudeCliError(

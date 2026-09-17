@@ -364,7 +364,7 @@ def test_a_no_key_pilot_starts_with_the_wrapper_in_both_roles(
     assert settings.reflection_lm.cwd == tmp_path / "root" / "optimize" / "pilot-1"
     assert settings.reflection_lm.profile_dir == tmp_path / "root" / "profile"
     # The proposer runs the argv measured on 2.1.260, not the judge's union.
-    assert settings.reflection_lm.strict_surface is False
+    assert settings.reflection_lm.union_argv is False
     assert callable(evaluator.settings.judge)
 
 

@@ -129,16 +129,14 @@ def test_the_proposer_regime_argv_is_the_one_measured_on_2_1_260(profile, tmp_pa
     the list that loop has always sent."""
     control(profile, reply="fenced", proposal="NEW")
 
-    call(profile, tmp_path, effort="high", strict_surface=False)("Rewrite it.")
+    call(profile, tmp_path, effort="high", union_argv=False)("Rewrite it.")
 
     (recorded,) = calls(profile)
     assert recorded["argv"][1:] == SHARED_ARGV
 
 
-@pytest.mark.parametrize("strict_surface", [True, False])
-def test_a_system_prompt_travels_as_a_flag_not_on_stdin(
-    profile, tmp_path, strict_surface
-):
+@pytest.mark.parametrize("union_argv", [True, False])
+def test_a_system_prompt_travels_as_a_flag_not_on_stdin(profile, tmp_path, union_argv):
     """It rides on its own argument rather than the gate, so naming one is
     never silently dropped by the regime the call runs under."""
     control(profile, reply="fenced", proposal="NEW")
@@ -147,7 +145,7 @@ def test_a_system_prompt_travels_as_a_flag_not_on_stdin(
         profile,
         tmp_path,
         effort="high",
-        strict_surface=strict_surface,
+        union_argv=union_argv,
         system_prompt="Grade one claim.",
     )("Rewrite it.")
 
@@ -336,6 +334,20 @@ def test_a_session_that_reported_no_init_is_refused(profile, tmp_path):
         call(profile, tmp_path)("grade this")
 
 
+def test_a_session_that_wrote_nothing_at_all_says_so(profile, tmp_path):
+    """The guard runs before the result-event check, so an exit-0 empty
+    stream lands here rather than at "ended without a result event". Both
+    messages would be true of it; only one says what happened.
+
+    ``hang`` for zero seconds is the stub's silent mode: it sleeps nothing
+    and returns 0 without reaching the preamble, which is the one control
+    that produces a clean exit and no events."""
+    control(profile, reply="hang", seconds=0)
+
+    with pytest.raises(ClaudeCliSurfaceError, match="wrote no events at all"):
+        call(profile, tmp_path)("grade this")
+
+
 @pytest.mark.parametrize("key", ["tools", "mcp_servers"])
 def test_a_session_whose_init_omits_the_key_is_refused(profile, tmp_path, key):
     """Absent is not empty. ``init.get(key, [])`` and ``init.get(key) or []``
@@ -365,8 +377,15 @@ def test_a_session_that_held_tools_is_refused(profile, tmp_path):
     assert "Bash" in str(caught.value)
 
 
-def test_a_session_that_mounted_a_server_is_refused(profile, tmp_path):
-    """The spec's third settled fact: assert the init event, never the flags."""
+@pytest.mark.parametrize("union_argv", [True, False])
+def test_a_session_that_mounted_a_server_is_refused(profile, tmp_path, union_argv):
+    """The spec's third settled fact: assert the init event, never the flags.
+
+    Driven under both regimes because the flag is the one thing that could
+    plausibly gate this and must not: the proposer runs with it off, and a
+    guard that came off with it would leave the arm likeliest to mount a
+    server as the only one not checked for having done so.
+    """
     control(
         profile,
         reply="raw",
@@ -375,11 +394,14 @@ def test_a_session_that_mounted_a_server_is_refused(profile, tmp_path):
     )
 
     with pytest.raises(ClaudeCliSurfaceError, match="mcp_servers") as caught:
-        call(profile, tmp_path)("grade this")
+        call(profile, tmp_path, union_argv=union_argv)("grade this")
 
-    # Every caller of this transport catches ClaudeCliError, so a refusal has
-    # to arrive inside that hierarchy rather than past it.
+    # It is a ClaudeCliError so that a caller written for the transport's
+    # failures sees it at all; what a caller then does with it differs by
+    # site, and ``optimize.judge`` singles this subclass out by name.
     assert isinstance(caught.value, ClaudeCliError)
+    # Carried like its six siblings, for a reader of a failed run's log.
+    assert caught.value.exit_code == 0 and caught.value.stderr_tail == ""
 
 
 def test_a_server_named_as_a_bare_string_is_refused(profile, tmp_path):
@@ -622,12 +644,46 @@ def test_a_call_failing_on_every_claim_is_the_harness_fault_the_evaluator_retrie
         build_judge(call(profile, tmp_path))([hunk(), hunk("t:2.1", text="Two.")])
 
 
+def test_a_contaminated_call_leaves_the_batch_as_itself_not_as_a_judge_error(
+    profile, tmp_path
+):
+    """The pair to the test above, driven through the same transport.
+
+    A stub that exits non-zero is unreachable infrastructure and arrives as
+    ``JudgeError``; a stub that answers while reporting a server it was not
+    given is a different fault about the same batch, and the judge lets this
+    one class out by name so that it is never averaged as a verdict.
+    """
+    control(
+        profile,
+        reply="raw",
+        text="{}",
+        mcp_servers=[{"name": "x", "status": "connected"}],
+    )
+
+    with pytest.raises(ClaudeCliSurfaceError, match="mcp_servers"):
+        build_judge(call(profile, tmp_path))([hunk(), hunk("t:2.1", text="Two.")])
+
+    # By the first hunk, so the second is never sent.
+    assert len(calls(profile)) == 1
+
+
 # --- as a settings value ----------------------------------------------------
 
 
 def test_the_wrapper_survives_the_deep_copy_asdict_performs(profile, tmp_path):
+    """Copied after a call, because the class docstring's claim is that it
+    holds "the JSON one session reported" — a pre-call copy carries ``None``
+    there and so tests the claim against the one state that cannot break
+    it."""
+    control(profile, reply="raw", text="ok", slash_commands=["ai-rfc:draft"], cost=0.5)
     wrapper = call(profile, tmp_path)
+    wrapper("grade this")
 
     twin = copy.deepcopy(wrapper)
 
     assert repr(twin) == repr(wrapper) and twin.argv() == wrapper.argv()
+    assert twin.last_init == wrapper.last_init and twin.last_cost_usd == 0.5
+    # A copy, not the same mapping: the wrapper's next call replaces its own
+    # attribute, and a settings snapshot must keep the call it recorded.
+    assert twin.last_init is not wrapper.last_init

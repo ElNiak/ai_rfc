@@ -453,7 +453,16 @@ def _optimize_run(args: argparse.Namespace, root: Path) -> int:
         else:
             # The union argv was ruled for the judge alone, and this loop's
             # own vector is the one measured on 2.1.260, so it keeps it. The
-            # init assertion is not part of that gate and holds here too.
+            # init assertion is not part of that gate and holds here too --
+            # which leaves the proposer carrying the guard without the two
+            # flags meant to prevent what the guard refuses, so the arm
+            # likeliest to mount a server is the one lacking the flag that
+            # would stop it. Kept deliberately: a proposer session that
+            # mounted one is not a proposer this experiment is studying, and
+            # changing this vector was outside U1's ruling. The cost is a
+            # failure mode nothing else here has -- per ClaudeCliError, a
+            # proposer that raises stops the optimization, so a mid-loop
+            # refusal ends the run rather than scoring anything.
             reflection_lm = ClaudeCliCall(
                 claude_bin,
                 profile,
@@ -461,7 +470,7 @@ def _optimize_run(args: argparse.Namespace, root: Path) -> int:
                 cwd=calls_dir,
                 effort=args.effort,
                 timeout_s=args.timeout_s,
-                strict_surface=False,
+                union_argv=False,
             )
         model = args.model
         build = None
