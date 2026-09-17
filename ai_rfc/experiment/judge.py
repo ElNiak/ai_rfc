@@ -17,6 +17,12 @@ from its working directory alone, with nothing in its prompt to say so.
 The transport enforces the fourth part itself: a session that reports tools or
 MCP servers it was not launched with is refused rather than read, since what
 the flags asked for is not evidence of what the session got.
+
+What the judge quotes is checked in the same call that asked for the grades,
+against the body that call sent. Left to the caller it is a step a caller can
+skip, and a report whose quotes were never checked reads exactly like one
+whose quotes all checked out -- so a judge that cited text the draft does not
+contain would come back with a usable-looking score.
 """
 
 from __future__ import annotations
@@ -24,7 +30,7 @@ from __future__ import annotations
 import json
 import re
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable, Mapping
 
@@ -83,8 +89,10 @@ number outside that scale is not a grade on it, and the whole reply is refused.
 
 Support your grades with short verbatim quotations from the document. Every
 quotation must be copied from the document below exactly as it appears there.
-A quotation that is not in the document invalidates the whole reply, so quote
-nothing you cannot find, and quote nothing at all rather than paraphrase.
+Each one is searched for in that document, and any that is not found there is
+returned alongside your grades as a quotation the document does not contain.
+So quote nothing you cannot find, and quote nothing at all rather than
+paraphrase.
 
 Reply with ONLY a JSON object, no prose before or after it, in exactly this
 shape, scoring every dimension you were asked for and no others:
@@ -107,7 +115,7 @@ class JudgeError(ExperimentError):
 
 @dataclass(frozen=True)
 class JudgeReport:
-    """One judge's grades for one draft, and what it quoted to support them.
+    """One judge's grades for one draft, what it quoted, and what checked out.
 
     Attributes:
         scores: The grade per dimension, on the scale the rubric states. A
@@ -116,18 +124,28 @@ class JudgeReport:
             measurement on this one, and recording it as one would leave a
             reader worse off than an absent figure.
         quotes: The spans the judge says it copied out of the draft, in reply
-            order. Nothing here is verified; :func:`verify_quotes` is what
-            checks them, and it is a separate step because an unverified quote
-            is a finding about the judge rather than a term in a score.
+            order, as it sent them. What became of them is ``unverified``.
         model: The model the session reported answering as, which is not
             necessarily the one the transport asked for. ``None`` when the
             transport reported no init event to read it from -- unmeasured,
             never defaulted to the id somebody requested.
+        body: The blinded text the judge was shown, and so the text its
+            quotes are checked against. ``None`` when the report did not come
+            from :func:`judge_draft` -- unmeasured, and :func:`verify_quotes`
+            refuses such a report rather than answering from no haystack.
+        unverified: The quotes that are not in ``body``, in reply order. An
+            empty tuple means every quote checked out and ``None`` means no
+            check was run, which is a different claim and never defaulted
+            into the first. A non-empty one is a finding about the judge
+            rather than a term to fold into a score: a judge that cites text
+            the draft does not contain has not graded the draft.
     """
 
     scores: Mapping[str, int]
     quotes: tuple[str, ...] = ()
     model: str | None = None
+    body: str | None = None
+    unverified: tuple[str, ...] | None = None
 
 
 def blinded_body(text: str) -> str:
@@ -166,29 +184,18 @@ def blinded_body(text: str) -> str:
     return _BARE_TOKEN.sub(_PLACEHOLDER, body)
 
 
-def _prompt(text: str, *, dimensions: tuple[str, ...]) -> str:
+def _prompt(body: str, *, dimensions: tuple[str, ...]) -> str:
     """The rubric, the dimensions asked for, and the blinded body.
 
     Args:
-        text: The whole draft.
+        body: What the judge is to be shown, as :func:`blinded_body` produces
+            it. Taking the body rather than the draft is what lets one call
+            send and verify against the same text.
         dimensions: What to grade, in the order the prompt lists them.
 
     Returns:
         The prompt.
-
-    Raises:
-        JudgeError: If no dimension was asked for, or if nothing survives the
-            blinding. Grading an empty body would come back with numbers that
-            read like a verdict on a draft.
     """
-    if not dimensions:
-        raise JudgeError("a judge call must name at least one dimension to grade")
-    body = blinded_body(text)
-    if not body.strip():
-        raise JudgeError(
-            "nothing survives the blinding: the draft has no body to grade "
-            "under its abstract, middle or back; nothing was sent to a judge"
-        )
     asked = "\n".join(f"- {name}" for name in dimensions)
     return (
         f"{RUBRIC}\n\nGrade these dimensions:\n\n{asked}\n\nThe document:\n\n{body}\n"
@@ -196,7 +203,7 @@ def _prompt(text: str, *, dimensions: tuple[str, ...]) -> str:
 
 
 def _parse(
-    reply: str, *, dimensions: tuple[str, ...], model: str | None
+    reply: str, *, dimensions: tuple[str, ...], model: str | None, body: str
 ) -> JudgeReport:
     """Read one reply, tolerating prose around the object but nothing inside it.
 
@@ -209,9 +216,11 @@ def _parse(
         reply: The raw model reply.
         dimensions: Exactly the dimensions the prompt asked for.
         model: What the session reported answering as, or ``None``.
+        body: What the judge was shown, carried onto the report so its quotes
+            have a haystack that no caller had to pick.
 
     Returns:
-        The report.
+        The report, with its quotes not yet checked.
 
     Raises:
         JudgeError: If the reply carries no JSON object, or one outside the
@@ -260,7 +269,7 @@ def _parse(
         isinstance(quote, str) for quote in quotes
     ):
         raise JudgeError(f"the judge's 'quotes' is {quotes!r}, not a list of strings")
-    return JudgeReport(scores=graded, quotes=tuple(quotes), model=model)
+    return JudgeReport(scores=graded, quotes=tuple(quotes), model=model, body=body)
 
 
 def judge_draft(
@@ -277,24 +286,37 @@ def judge_draft(
         dimensions: What to grade.
 
     Returns:
-        The report, with its quotes unverified -- see :func:`verify_quotes`.
+        The report, with its quotes already checked against the body this
+        call sent: ``unverified`` names the ones that are not in it.
 
     Raises:
-        JudgeError: If the draft cannot be put in front of a judge, or the
-            reply comes back outside the pinned shape.
+        JudgeError: If the draft cannot be put in front of a judge -- no
+            dimension was asked for, or nothing survives the blinding, and in
+            neither case is anything sent -- or if the reply comes back
+            outside the pinned shape.
         ExperimentError: Whatever the transport raises; a
             :class:`ClaudeCliCall` raises its own subclasses for a call that
             failed and for a session that reported a surface it was not given.
     """
     dimensions = tuple(dimensions)
-    reply = transport(_prompt(text, dimensions=dimensions))
+    if not dimensions:
+        raise JudgeError("a judge call must name at least one dimension to grade")
+    body = blinded_body(text)
+    if not body.strip():
+        raise JudgeError(
+            "nothing survives the blinding: the draft has no body to grade "
+            "under its abstract, middle or back; nothing was sent to a judge"
+        )
+    reply = transport(_prompt(body, dimensions=dimensions))
     init = getattr(transport, "last_init", None)
     reported = init.get("model") if isinstance(init, dict) else None
-    return _parse(
+    report = _parse(
         reply,
         dimensions=dimensions,
         model=reported if isinstance(reported, str) else None,
+        body=body,
     )
+    return replace(report, unverified=verify_quotes(report))
 
 
 def _normalised(text: str) -> str:
@@ -307,25 +329,38 @@ def _normalised(text: str) -> str:
     return " ".join(text.split())
 
 
-def verify_quotes(report: JudgeReport, text: str) -> tuple[str, ...]:
-    """The report's quotes that are not in the text, in report order.
+def verify_quotes(report: JudgeReport) -> tuple[str, ...]:
+    """The report's quotes that are not in the body it was shown, in order.
 
     A judge that cites text the draft does not contain has not graded the
     draft, so a non-empty return is a finding about the report rather than a
     term to fold into a score.
 
+    The haystack comes off the report rather than from the caller. A caller
+    that chose it could pass the raw draft, whose front matter the judge never
+    saw, and verify a quote against text that was never in front of it -- and
+    nothing in the signature could tell the two apart.
+
     Args:
         report: The report to check.
-        text: What the judge was shown, which :func:`blinded_body` produces.
-            Passing the raw draft instead would check against text the judge
-            never saw.
 
     Returns:
         The unverified quotes. A quote that is only whitespace is always one:
         it cites nothing, and as a substring it would otherwise be found in
         every document there is.
+
+    Raises:
+        JudgeError: If the report carries no body. Answering "every quote is
+            unverified" would be the same value a real body gives for a judge
+            that invented every span, and one value for two causes leaves a
+            reader misinformed rather than uninformed.
     """
-    haystack = _normalised(text)
+    if report.body is None:
+        raise JudgeError(
+            "the report carries no body to check its quotes against; only a "
+            "report from judge_draft has one"
+        )
+    haystack = _normalised(report.body)
     unverified = []
     for quote in report.quotes:
         needle = _normalised(quote)

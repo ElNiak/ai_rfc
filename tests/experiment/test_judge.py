@@ -22,7 +22,6 @@ from ai_rfc.experiment.judge import (
     RUBRIC,
     JudgeError,
     JudgeReport,
-    _prompt,
     blinded_body,
     judge_draft,
     judge_transport,
@@ -103,6 +102,28 @@ def calls(profile):
     return [json.loads(p.read_text()) for p in sorted(folder.iterdir())]
 
 
+def prompt_sent(text, dimensions=DIMENSIONS):
+    """The prompt ``judge_draft`` actually sent, off a recording transport.
+
+    Read off the call rather than off a prompt builder on purpose: a blinding
+    the builder applies and ``judge_draft`` then skips would pass an assertion
+    on the builder's return and still ship the leak.
+    """
+    sent = []
+
+    def transport(prompt):
+        sent.append(prompt)
+        return reply_text()
+
+    judge_draft(text, transport, dimensions=dimensions)
+    return sent[0]
+
+
+def never_called(prompt):
+    """A transport for a draft that must not reach one."""
+    raise AssertionError("a draft that cannot be graded was sent to a judge")
+
+
 # --- what the judge is shown -------------------------------------------------
 
 
@@ -136,7 +157,7 @@ def test_the_prompt_carries_none_of_them(leak):
     harness beside every normative sentence. Body-only closes the first two;
     "no path in the prompt" would close neither, since both are inside the
     text rather than around it."""
-    assert leak not in _prompt(DRAFT, dimensions=DIMENSIONS)
+    assert leak not in prompt_sent(DRAFT)
 
 
 def test_a_citation_leaves_a_placeholder_where_it_stood():
@@ -156,7 +177,7 @@ def test_the_prompt_names_no_file():
     assertion pointed at the scaffolding -- and is also why it would not
     catch a body that named a file, which nothing here promises it does.
     """
-    assert ".md" not in _prompt(DRAFT, dimensions=DIMENSIONS)
+    assert ".md" not in prompt_sent(DRAFT)
 
 
 def test_the_rubric_itself_leaks_nothing():
@@ -167,7 +188,7 @@ def test_the_rubric_itself_leaks_nothing():
 
 
 def test_the_prompt_names_every_dimension_it_asks_for():
-    prompt = _prompt(DRAFT, dimensions=DIMENSIONS)
+    prompt = prompt_sent(DRAFT)
 
     assert "structure" in prompt and "clarity" in prompt
 
@@ -176,12 +197,16 @@ def test_a_draft_whose_body_is_empty_is_refused():
     """A front matter with no body blinds down to nothing, and grading nothing
     would come back with scores that look like a verdict on a draft."""
     with pytest.raises(JudgeError, match="no body"):
-        _prompt("---\ntitle: T\ndocname: draft-x-latest\n---\n", dimensions=DIMENSIONS)
+        judge_draft(
+            "---\ntitle: T\ndocname: draft-x-latest\n---\n",
+            never_called,
+            dimensions=DIMENSIONS,
+        )
 
 
 def test_asking_for_no_dimension_is_refused():
     with pytest.raises(JudgeError, match="dimension"):
-        _prompt(DRAFT, dimensions=())
+        judge_draft(DRAFT, never_called, dimensions=())
 
 
 # --- reading the reply -------------------------------------------------------
@@ -353,7 +378,7 @@ def test_what_actually_reaches_the_child_is_blinded(profile, tmp_path):
     assert "A peer MUST close the connection" in recorded["stdin"]
 
 
-# --- quote verification ------------------------------------------------------
+# --- quote verification ------------------------------------------------
 
 
 def test_a_quote_the_draft_does_not_contain_is_a_finding():
@@ -363,50 +388,89 @@ def test_a_quote_the_draft_does_not_contain_is_a_finding():
         scores={"structure": 4},
         quotes=("a sentence the draft never had",),
         model="fake-lm",
+        body="the draft body",
     )
 
-    assert verify_quotes(report, "the draft body") == (
-        "a sentence the draft never had",
-    )
+    assert verify_quotes(report) == ("a sentence the draft never had",)
 
 
 def test_a_quote_differing_only_in_whitespace_verifies():
-    report = JudgeReport(scores={"structure": 4}, quotes=("two  words",))
+    report = JudgeReport(
+        scores={"structure": 4}, quotes=("two  words",), body="two words here"
+    )
 
-    assert verify_quotes(report, "two words here") == ()
+    assert verify_quotes(report) == ()
 
 
 def test_a_quote_the_draft_wrapped_across_lines_verifies():
     """A model quoting a sentence off a hard-wrapped draft sends it on one
     line, so normalising only the quote side would fail every long quote."""
-    report = JudgeReport(scores={"structure": 4}, quotes=("close the connection",))
+    report = JudgeReport(
+        scores={"structure": 4},
+        quotes=("close the connection",),
+        body="A peer MUST close the\nconnection.",
+    )
 
-    assert verify_quotes(report, "A peer MUST close the\nconnection.") == ()
+    assert verify_quotes(report) == ()
 
 
 def test_an_empty_quote_is_a_finding():
     """It is a substring of everything and cites nothing, so a substring check
     alone would call it verified."""
-    report = JudgeReport(scores={"structure": 4}, quotes=("", "   "))
+    report = JudgeReport(
+        scores={"structure": 4}, quotes=("", "   "), body="the draft body"
+    )
 
-    assert verify_quotes(report, "the draft body") == ("", "   ")
+    assert verify_quotes(report) == ("", "   ")
 
 
 def test_a_report_with_no_quotes_has_nothing_unverified():
-    assert verify_quotes(JudgeReport(scores={"structure": 4}), "anything") == ()
+    assert verify_quotes(JudgeReport(scores={"structure": 4}, body="anything")) == ()
 
 
 def test_only_the_unverified_quotes_come_back():
     report = JudgeReport(
-        scores={"structure": 4}, quotes=("two words", "never written", "here")
+        scores={"structure": 4},
+        quotes=("two words", "never written", "here"),
+        body="two words here",
     )
 
-    assert verify_quotes(report, "two words here") == ("never written",)
+    assert verify_quotes(report) == ("never written",)
 
 
-def test_a_judge_quoting_the_draft_it_was_shown_verifies(profile, tmp_path):
-    """End to end against the blinded body, which is what the judge saw: a
-    quote is checked against the text in front of the judge, not the file."""
+def test_a_report_carrying_no_body_cannot_be_verified_against_one():
+    """The haystack is no longer the caller's to choose, so the one way to ask
+    for a check that cannot be made is a report that was never shown a body.
+
+    Refused rather than answered "every quote is unverified": that answer is
+    the same value a real body would give for a judge that invented every
+    span, and one value for two causes leaves a reader misinformed rather
+    than uninformed.
+    """
+    report = JudgeReport(scores={"structure": 4}, quotes=("anything",))
+
+    with pytest.raises(JudgeError, match="no body"):
+        verify_quotes(report)
+
+
+def test_a_report_nobody_verified_says_so_rather_than_saying_nothing_failed():
+    """``None`` is unmeasured and ``()`` is measured-and-clean. A hand-built
+    report defaulting to ``()`` would read as a report whose every quote
+    checked out."""
+    assert JudgeReport(scores={"structure": 4}).unverified is None
+
+
+# --- what one judge call comes back with -------------------------------------
+
+
+def test_judge_draft_verifies_the_quotes_against_the_body_it_sent(profile, tmp_path):
+    """The verification travels with the scores, in the same call.
+
+    Left to the caller it is a step a caller can skip, and a report whose
+    quotes were never checked is indistinguishable from one whose quotes all
+    checked out -- so a judge that cited text the draft does not contain
+    yields a usable-looking score.
+    """
     quote = "A peer MUST close the connection on a malformed frame."
     control(profile, reply="raw", text=reply_text(quotes=[quote, "invented"]))
 
@@ -414,4 +478,31 @@ def test_a_judge_quoting_the_draft_it_was_shown_verifies(profile, tmp_path):
         DRAFT, judge_transport(str(STUB), profile, "m"), dimensions=DIMENSIONS
     )
 
-    assert verify_quotes(report, blinded_body(DRAFT)) == ("invented",)
+    assert report.unverified == ("invented",)
+
+
+def test_the_body_a_report_carries_is_the_blinded_one_the_judge_saw():
+    """A quote is checked against the text in front of the judge, not the
+    file: verifying against the raw draft would pass a quote lifted from the
+    front matter the judge was never shown."""
+    report = judge_draft(DRAFT, lambda prompt: reply_text(), dimensions=DIMENSIONS)
+
+    assert report.body == blinded_body(DRAFT)
+
+
+def test_a_clean_report_says_nothing_failed_rather_than_nothing_was_checked():
+    report = judge_draft(DRAFT, lambda prompt: reply_text(), dimensions=DIMENSIONS)
+
+    assert report.unverified == ()
+
+
+def test_the_rubric_promises_only_the_check_the_code_makes():
+    """The rubric told the judge a bad quotation "invalidates the whole
+    reply", which nothing did: the reply was parsed, scored and returned.
+
+    A promise a prompt cannot keep is a functional defect in the prompt, not
+    a documentation one -- a model obeying it grades differently than one
+    reading what the harness actually does.
+    """
+    assert "invalidates the whole reply" not in RUBRIC
+    assert "returned alongside your grades" in RUBRIC
