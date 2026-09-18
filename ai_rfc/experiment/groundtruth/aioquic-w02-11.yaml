@@ -1,0 +1,600 @@
+# Ground truth for the aioquic w02-11 window, HTTP/3 scope.
+#
+# Every entry is anchored twice: `source` names a file and a line in the pinned
+# checkout, and `value` is the literal that line spells. Both are checked by
+# tests/experiment/test_ground_truth.py, so an entry cannot drift silently.
+#
+# `symbol` and `value` are quoted deliberately. YAML reads a bare 0x100 as the
+# integer 256, and a substring check against a source line would then be
+# vacuous.
+#
+# Scope: src/aioquic/h3/ only. Members whose specification is a WebTransport
+# draft (FrameType.WEBTRANSPORT_STREAM, Setting.ENABLE_WEBTRANSPORT,
+# StreamType.WEBTRANSPORT) and FrameType.DUPLICATE_PUSH, which no published RFC
+# registers, are omitted rather than cited to a document that was not read.
+repository: https://github.com/aiortc/aioquic
+commit: 6d36838d008c2202c337142fa07e8bf80e96bac8
+entries:
+  - id: h3-const-alpn
+    statement: >-
+      HTTP/3 is selected during the TLS handshake with the ALPN token "h3".
+    symbol: H3_ALPN
+    value: '["h3"]'
+    source:
+      path: src/aioquic/h3/connection.py
+      line: 26
+    rfc:
+      doc: RFC 9114
+      section: "3.1"
+    kind: constant
+
+  - id: h3-const-reserved-settings
+    statement: >-
+      Setting identifiers 0x0, 0x2, 0x3, 0x4 and 0x5 are reserved in HTTP/3
+      because they were assigned in HTTP/2; they MUST NOT be sent, and their
+      receipt is a connection error of type H3_SETTINGS_ERROR.
+    symbol: RESERVED_SETTINGS
+    value: "(0x0, 0x2, 0x3, 0x4, 0x5)"
+    source:
+      path: src/aioquic/h3/connection.py
+      line: 27
+    rfc:
+      doc: RFC 9114
+      section: "11.2.2"
+    kind: constant
+
+  - id: h3-error-datagram-error
+    statement: >-
+      The HTTP/3 error code H3_DATAGRAM_ERROR is 0x33 and signals a datagram or
+      Capsule Protocol parse error.
+    symbol: H3_DATAGRAM_ERROR
+    value: "0x33"
+    source:
+      path: src/aioquic/h3/connection.py
+      line: 39
+    rfc:
+      doc: RFC 9297
+      section: "5.2"
+    kind: error_code
+
+  - id: h3-error-no-error
+    statement: >-
+      The HTTP/3 error code H3_NO_ERROR is 0x100, used when a connection or
+      stream needs to be closed with no error to signal.
+    symbol: H3_NO_ERROR
+    value: "0x100"
+    source:
+      path: src/aioquic/h3/connection.py
+      line: 40
+    rfc:
+      doc: RFC 9114
+      section: "8.1"
+    kind: error_code
+
+  - id: h3-error-general-protocol-error
+    statement: >-
+      The HTTP/3 error code H3_GENERAL_PROTOCOL_ERROR is 0x101, used when a
+      peer violated protocol requirements in a way no more specific code
+      matches.
+    symbol: H3_GENERAL_PROTOCOL_ERROR
+    value: "0x101"
+    source:
+      path: src/aioquic/h3/connection.py
+      line: 41
+    rfc:
+      doc: RFC 9114
+      section: "8.1"
+    kind: error_code
+
+  - id: h3-error-internal-error
+    statement: >-
+      The HTTP/3 error code H3_INTERNAL_ERROR is 0x102, used when an internal
+      error has occurred in the HTTP stack.
+    symbol: H3_INTERNAL_ERROR
+    value: "0x102"
+    source:
+      path: src/aioquic/h3/connection.py
+      line: 42
+    rfc:
+      doc: RFC 9114
+      section: "8.1"
+    kind: error_code
+
+  - id: h3-error-stream-creation-error
+    statement: >-
+      The HTTP/3 error code H3_STREAM_CREATION_ERROR is 0x103, used when an
+      endpoint detects that its peer created a stream it will not accept.
+    symbol: H3_STREAM_CREATION_ERROR
+    value: "0x103"
+    source:
+      path: src/aioquic/h3/connection.py
+      line: 43
+    rfc:
+      doc: RFC 9114
+      section: "8.1"
+    kind: error_code
+
+  - id: h3-error-closed-critical-stream
+    statement: >-
+      The HTTP/3 error code H3_CLOSED_CRITICAL_STREAM is 0x104, used when a
+      stream required by the HTTP/3 connection was closed or reset.
+    symbol: H3_CLOSED_CRITICAL_STREAM
+    value: "0x104"
+    source:
+      path: src/aioquic/h3/connection.py
+      line: 44
+    rfc:
+      doc: RFC 9114
+      section: "8.1"
+    kind: error_code
+
+  - id: h3-error-frame-unexpected
+    statement: >-
+      The HTTP/3 error code H3_FRAME_UNEXPECTED is 0x105, used when a frame was
+      received that was not permitted in the current state or on the current
+      stream.
+    symbol: H3_FRAME_UNEXPECTED
+    value: "0x105"
+    source:
+      path: src/aioquic/h3/connection.py
+      line: 45
+    rfc:
+      doc: RFC 9114
+      section: "8.1"
+    kind: error_code
+
+  - id: h3-error-frame-error
+    statement: >-
+      The HTTP/3 error code H3_FRAME_ERROR is 0x106, used when a frame that
+      fails to satisfy layout requirements or has an invalid size was received.
+    symbol: H3_FRAME_ERROR
+    value: "0x106"
+    source:
+      path: src/aioquic/h3/connection.py
+      line: 46
+    rfc:
+      doc: RFC 9114
+      section: "8.1"
+    kind: error_code
+
+  - id: h3-error-excessive-load
+    statement: >-
+      The HTTP/3 error code H3_EXCESSIVE_LOAD is 0x107, used when an endpoint
+      detects that its peer is behaving in a way that might generate excessive
+      load.
+    symbol: H3_EXCESSIVE_LOAD
+    value: "0x107"
+    source:
+      path: src/aioquic/h3/connection.py
+      line: 47
+    rfc:
+      doc: RFC 9114
+      section: "8.1"
+    kind: error_code
+
+  - id: h3-error-id-error
+    statement: >-
+      The HTTP/3 error code H3_ID_ERROR is 0x108, used when a stream ID or push
+      ID was used incorrectly, such as exceeding a limit, reducing a limit, or
+      being reused.
+    symbol: H3_ID_ERROR
+    value: "0x108"
+    source:
+      path: src/aioquic/h3/connection.py
+      line: 48
+    rfc:
+      doc: RFC 9114
+      section: "8.1"
+    kind: error_code
+
+  - id: h3-error-settings-error
+    statement: >-
+      The HTTP/3 error code H3_SETTINGS_ERROR is 0x109, used when an endpoint
+      detects an error in the payload of a SETTINGS frame.
+    symbol: H3_SETTINGS_ERROR
+    value: "0x109"
+    source:
+      path: src/aioquic/h3/connection.py
+      line: 49
+    rfc:
+      doc: RFC 9114
+      section: "8.1"
+    kind: error_code
+
+  - id: h3-error-missing-settings
+    statement: >-
+      The HTTP/3 error code H3_MISSING_SETTINGS is 0x10A, used when no SETTINGS
+      frame was received at the beginning of the control stream.
+    symbol: H3_MISSING_SETTINGS
+    value: "0x10A"
+    source:
+      path: src/aioquic/h3/connection.py
+      line: 50
+    rfc:
+      doc: RFC 9114
+      section: "8.1"
+    kind: error_code
+
+  - id: h3-error-request-rejected
+    statement: >-
+      The HTTP/3 error code H3_REQUEST_REJECTED is 0x10B, used when a server
+      rejected a request without performing any application processing.
+    symbol: H3_REQUEST_REJECTED
+    value: "0x10B"
+    source:
+      path: src/aioquic/h3/connection.py
+      line: 51
+    rfc:
+      doc: RFC 9114
+      section: "8.1"
+    kind: error_code
+
+  - id: h3-error-request-cancelled
+    statement: >-
+      The HTTP/3 error code H3_REQUEST_CANCELLED is 0x10C, used when the
+      request or its response, including a pushed response, is cancelled.
+    symbol: H3_REQUEST_CANCELLED
+    value: "0x10C"
+    source:
+      path: src/aioquic/h3/connection.py
+      line: 52
+    rfc:
+      doc: RFC 9114
+      section: "8.1"
+    kind: error_code
+
+  - id: h3-error-request-incomplete
+    statement: >-
+      The HTTP/3 error code H3_REQUEST_INCOMPLETE is 0x10D, used when the
+      client's stream terminated without containing a fully formed request.
+    symbol: H3_REQUEST_INCOMPLETE
+    value: "0x10D"
+    source:
+      path: src/aioquic/h3/connection.py
+      line: 53
+    rfc:
+      doc: RFC 9114
+      section: "8.1"
+    kind: error_code
+
+  - id: h3-error-message-error
+    statement: >-
+      The HTTP/3 error code H3_MESSAGE_ERROR is 0x10E, used when an HTTP
+      message was malformed and cannot be processed.
+    symbol: H3_MESSAGE_ERROR
+    value: "0x10E"
+    source:
+      path: src/aioquic/h3/connection.py
+      line: 54
+    rfc:
+      doc: RFC 9114
+      section: "8.1"
+    kind: error_code
+
+  - id: h3-error-connect-error
+    statement: >-
+      The HTTP/3 error code H3_CONNECT_ERROR is 0x10F, used when the TCP
+      connection established in response to a CONNECT request was reset or
+      abnormally closed.
+    symbol: H3_CONNECT_ERROR
+    value: "0x10F"
+    source:
+      path: src/aioquic/h3/connection.py
+      line: 55
+    rfc:
+      doc: RFC 9114
+      section: "8.1"
+    kind: error_code
+
+  - id: h3-error-version-fallback
+    statement: >-
+      The HTTP/3 error code H3_VERSION_FALLBACK is 0x110, used when the
+      requested operation cannot be served over HTTP/3 and the peer should
+      retry over HTTP/1.1.
+    symbol: H3_VERSION_FALLBACK
+    value: "0x110"
+    source:
+      path: src/aioquic/h3/connection.py
+      line: 56
+    rfc:
+      doc: RFC 9114
+      section: "8.1"
+    kind: error_code
+
+  - id: h3-error-qpack-decompression-failed
+    statement: >-
+      The QPACK error code QPACK_DECOMPRESSION_FAILED is 0x200, used when the
+      decoder failed to interpret an encoded field section.
+    symbol: QPACK_DECOMPRESSION_FAILED
+    value: "0x200"
+    source:
+      path: src/aioquic/h3/connection.py
+      line: 57
+    rfc:
+      doc: RFC 9204
+      section: "6"
+    kind: error_code
+
+  - id: h3-error-qpack-encoder-stream-error
+    statement: >-
+      The QPACK error code QPACK_ENCODER_STREAM_ERROR is 0x201, used when the
+      decoder failed to interpret an encoder instruction.
+    symbol: QPACK_ENCODER_STREAM_ERROR
+    value: "0x201"
+    source:
+      path: src/aioquic/h3/connection.py
+      line: 58
+    rfc:
+      doc: RFC 9204
+      section: "6"
+    kind: error_code
+
+  - id: h3-error-qpack-decoder-stream-error
+    statement: >-
+      The QPACK error code QPACK_DECODER_STREAM_ERROR is 0x202, used when the
+      encoder failed to interpret a decoder instruction.
+    symbol: QPACK_DECODER_STREAM_ERROR
+    value: "0x202"
+    source:
+      path: src/aioquic/h3/connection.py
+      line: 59
+    rfc:
+      doc: RFC 9204
+      section: "6"
+    kind: error_code
+
+  - id: h3-frame-data
+    statement: >-
+      The HTTP/3 DATA frame has type 0x0 and conveys arbitrary,
+      variable-length sequences of bytes associated with an HTTP request or
+      response.
+    symbol: DATA
+    value: "0x0"
+    source:
+      path: src/aioquic/h3/connection.py
+      line: 63
+    rfc:
+      doc: RFC 9114
+      section: "7.2.1"
+    kind: frame_type
+
+  - id: h3-frame-headers
+    statement: >-
+      The HTTP/3 HEADERS frame has type 0x1 and carries an HTTP field section
+      encoded with QPACK.
+    symbol: HEADERS
+    value: "0x1"
+    source:
+      path: src/aioquic/h3/connection.py
+      line: 64
+    rfc:
+      doc: RFC 9114
+      section: "7.2.2"
+    kind: frame_type
+
+  # A divergence, not a definition: aioquic keeps the HTTP/2 name for 0x2,
+  # which RFC 9114 registers as Reserved with no PRIORITY frame defined.
+  - id: h3-frame-priority-reserved
+    statement: >-
+      aioquic names HTTP/3 frame type 0x2 PRIORITY, but RFC 9114 registers
+      0x02 as Reserved and defines no PRIORITY frame for HTTP/3.
+    symbol: PRIORITY
+    value: "0x2"
+    source:
+      path: src/aioquic/h3/connection.py
+      line: 65
+    rfc:
+      doc: RFC 9114
+      section: "11.2.1"
+    kind: frame_type
+
+  - id: h3-frame-cancel-push
+    statement: >-
+      The HTTP/3 CANCEL_PUSH frame has type 0x3 and requests cancellation of a
+      server push before the push stream is received.
+    symbol: CANCEL_PUSH
+    value: "0x3"
+    source:
+      path: src/aioquic/h3/connection.py
+      line: 66
+    rfc:
+      doc: RFC 9114
+      section: "7.2.3"
+    kind: frame_type
+
+  - id: h3-frame-settings
+    statement: >-
+      The HTTP/3 SETTINGS frame has type 0x4 and conveys configuration
+      parameters that affect how endpoints communicate.
+    symbol: SETTINGS
+    value: "0x4"
+    source:
+      path: src/aioquic/h3/connection.py
+      line: 67
+    rfc:
+      doc: RFC 9114
+      section: "7.2.4"
+    kind: frame_type
+
+  - id: h3-frame-push-promise
+    statement: >-
+      The HTTP/3 PUSH_PROMISE frame has type 0x5 and carries a promised request
+      header section from server to client on a request stream.
+    symbol: PUSH_PROMISE
+    value: "0x5"
+    source:
+      path: src/aioquic/h3/connection.py
+      line: 68
+    rfc:
+      doc: RFC 9114
+      section: "7.2.5"
+    kind: frame_type
+
+  - id: h3-frame-goaway
+    statement: >-
+      The HTTP/3 GOAWAY frame has type 0x7 and initiates graceful shutdown of
+      an HTTP/3 connection by either endpoint.
+    symbol: GOAWAY
+    value: "0x7"
+    source:
+      path: src/aioquic/h3/connection.py
+      line: 69
+    rfc:
+      doc: RFC 9114
+      section: "7.2.6"
+    kind: frame_type
+
+  - id: h3-frame-max-push-id
+    statement: >-
+      The HTTP/3 MAX_PUSH_ID frame has type 0xD and is used by clients to
+      control the number of server pushes the server can initiate.
+    symbol: MAX_PUSH_ID
+    value: "0xD"
+    source:
+      path: src/aioquic/h3/connection.py
+      line: 70
+    rfc:
+      doc: RFC 9114
+      section: "7.2.7"
+    kind: frame_type
+
+  - id: h3-setting-qpack-max-table-capacity
+    statement: >-
+      The setting SETTINGS_QPACK_MAX_TABLE_CAPACITY is 0x1 and defaults to
+      zero.
+    symbol: QPACK_MAX_TABLE_CAPACITY
+    value: "0x1"
+    source:
+      path: src/aioquic/h3/connection.py
+      line: 82
+    rfc:
+      doc: RFC 9204
+      section: "5"
+    kind: setting
+
+  - id: h3-setting-max-field-section-size
+    statement: >-
+      The setting SETTINGS_MAX_FIELD_SECTION_SIZE is 0x6 and its default value
+      is unlimited.
+    symbol: MAX_FIELD_SECTION_SIZE
+    value: "0x6"
+    source:
+      path: src/aioquic/h3/connection.py
+      line: 83
+    rfc:
+      doc: RFC 9114
+      section: "7.2.4.1"
+    kind: setting
+
+  - id: h3-setting-qpack-blocked-streams
+    statement: >-
+      The setting SETTINGS_QPACK_BLOCKED_STREAMS is 0x7 and defaults to zero.
+    symbol: QPACK_BLOCKED_STREAMS
+    value: "0x7"
+    source:
+      path: src/aioquic/h3/connection.py
+      line: 84
+    rfc:
+      doc: RFC 9204
+      section: "5"
+    kind: setting
+
+  - id: h3-setting-enable-connect-protocol
+    statement: >-
+      The setting SETTINGS_ENABLE_CONNECT_PROTOCOL is 0x8, the value that
+      enables the extended CONNECT method in HTTP/3.
+    symbol: ENABLE_CONNECT_PROTOCOL
+    value: "0x8"
+    source:
+      path: src/aioquic/h3/connection.py
+      line: 87
+    rfc:
+      doc: RFC 9220
+      section: "5"
+    kind: setting
+
+  - id: h3-setting-h3-datagram
+    statement: >-
+      The setting SETTINGS_H3_DATAGRAM is 0x33, defaults to 0, and signals
+      support for HTTP/3 datagrams.
+    symbol: H3_DATAGRAM
+    value: "0x33"
+    source:
+      path: src/aioquic/h3/connection.py
+      line: 89
+    rfc:
+      doc: RFC 9297
+      section: "5.1"
+    kind: setting
+
+  # A grease value, not a registration: RFC 9114 reserves the space, and
+  # 0x21 is its N=0 member. No RFC assigns the name aioquic uses.
+  - id: h3-setting-dummy-grease
+    statement: >-
+      aioquic sends a dummy setting identifier 0x21, which is the N=0 member of
+      the 0x1f * N + 0x21 space RFC 9114 reserves so that unknown setting
+      identifiers are exercised and ignored.
+    symbol: DUMMY
+    value: "0x21"
+    source:
+      path: src/aioquic/h3/connection.py
+      line: 95
+    rfc:
+      doc: RFC 9114
+      section: "7.2.4.1"
+    kind: setting
+
+  - id: h3-stream-control
+    statement: >-
+      An HTTP/3 control stream is indicated by a unidirectional stream type of
+      0, and each side must open exactly one at the beginning of the
+      connection.
+    symbol: CONTROL
+    value: "0"
+    source:
+      path: src/aioquic/h3/connection.py
+      line: 99
+    rfc:
+      doc: RFC 9114
+      section: "6.2.1"
+    kind: stream_type
+
+  - id: h3-stream-push
+    statement: >-
+      An HTTP/3 push stream is indicated by a unidirectional stream type of 1,
+      followed by the push ID of the promise it fulfills.
+    symbol: PUSH
+    value: "1"
+    source:
+      path: src/aioquic/h3/connection.py
+      line: 100
+    rfc:
+      doc: RFC 9114
+      section: "6.2.2"
+    kind: stream_type
+
+  - id: h3-stream-qpack-encoder
+    statement: >-
+      The QPACK encoder stream is a unidirectional stream of type 2.
+    symbol: QPACK_ENCODER
+    value: "2"
+    source:
+      path: src/aioquic/h3/connection.py
+      line: 101
+    rfc:
+      doc: RFC 9204
+      section: "8.2"
+    kind: stream_type
+
+  - id: h3-stream-qpack-decoder
+    statement: >-
+      The QPACK decoder stream is a unidirectional stream of type 3.
+    symbol: QPACK_DECODER
+    value: "3"
+    source:
+      path: src/aioquic/h3/connection.py
+      line: 102
+    rfc:
+      doc: RFC 9204
+      section: "8.2"
+    kind: stream_type
