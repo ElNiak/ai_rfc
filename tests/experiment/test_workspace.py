@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from ai_rfc.config import dump_config
 from ai_rfc.experiment import ExperimentError
 from ai_rfc.experiment.workspace import (
     HARNESS_MARKER,
@@ -18,7 +19,9 @@ from ai_rfc.experiment.workspace import (
 )
 from ai_rfc.lifecycle import LifecycleError
 from ai_rfc.lifecycle.workspace import (
+    CONFIG_FILE,
     DIGEST_FILE,
+    INIT_RECORD,
     RECORD_FILE,
     Layout,
     scaffold,
@@ -153,8 +156,25 @@ def test_preseed_leaves_substrate_artifacts_untouched(fixture_workspace):
 
 
 @pytest.fixture
-def sealed(fixture_workspace: Path) -> Path:
-    """A fixture workspace sealed the way a pristine one is: record + digest."""
+def sealed(fixture_workspace: Path, tmp_path: Path) -> Path:
+    """A fixture workspace sealed the way a pristine one is: config, record, digest.
+
+    The config and the ``init.json`` beside it are not decoration. A pristine is
+    copied per run and the server resolves each copy's context from the copy's
+    own ``recon.yaml``, refusing a directory that is a workspace without being
+    the seal of one; sealing without them yields a tree every session is handed
+    and no tool can use. Sealing the config with the workspace's own root is
+    what `initialise` does for a pristine, for the reason recorded at
+    `lifecycle/init/cli.py:96-101`.
+    """
+    layout = Layout(fixture_workspace)
+    config, _ = fixture_config(tmp_path, fixture_workspace)
+    layout.config.write_text(
+        dump_config(dataclasses.replace(config, workspace=layout.root))
+    )
+    layout.init_record.write_text(
+        json.dumps({"name": config.name}, indent=2, sort_keys=True) + "\n"
+    )
     record = {
         "clone_head": git(fixture_workspace / "clone", "rev-parse", "HEAD"),
         "draft_head": git(fixture_workspace / "draft", "rev-parse", "HEAD"),
@@ -209,6 +229,28 @@ def test_copy_refuses_a_tampered_pristine(sealed, tmp_path):
     with pytest.raises(ExperimentError) as excinfo:
         copy_workspace(sealed, tmp_path / "run" / "workspace")
     assert "does not verify" in str(excinfo.value)
+
+
+@pytest.mark.parametrize("absent", [CONFIG_FILE, INIT_RECORD])
+def test_copy_refuses_a_pristine_the_server_could_not_resolve(sealed, tmp_path, absent):
+    """A pristine whose seal is intact but whose context handles are gone.
+
+    This is the shape a pre-CLI-1 pristine has, and the digest is re-taken
+    after the unlink on purpose: the tree is internally consistent, so the
+    integrity check passes and only a compatibility check can catch it. Caught
+    here it costs a refusal; uncaught it cost nine billed sessions scoring
+    zero, every one of them for `AI_RFC_CONFIG=.../recon.yaml is not a file`.
+    """
+    (sealed / absent).unlink()
+    write_digest(sealed)
+    assert verify_digest(sealed) == []
+
+    with pytest.raises(ExperimentError) as excinfo:
+        copy_workspace(sealed, tmp_path / "run" / "workspace")
+
+    message = str(excinfo.value)
+    assert absent in message
+    assert "does not verify" not in message
 
 
 def _work(workspace: Path) -> str:

@@ -26,6 +26,7 @@ from ..lifecycle import LifecycleError
 from ..lifecycle.init.cli import initialise
 from ..lifecycle.workspace import (
     ADOPTER_FILES,
+    CONFIG_FILE,
     HARNESS_EMAIL,
     HARNESS_NAME,
     PINNED_DATE,
@@ -36,6 +37,7 @@ from ..lifecycle.workspace import (
     _fetch_adopter_files,
     _git,
     _write_adopter_files,
+    missing_context_handles,
     verify_digest,
     write_digest,
 )
@@ -220,7 +222,8 @@ def copy_workspace(pristine: Path, dest: Path) -> Path:
 
     Raises:
         ExperimentError: If ``dest`` exists, the copy does not reproduce the
-            digest manifest, or a nested repository HEAD moved.
+            digest manifest, the copy is not a workspace a session could
+            resolve its context from, or a nested repository HEAD moved.
     """
     if dest.exists():
         raise ExperimentError(f"{dest} exists; a run never reuses a workspace")
@@ -228,6 +231,23 @@ def copy_workspace(pristine: Path, dest: Path) -> Path:
     problems = verify_digest(dest)
     if problems:
         raise ExperimentError(f"copied workspace does not verify: {problems[:5]}")
+    # Integrity is not compatibility. A pristine prepared before the context
+    # handles existed verifies perfectly — it is exactly the bytes it was
+    # sealed as — and then every tool in every session fails on the config
+    # that is not there, which scores the candidate zero and reads as a
+    # verdict. Measured on 2026-09-18: nine billed sessions, all scoring 0.0
+    # for `AI_RFC_CONFIG=.../recon.yaml is not a file`, the seed among them.
+    # The cost of a stale pristine belongs here, before the first session.
+    absent = missing_context_handles(dest)
+    if absent:
+        raise ExperimentError(
+            f"{pristine} is not a workspace a session can resolve: it has no "
+            f"{', '.join(absent)}. Every run resolves its context from its own "
+            f"copy of {CONFIG_FILE}, so a pristine without one yields sessions "
+            f"whose every tool call fails. Prepare it with a current "
+            f"`workspace prepare`; a pristine older than that config is not "
+            f"repaired by re-sealing it."
+        )
     record = json.loads((dest / RECORD_FILE).read_text())
     for name, key in (("clone", "clone_head"), ("draft", "draft_head")):
         head = _git_checked(dest / name, "rev-parse", "HEAD")

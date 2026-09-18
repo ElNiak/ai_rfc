@@ -60,6 +60,38 @@ INIT_RECORD = "init.json"
 #: are what a workspace is verified to have been initialised from.
 _SKIP_FROM_DIGEST = frozenset({DIGEST_FILE, RECORD_FILE})
 
+#: The two files that make a directory resolvable as its own workspace, in the
+#: order a refusal names them. ``ai_rfc.server.paths`` states the rule they
+#: encode; this is the single place the pair is spelled.
+CONTEXT_HANDLES = (CONFIG_FILE, INIT_RECORD)
+
+
+def missing_context_handles(root: Path) -> list[str]:
+    """Which of :data:`CONTEXT_HANDLES` ``root`` lacks; empty means sealed.
+
+    A workspace is resolvable from its own directory only when both are there,
+    which is what ``init`` writes and nothing else does. Kept here, beside the
+    names themselves, so the freeze path and the server test one rule rather
+    than two copies of it.
+
+    This asks whether a workspace can be *used to start work*, never whether it
+    may be read. Evidence recorded before the handles existed is still valid
+    evidence and can never be re-sealed without rewriting it, so no read path
+    should consult this.
+
+    Args:
+        root: The workspace directory to test.
+
+    Returns:
+        The absent names in :data:`CONTEXT_HANDLES` order.
+    """
+    layout = Layout(root)
+    return [
+        name
+        for name, path in zip(CONTEXT_HANDLES, (layout.config, layout.init_record))
+        if not path.is_file()
+    ]
+
 
 class Layout(Workspace):
     """A production workspace: the pipeline's layout plus the operator's records."""

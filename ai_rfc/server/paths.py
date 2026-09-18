@@ -54,7 +54,7 @@ from ..driver.stop import _quoted
 from ..ledger import PRISTINE_RECORD
 from ..lifecycle.common import CONFIG_ENV
 from ..lifecycle.workspace import CONFIG_FILE as CONFIG_FILE_NAME
-from ..lifecycle.workspace import Layout
+from ..lifecycle.workspace import Layout, missing_context_handles
 
 #: The optional handle naming a ``toolchain.json`` outright.
 TOOLCHAIN_ENV = "AI_RFC_TOOLCHAIN"
@@ -289,7 +289,7 @@ def resolve_context() -> Context:
         raise EnvError(f"{CONFIG_ENV}={config_path} is not a file")
     layout = Layout(config_path.parent)
     config = load_config(config_path)
-    if layout.config == config_path and layout.init_record.is_file():
+    if layout.config == config_path and not missing_context_handles(layout.root):
         workspace_path = layout.root
     else:
         if _looks_like_a_workspace(layout):
