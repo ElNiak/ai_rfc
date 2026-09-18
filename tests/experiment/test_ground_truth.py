@@ -27,11 +27,13 @@ def _checkout_commit(root: Path) -> str | None:
 
     Only a plain clone is handled, which is what the pinned tree is. A git
     worktree or submodule spells ``.git`` as a file holding ``gitdir: <path>``,
-    and following that pointer alone would not be enough: the linked directory
-    carries ``HEAD`` but keeps ``refs/`` and ``packed-refs`` behind its
-    ``commondir`` file, so a symbolic HEAD would still resolve to ``None``.
-    Supporting that layout is deliberately left undone; the consequence is that
-    the anchors skip with a reason reading ``is at None``, not that they pass.
+    which this function does not follow. A submodule's target is a complete
+    gitdir, so following the pointer would be enough there; a linked worktree's
+    is not, because it carries ``HEAD`` but reaches ``refs/`` and
+    ``packed-refs`` through its ``commondir`` file, and a symbolic HEAD needs
+    that second hop. Supporting either layout is deliberately left undone; the
+    consequence is that the anchors skip with a reason reading ``is at None``,
+    not that they pass.
 
     Args:
         root: The working tree whose ``.git`` directory is read.
