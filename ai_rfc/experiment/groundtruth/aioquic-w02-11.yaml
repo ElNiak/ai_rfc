@@ -13,24 +13,35 @@
 # StreamType.WEBTRANSPORT) and FrameType.DUPLICATE_PUSH, which no published RFC
 # registers, are omitted rather than cited to a document that was not read.
 #
-# Which section to cite: the one that establishes the claim the statement
-# makes. A behavioural claim cites the normative section; a claim about a
-# registration cites the registry section. That is why the error codes cite
-# the section that defines them (RFC 9114 Section 8.1, RFC 9204 Section 6,
-# RFC 9297 Section 5.2) and not the Section 11.2.3 registry, while
-# h3-frame-priority-reserved cites the Section 11.2.1 registry: its statement
-# is that RFC 9114 registers 0x02 as Reserved, which is a claim about the
-# registration itself.
+# Which section to cite: the section that normatively defines the value, not
+# the IANA registry that records it. Cite a registry section only where the
+# document establishes the value nowhere else, or where the statement is
+# itself a claim about registration.
+#
+# Exactly three citations here are registry sections, and each is one of those
+# two exceptions, so do not "fix" them. h3-const-reserved-settings cites
+# RFC 9114 Section 11.2.2 and h3-frame-priority-reserved cites Section 11.2.1
+# because each statement is a claim about what RFC 9114 registers; Table 3 in
+# Section 11.2.2 is also the only place all five reserved setting identifiers
+# appear together, and Section 7.2.4.1 does not reach 0x0, which Appendix A.3
+# shows was never an HTTP/2 setting. h3-error-datagram-error cites RFC 9297
+# Section 5.2 because RFC 9297 gives the code's meaning only in that registry
+# entry; Section 2.1 invokes H3_DATAGRAM_ERROR (0x33) in two error rules
+# without saying what it signals.
 #
 # Provenance of the RFC mapping, which no test here checks: on 2026-09-18 all
 # 41 entries were checked against RFC 9114, 9204, 9220 and 9297 fetched from
 # rfc-editor.org, by confirming that each entry's value appears in the body of
-# the section it cites, with numeric values compared as integers rather than
-# as text -- the RFC writes 0x0100 where aioquic writes 0x100, so a substring
-# check would have reported every error code as a miss. 41 of 41 were checked.
-# What that establishes is that the value is present in the cited section. It
-# does not establish that the cited section is the best support for the
-# statement, and no test in this repository can decide either question.
+# the section it cites. The 39 entries whose value is numeric were checked
+# mechanically, by comparing integers rather than text -- the RFC writes
+# 0x0100 where aioquic writes 0x100, so a text comparison would have reported
+# every error code as a miss. The 2 entries whose value is not numeric,
+# h3-const-alpn and h3-const-reserved-settings, were checked by reading the
+# cited section, as were the six entries whose citation was corrected later
+# that day. What that establishes is that the value is present in the cited
+# section. It does not establish that the cited section is the best support
+# for the statement, and no test in this repository can decide either
+# question.
 repository: https://github.com/aiortc/aioquic
 commit: 6d36838d008c2202c337142fa07e8bf80e96bac8
 entries:
@@ -44,14 +55,13 @@ entries:
       line: 26
     rfc:
       doc: RFC 9114
-      section: "3.1"
+      section: "3.2"
     kind: constant
 
   - id: h3-const-reserved-settings
     statement: >-
-      Setting identifiers 0x0, 0x2, 0x3, 0x4 and 0x5 are reserved in HTTP/3
-      because they were assigned in HTTP/2; they MUST NOT be sent, and their
-      receipt is a connection error of type H3_SETTINGS_ERROR.
+      RFC 9114 registers setting identifiers 0x0, 0x2, 0x3, 0x4 and 0x5 as
+      Reserved in the HTTP/3 Settings registry.
     symbol: RESERVED_SETTINGS
     value: "(0x0, 0x2, 0x3, 0x4, 0x5)"
     source:
@@ -59,7 +69,7 @@ entries:
       line: 27
     rfc:
       doc: RFC 9114
-      section: "7.2.4.1"
+      section: "11.2.2"
     kind: constant
 
   - id: h3-error-datagram-error
@@ -365,8 +375,8 @@ entries:
   - id: h3-frame-data
     statement: >-
       The HTTP/3 DATA frame has type 0x0 and conveys arbitrary,
-      variable-length sequences of bytes associated with an HTTP request or
-      response.
+      variable-length sequences of bytes associated with HTTP request or
+      response content.
     symbol: DATA
     value: "0x0"
     source:
@@ -520,8 +530,9 @@ entries:
 
   - id: h3-setting-enable-connect-protocol
     statement: >-
-      The setting SETTINGS_ENABLE_CONNECT_PROTOCOL is 0x8, the value that
-      enables the extended CONNECT method in HTTP/3.
+      The setting SETTINGS_ENABLE_CONNECT_PROTOCOL has the identifier 0x8 in
+      HTTP/3, as in HTTP/2, and a server sends it to allow a client to use the
+      Extended CONNECT method.
     symbol: ENABLE_CONNECT_PROTOCOL
     value: "0x8"
     source:
@@ -529,13 +540,14 @@ entries:
       line: 87
     rfc:
       doc: RFC 9220
-      section: "5"
+      section: "3"
     kind: setting
 
   - id: h3-setting-h3-datagram
     statement: >-
-      The setting SETTINGS_H3_DATAGRAM is 0x33, defaults to 0, and signals
-      support for HTTP/3 datagrams.
+      The setting SETTINGS_H3_DATAGRAM is 0x33; an endpoint sends it with a
+      value of 1 to indicate that it is willing to receive HTTP/3 Datagrams,
+      and its value MUST be either 0 or 1.
     symbol: H3_DATAGRAM
     value: "0x33"
     source:
@@ -543,7 +555,7 @@ entries:
       line: 89
     rfc:
       doc: RFC 9297
-      section: "5.1"
+      section: "2.1.1"
     kind: setting
 
   # A grease value, not a registration: RFC 9114 reserves the space, and
@@ -602,7 +614,7 @@ entries:
       line: 101
     rfc:
       doc: RFC 9204
-      section: "8.2"
+      section: "4.2"
     kind: stream_type
 
   - id: h3-stream-qpack-decoder
@@ -615,5 +627,5 @@ entries:
       line: 102
     rfc:
       doc: RFC 9204
-      section: "8.2"
+      section: "4.2"
     kind: stream_type
