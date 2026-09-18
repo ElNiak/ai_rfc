@@ -20,53 +20,94 @@ PACKAGE = "ai_rfc.experiment.groundtruth"
 
 #: How far from a symbol a value-shaped token still counts as said about it,
 #: in characters of the normalised text, measured from both ends of the
-#: symbol. Not a guess: across the 39 scored entries the widest gap between a
-#: symbol and its value in the dataset's own statement is 56 characters
-#: (``h3-stream-control``, "a unidirectional stream type of 0"), and those
-#: statements are the most compressed prose form each claim has. 120 is a
-#: little over twice that, which leaves a draft room for the subordinate
-#: clause the dataset's one-sentence form does not carry. It is part of what
-#: a score *means* -- two drafts scored at different widths are not
-#: comparable -- so the verb writes it into every report.
+#: symbol. Not a guess, though the measurement under it moved when the
+#: stream-type entries left the scored set: across the dataset's own
+#: one-sentence statements the widest gap between a symbol and its value is 56
+#: characters, and both statements that reach it are stream types this axis
+#: now excludes (see :func:`score_draft`). Among the entries still scored the
+#: widest gap is 20. 120 is kept rather than narrowed onto that smaller
+#: figure, because those statements are the most compressed prose form each
+#: claim has and a draft carries the subordinate clause they do not. It is
+#: part of what a score *means* -- two drafts scored at different widths are
+#: not comparable -- so the verb writes it into every report.
 NEARBY_CHARS = 120
 
-#: A hexadecimal token as a draft writes one. The surrounding guards keep
-#: ``0x10`` out of ``0x10a`` and out of an identifier that merely ends in a
-#: hex-looking run; the comparison is numeric on top of that, so ``0x10a`` and
+#: A hexadecimal token as a draft writes one. Keeping ``0x10`` out of ``0x10a``
+#: is the greedy ``+`` and not the guards: with either guard removed, ``0x10a``
+#: still yields ``0x10a`` whole. What the guards do is keep a hex-looking run
+#: from being read out of an identifier -- ``frame0x10`` before it, ``0x10_bad``
+#: after. The comparison is numeric on top of all that, so ``0x10a`` and
 #: ``0x10A`` agree and ``0x10`` and ``0x10a`` do not.
 _HEX_TOKEN = re.compile(r"(?<![0-9a-z_])0x[0-9a-f]+(?![0-9a-z_])")
 
-#: A decimal token as a draft writes one. ``/`` is excluded before it so that
-#: the 3 of "HTTP/3" is a protocol's name and not a stream type, and a
-#: following ``.<digit>`` is excluded so that the 8 of "Section 8.1" is not a
-#: value either. A trailing ``.`` that no digit follows is kept, because three
-#: of the four stream-type claims end their sentence on the value.
-_INT_TOKEN = re.compile(r"(?<![0-9a-z_./])\d+(?!\.?\d)(?![0-9a-z_])")
+#: A value spelled as a bare decimal numeral. A test on an entry's *value* and
+#: never a search of a draft: a decimal value is excluded from scoring, so
+#: nothing ever looks for one in prose. See :func:`score_draft` for why, and
+#: :data:`EXCLUDED_DECIMAL` for what the report says about it.
+_DECIMAL_VALUE = re.compile(r"\d+")
+
+#: Why an entry could not be scored, as the report states it per entry. Both
+#: are read off how the value is spelled, never off the entry's ``kind``.
+EXCLUDED_NOT_A_NUMBER = "its value is not a number, and no prose draft spells one"
+EXCLUDED_DECIMAL = (
+    "its value is a bare decimal numeral, which prose does not distinguish "
+    "from any other number that falls near the symbol"
+)
+
+#: What a coercion out of text costs, per field. The harm differs and the
+#: message has to say which one it is: a coerced *value* goes on being scored,
+#: against the wrong number in the wrong base; a coerced *symbol* is what the
+#: draft is searched for, so the entry quietly stops matching any draft and
+#: reads as a miss. Consulted by :func:`_text`.
+_COERCION_HARM = {
+    "value": (
+        "a value coerced that way would be scored as a decimal claim rather "
+        "than refused"
+    ),
+    "symbol": (
+        "a symbol coerced that way would be searched for as that integer's "
+        "digits, and the entry would read as a miss against every draft"
+    ),
+}
 
 
 @dataclass(frozen=True)
 class GroundTruthReport:
     """One draft's standing against the entries a dataset could score.
 
-    The three id tuples partition the scored entries: ``missed`` are the ones
-    the draft never went near, ``attempted`` the ones it said something
-    numeric about, and ``matched`` the subset of those it got right.
-    ``excluded`` is outside that partition -- entries nothing could score --
-    and it is carried so that a reader never has to infer which denominator a
-    ratio was taken over.
+    Two partitions, one nested in the other. ``attempted`` and ``missed``
+    partition the scored entries -- the ones the draft said something numeric
+    about and the ones it never went near -- and ``matched`` and
+    :attr:`mismatched` partition ``attempted`` in turn. ``excluded_because``
+    is outside both: entries nothing could score, carried with the reason each
+    one could not be, so that a reader never has to infer which denominator a
+    ratio was taken over or why an entry is missing from it.
 
     Attributes:
         matched: Ids stated with the value the pinned source spells.
         attempted: Ids whose symbol appeared beside some value of the right
             shape, whether or not it was the right value.
         missed: Ids the draft did not attempt.
-        excluded: Ids no draft could be scored on, in dataset order.
+        excluded_because: One ``(id, reason)`` pair per entry no draft could
+            be scored on, in dataset order. The reasons are not
+            interchangeable: see :data:`EXCLUDED_NOT_A_NUMBER` and
+            :data:`EXCLUDED_DECIMAL`.
     """
 
     matched: tuple[str, ...]
     attempted: tuple[str, ...]
     missed: tuple[str, ...]
-    excluded: tuple[str, ...]
+    excluded_because: tuple[tuple[str, str], ...]
+
+    @property
+    def excluded(self) -> tuple[str, ...]:
+        """The ids of the excluded entries alone, in dataset order.
+
+        Derived rather than stored beside ``excluded_because``: two fields
+        would be two things to keep in step, and an id present in one and
+        absent from the other is exactly the drift this axis reports on.
+        """
+        return tuple(name for name, _ in self.excluded_because)
 
     @property
     def scored(self) -> int:
@@ -134,6 +175,14 @@ def resolve_anchors(entries: list[dict], clone: Path) -> tuple[str, ...]:
     records: ``0x10`` is contained in ``H3_MISSING_SETTINGS = 0x10A``, so a
     wrong value would pass a substring check.
 
+    A path that leaves the checkout is reported unresolved without being read.
+    ``clone / "/etc/hosts"`` resolves to ``/etc/hosts``, which exists and is a
+    file, and reading it to discover that its first line does not spell the
+    assignment would make this a reader of arbitrary files on the strength of
+    a dataset field. The packaged dataset's own suite already forbids an
+    absolute path and a ``..`` segment; this is the second boundary, for the
+    entries a caller assembles itself.
+
     Args:
         entries: The dataset's ``entries`` list, not the document around it.
         clone: The root of the checkout the paths are relative to.
@@ -149,8 +198,12 @@ def resolve_anchors(entries: list[dict], clone: Path) -> tuple[str, ...]:
         carries, so the entry is reported unresolved, which is true of it.
     """
     unresolved: list[str] = []
+    root = clone.resolve()
     for entry in entries:
-        path = clone / entry["source"]["path"]
+        path = (clone / entry["source"]["path"]).resolve()
+        if not path.is_relative_to(root):
+            unresolved.append(entry["id"])
+            continue
         if not path.is_file():
             unresolved.append(entry["id"])
             continue
@@ -173,11 +226,11 @@ def score_draft(text: str, entries: list[dict]) -> GroundTruthReport:
     equals the value numerically. Anything else is *missed*.
 
     A symbol the draft wrote only inside a longer symbol *the dataset also
-    carries* is not a naming of it: the ``PUSH`` of ``CANCEL_PUSH`` belongs to
-    the frame type, not to the push stream. The disambiguation is read off the
-    entries rather than off a list of prefixes kept here, because a list would
-    be a second dataset to keep in step with the first and would go stale the
-    first time an entry was added.
+    carries* is not a naming of it: the ``SETTINGS`` of
+    ``H3_MISSING_SETTINGS`` belongs to the error code, not to the SETTINGS
+    frame. The disambiguation is read off the entries rather than off a list
+    of prefixes kept here, because a list would be a second dataset to keep in
+    step with the first and would go stale the first time an entry was added.
 
     What the predicate can discriminate: a different number. Tokens are
     compared as numbers, so ``0x10a`` and ``0x10A`` agree while ``0x100`` and
@@ -187,26 +240,46 @@ def score_draft(text: str, entries: list[dict]) -> GroundTruthReport:
 
     What it cannot discriminate, and no matcher over prose could:
 
-    * **A longer name the dataset does not carry.** ``DUPLICATE_PUSH``, a
-      frame type this dataset omits because no published RFC registers it,
-      still credits the ``PUSH`` stream type: the disambiguation can only
-      recognise a longer name some entry spells, so what it covers grows and
-      shrinks with the dataset's own scope. A compound the dataset does not
+    * **A longer name the dataset does not carry.** The disambiguation can
+      only recognise a longer name some entry spells, so what it covers grows
+      and shrinks with the dataset's own scope: a draft writing
+      ``RECEIVED_SETTINGS``, or simply the words "received settings", still
+      credits the ``SETTINGS`` frame type. A compound the dataset does not
       name is indistinguishable from prose that happens to run two words
       together.
     * **A claim the draft did not intend.** Proximity is a character window,
       not syntax: a symbol and a nearby number are scored as a statement
-      about each other even when the sentence relates neither.
+      about each other even when the sentence relates neither. This is the
+      limitation the exclusion rule below is drawn against.
     * **A value spelled in the other base.** The shape comes from the entry's
-      own value, so a draft writing ``0x02`` for a stream type whose value is
-      ``2`` is read as having attempted nothing, not as having got it wrong.
+      own value, which is the source's spelling, so a draft writing ``256``
+      where the source spells ``0x100`` is read as having attempted nothing,
+      not as having got it right.
 
-    An entry whose value is not a number -- a Python literal like ``["h3"]``
-    -- is excluded rather than scored. No prose draft spells one, so scoring
-    it would bake a permanent miss into the metric, and giving it a
-    hand-written "prose form" would put a claim where a measurement belongs.
-    The rule reads the value, not the entry's ``kind``: a constant whose value
-    is a number is scored like any other claim.
+    Which entries can be scored at all is read off how the value is spelled,
+    never off the entry's ``kind``. A hexadecimal literal is scored: ``0x`` is
+    the draft's own mark that the number is a protocol constant rather than a
+    count, a date or a section number. Everything else is excluded, for one of
+    two reasons the report keeps apart:
+
+    * **Not a number**, a Python literal like ``["h3"]``. No prose draft
+      spells one, so scoring it would bake a permanent miss into the metric,
+      and giving it a hand-written "prose form" would put a claim where a
+      measurement belongs.
+    * **A bare decimal numeral.** Prose is full of digits and none of them
+      carry a mark saying they are a constant, so the window cannot tell a
+      claim from a coincidence. Before these were excluded, "The flow control
+      window starts at 0." was scored as a correct statement of the control
+      stream type and "The QPACK decoder stream was written on 2026-09-03."
+      as one of the decoder's: recall was being paid for non-claims and the
+      accuracy's denominator counted claims no draft had made.
+
+    The cost of the second rule is stated rather than hidden. A draft that
+    *does* state a decimal-valued entry correctly now earns nothing for it,
+    and the four stream types the dataset carries today leave the denominator
+    with it. That is the trade taken: a denominator of 39 with four entries
+    scored by prose that makes no claim measures a draft less honestly than a
+    denominator of 35 with none.
 
     Args:
         text: The draft's text, as written.
@@ -225,22 +298,23 @@ def score_draft(text: str, entries: list[dict]) -> GroundTruthReport:
     """
     body = _normalised(text)
     # Every entry's symbol, and deliberately not only the ones that will be
-    # scored: an entry excluded for a non-numeric value still names a token a
-    # draft may write, and RESERVED_SETTINGS is precisely what says that the
-    # SETTINGS inside it is not the SETTINGS frame. Compiled once, because the
-    # question each match asks -- did the draft write a longer symbol here? --
-    # is about the text, not about the entry being scored.
+    # scored: an excluded entry still names a token a draft may write, whether
+    # it was excluded for a value that is no number or for a decimal one, and
+    # RESERVED_SETTINGS is precisely what says that the SETTINGS inside it is
+    # not the SETTINGS frame. Compiled once, because the question each match
+    # asks -- did the draft write a longer symbol here? -- is about the text,
+    # not about the entry being scored.
     symbols = [_symbol_pattern(_text(entry, "symbol")) for entry in entries]
     named = _symbol_spans(body, symbols)
     matched: list[str] = []
     attempted: list[str] = []
     missed: list[str] = []
-    excluded: list[str] = []
+    excluded: list[tuple[str, str]] = []
     for entry, symbol in zip(entries, symbols):
         value = _text(entry, "value")
         shape = _value_shape(value)
         if shape is None:
-            excluded.append(entry["id"])
+            excluded.append((entry["id"], _why_not_scored(value)))
             continue
         token, base = shape
         tokens = _tokens_near(body, symbol, token, named)
@@ -255,7 +329,7 @@ def score_draft(text: str, entries: list[dict]) -> GroundTruthReport:
         matched=tuple(matched),
         attempted=tuple(attempted),
         missed=tuple(missed),
-        excluded=tuple(excluded),
+        excluded_because=tuple(excluded),
     )
 
 
@@ -275,15 +349,16 @@ def _text(entry: dict, field: str) -> str:
         The field's text.
 
     Raises:
-        ExperimentError: The field is not text, named with the entry and the
-            field that was coerced rather than left to surface as a miss.
+        ExperimentError: The field is not text, named with the entry, the
+            field that was coerced and the harm that coercion does to *that*
+            field rather than to whichever one the message happened to carry.
     """
     found = entry[field]
     if not isinstance(found, str):
         raise ExperimentError(
-            f"{entry['id']}: {field} is a {type(found).__name__}, not text; "
-            "YAML reads a bare 0x100 as the integer 256, and a value coerced "
-            "that way would be scored as a decimal claim rather than refused"
+            f"{entry['id']}: {field} is of type {type(found).__name__}, not "
+            "text; YAML reads a bare 0x100 as the integer 256, and "
+            f"{_COERCION_HARM.get(field, 'the entry would be read wrong')}"
         )
     return found
 
@@ -312,8 +387,8 @@ def _symbol_pattern(symbol: str) -> Pattern[str]:
     """A symbol as a draft may spell it: ``_``, ``-`` or a space between words.
 
     The boundaries are asymmetric, and measurably so. Nothing identifier-like
-    may *follow* the symbol, which is what keeps ``PUSH`` out of
-    ``PUSH_PROMISE`` and ``H3_DATAGRAM`` out of ``H3_DATAGRAM_ERROR``. But a
+    may *follow* the symbol, which is what keeps ``DATA`` out of
+    ``H3_DATAGRAM`` and ``H3_DATAGRAM`` out of ``H3_DATAGRAM_ERROR``. But a
     separator may *precede* it, because the RFCs name every setting
     ``SETTINGS_X`` where aioquic's symbol is the bare ``X``: with a symmetric
     word boundary the five setting entries never match their own statements,
@@ -347,20 +422,43 @@ def _value_shape(value: str) -> tuple[Pattern[str], int] | None:
     is an enumeration, and a shape derived from one is a second list to keep
     in step with the first.
 
+    Only a hexadecimal literal has a shape here. A bare decimal numeral is a
+    number and still has none, because the shape is what the matcher searches
+    prose with and prose does not distinguish a decimal constant from any
+    other number; :func:`score_draft` records why at length.
+
     Args:
         value: The entry's value, as the source spells it.
 
     Returns:
         The pattern that finds tokens of that shape and the base to compare
-        them in, or ``None`` when the value is not a number and so nothing a
-        draft's prose can be scored against.
+        them in, or ``None`` when nothing in a draft's prose can be scored
+        against the value. :func:`_why_not_scored` says which kind of
+        ``None`` it is.
     """
-    folded = value.casefold()
-    if _HEX_TOKEN.fullmatch(folded):
+    if _HEX_TOKEN.fullmatch(value.casefold()):
         return _HEX_TOKEN, 16
-    if _INT_TOKEN.fullmatch(folded):
-        return _INT_TOKEN, 10
     return None
+
+
+def _why_not_scored(value: str) -> str:
+    """Which exclusion reason a value without a shape falls under.
+
+    Only meaningful for a value :func:`_value_shape` returned ``None`` for.
+    The two reasons are kept apart in the report because they are different
+    facts about a dataset: one entry could never be scored by any matcher over
+    prose, and the other could be scored by a matcher that read syntax rather
+    than a character window.
+
+    Args:
+        value: The entry's value, as the source spells it.
+
+    Returns:
+        :data:`EXCLUDED_DECIMAL` or :data:`EXCLUDED_NOT_A_NUMBER`.
+    """
+    if _DECIMAL_VALUE.fullmatch(value.casefold()):
+        return EXCLUDED_DECIMAL
+    return EXCLUDED_NOT_A_NUMBER
 
 
 def _symbol_spans(
@@ -369,10 +467,11 @@ def _symbol_spans(
     """Where every symbol a dataset names occurs in one draft.
 
     Located with the same patterns the scoring uses, so the separator
-    tolerance that lets a draft write "cancel push" for ``CANCEL_PUSH`` also
-    lets "cancel push" say which symbol its ``push`` belongs to. A set,
-    because two entries sharing a symbol would otherwise contribute the same
-    span twice and neither would be a longer name than the other anyway.
+    tolerance that lets a draft write "missing settings" for
+    ``H3_MISSING_SETTINGS`` also lets "missing settings" say which symbol its
+    ``settings`` belongs to. A set, because two entries sharing a symbol would
+    otherwise contribute the same span twice and neither would be a longer
+    name than the other anyway.
 
     Args:
         body: The normalised draft.
@@ -395,18 +494,18 @@ def _inside_a_longer_symbol(
 
     The prefix side of :func:`_symbol_pattern` is loose on purpose and cannot
     be tightened without losing the five settings entries, so ``SETTINGS``
-    matches inside ``H3_MISSING_SETTINGS`` and ``PUSH`` inside
-    ``CANCEL_PUSH``. The token in those drafts belongs to the longer symbol,
-    and crediting the shorter entry too inflates both ratios with a claim the
-    draft never made.
+    matches inside ``H3_MISSING_SETTINGS``, inside ``H3_SETTINGS_ERROR`` and
+    inside ``RESERVED_SETTINGS``. The token in those drafts belongs to the
+    longer symbol, and crediting the shorter entry too inflates both ratios
+    with a claim the draft never made.
 
     The rule is drawn from the dataset rather than from a list of prefixes
     written here: an identifier the draft wrote that is *itself* an entry's
     symbol names that entry. ``SETTINGS_MAX_FIELD_SECTION_SIZE`` is no entry's
     symbol, so it goes on crediting ``MAX_FIELD_SECTION_SIZE``, which is the
-    asymmetry's whole purpose; ``CANCEL_PUSH`` is one, so it stops crediting
-    ``PUSH``. A list would be a second dataset to maintain and would be wrong
-    the first time an entry was added.
+    asymmetry's whole purpose; ``H3_MISSING_SETTINGS`` is one, so it stops
+    crediting the SETTINGS frame. A list would be a second dataset to maintain
+    and would be wrong the first time an entry was added.
 
     Containment is strict in length, so a symbol never suppresses itself, and
     it is not applied recursively: a span that is itself suppressed for

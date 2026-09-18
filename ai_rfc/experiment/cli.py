@@ -1092,7 +1092,10 @@ def _write_ground_truth(
     taken over, ``claim_accuracy`` needs the count of claims the draft made,
     and both need the pin the draft was scored against and the window the
     matcher read proximity in -- two scores taken at different widths are not
-    comparable, and nothing else in the file would say so.
+    comparable, and nothing else in the file would say so. The entries left
+    out of the denominator travel with the reason each one was left out, for
+    the same reason: a count alone cannot say whether an entry was unscorable
+    by any matcher or only by this one.
 
     Args:
         out: The directory to write into; created if it does not exist.
@@ -1116,6 +1119,11 @@ def _write_ground_truth(
         "nearby_chars": NEARBY_CHARS,
         "scored": report.scored,
         "excluded": list(report.excluded),
+        # Per entry, because the two reasons are different facts about the
+        # dataset and a reader who sees only a count cannot tell them apart:
+        # one entry no matcher over prose could ever score, the other one a
+        # matcher that read syntax rather than a character window could.
+        "excluded_because": dict(report.excluded_because),
         "matched": list(report.matched),
         "attempted": list(report.attempted),
         "mismatched": list(report.mismatched),
@@ -1147,12 +1155,28 @@ def _ground_truth_run(args: argparse.Namespace) -> int:
         0. A low recall is a measurement about a draft, not a gate that failed,
         and returning 3 for one would put a finding where ``preflight`` and
         ``judge`` put a refusal.
+
+    Raises:
+        ExperimentError: The draft is not UTF-8 text, so there is no prose to
+            score. Raised rather than left as the ``UnicodeDecodeError`` it
+            came from, which is a ``ValueError`` and would escape ``run``'s
+            handler as a traceback.
     """
     from .ground_truth import load_dataset, score_draft
 
     draft = args.draft.resolve()
+    try:
+        text = draft.read_text(encoding="utf-8")
+    except UnicodeDecodeError as error:
+        # A ValueError, so ``run``'s handler does not catch it and the
+        # operator would meet a traceback where every other bad input to this
+        # package produces one line and exit 1.
+        raise ExperimentError(
+            f"{draft} is not UTF-8 text ({error}); a draft is prose to search, "
+            "and bytes that do not decode state nothing that could be scored"
+        ) from error
     dataset = load_dataset()
-    report = score_draft(draft.read_text(), dataset["entries"])
+    report = score_draft(text, dataset["entries"])
     path = _write_ground_truth(
         args.out.resolve(), draft=draft, dataset=dataset, report=report
     )
@@ -1164,7 +1188,15 @@ def _ground_truth_run(args: argparse.Namespace) -> int:
         print("claim accuracy: not measured; the draft attempted no entry")
     else:
         print(f"claim accuracy: {len(report.matched)} of {len(report.attempted)}")
-    print(f"excluded: {len(report.excluded)} entries whose value is not a number")
+    # Grouped by reason rather than counted in one lump: "whose value is not a
+    # number" was true of every excluded entry when there was one reason, and
+    # false of four of six the moment a second was added.
+    counts: dict[str, int] = {}
+    for _, reason in report.excluded_because:
+        counts[reason] = counts.get(reason, 0) + 1
+    print(f"excluded: {len(report.excluded)} entries nothing could score")
+    for reason, count in counts.items():
+        print(f"  {count} because {reason}")
     return 0
 
 

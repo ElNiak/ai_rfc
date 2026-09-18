@@ -20,6 +20,8 @@ import pytest
 
 from ai_rfc.experiment import ExperimentError
 from ai_rfc.experiment.ground_truth import (
+    EXCLUDED_DECIMAL,
+    EXCLUDED_NOT_A_NUMBER,
     NEARBY_CHARS,
     load_dataset,
     resolve_anchors,
@@ -236,6 +238,11 @@ def test_every_cited_line_spells_the_assignment_it_claims(pinned_checkout):
 #: lines so that a symbol is further than ``NEARBY_CHARS`` from its own value
 #: and the draft stops stating that fact, which is the matcher working and
 #: not a regression in it.
+#:
+#: The four stream types are absent because they are no longer scored: their
+#: values are bare decimal digits, which prose does not distinguish from any
+#: other number, so they are excluded. Stating them here would not raise the
+#: recall and would make this literal disagree with its own name.
 STATES_EVERY_SCORED_ENTRY = """\
 H3_DATAGRAM_ERROR is 0x33.
 H3_NO_ERROR is 0x100.
@@ -272,10 +279,6 @@ SETTINGS_QPACK_BLOCKED_STREAMS is 0x7.
 SETTINGS_ENABLE_CONNECT_PROTOCOL is 0x8.
 SETTINGS_H3_DATAGRAM is 0x33.
 aioquic sends a DUMMY setting identifier 0x21.
-The control stream has stream type 0.
-The push stream has stream type 1.
-The QPACK encoder stream has stream type 2.
-The QPACK decoder stream has stream type 3.
 """
 
 
@@ -284,24 +287,36 @@ def test_resolve_anchors_agrees_with_the_two_anchor_tests(pinned_checkout):
 
     They stay, and this does not replace them: they name the entry and the
     line that disagreed, which a tuple of ids cannot. What this adds is that
-    the function the verb's callers use resolves the same 41 triples against
-    the same checkout, so the two cannot drift apart.
+    the library form resolves the same 41 triples against the same checkout,
+    so the two cannot drift apart. No verb calls it -- it is the resolver a
+    caller outside this suite would reach for, and the point of pinning it
+    here is that it already agrees with the assertions above before it has
+    one.
     """
     assert resolve_anchors(load_dataset()["entries"], pinned_checkout) == ()
 
 
 def test_resolve_anchors_names_every_entry_the_checkout_does_not_bear(tmp_path):
-    """All three ways an anchor fails, against a tree built here.
+    """Every way an anchor fails, against a tree built here.
 
     No skip guard, because nothing in it is evidence kept outside the
-    repository: an absent file, a line past the end and a line that spells a
-    different assignment are properties of the resolver, not of aioquic.
+    repository: an absent file, a line past the end, a line that spells a
+    different assignment and a path that leaves the tree are properties of the
+    resolver, not of aioquic.
+
+    ``contained-value`` is the case that separates equality from a substring
+    check. The other wrong value, ``0x3`` against ``Y = 0x2``, fails both, so
+    a resolver mutated to ``entry["value"] not in line`` would report it and
+    stay green -- which is the defect this row already met once, in the
+    matcher. ``0x10`` *is* contained in ``Z = 0x10A``, so only equality
+    reports it.
     """
     (tmp_path / "src").mkdir()
-    (tmp_path / "src" / "connection.py").write_text("X = 0x1\nY = 0x2\n")
+    (tmp_path / "src" / "connection.py").write_text("X = 0x1\nY = 0x2\nZ = 0x10A\n")
     entries = [
         {"id": "resolves", "symbol": "X", "value": "0x1", "source": _at(1)},
         {"id": "wrong-value", "symbol": "Y", "value": "0x3", "source": _at(2)},
+        {"id": "contained-value", "symbol": "Z", "value": "0x10", "source": _at(3)},
         {"id": "past-the-end", "symbol": "X", "value": "0x1", "source": _at(9)},
         {
             "id": "no-such-file",
@@ -312,9 +327,43 @@ def test_resolve_anchors_names_every_entry_the_checkout_does_not_bear(tmp_path):
     ]
     assert resolve_anchors(entries, tmp_path) == (
         "wrong-value",
+        "contained-value",
         "past-the-end",
         "no-such-file",
     )
+
+
+def test_resolve_anchors_refuses_a_path_that_leaves_the_checkout(tmp_path):
+    """An absolute path is not resolved against the clone -- it replaces it.
+
+    ``clone / "/etc/passwd"`` is ``/etc/passwd``, which exists, is a file and
+    would be read before anything noticed that its first line is not the
+    assignment claimed. A ``..`` chain is the same hole spelled relatively.
+    Both are reported unresolved, which is true of the checkout: it does not
+    bear the anchor. The packaged dataset's own suite forbids both shapes, so
+    this is a second boundary for the entries a caller assembles itself.
+    """
+    outside = tmp_path / "outside.py"
+    outside.write_text("X = 0x1\n")
+    clone = tmp_path / "clone"
+    (clone / "src").mkdir(parents=True)
+    (clone / "src" / "connection.py").write_text("X = 0x1\n")
+    entries = [
+        {"id": "inside", "symbol": "X", "value": "0x1", "source": _at(1)},
+        {
+            "id": "absolute",
+            "symbol": "X",
+            "value": "0x1",
+            "source": {"path": str(outside), "line": 1},
+        },
+        {
+            "id": "climbs-out",
+            "symbol": "X",
+            "value": "0x1",
+            "source": {"path": "../outside.py", "line": 1},
+        },
+    ]
+    assert resolve_anchors(entries, clone) == ("absolute", "climbs-out")
 
 
 def _at(line: int) -> dict:
@@ -342,35 +391,80 @@ def test_a_value_coerced_out_of_text_is_refused_rather_than_scored():
 def test_a_draft_that_states_nothing_measures_a_zero_and_no_accuracy():
     """The distinction this axis exists to keep.
 
-    ``recall`` is a *measured* zero: 39 entries were looked for and none of
+    ``recall`` is a *measured* zero: 35 entries were looked for and none of
     them found. ``claim_accuracy`` is not a zero at all -- the draft made no
     checkable claim, so there is nothing its accuracy could be the accuracy
     of. Written as 0.0 it would read as "every claim it made was wrong".
     """
     report = score_draft("", load_dataset()["entries"])
-    assert report.scored == 39
+    assert report.scored == 35
     assert report.recall == 0.0
     assert report.claim_accuracy is None
     assert report.attempted == ()
-    assert len(report.missed) == 39
+    assert len(report.missed) == 35
 
 
-def test_the_entries_left_out_are_the_ones_whose_value_is_no_number():
-    """Excluded by the shape of the value, never by the ``kind`` beside it.
+def test_an_empty_dataset_scores_no_recall_rather_than_a_recall_of_zero():
+    """The other half of the distinction above, and the one with no draft in it.
 
-    The two are the ``kind: constant`` entries today, and naming them here is
-    what makes that a visible choice: a constant whose value *is* a number
-    would be scored, and a future entry of any kind whose value is a Python
-    literal would be excluded, and either would fail this line rather than
-    move the denominator in silence.
+    A zero recall says entries were looked for and not found. With nothing to
+    look for there is no such measurement, and 0.0 would report that a draft
+    failed a test nobody set. The two cases are one line apart in the source
+    and read identically in a report, so only this pins which is which.
+    """
+    report = score_draft("H3_NO_ERROR is 0x100.", [])
+    assert report.scored == 0
+    assert report.recall is None
+    assert report.claim_accuracy is None
+
+
+def test_the_entries_left_out_are_named_with_the_reason_each_is_left_out():
+    """Excluded by how the value is spelled, never by the ``kind`` beside it.
+
+    Six entries, for two reasons that are not interchangeable, so the report
+    states which applies to each. Two are values no prose draft spells at all;
+    four are the stream types, whose values are bare decimal digits. Naming
+    them here is what makes the second exclusion a visible choice: an entry of
+    any kind whose value is a hex literal is scored, and one of any kind whose
+    value is a decimal numeral is not, and either drifting would fail this
+    line rather than move the denominator in silence.
     """
     report = score_draft("", load_dataset()["entries"])
-    assert report.excluded == ("h3-const-alpn", "h3-const-reserved-settings")
+    assert report.excluded_because == (
+        ("h3-const-alpn", EXCLUDED_NOT_A_NUMBER),
+        ("h3-const-reserved-settings", EXCLUDED_NOT_A_NUMBER),
+        ("h3-stream-control", EXCLUDED_DECIMAL),
+        ("h3-stream-push", EXCLUDED_DECIMAL),
+        ("h3-stream-qpack-encoder", EXCLUDED_DECIMAL),
+        ("h3-stream-qpack-decoder", EXCLUDED_DECIMAL),
+    )
     assert report.scored + len(report.excluded) == 41
 
 
+def test_a_decimal_value_is_excluded_and_a_hex_one_of_the_same_kind_is_not():
+    """The criterion is the value's spelling, pinned off the dataset.
+
+    Every decimal entry the dataset carries today is a ``stream_type``, so an
+    assertion made only against it cannot tell a rule about decimals from a
+    rule about that ``kind`` -- which is the second dataset the exclusion was
+    written to avoid becoming. These two entries share a ``kind`` and differ
+    only in how the value is spelled.
+
+    ``1024`` is deliberately not a single digit: a rule drawn at "one digit"
+    would score it, and prose near a symbol carries numbers of every length.
+    """
+    entries = [
+        {"id": "dec", "symbol": "WIDGET_A", "value": "1024", "kind": "setting"},
+        {"id": "hex", "symbol": "WIDGET_B", "value": "0x400", "kind": "setting"},
+    ]
+    report = score_draft("WIDGET_A is 1024 and WIDGET_B is 0x400.", entries)
+    assert report.excluded_because == (("dec", EXCLUDED_DECIMAL),)
+    assert report.matched == ("hex",)
+    assert report.scored == 1
+
+
 def test_a_draft_stating_every_scored_entry_recalls_all_of_them():
-    """The ceiling is reachable: 39 of 39, with nothing attempted in vain."""
+    """The ceiling is reachable: 35 of 35, with nothing attempted in vain."""
     report = score_draft(STATES_EVERY_SCORED_ENTRY, load_dataset()["entries"])
     assert report.missed == ()
     assert report.mismatched == ()
@@ -396,15 +490,19 @@ def test_a_symbol_beside_the_wrong_value_is_attempted_and_not_matched():
     assert report.mismatched == ("h3-error-no-error",)
     assert "h3-error-no-error" not in report.missed
     assert report.claim_accuracy == 0.5
-    assert report.recall == pytest.approx(1 / 39)
+    assert report.recall == pytest.approx(1 / 35)
 
 
 def test_a_value_further_away_than_the_window_is_not_a_claim_about_it():
     """Proximity is the whole of the predicate's notion of "about".
 
-    A draft holding the symbol in one paragraph and the number in another
-    states no relation between them, and a matcher that read one anyway would
-    score a draft for the words it happens to contain.
+    The window is measured on the *normalised* text, and that is not a
+    detail: :func:`_normalised` collapses any run of whitespace to one space,
+    so a paragraph break costs a single character and two hundred blank lines
+    between a symbol and a number leave them adjacent. What separates a claim
+    from a coincidence here is therefore the count of intervening characters
+    and nothing else -- which is why the filler below is a long unbroken run
+    of words rather than the paragraph break a reader might picture.
     """
     entries = load_dataset()["entries"]
     filler = "filler " * ((NEARBY_CHARS // 7) + 4)
@@ -420,25 +518,25 @@ def test_a_value_further_away_than_the_window_is_not_a_claim_about_it():
     assert near.matched == ("h3-error-no-error",)
 
 
-def test_a_symbol_the_draft_wrote_only_inside_a_longer_one_is_not_a_claim():
+def test_the_push_stream_type_is_now_excluded_rather_than_disambiguated():
     """``PUSH`` inside ``CANCEL_PUSH`` credited the push stream type.
 
-    The prefix side of the symbol boundary is deliberately loose, so the
-    ``push`` of ``cancel_push`` matched the stream type's bare ``PUSH`` and the
-    ``1`` of the same sentence sat well inside the window. The draft says
-    nothing about stream types, so both the recall and the accuracy were being
-    moved by a claim it never made.
+    That was repaired by the disambiguation, and then the entry left the
+    scored set altogether: its value is the bare decimal ``1``, and any ``1``
+    within the window credited it whether or not the draft meant a stream
+    type. So this sentence is now clean for two independent reasons, and the
+    assertion is written on the second -- the entry is *excluded*, which is a
+    stronger fact than "not attempted" and the one that is now load-bearing.
 
-    The sentence cancels "exactly 1 promise" rather than the "1 push id" the
-    frame really carries, because a bare ``push`` written beside a ``1`` is a
-    mention of the stream type as far as any matcher over prose can tell. That
-    one is the window's limitation, not this one, and no rule drawn from the
-    dataset removes it.
+    The disambiguation itself is still live and still needed, for the
+    ``SETTINGS`` inside ``H3_MISSING_SETTINGS`` and ``RESERVED_SETTINGS``; the
+    two tests below it pin that. Nothing here should be read as saying it was
+    retired.
     """
     draft = "A CANCEL_PUSH frame has type 0x3 and cancels exactly 1 promise."
     report = score_draft(draft, load_dataset()["entries"])
+    assert "h3-stream-push" in report.excluded
     assert "h3-stream-push" not in report.attempted
-    assert "h3-stream-push" not in report.matched
     assert "h3-frame-cancel-push" in report.matched
 
 
@@ -496,3 +594,108 @@ def test_the_rfcs_settings_prefix_still_credits_aioquics_bare_symbol():
     draft = "The setting SETTINGS_MAX_FIELD_SECTION_SIZE is 0x6, unlimited by default."
     report = score_draft(draft, load_dataset()["entries"])
     assert "h3-setting-max-field-section-size" in report.matched
+
+
+def test_a_symbol_coerced_out_of_text_is_refused_like_a_value():
+    """The boundary guard covers both fields, and says what each one costs.
+
+    The guard on ``value`` has a test of its own above. This is the other
+    field it protects, and the harm is not the same one: a coerced value goes
+    on being *scored*, against the wrong number in the wrong base, while a
+    coerced symbol is what the draft is *searched for*, so the entry quietly
+    stops matching any draft and reads as a miss. Drop the guard on the symbol
+    -- coerce it with ``str()`` instead, which is all it would take -- and
+    nothing anywhere says the entry has stopped being findable.
+    """
+    entry = {"id": "coerced", "symbol": 256, "value": "0x100"}
+    with pytest.raises(ExperimentError) as refused:
+        score_draft("H3_NO_ERROR is 0x100.", [entry])
+    assert "coerced" in str(refused.value)
+    assert "symbol" in str(refused.value)
+    assert "miss" in str(refused.value)
+
+
+def test_a_hex_run_an_identifier_leads_into_is_not_a_value():
+    """The hex token's left guard, which nothing else pins.
+
+    ``frame0x100`` is an identifier that merely ends in a hex-looking run, and
+    reading a value out of it credits a draft for a name it wrote rather than
+    a claim it made. Note what is *not* doing this work: keeping ``0x10`` out
+    of ``0x10a`` is the greedy ``+``, and would survive both guards being
+    deleted.
+    """
+    draft = "H3_NO_ERROR is documented in the frame0x100 dissector."
+    report = score_draft(draft, load_dataset()["entries"])
+    assert "h3-error-no-error" in report.missed
+    assert report.attempted == ()
+
+
+def test_a_hex_run_an_identifier_continues_from_is_not_a_value():
+    """The hex token's right guard, the mirror of the one above.
+
+    ``0x10_bad`` is a fixture's name, not the number ``0x10``. Without the
+    guard the run stops at the underscore and yields ``0x10``, which is a
+    wrong value for this error code -- so the entry would be reported as an
+    attempt the draft never made, moving the accuracy's denominator.
+    """
+    draft = "H3_MISSING_SETTINGS is 0x10_bad in the fixture."
+    report = score_draft(draft, load_dataset()["entries"])
+    assert "h3-error-missing-settings" in report.missed
+    assert report.attempted == ()
+
+
+def test_a_symbol_a_longer_word_merely_ends_with_is_not_a_naming():
+    """The symbol pattern's left guard, which the disambiguation cannot cover.
+
+    ``DATA`` sits inside "metadata", which is an English word and no entry's
+    symbol, so :func:`_inside_a_longer_symbol` has nothing to recognise it by
+    -- only the lookbehind keeps the frame type out of this sentence. This is
+    the guard the settings entries force to be a *lookbehind* on the character
+    class rather than a word boundary: a word boundary here would take the
+    five ``SETTINGS_X`` credits with it, which the test above pins.
+    """
+    draft = "The metadata section carries 0x0 bytes of padding."
+    report = score_draft(draft, load_dataset()["entries"])
+    assert "h3-frame-data" in report.missed
+    assert report.attempted == ()
+
+
+@pytest.mark.parametrize(
+    "draft",
+    [
+        "The flow control window starts at 0.",
+        "The server may push 1 response.",
+        "The QPACK decoder stream was written on 2026-09-03.",
+        "HTTP/3 defines 2 unidirectional stream types the QPACK encoder uses.",
+    ],
+    ids=["quic-flow-control", "ordinary-english", "a-date", "a-count"],
+)
+def test_prose_that_claims_no_stream_type_is_credited_with_none(draft):
+    """Why a bare decimal value cannot be evidence, in the drafts that showed it.
+
+    Each of these was scored as a *correct* statement of a stream type before
+    the exclusion: the flow-control sentence is about QUIC and claims nothing
+    about stream types, "push 1 response" is ordinary English, and the date's
+    ``03`` is a day of the month. Recall was being paid for non-claims, and
+    the accuracy's denominator was counting claims no draft had made.
+
+    The failure is not the window's width -- every one of these numbers is in
+    the same clause as the symbol -- so no narrowing of it would have helped.
+    """
+    report = score_draft(draft, load_dataset()["entries"])
+    assert report.attempted == ()
+    assert report.matched == ()
+
+
+def test_a_real_claim_beside_a_citation_is_still_credited():
+    """The exclusion must not be paid for by refusing genuine claims.
+
+    A draft of this document type cites ``RFC 9114`` on every page, and those
+    four digits sit well inside the window of any symbol on the line. The
+    frame type's value is hex, so the citation cannot be mistaken for it, and
+    the claim the sentence really makes is credited.
+    """
+    draft = "The CANCEL_PUSH frame has type 0x3 (RFC 9114 Section 7.2.3)."
+    report = score_draft(draft, load_dataset()["entries"])
+    assert report.matched == ("h3-frame-cancel-push",)
+    assert report.mismatched == ()
