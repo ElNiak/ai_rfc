@@ -1,12 +1,17 @@
 # Ground truth for the aioquic w02-11 window, HTTP/3 scope.
 #
 # Every entry is anchored twice: `source` names a file and a line in the pinned
-# checkout, and `value` is the literal that line spells. Both are checked by
+# checkout, and that line spells exactly `symbol = value`. Both are checked by
 # tests/experiment/test_ground_truth.py, so an entry cannot drift silently.
 #
-# `symbol` and `value` are quoted deliberately. YAML reads a bare 0x100 as the
-# integer 256, and a substring check against a source line would then be
-# vacuous.
+# `value` and `section` are quoted deliberately; `symbol` is a bareword on every
+# entry. YAML reads a bare 0x100 as the integer 256 and a bare 8.10 as the float
+# 8.1. The isinstance guards in tests/experiment/test_ground_truth.py are what
+# hold all three fields to text, and they are what reports a coercion in the
+# field that was coerced: an int value would still fail the anchor, but as a
+# line mismatch that reads like a wrong citation, and a float section compared
+# as str(8.1) would match the citation pattern outright, silently moving the
+# citation to Section 8.1.
 #
 # Scope: src/aioquic/h3/ only. Members whose specification is a WebTransport
 # draft (FrameType.WEBTRANSPORT_STREAM, Setting.ENABLE_WEBTRANSPORT,
@@ -26,19 +31,27 @@
 # appear together, and Section 7.2.4.1 does not reach 0x0, which Appendix A.3
 # shows was never an HTTP/2 setting. h3-error-datagram-error cites RFC 9297
 # Section 5.2 because RFC 9297 gives the code's meaning only in that registry
-# entry; Section 2.1 invokes H3_DATAGRAM_ERROR (0x33) in two error rules
+# entry; Sections 2 and 2.1 invoke H3_DATAGRAM_ERROR (0x33) in error rules
 # without saying what it signals.
 #
 # Provenance of the RFC mapping, which no test here checks: on 2026-09-18 all
 # 41 entries were checked against RFC 9114, 9204, 9220 and 9297 fetched from
-# rfc-editor.org, by confirming that each entry's value appears in the body of
-# the section it cites. The 39 entries whose value is numeric were checked
-# mechanically, by comparing integers rather than text -- the RFC writes
-# 0x0100 where aioquic writes 0x100, so a text comparison would have reported
-# every error code as a miss. The 2 entries whose value is not numeric,
-# h3-const-alpn and h3-const-reserved-settings, were checked by reading the
-# cited section, as were the six entries whose citation was corrected later
-# that day. What that establishes is that the value is present in the cited
+# rfc-editor.org, by confirming that each entry's value is supported by the
+# body of the section it cites. The 39 entries whose value is numeric were
+# checked mechanically, by comparing integers rather than text -- the RFC
+# writes 0x0100 where aioquic writes 0x100, so a text comparison would have
+# reported every error code as a miss. The 2 entries whose value is not
+# numeric, h3-const-alpn and h3-const-reserved-settings, were checked by
+# reading the cited section, and for those two "supported by" is weaker than
+# "appears in": Section 3.2 of RFC 9114 carries the token "h3", not the literal
+# ["h3"], and Section 11.2.2 carries the five reserved identifiers as separate
+# Table 3 rows, not as the tuple (0x0, 0x2, 0x3, 0x4, 0x5).
+#
+# Six entries had their citation corrected later that day, and those two are
+# among the six, so the union is six entries and not eight. The other four are
+# numeric, which means their mechanical result pertains to the citation the
+# correction superseded; only the re-read of the corrected section covers them.
+# What all of this establishes is that the value is supported by the cited
 # section. It does not establish that the cited section is the best support
 # for the statement, and no test in this repository can decide either
 # question.
