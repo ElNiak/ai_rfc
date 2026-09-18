@@ -81,8 +81,17 @@ def test_every_entry_has_a_unique_id_and_the_required_fields():
         assert {"doc", "section"} <= entry["rfc"].keys()
 
 
-def test_the_dataset_ships_in_the_wheel():
-    """D-8: packages.find needs __init__.py; package-data needs the entry."""
+def test_the_dataset_is_reachable_as_a_package_resource():
+    """The YAML resolves through the package, not through a filesystem path.
+
+    This runs against the source tree, where ``is_file()`` holds whenever the
+    YAML sits beside ``__init__.py``, so it would stay green with the
+    ``package-data`` entry deleted and says nothing about the wheel. The
+    evidence for the wheel is the build measured in
+    ``ai_rfc/experiment/groundtruth/__init__.py``: on setuptools 65.5.0 and
+    CPython 3.10.12 the ``package-data`` entry is the load-bearing half, and
+    dropping ``__init__.py`` does not by itself lose the YAML.
+    """
     import importlib.resources as res
 
     assert (

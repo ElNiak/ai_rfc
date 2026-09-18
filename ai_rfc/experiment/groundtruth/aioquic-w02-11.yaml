@@ -12,6 +12,25 @@
 # draft (FrameType.WEBTRANSPORT_STREAM, Setting.ENABLE_WEBTRANSPORT,
 # StreamType.WEBTRANSPORT) and FrameType.DUPLICATE_PUSH, which no published RFC
 # registers, are omitted rather than cited to a document that was not read.
+#
+# Which section to cite: the one that establishes the claim the statement
+# makes. A behavioural claim cites the normative section; a claim about a
+# registration cites the registry section. That is why the error codes cite
+# the section that defines them (RFC 9114 Section 8.1, RFC 9204 Section 6,
+# RFC 9297 Section 5.2) and not the Section 11.2.3 registry, while
+# h3-frame-priority-reserved cites the Section 11.2.1 registry: its statement
+# is that RFC 9114 registers 0x02 as Reserved, which is a claim about the
+# registration itself.
+#
+# Provenance of the RFC mapping, which no test here checks: on 2026-09-18 all
+# 41 entries were checked against RFC 9114, 9204, 9220 and 9297 fetched from
+# rfc-editor.org, by confirming that each entry's value appears in the body of
+# the section it cites, with numeric values compared as integers rather than
+# as text -- the RFC writes 0x0100 where aioquic writes 0x100, so a substring
+# check would have reported every error code as a miss. 41 of 41 were checked.
+# What that establishes is that the value is present in the cited section. It
+# does not establish that the cited section is the best support for the
+# statement, and no test in this repository can decide either question.
 repository: https://github.com/aiortc/aioquic
 commit: 6d36838d008c2202c337142fa07e8bf80e96bac8
 entries:
@@ -40,7 +59,7 @@ entries:
       line: 27
     rfc:
       doc: RFC 9114
-      section: "11.2.2"
+      section: "7.2.4.1"
     kind: constant
 
   - id: h3-error-datagram-error
