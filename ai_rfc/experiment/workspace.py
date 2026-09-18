@@ -329,6 +329,7 @@ def prepare(
     config_path: Path,
     template: str = TEMPLATE_URL,
     template_commit: str = TEMPLATE_COMMIT,
+    forge_snapshot: Path | None = None,
 ) -> Path:
     """Build a campaign's pristine workspace from a config, under ``root/pristine/``.
 
@@ -343,6 +344,10 @@ def prepare(
         config_path: Where the config was read from; its digest is recorded.
         template: Draft template clone source.
         template_commit: The commit the draft scaffold is pinned to.
+        forge_snapshot: A snapshot directory to adopt instead of fetching one.
+            A window's cluster ids follow the snapshot's pull rows, so rebuilding
+            one that must match an earlier reconstruction means carrying that
+            capture across rather than refetching a forge that has moved on.
 
     Returns:
         The pristine directory.
@@ -365,6 +370,7 @@ def prepare(
             dest=pristine,
             template=template,
             template_commit=template_commit,
+            forge_snapshot=forge_snapshot,
         )
     except LifecycleError as error:
         raise ExperimentError(str(error)) from None

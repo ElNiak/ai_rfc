@@ -3,11 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from ai_rfc.forge.adopt import read_records
-from ai_rfc.forge.store import (
-    ForgeError,
-    write_snapshot,
-)
+from ai_rfc.forge.adopt import adopt_snapshot, read_records
+from ai_rfc.forge.store import ForgeError, read_snapshot, write_snapshot
 
 pytestmark = pytest.mark.unit
 
@@ -114,3 +111,66 @@ def test_an_unknown_comment_kind_is_refused_by_the_writer(tmp_path: Path):
             acquisition="adopt",
             fidelity_ceiling="pulls",
         )
+
+
+def _snapshot(out_root: Path, *, fetched_at: str = "2026-08-25T15-16-59Z") -> Path:
+    """A snapshot carrying discussion, written the only way snapshots are."""
+    return write_snapshot(
+        out_root,
+        host="forge.example",
+        owner="aiortc",
+        repo="aioquic",
+        kind="gitlab",
+        clone_head="6d36838d008c2202c337142fa07e8bf80e96bac8",
+        fetched_at=fetched_at,
+        authenticated=True,
+        pulls=[{"number": 7, "merged_at": "x", "merge_commit_sha": "c" * 40}],
+        reviews=[{"pr_number": 7, "id": 1, "state": "APPROVED"}],
+        comments=[
+            {
+                "pr_number": 7,
+                "id": 2,
+                "kind": "issue_comment",
+                "created_at": "2026-08-01T00:00:00Z",
+                "body": "b",
+            }
+        ],
+    )
+
+
+def test_adopting_a_snapshot_carries_its_rows_and_its_provenance(tmp_path: Path):
+    """A snapshot another operator fetched is re-filed without being refetched.
+
+    The rows must survive byte-for-byte, because the timeline clusters from
+    ``pulls.jsonl`` alone and a reconstruction's cluster ids are only stable
+    while those rows are. What must *not* survive is the claim that this
+    process fetched them: ``acquisition`` says ``adopt``.
+    """
+    source = _snapshot(tmp_path / "source")
+
+    adopted = adopt_snapshot(source, tmp_path / "workspace-forge")
+
+    before, after = read_snapshot(source), read_snapshot(adopted)
+    assert after["pulls"] == before["pulls"]
+    assert after["reviews"] == before["reviews"]
+    assert after["comments"] == before["comments"]
+
+    meta = after["meta"]
+    assert meta["acquisition"] == "adopt"
+    assert before["meta"]["acquisition"] == "api"
+    for carried in ("host", "owner", "repo", "kind", "clone_head", "fetched_at"):
+        assert meta[carried] == before["meta"][carried], carried
+    # `complete` is what tells a narrower reconstruction from a broken one, so
+    # adopting a whole snapshot must not quietly downgrade it.
+    assert meta["complete"] is True
+    assert meta["fidelity_ceiling"] == before["meta"]["fidelity_ceiling"]
+
+
+def test_adopting_refuses_to_overwrite_a_snapshot_already_there(tmp_path: Path):
+    """The write-once rule is the writer's, and adopting does not escape it."""
+    source = _snapshot(tmp_path / "source")
+    out = tmp_path / "workspace-forge"
+    adopt_snapshot(source, out)
+
+    with pytest.raises(ForgeError, match="written once"):
+        adopt_snapshot(source, out)

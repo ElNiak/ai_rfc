@@ -1264,6 +1264,15 @@ def configure(parser: argparse.ArgumentParser) -> None:
         help="Toolchain record for sealing declared references, overriding "
         "the config's own.",
     )
+    prepare.add_argument(
+        "--forge-snapshot",
+        type=Path,
+        default=None,
+        help="A snapshot directory to adopt instead of fetching one. Cluster "
+        "ids follow the snapshot's pull rows, so rebuilding a window that must "
+        "match an earlier reconstruction means carrying that capture across "
+        "rather than refetching a forge that has moved on.",
+    )
 
     reseal = workspace_verbs.add_parser(
         "reseal",
@@ -1849,6 +1858,11 @@ def run(args: argparse.Namespace) -> int:
                 config_path=config_path,
                 template=args.template,
                 template_commit=args.template_commit,
+                forge_snapshot=(
+                    None
+                    if args.forge_snapshot is None
+                    else args.forge_snapshot.resolve()
+                ),
             )
             record = json.loads((pristine / "pristine.json").read_text())
             print(f"pristine: {pristine}")

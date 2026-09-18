@@ -23,6 +23,8 @@ import yaml
 
 from ..config import ReconConfig
 from ..draft.build import BuildError, Toolchain, load_toolchain
+from ..forge.adopt import adopt_snapshot
+from ..forge.store import ForgeError
 from ..pipeline.run import perform
 from ..pipeline.stages import BY_NAME
 from ..pipeline.workspace import Workspace
@@ -147,19 +149,31 @@ class Acquired:
     forge_snapshot: str | None
 
 
-def acquire(config: ReconConfig, layout: Layout) -> Acquired:
+def acquire(
+    config: ReconConfig, layout: Layout, *, forge_snapshot: Path | None = None
+) -> Acquired:
     """Clone the source at its pin and fetch the forge snapshot — the networked phase.
+
+    ``forge_snapshot`` adopts a capture instead of fetching one, which is the
+    only way to prepare a window whose cluster ids must match a reconstruction
+    made earlier: those ids follow the snapshot's pull rows, and a refetch
+    describes a repository that has moved on since. Adopting keeps the phase
+    offline, so this is the networked phase only when it fetches.
 
     Args:
         config: The validated configuration.
         layout: The workspace to fill.
+        forge_snapshot: A snapshot directory to adopt in place of fetching.
+            Adopted whatever ``source.host`` says, because naming one is an
+            explicit answer to where the records come from.
 
     Returns:
-        The resolved pin and the snapshot directory name, if a forge was fetched.
+        The resolved pin and the snapshot directory name, if a forge snapshot
+        was fetched or adopted.
 
     Raises:
-        LifecycleError: If the clone or the checkout fails, or the forge stage
-            refuses.
+        LifecycleError: If the clone or the checkout fails, the forge stage
+            refuses, or the snapshot cannot be adopted.
     """
     cloned = _run_git("clone", "-q", config.source.repo, str(layout.clone))
     if cloned.returncode != 0:
@@ -176,7 +190,16 @@ def acquire(config: ReconConfig, layout: Layout) -> Acquired:
         )
     resolved = _git(layout.clone, "rev-parse", "HEAD")
     snapshot: str | None = None
-    if config.source.host != "none":
+    if forge_snapshot is not None:
+        try:
+            adopt_snapshot(forge_snapshot, layout.forge)
+        except (ForgeError, OSError, KeyError) as error:
+            raise LifecycleError(
+                f"adopting {forge_snapshot} failed: {error}"
+            ) from error
+        latest = layout.latest_forge_snapshot()
+        snapshot = latest.name if latest else None
+    elif config.source.host != "none":
         result = perform(
             BY_NAME["forge"],
             layout,

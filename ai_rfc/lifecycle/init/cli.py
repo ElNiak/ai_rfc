@@ -35,6 +35,7 @@ def initialise(
     dest: Path | None = None,
     template: str = TEMPLATE_URL,
     template_commit: str = TEMPLATE_COMMIT,
+    forge_snapshot: Path | None = None,
 ) -> Path:
     """Create and fill the workspace.
 
@@ -44,6 +45,8 @@ def initialise(
         dest: Workspace root overriding ``config.workspace`` (campaign pristines).
         template: Internet-Draft template clone source.
         template_commit: The commit the draft scaffold is pinned to.
+        forge_snapshot: A snapshot directory to adopt in place of fetching one,
+            so a window can be rebuilt from forge data captured earlier.
 
     Returns:
         The workspace root.
@@ -70,6 +73,7 @@ def initialise(
             toolchain=toolchain,
             template=template,
             template_commit=template_commit,
+            forge_snapshot=forge_snapshot,
         )
     # BaseException, not Exception: a Ctrl-C landing mid-clone leaves exactly
     # the half-built tree the next attempt would refuse as already initialised.
@@ -88,9 +92,10 @@ def _fill(
     toolchain: Toolchain | None,
     template: str,
     template_commit: str,
+    forge_snapshot: Path | None = None,
 ) -> Path:
     """Acquire, scaffold and seal into a workspace root that already exists."""
-    acquired = acquire(config, layout)
+    acquired = acquire(config, layout, forge_snapshot=forge_snapshot)
     draft_head = scaffold(
         config, layout, template=template, template_commit=template_commit
     )

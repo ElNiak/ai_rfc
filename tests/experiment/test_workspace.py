@@ -231,6 +231,55 @@ def test_copy_refuses_a_tampered_pristine(sealed, tmp_path):
     assert "does not verify" in str(excinfo.value)
 
 
+def test_prepare_adopts_captured_forge_data_instead_of_fetching_it(
+    fixture_workspace, template_repo, tmp_path
+):
+    """A window is prepared from forge data captured earlier, not refetched.
+
+    Cluster ids are a function of the snapshot's pull rows, so a window
+    prepared long after its forge data was captured is only reproducible while
+    those rows are the same rows; a refetch describes a repository that has
+    moved on. Nothing here reaches the network, and the stages find the
+    adopted snapshot themselves.
+    """
+    from ai_rfc.forge.store import write_snapshot
+
+    captured = write_snapshot(
+        tmp_path / "captured",
+        host="forge.example",
+        owner="o",
+        repo="r",
+        kind="gitlab",
+        # The timeline refuses a snapshot taken against another state, so the
+        # capture has to describe the clone this window is pinned to.
+        clone_head=git(fixture_workspace / "clone", "rev-parse", "HEAD"),
+        fetched_at="2026-08-25T15-16-59Z",
+        authenticated=True,
+        pulls=[],
+        reviews=[],
+        comments=[],
+    )
+    template, commit = template_repo
+    config, config_path = fixture_config(tmp_path, fixture_workspace)
+
+    pristine = prepare(
+        config,
+        root=tmp_path / "root",
+        config_path=config_path,
+        template=template,
+        template_commit=commit,
+        forge_snapshot=captured,
+    )
+
+    adopted = Layout(pristine).latest_forge_snapshot()
+    assert adopted is not None, "the stages discover the snapshot from forge/"
+    assert adopted.name == "snapshot-2026-08-25T15-16-59Z"
+    meta = json.loads((adopted / "meta.json").read_text())
+    assert meta["acquisition"] == "adopt"
+    assert meta["clone_head"] == git(pristine / "clone", "rev-parse", "HEAD")
+    assert json.loads((pristine / RECORD_FILE).read_text())["forge_snapshot"]
+
+
 @pytest.mark.parametrize("absent", [CONFIG_FILE, INIT_RECORD])
 def test_copy_refuses_a_pristine_the_server_could_not_resolve(sealed, tmp_path, absent):
     """A pristine whose seal is intact but whose context handles are gone.
