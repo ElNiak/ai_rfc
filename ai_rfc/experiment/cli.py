@@ -41,6 +41,7 @@ from .workspace import reseal as reseal_workspace
 
 if TYPE_CHECKING:
     from .config import Campaign
+    from .ground_truth import GroundTruthReport
     from .judge import JudgeReport
 
 #: Cluster rounds between consolidation rounds, read from the schema's declared
@@ -96,6 +97,12 @@ JUDGE_DRAFT_TIMEOUT_S = 600
 #: Where ``judge`` writes one draft's grades and the conditions they were
 #: given under, under the directory ``--out`` names.
 JUDGE_REPORT_FILE = "judge.json"
+
+#: Where ``ground-truth`` writes one draft's standing against the pinned
+#: dataset, under the directory ``--out`` names. Named apart from the
+#: judgement beside it because the two are different kinds of evidence: this
+#: one consulted nothing.
+GROUND_TRUTH_REPORT_FILE = "ground-truth.json"
 
 #: What ``judge`` grades when ``--dimension`` names nothing. Four axes rather
 #: than one overall mark: a single number cannot say whether a draft reads
@@ -1072,6 +1079,95 @@ def _judge_run(args: argparse.Namespace, root: Path) -> int:
     return 0
 
 
+def _write_ground_truth(
+    out: Path,
+    *,
+    draft: Path,
+    dataset: dict[str, Any],
+    report: GroundTruthReport,
+) -> Path:
+    """Write one draft's score and everything needed to read the numbers.
+
+    The two ratios are meaningless alone. ``recall`` needs the count it was
+    taken over, ``claim_accuracy`` needs the count of claims the draft made,
+    and both need the pin the draft was scored against and the window the
+    matcher read proximity in -- two scores taken at different widths are not
+    comparable, and nothing else in the file would say so.
+
+    Args:
+        out: The directory to write into; created if it does not exist.
+        draft: The draft that was scored.
+        dataset: The dataset document the entries came from.
+        report: What :func:`~.ground_truth.score_draft` produced.
+
+    Returns:
+        The file written.
+    """
+    from .ground_truth import DATASET, NEARBY_CHARS
+
+    payload = {
+        "draft": str(draft),
+        "scored_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "dataset": {
+            "name": DATASET,
+            "repository": dataset["repository"],
+            "commit": dataset["commit"],
+        },
+        "nearby_chars": NEARBY_CHARS,
+        "scored": report.scored,
+        "excluded": list(report.excluded),
+        "matched": list(report.matched),
+        "attempted": list(report.attempted),
+        "mismatched": list(report.mismatched),
+        "missed": list(report.missed),
+        "recall": report.recall,
+        # ``None`` survives as null, and it is the point of the axis rather
+        # than an omission: a draft that attempted nothing has an unmeasured
+        # accuracy, which 0.0 and 1.0 both misreport.
+        "claim_accuracy": report.claim_accuracy,
+    }
+    out.mkdir(parents=True, exist_ok=True)
+    path = out / GROUND_TRUTH_REPORT_FILE
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+    return path
+
+
+def _ground_truth_run(args: argparse.Namespace) -> int:
+    """Score one draft against the pinned dataset, asking nothing.
+
+    No ``root``, unlike every other verb that writes evidence: this one reads
+    a draft, reads a dataset out of its own package and writes where ``--out``
+    says. It reaches no runs root, no profile and no model — that independence
+    is the axis, not an economy.
+
+    Args:
+        args: The parsed ``ground-truth`` arguments.
+
+    Returns:
+        0. A low recall is a measurement about a draft, not a gate that failed,
+        and returning 3 for one would put a finding where ``preflight`` and
+        ``judge`` put a refusal.
+    """
+    from .ground_truth import load_dataset, score_draft
+
+    draft = args.draft.resolve()
+    dataset = load_dataset()
+    report = score_draft(draft.read_text(), dataset["entries"])
+    path = _write_ground_truth(
+        args.out.resolve(), draft=draft, dataset=dataset, report=report
+    )
+    print(f"ground-truth: {path}")
+    print(f"recall: {len(report.matched)} of {report.scored} scored")
+    if report.claim_accuracy is None:
+        # Said in words on the terminal too: a reader who sees only this line
+        # must not come away with a number the draft never earned.
+        print("claim accuracy: not measured; the draft attempted no entry")
+    else:
+        print(f"claim accuracy: {len(report.matched)} of {len(report.attempted)}")
+    print(f"excluded: {len(report.excluded)} entries whose value is not a number")
+    return 0
+
+
 def _add_root(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--root",
@@ -1456,6 +1552,29 @@ def configure(parser: argparse.ArgumentParser) -> None:
         help="Seconds before the grading call is killed (default: %(default)s). "
         f"Higher than the per-claim judge's {JUDGE_TIMEOUT_S} and not measured: "
         "no whole-draft call has been timed, so the default is headroom.",
+    )
+
+    # ``ground_truth_cmd``, not ``ground_truth``: the latter would shadow the
+    # module this verb imports, the way ``run_cmd`` above avoids shadowing
+    # ``run``.
+    ground_truth_cmd = commands.add_parser(
+        "ground-truth",
+        help="Score one draft against the pinned dataset, consulting no model.",
+    )
+    ground_truth_cmd.add_argument(
+        "draft",
+        type=Path,
+        help="The draft to score. It is read as prose and searched as written; "
+        "nothing is stripped from it and nothing is sent anywhere.",
+    )
+    ground_truth_cmd.add_argument(
+        "--out",
+        type=Path,
+        required=True,
+        help=f"Directory to write {GROUND_TRUTH_REPORT_FILE} into; created if "
+        "absent. Named rather than defaulted, as for `judge`: a score is "
+        "evidence about one draft, and a shared default would let the next "
+        "draft overwrite it.",
     )
 
     optimize = commands.add_parser(
@@ -1893,6 +2012,8 @@ def run(args: argparse.Namespace) -> int:
                 print(f"builds: {build_tally(aggregate['runs'])}")
         elif args.command == "judge":
             return _judge_run(args, root)
+        elif args.command == "ground-truth":
+            return _ground_truth_run(args)
         elif args.command == "optimize" and args.verb == "seed":
             from .optimize.codec import encode, seed_from_plugin
 

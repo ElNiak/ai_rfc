@@ -6,6 +6,11 @@ source itself: a dataset that passes them is ground truth in a way a judge's
 opinion is not. The anchors skip rather than fail when the checkout is absent
 or sits at a different commit, because the pinned tree is evidence kept
 outside the repository.
+
+The tests below the anchors are about the matcher rather than the dataset, and
+the drafts they score are literals written in this file. A draft assembled
+from the dataset's own statements would shrink with any mutation of the
+dataset and go on scoring 1.0, so it would pin nothing.
 """
 
 import re
@@ -13,7 +18,12 @@ from pathlib import Path
 
 import pytest
 
-from ai_rfc.experiment.ground_truth import load_dataset
+from ai_rfc.experiment.ground_truth import (
+    NEARBY_CHARS,
+    load_dataset,
+    resolve_anchors,
+    score_draft,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -209,3 +219,178 @@ def test_every_cited_line_spells_the_assignment_it_claims(pinned_checkout):
             f"{entry['id']}: {location} is {text.strip()!r}, "
             f"which is not the assignment {expected!r} the entry claims"
         )
+
+
+#: Every entry the matcher scores, stated once each. Written out here rather
+#: than joined from the dataset's own ``statement`` fields: a draft derived
+#: from the dataset shrinks with any mutation of it and goes on scoring 1.0,
+#: which is an expectation that moves with the mutant and pins nothing.
+#:
+#: The settings carry the RFC's ``SETTINGS_`` prefix, which aioquic's symbols
+#: do not. That is not decoration -- it is the case a symmetric word boundary
+#: fails on, and with one it would be five permanent misses here.
+STATES_EVERY_SCORED_ENTRY = """\
+H3_DATAGRAM_ERROR is 0x33.
+H3_NO_ERROR is 0x100.
+H3_GENERAL_PROTOCOL_ERROR is 0x101.
+H3_INTERNAL_ERROR is 0x102.
+H3_STREAM_CREATION_ERROR is 0x103.
+H3_CLOSED_CRITICAL_STREAM is 0x104.
+H3_FRAME_UNEXPECTED is 0x105.
+H3_FRAME_ERROR is 0x106.
+H3_EXCESSIVE_LOAD is 0x107.
+H3_ID_ERROR is 0x108.
+H3_SETTINGS_ERROR is 0x109.
+H3_MISSING_SETTINGS is 0x10A.
+H3_REQUEST_REJECTED is 0x10B.
+H3_REQUEST_CANCELLED is 0x10C.
+H3_REQUEST_INCOMPLETE is 0x10D.
+H3_MESSAGE_ERROR is 0x10E.
+H3_CONNECT_ERROR is 0x10F.
+H3_VERSION_FALLBACK is 0x110.
+QPACK_DECOMPRESSION_FAILED is 0x200.
+QPACK_ENCODER_STREAM_ERROR is 0x201.
+QPACK_DECODER_STREAM_ERROR is 0x202.
+The DATA frame has type 0x0.
+The HEADERS frame has type 0x1.
+aioquic names frame type 0x2 PRIORITY.
+The CANCEL_PUSH frame has type 0x3.
+The SETTINGS frame has type 0x4.
+The PUSH_PROMISE frame has type 0x5.
+The GOAWAY frame has type 0x7.
+The MAX_PUSH_ID frame has type 0xD.
+SETTINGS_QPACK_MAX_TABLE_CAPACITY is 0x1.
+SETTINGS_MAX_FIELD_SECTION_SIZE is 0x6.
+SETTINGS_QPACK_BLOCKED_STREAMS is 0x7.
+SETTINGS_ENABLE_CONNECT_PROTOCOL is 0x8.
+SETTINGS_H3_DATAGRAM is 0x33.
+aioquic sends a DUMMY setting identifier 0x21.
+The control stream has stream type 0.
+The push stream has stream type 1.
+The QPACK encoder stream has stream type 2.
+The QPACK decoder stream has stream type 3.
+"""
+
+
+def test_resolve_anchors_agrees_with_the_two_anchor_tests(pinned_checkout):
+    """The library form of what the two tests above assert entry by entry.
+
+    They stay, and this does not replace them: they name the entry and the
+    line that disagreed, which a tuple of ids cannot. What this adds is that
+    the function the verb's callers use resolves the same 41 triples against
+    the same checkout, so the two cannot drift apart.
+    """
+    assert resolve_anchors(load_dataset()["entries"], pinned_checkout) == ()
+
+
+def test_resolve_anchors_names_every_entry_the_checkout_does_not_bear(tmp_path):
+    """All three ways an anchor fails, against a tree built here.
+
+    No skip guard, because nothing in it is evidence kept outside the
+    repository: an absent file, a line past the end and a line that spells a
+    different assignment are properties of the resolver, not of aioquic.
+    """
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "connection.py").write_text("X = 0x1\nY = 0x2\n")
+    entries = [
+        {"id": "resolves", "symbol": "X", "value": "0x1", "source": _at(1)},
+        {"id": "wrong-value", "symbol": "Y", "value": "0x3", "source": _at(2)},
+        {"id": "past-the-end", "symbol": "X", "value": "0x1", "source": _at(9)},
+        {
+            "id": "no-such-file",
+            "symbol": "X",
+            "value": "0x1",
+            "source": {"path": "src/absent.py", "line": 1},
+        },
+    ]
+    assert resolve_anchors(entries, tmp_path) == (
+        "wrong-value",
+        "past-the-end",
+        "no-such-file",
+    )
+
+
+def _at(line: int) -> dict:
+    """The ``source`` of an entry pointing at one line of the built tree."""
+    return {"path": "src/connection.py", "line": line}
+
+
+def test_a_draft_that_states_nothing_measures_a_zero_and_no_accuracy():
+    """The distinction this axis exists to keep.
+
+    ``recall`` is a *measured* zero: 39 entries were looked for and none of
+    them found. ``claim_accuracy`` is not a zero at all -- the draft made no
+    checkable claim, so there is nothing its accuracy could be the accuracy
+    of. Written as 0.0 it would read as "every claim it made was wrong".
+    """
+    report = score_draft("", load_dataset()["entries"])
+    assert report.scored == 39
+    assert report.recall == 0.0
+    assert report.claim_accuracy is None
+    assert report.attempted == ()
+    assert len(report.missed) == 39
+
+
+def test_the_entries_left_out_are_the_ones_whose_value_is_no_number():
+    """Excluded by the shape of the value, never by the ``kind`` beside it.
+
+    The two are the ``kind: constant`` entries today, and naming them here is
+    what makes that a visible choice: a constant whose value *is* a number
+    would be scored, and a future entry of any kind whose value is a Python
+    literal would be excluded, and either would fail this line rather than
+    move the denominator in silence.
+    """
+    report = score_draft("", load_dataset()["entries"])
+    assert report.excluded == ("h3-const-alpn", "h3-const-reserved-settings")
+    assert report.scored + len(report.excluded) == 41
+
+
+def test_a_draft_stating_every_scored_entry_recalls_all_of_them():
+    """The ceiling is reachable: 39 of 39, with nothing attempted in vain."""
+    report = score_draft(STATES_EVERY_SCORED_ENTRY, load_dataset()["entries"])
+    assert report.missed == ()
+    assert report.mismatched == ()
+    assert report.recall == 1.0
+    assert report.claim_accuracy == 1.0
+
+
+def test_a_symbol_beside_the_wrong_value_is_attempted_and_not_matched():
+    """Without this the others pass on a matcher that matches anything.
+
+    ``0x1000`` is the trap the anchor test met from the other side: it
+    *contains* ``0x100``, so a substring check would read this draft as
+    stating H3_NO_ERROR correctly. Comparing the nearby token as a number is
+    what separates "states this fact" from "contains these characters".
+
+    The wrong claim is a claim: the entry is attempted, so it is not among the
+    missed, and it is the accuracy rather than the recall that carries it.
+    """
+    draft = "H3_NO_ERROR is 0x1000. H3_INTERNAL_ERROR is 0x102."
+    report = score_draft(draft, load_dataset()["entries"])
+    assert set(report.attempted) == {"h3-error-no-error", "h3-error-internal-error"}
+    assert report.matched == ("h3-error-internal-error",)
+    assert report.mismatched == ("h3-error-no-error",)
+    assert "h3-error-no-error" not in report.missed
+    assert report.claim_accuracy == 0.5
+    assert report.recall == pytest.approx(1 / 39)
+
+
+def test_a_value_further_away_than_the_window_is_not_a_claim_about_it():
+    """Proximity is the whole of the predicate's notion of "about".
+
+    A draft holding the symbol in one paragraph and the number in another
+    states no relation between them, and a matcher that read one anyway would
+    score a draft for the words it happens to contain.
+    """
+    entries = load_dataset()["entries"]
+    filler = "filler " * ((NEARBY_CHARS // 7) + 4)
+    assert len(filler) > NEARBY_CHARS
+    report = score_draft(f"H3_NO_ERROR {filler} 0x100", entries)
+    assert "h3-error-no-error" in report.missed
+    assert report.attempted == ()
+    assert report.claim_accuracy is None
+
+    # The same two tokens inside the window are a claim, so what the assertion
+    # above measures is the distance and not the phrasing.
+    near = score_draft("H3_NO_ERROR 0x100", entries)
+    assert near.matched == ("h3-error-no-error",)
