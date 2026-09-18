@@ -418,3 +418,81 @@ def test_a_value_further_away_than_the_window_is_not_a_claim_about_it():
     # above measures is the distance and not the phrasing.
     near = score_draft("H3_NO_ERROR 0x100", entries)
     assert near.matched == ("h3-error-no-error",)
+
+
+def test_a_symbol_the_draft_wrote_only_inside_a_longer_one_is_not_a_claim():
+    """``PUSH`` inside ``CANCEL_PUSH`` credited the push stream type.
+
+    The prefix side of the symbol boundary is deliberately loose, so the
+    ``push`` of ``cancel_push`` matched the stream type's bare ``PUSH`` and the
+    ``1`` of the same sentence sat well inside the window. The draft says
+    nothing about stream types, so both the recall and the accuracy were being
+    moved by a claim it never made.
+
+    The sentence cancels "exactly 1 promise" rather than the "1 push id" the
+    frame really carries, because a bare ``push`` written beside a ``1`` is a
+    mention of the stream type as far as any matcher over prose can tell. That
+    one is the window's limitation, not this one, and no rule drawn from the
+    dataset removes it.
+    """
+    draft = "A CANCEL_PUSH frame has type 0x3 and cancels exactly 1 promise."
+    report = score_draft(draft, load_dataset()["entries"])
+    assert "h3-stream-push" not in report.attempted
+    assert "h3-stream-push" not in report.matched
+    assert "h3-frame-cancel-push" in report.matched
+
+
+def test_an_error_code_named_after_a_frame_does_not_credit_the_frame():
+    """``SETTINGS`` inside ``H3_MISSING_SETTINGS`` credited the SETTINGS frame.
+
+    A draft discussing the error code and writing any hex number within the
+    window was scored as having stated the frame type's value too -- here it
+    even matched it, because the number beside the error code happens to be
+    the frame type's. A real HTTP/3 draft names this error code.
+    """
+    draft = (
+        "The error H3_MISSING_SETTINGS is 0x10A, raised when fewer than "
+        "0x4 bytes arrive."
+    )
+    report = score_draft(draft, load_dataset()["entries"])
+    assert "h3-frame-settings" not in report.attempted
+    assert "h3-frame-settings" not in report.matched
+    assert "h3-error-missing-settings" in report.matched
+
+
+def test_an_excluded_entry_still_disambiguates_the_symbol_it_contains():
+    """``SETTINGS`` inside ``RESERVED_SETTINGS`` credited the SETTINGS frame.
+
+    ``RESERVED_SETTINGS`` is an entry whose value is a Python tuple, so it is
+    excluded from scoring -- and it is exactly the symbol this draft writes.
+    An entry that cannot be scored can still say which symbol a token belongs
+    to, so the disambiguating set is drawn from every entry rather than from
+    the scored ones.
+
+    The second sentence is there so that the assertion cannot pass on a
+    matcher that has stopped matching anything at all.
+    """
+    draft = (
+        "The RESERVED_SETTINGS tuple is (0x0, 0x2, 0x3, 0x4, 0x5). "
+        "H3_NO_ERROR is 0x100."
+    )
+    report = score_draft(draft, load_dataset()["entries"])
+    assert "h3-frame-settings" not in report.attempted
+    assert "h3-frame-settings" not in report.matched
+    assert "h3-const-reserved-settings" in report.excluded
+    assert "h3-error-no-error" in report.matched
+
+
+def test_the_rfcs_settings_prefix_still_credits_aioquics_bare_symbol():
+    """The behaviour the disambiguation must not take with it.
+
+    The RFCs name every setting ``SETTINGS_X`` where aioquic's symbol is the
+    bare ``X``, which is why nothing identifier-like may follow a symbol while
+    a separator may precede it. ``SETTINGS_MAX_FIELD_SECTION_SIZE`` is not
+    itself an entry's symbol, so it names no other entry and the credit
+    stands. Replace the asymmetric boundary with a symmetric word boundary and
+    this fails, along with the four other setting entries.
+    """
+    draft = "The setting SETTINGS_MAX_FIELD_SECTION_SIZE is 0x6, unlimited by default."
+    report = score_draft(draft, load_dataset()["entries"])
+    assert "h3-setting-max-field-section-size" in report.matched

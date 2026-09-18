@@ -172,6 +172,13 @@ def score_draft(text: str, entries: list[dict]) -> GroundTruthReport:
     shaped like the entry's value. It is *matched* when one of those tokens
     equals the value numerically. Anything else is *missed*.
 
+    A symbol the draft wrote only inside a longer symbol *the dataset also
+    carries* is not a naming of it: the ``PUSH`` of ``CANCEL_PUSH`` belongs to
+    the frame type, not to the push stream. The disambiguation is read off the
+    entries rather than off a list of prefixes kept here, because a list would
+    be a second dataset to keep in step with the first and would go stale the
+    first time an entry was added.
+
     What the predicate can discriminate: a different number. Tokens are
     compared as numbers, so ``0x10a`` and ``0x10A`` agree while ``0x100`` and
     ``0x1000`` do not -- the substring reading that a containing number
@@ -180,12 +187,13 @@ def score_draft(text: str, entries: list[dict]) -> GroundTruthReport:
 
     What it cannot discriminate, and no matcher over prose could:
 
-    * **Two claims that share a value.** "H3 DATAGRAM ERROR is 0x33" names
-      the ``H3_DATAGRAM`` setting as well, because the separator tolerance
-      that reads "H3 SETTINGS ERROR" as ``H3_SETTINGS_ERROR`` also reads
-      ``H3_DATAGRAM`` out of it, and both are 0x33. Spelled with underscores
-      the two are distinct, because a symbol followed by more of an
-      identifier does not match.
+    * **A longer name the dataset does not carry.** ``DUPLICATE_PUSH``, a
+      frame type this dataset omits because no published RFC registers it,
+      still credits the ``PUSH`` stream type: the disambiguation can only
+      recognise a longer name some entry spells, so what it covers grows and
+      shrinks with the dataset's own scope. A compound the dataset does not
+      name is indistinguishable from prose that happens to run two words
+      together.
     * **A claim the draft did not intend.** Proximity is a character window,
       not syntax: a symbol and a nearby number are scored as a statement
       about each other even when the sentence relates neither.
@@ -216,19 +224,26 @@ def score_draft(text: str, entries: list[dict]) -> GroundTruthReport:
             base, with nothing to read that says so.
     """
     body = _normalised(text)
+    # Every entry's symbol, and deliberately not only the ones that will be
+    # scored: an entry excluded for a non-numeric value still names a token a
+    # draft may write, and RESERVED_SETTINGS is precisely what says that the
+    # SETTINGS inside it is not the SETTINGS frame. Compiled once, because the
+    # question each match asks -- did the draft write a longer symbol here? --
+    # is about the text, not about the entry being scored.
+    symbols = [_symbol_pattern(_text(entry, "symbol")) for entry in entries]
+    named = _symbol_spans(body, symbols)
     matched: list[str] = []
     attempted: list[str] = []
     missed: list[str] = []
     excluded: list[str] = []
-    for entry in entries:
-        symbol = _text(entry, "symbol")
+    for entry, symbol in zip(entries, symbols):
         value = _text(entry, "value")
         shape = _value_shape(value)
         if shape is None:
             excluded.append(entry["id"])
             continue
         token, base = shape
-        tokens = _tokens_near(body, _symbol_pattern(symbol), token)
+        tokens = _tokens_near(body, symbol, token, named)
         if not tokens:
             missed.append(entry["id"])
             continue
@@ -305,6 +320,12 @@ def _symbol_pattern(symbol: str) -> Pattern[str]:
     which is five permanent misses against any draft that uses the RFC's
     names.
 
+    The loose side is also what lets ``SETTINGS`` match inside
+    ``H3_MISSING_SETTINGS``, and that is not repaired here -- tightening this
+    boundary is the same edit as losing the five settings. It is repaired by
+    :func:`_inside_a_longer_symbol`, which asks the dataset which symbol the
+    token belongs to.
+
     Args:
         symbol: The entry's symbol, as the source spells it.
 
@@ -342,7 +363,78 @@ def _value_shape(value: str) -> tuple[Pattern[str], int] | None:
     return None
 
 
-def _tokens_near(body: str, symbol: Pattern[str], token: Pattern[str]) -> list[str]:
+def _symbol_spans(
+    body: str, symbols: list[Pattern[str]]
+) -> tuple[tuple[int, int], ...]:
+    """Where every symbol a dataset names occurs in one draft.
+
+    Located with the same patterns the scoring uses, so the separator
+    tolerance that lets a draft write "cancel push" for ``CANCEL_PUSH`` also
+    lets "cancel push" say which symbol its ``push`` belongs to. A set,
+    because two entries sharing a symbol would otherwise contribute the same
+    span twice and neither would be a longer name than the other anyway.
+
+    Args:
+        body: The normalised draft.
+        symbols: One pattern per entry, in any order.
+
+    Returns:
+        The spans found, without repeats and in no particular order.
+    """
+    spans: set[tuple[int, int]] = set()
+    for pattern in symbols:
+        for match in pattern.finditer(body):
+            spans.add(match.span())
+    return tuple(spans)
+
+
+def _inside_a_longer_symbol(
+    span: tuple[int, int], named: tuple[tuple[int, int], ...]
+) -> bool:
+    """Whether the draft wrote this match only as part of a longer symbol.
+
+    The prefix side of :func:`_symbol_pattern` is loose on purpose and cannot
+    be tightened without losing the five settings entries, so ``SETTINGS``
+    matches inside ``H3_MISSING_SETTINGS`` and ``PUSH`` inside
+    ``CANCEL_PUSH``. The token in those drafts belongs to the longer symbol,
+    and crediting the shorter entry too inflates both ratios with a claim the
+    draft never made.
+
+    The rule is drawn from the dataset rather than from a list of prefixes
+    written here: an identifier the draft wrote that is *itself* an entry's
+    symbol names that entry. ``SETTINGS_MAX_FIELD_SECTION_SIZE`` is no entry's
+    symbol, so it goes on crediting ``MAX_FIELD_SECTION_SIZE``, which is the
+    asymmetry's whole purpose; ``CANCEL_PUSH`` is one, so it stops crediting
+    ``PUSH``. A list would be a second dataset to maintain and would be wrong
+    the first time an entry was added.
+
+    Containment is strict in length, so a symbol never suppresses itself, and
+    it is not applied recursively: a span that is itself suppressed for
+    scoring still disambiguates, which is what lets ``RESERVED_SETTINGS`` --
+    an entry no draft can be scored on -- speak for the ``SETTINGS`` it holds.
+
+    Args:
+        span: The match under consideration, as ``(start, end)``.
+        named: Every span at which the dataset's symbols occur in the draft.
+
+    Returns:
+        ``True`` when some longer symbol of the dataset covers this match.
+    """
+    start, end = span
+    return any(
+        other_start <= start
+        and end <= other_end
+        and other_end - other_start > end - start
+        for other_start, other_end in named
+    )
+
+
+def _tokens_near(
+    body: str,
+    symbol: Pattern[str],
+    token: Pattern[str],
+    named: tuple[tuple[int, int], ...],
+) -> list[str]:
     """Every token of one shape lying near any mention of one symbol.
 
     The window reaches both ways, because a draft writes "0x100
@@ -351,10 +443,14 @@ def _tokens_near(body: str, symbol: Pattern[str], token: Pattern[str]) -> list[s
     a statement of it, however many times the draft names the symbol
     elsewhere.
 
+    A mention the draft wrote only inside a longer symbol of the dataset is
+    not a mention at all; see :func:`_inside_a_longer_symbol`.
+
     Args:
         body: The normalised draft.
         symbol: The symbol pattern to locate.
         token: The token pattern to collect.
+        named: Every span at which the dataset's symbols occur in ``body``.
 
     Returns:
         The tokens found, with repeats, empty when the symbol is absent or
@@ -362,6 +458,8 @@ def _tokens_near(body: str, symbol: Pattern[str], token: Pattern[str]) -> list[s
     """
     found: list[str] = []
     for match in symbol.finditer(body):
+        if _inside_a_longer_symbol(match.span(), named):
+            continue
         start = max(0, match.start() - NEARBY_CHARS)
         found += token.findall(body[start : match.end() + NEARBY_CHARS])
     return found
