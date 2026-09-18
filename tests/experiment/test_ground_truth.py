@@ -18,6 +18,7 @@ from pathlib import Path
 
 import pytest
 
+from ai_rfc.experiment import ExperimentError
 from ai_rfc.experiment.ground_truth import (
     NEARBY_CHARS,
     load_dataset,
@@ -229,6 +230,12 @@ def test_every_cited_line_spells_the_assignment_it_claims(pinned_checkout):
 #: The settings carry the RFC's ``SETTINGS_`` prefix, which aioquic's symbols
 #: do not. That is not decoration -- it is the case a symmetric word boundary
 #: fails on, and with one it would be five permanent misses here.
+#:
+#: The line order is part of what this pins. Every claim sits beside its own
+#: value, so the window reaches it whatever the neighbours are; reorder the
+#: lines so that a symbol is further than ``NEARBY_CHARS`` from its own value
+#: and the draft stops stating that fact, which is the matcher working and
+#: not a regression in it.
 STATES_EVERY_SCORED_ENTRY = """\
 H3_DATAGRAM_ERROR is 0x33.
 H3_NO_ERROR is 0x100.
@@ -313,6 +320,23 @@ def test_resolve_anchors_names_every_entry_the_checkout_does_not_bear(tmp_path):
 def _at(line: int) -> dict:
     """The ``source`` of an entry pointing at one line of the built tree."""
     return {"path": "src/connection.py", "line": line}
+
+
+def test_a_value_coerced_out_of_text_is_refused_rather_than_scored():
+    """The dataset's guard covers the dataset; this covers the boundary.
+
+    ``score_draft`` takes a list of entries, and a caller can assemble one --
+    the test above does. An entry whose value YAML read as the integer 256
+    must not be scored: ``str(256)`` is a perfectly good decimal token, so it
+    would be measured against the wrong number in the wrong base with nothing
+    in the report saying so. The refusal names the entry and the field, not
+    just the type.
+    """
+    entry = {"id": "coerced", "symbol": "H3_NO_ERROR", "value": 256}
+    with pytest.raises(ExperimentError) as refused:
+        score_draft("H3_NO_ERROR is 256.", [entry])
+    assert "coerced" in str(refused.value)
+    assert "value" in str(refused.value)
 
 
 def test_a_draft_that_states_nothing_measures_a_zero_and_no_accuracy():

@@ -13,6 +13,8 @@ from typing import Any, Pattern
 
 import yaml
 
+from . import ExperimentError
+
 DATASET = "aioquic-w02-11.yaml"
 PACKAGE = "ai_rfc.experiment.groundtruth"
 
@@ -141,6 +143,10 @@ def resolve_anchors(entries: list[dict], clone: Path) -> tuple[str, ...]:
         Empty means every triple was found, which is the only claim this
         function makes: it says nothing about whether the RFC citation beside
         each entry is apt.
+
+        A value YAML coerced out of text needs no guard here, unlike in
+        :func:`score_draft`: ``256`` does not spell the line the source
+        carries, so the entry is reported unresolved, which is true of it.
     """
     unresolved: list[str] = []
     for entry in entries:
@@ -200,6 +206,14 @@ def score_draft(text: str, entries: list[dict]) -> GroundTruthReport:
 
     Returns:
         The report, whose id tuples follow the order of ``entries``.
+
+    Raises:
+        ExperimentError: An entry's symbol or value is not text. Refused here
+            rather than coerced, because a coercion is silent where it is most
+            dangerous: YAML reads a bare ``0x100`` as the integer 256, and
+            ``str(256)`` is a perfectly good decimal token, so the entry would
+            go on being *scored* -- against the wrong number, in the wrong
+            base, with nothing to read that says so.
     """
     body = _normalised(text)
     matched: list[str] = []
@@ -207,17 +221,19 @@ def score_draft(text: str, entries: list[dict]) -> GroundTruthReport:
     missed: list[str] = []
     excluded: list[str] = []
     for entry in entries:
-        shape = _value_shape(entry["value"])
+        symbol = _text(entry, "symbol")
+        value = _text(entry, "value")
+        shape = _value_shape(value)
         if shape is None:
             excluded.append(entry["id"])
             continue
         token, base = shape
-        tokens = _tokens_near(body, _symbol_pattern(entry["symbol"]), token)
+        tokens = _tokens_near(body, _symbol_pattern(symbol), token)
         if not tokens:
             missed.append(entry["id"])
             continue
         attempted.append(entry["id"])
-        wanted = int(entry["value"], base)
+        wanted = int(value, base)
         if any(int(found, base) == wanted for found in tokens):
             matched.append(entry["id"])
     return GroundTruthReport(
@@ -226,6 +242,35 @@ def score_draft(text: str, entries: list[dict]) -> GroundTruthReport:
         missed=tuple(missed),
         excluded=tuple(excluded),
     )
+
+
+def _text(entry: dict, field: str) -> str:
+    """One field of an entry, refused unless it is text.
+
+    The dataset's own suite holds ``symbol`` and ``value`` to ``str`` and says
+    why: an unquoted ``0x100`` loads as 256. That guard covers the packaged
+    dataset, and this covers the boundary -- :func:`score_draft` takes a list
+    of entries, which a caller may assemble itself.
+
+    Args:
+        entry: The entry to read.
+        field: Which field to read.
+
+    Returns:
+        The field's text.
+
+    Raises:
+        ExperimentError: The field is not text, named with the entry and the
+            field that was coerced rather than left to surface as a miss.
+    """
+    found = entry[field]
+    if not isinstance(found, str):
+        raise ExperimentError(
+            f"{entry['id']}: {field} is a {type(found).__name__}, not text; "
+            "YAML reads a bare 0x100 as the integer 256, and a value coerced "
+            "that way would be scored as a decimal claim rather than refused"
+        )
+    return found
 
 
 def _normalised(text: str) -> str:
