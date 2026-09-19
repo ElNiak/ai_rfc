@@ -164,9 +164,12 @@ ENTRY_POINTS: tuple[EntryPoint, ...] = (
         "experiment",
         "ai-rfc experiment",
         f"{PACKAGE}.experiment.cli",
-        # Ten verbs, so no parenthesised list: the complete one runs to 139
-        # characters, 22 past the longest other row, and _epilog() emits it
-        # unwrapped. The verbs are one `ai-rfc experiment --help` away.
+        # No parenthesised list: this row carries more verbs than any other,
+        # and spelling them out overruns the longest other summary, which
+        # _epilog() emits unwrapped. Deliberately no count here -- the one
+        # that used to sit in this comment went stale twice over as verbs
+        # landed, and a numeral is the part that rots. The verbs are one
+        # `ai-rfc experiment --help` away.
         "Drive the three-arm AI+MCP vs AI+CLI experiment over this plugin, "
         "from profile to analysis",
         DRIVEN,
