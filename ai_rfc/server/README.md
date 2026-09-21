@@ -55,9 +55,9 @@ not survive the fold — `ai_rfc_status` has no `ai-rfc` verb at all, because
 `status`, a corpus query that is not a single SELECT, a duplicate open
 question, an answer whose quote is not found verbatim in its transcript. The
 MCP server surfaces both as tool errors. The CLI reports either on stderr and
-exits 1 (the package's "unusable input" code), argparse owns 2, and a gate or
-checkpoint verb returns the substrate's own exit code unchanged — 3 for strict
-findings — so all three arms read the same number for the same outcome.
+exits 1 (the package's "the command could not complete" code), argparse owns 2,
+and a gate or checkpoint verb returns the substrate's own exit code unchanged —
+3 for findings — so all three arms read the same number for the same outcome.
 
 ## Dependencies
 

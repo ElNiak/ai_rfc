@@ -154,8 +154,11 @@ def main(argv: list[str] | None = None) -> int:
             ``sys.argv[1:]``.
 
     Returns:
-        The verb's exit code (0/1/3 per the package table; argparse exits 2
-        itself, and raises ``SystemExit`` for ``--help`` and ``--version``).
+        The verb's exit code: 0 clean, 1 the command could not complete, 3
+        findings — the one code with a machine consumer, ``sweep.py``'s build
+        gate reading a ``check --strict`` 3. argparse exits 2 itself, which is
+        the only thing 2 ever means, and raises ``SystemExit`` for ``--help``
+        and ``--version``.
     """
     args = build_parser().parse_args(argv)
     return args._run(args)

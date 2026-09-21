@@ -135,8 +135,12 @@ folded those verbs into `ai-rfc` as grouped subcommands and retired the script,
 its campaign shim and both `prog="ai_rfc"` values (D56) — so the AI+CLI arm now
 types the same program a person does, and nineteen verbs answer twenty tools
 (`ai_rfc_status` got none, D16; `docs/parity.md` is the row-for-row table).
-Exit codes are the same through every door: 0 clean, 1 unusable input,
-2 malformed invocation (argparse), 3 strict findings.
+Exit codes are the same through every door: 0 clean; 1 the command could not
+complete — a refusal, a crash, an unreadable input, an unwritable `--out`, or a
+sweep that stopped with work outstanding; 2 a malformed invocation, which
+belongs to argparse alone; 3 findings, which is the one code with a machine
+consumer — `driver/sweep.py:798` reads a `check --strict` 3 back to tell a
+finding apart from any other way the build gate can fail.
 
 ## Plugin
 
