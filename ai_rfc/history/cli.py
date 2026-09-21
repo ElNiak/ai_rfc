@@ -77,18 +77,23 @@ def run(args: argparse.Namespace) -> int:
         args: The parsed arguments, from either door.
 
     Returns:
-        0 on success, 1 if the repository could not be read — which includes a
-        shallow clone, whose truncated history would otherwise pass silently.
+        0 on success, 1 if the command could not complete: the repository
+        could not be read — which includes a shallow clone, whose truncated
+        history would otherwise pass silently — or the corpus could not be
+        written.
     """
     try:
         commits, changes, report = extract(args.repo, cap=args.cap)
-    except GitError as error:
+        # Inside the clause the read is in. ``write_corpus`` and
+        # ``build_index`` both create directories and files, and an OSError
+        # from either is the same kind of refusal as one from ``extract``:
+        # something outside this command made it impossible to finish.
+        write_corpus(commits, changes, report, args.out)
+        if not args.no_index:
+            build_index(args.out)
+    except (GitError, OSError) as error:
         _report(f"error: {error}")
         return 1
-
-    write_corpus(commits, changes, report, args.out)
-    if not args.no_index:
-        build_index(args.out)
 
     if report.truncated_count:
         _report(

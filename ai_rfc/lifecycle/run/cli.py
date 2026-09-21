@@ -218,9 +218,10 @@ def run_stages(
 
     Returns:
         0 when the boundary or a stage bound was reached, the failing stage's
-        exit code when one failed, and the sweep's own code once it is driving
-        — 0 finished or bounded, 1 stopped with work outstanding, 3 strict
-        findings.
+        exit code when one failed — except 2, which belongs to argparse alone
+        and is reported as a defect in the argv this command built, returning
+        1 — and the sweep's own code once it is driving: 0 finished or
+        bounded, 1 stopped with work outstanding, 3 strict findings.
 
     Raises:
         LifecycleError: If the workspace is not initialised, an identity field
@@ -295,6 +296,18 @@ def run_stages(
             performed.append(stage.name)
             if not result.ok:
                 report(f"error: {stage.name} exited {result.exit_code}")
+                if result.exit_code == 2:
+                    # This command builds every stage's argv itself, so a 2
+                    # says the argv *this* command composed was malformed —
+                    # a defect here, not something the operator typed.
+                    # Propagating it would hand them a 2 about an invocation
+                    # they never made.
+                    report(
+                        f"error: stage {stage.name} exited 2, which belongs to "
+                        f"argparse alone; the argv this command built for it "
+                        f"is malformed"
+                    )
+                    return 1
                 return result.exit_code
             report(f"performed: {stage.name}")
             by_name = {e.stage.name: e for e in state(layout)}

@@ -414,8 +414,11 @@ def run(args: argparse.Namespace) -> int:
         unless a re-derived ``check`` or ``gate`` still finds something under
         ``--strict``, since those run whether or not the walk reached them.
         1 if the workspace could not be read or a stage was asked for that
-        this command does not perform. Otherwise a stage's own exit code, so a
-        strict gate's 3 reaches the caller unchanged. 2 is left to argparse.
+        this command does not perform — the two shapes of "could not
+        complete". 3 when ``substrate`` completed and found a problem, which
+        is a finding about the clone rather than a failure to look. Otherwise
+        a stage's own exit code, so a strict gate's 3 reaches the caller
+        unchanged. 2 is left to argparse.
     """
     try:
         if args.verb == "status":
@@ -429,7 +432,7 @@ def run(args: argparse.Namespace) -> int:
             problems = check(Workspace(root=args.workspace).clone)
             for problem in problems:
                 _report(f"error: {problem}")
-            return 1 if problems else 0
+            return 3 if problems else 0
         return _run(args)
     except (PipelineError, LedgerError, OSError) as error:
         _report(f"error: {error}")

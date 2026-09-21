@@ -87,11 +87,15 @@ def test_a_shallow_enclosing_repository_is_not_reported_as_the_clone(
     assert not any("is shallow" in p for p in problems)
 
 
-def test_the_verb_exits_one_when_the_clone_cannot_carry_a_reconstruction(
+def test_the_verb_exits_three_when_the_clone_cannot_carry_a_reconstruction(
     tmp_path: Path, capsys
 ):
-    """Exit 2 belongs to argparse alone, so a found problem is 1."""
-    assert cli.main(["substrate", str(tmp_path / "empty-workspace")]) == 1
+    """Exit 2 belongs to argparse alone, and a found problem is a finding.
+
+    The check ran and reached a verdict, so it returns 3. 1 is what the verb
+    returns when it could not read the workspace at all.
+    """
+    assert cli.main(["substrate", str(tmp_path / "empty-workspace")]) == 3
     assert "error" in capsys.readouterr().err
 
 

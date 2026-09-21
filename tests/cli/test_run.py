@@ -12,6 +12,7 @@ from ai_rfc import cli
 from ai_rfc.driver import DriverError
 from ai_rfc.lifecycle.run import cli as run_cli
 from ai_rfc.lifecycle.workspace import Layout
+from ai_rfc.pipeline.run import StageResult
 
 SESSIONS_BLOCK = "sessions:\n  budget_usd: 5\n"
 
@@ -149,6 +150,46 @@ def test_the_sweeps_exit_code_is_runs_exit_code(initialised, monkeypatch):
     _record_sweep(monkeypatch, code=3)
 
     assert cli.main(["run", "--config", str(config_path)]) == 3
+
+
+def _stage_exiting(monkeypatch: pytest.MonkeyPatch, code: int) -> None:
+    """Make the next deterministic stage exit with ``code`` and do nothing.
+
+    ``perform`` is imported by name into the verb's module, so the stub is
+    installed there rather than on :mod:`ai_rfc.pipeline.run`.
+    """
+
+    def _perform(stage: Any, ws: Any, **kwargs: Any) -> StageResult:
+        return StageResult(stage=stage, exit_code=code, argv=())
+
+    monkeypatch.setattr(run_cli, "perform", _perform)
+
+
+def test_a_stages_findings_code_reaches_the_caller_unchanged(initialised, monkeypatch):
+    """3 means findings, and only the stage that found them can say so."""
+    config_path, _ = initialised
+    _stage_exiting(monkeypatch, 3)
+
+    assert cli.main(["run", "--config", str(config_path)]) == 3
+
+
+def test_a_stage_that_exits_two_is_reported_as_a_defect_and_run_returns_one(
+    initialised, monkeypatch, capsys
+):
+    """2 belongs to argparse alone, so a stage returning it is a defect here.
+
+    ``run`` builds every stage's argv itself. A 2 coming back means the argv
+    this command built was malformed, which is not something the operator
+    typed — propagating it would tell them to fix an invocation they never
+    made.
+    """
+    config_path, _ = initialised
+    _stage_exiting(monkeypatch, 2)
+
+    assert cli.main(["run", "--config", str(config_path)]) == 1
+    err = capsys.readouterr().err
+    assert "argparse alone" in err
+    assert "exited 2" in err
 
 
 def test_without_sessions_the_boundary_still_stops_the_walk(

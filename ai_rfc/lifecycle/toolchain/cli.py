@@ -78,8 +78,9 @@ def run(args: argparse.Namespace) -> int:
         args: The parsed arguments, from either door.
 
     Returns:
-        0 on success; 1 when provisioning refused or ``verify`` said no, one
-        reason per line.
+        0 on success; 1 when provisioning refused, because it could not
+        complete what it was asked to do; 3 when ``verify`` completed and said
+        no, one reason per line, because a verdict about a record is a finding.
     """
     root = args.root or experiments_root()
     if args.verb == "provision":
@@ -106,7 +107,7 @@ def run(args: argparse.Namespace) -> int:
         return 0
     for reason in reasons:
         report(f"toolchain: {reason}")
-    return 1
+    return 3
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -83,8 +83,9 @@ def run(args: argparse.Namespace) -> int:
         args: The parsed arguments, from either door.
 
     Returns:
-        0 on success, 1 if the manifest or repository could not be read, and 3
-        if any finding was reported while ``--strict`` was given. A finding is
+        0 on success, 1 if the command could not complete — the manifest or
+        repository could not be read, or the report could not be written — and
+        3 if any finding was reported while ``--strict`` was given. A finding is
         either a promotion violation or an anchor that did not resolve at its
         pinned commit; an anchor citing code absent from the commit it names is
         weaker evidence than an overstated status, not stronger, so both gate.
@@ -94,22 +95,29 @@ def run(args: argparse.Namespace) -> int:
         manifest overstates its evidence" left a caller unable to tell them
         apart, and they call for opposite responses.
     """
+    manifest = None
     try:
         manifest = load(args.manifest)
+
+        if args.repo is not None and not (args.repo / ".git").exists():
+            _report(f"error: {args.repo} is not a git repository")
+            return 1
+
+        report = build(manifest, repo=args.repo)
+
+        args.out.mkdir(parents=True, exist_ok=True)
+        (args.out / "report.json").write_text(to_json(report))
+        (args.out / "report.yaml").write_text(to_yaml(report))
+        (args.out / "report.md").write_text(to_markdown(report))
     except (SchemaError, OSError) as error:
-        _report(f"error: could not read manifest {args.manifest}: {error}")
+        # One clause, and which phase raised decides what it opens with. The
+        # reader and the three writes raise the same two types, so a full disk
+        # would otherwise be reported as a manifest that could not be parsed.
+        opened = (
+            "" if manifest is not None else f"could not read manifest {args.manifest}: "
+        )
+        _report(f"error: {opened}{error}")
         return 1
-
-    if args.repo is not None and not (args.repo / ".git").exists():
-        _report(f"error: {args.repo} is not a git repository")
-        return 1
-
-    report = build(manifest, repo=args.repo)
-
-    args.out.mkdir(parents=True, exist_ok=True)
-    (args.out / "report.json").write_text(to_json(report))
-    (args.out / "report.yaml").write_text(to_yaml(report))
-    (args.out / "report.md").write_text(to_markdown(report))
 
     if not report.anchors_checked and report.verifiable_anchor_count:
         _report(

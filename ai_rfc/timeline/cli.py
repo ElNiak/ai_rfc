@@ -102,8 +102,9 @@ def run(args: argparse.Namespace) -> int:
         args: The parsed arguments, from either door.
 
     Returns:
-        0 on success, 1 if the corpus could not be read or clustered, or if
-        ``--repo`` names a clone whose HEAD is not the corpus tip.
+        0 on success, 1 if the command could not complete: the corpus could
+        not be read, clustered or written, or ``--repo`` names a clone whose
+        HEAD is not the corpus tip.
     """
     try:
         commits = read_commits(args.corpus)
@@ -154,18 +155,21 @@ def run(args: argparse.Namespace) -> int:
 
     try:
         clusters = build_timeline(commits, forge_pulls=forge_pulls)
-    except TimelineError as error:
+        # Inside the clause the clustering is in. ``write_timeline`` creates
+        # the directory and four files, and an OSError from it is the same
+        # kind of refusal as one from the read above: something outside this
+        # command made it impossible to finish.
+        write_timeline(
+            clusters,
+            tip,
+            args.corpus,
+            args.out,
+            forge_snapshot=forge_descriptor,
+            tip_verified=args.repo is not None,
+        )
+    except (TimelineError, OSError) as error:
         _report(f"error: {error}")
         return 1
-
-    write_timeline(
-        clusters,
-        tip,
-        args.corpus,
-        args.out,
-        forge_snapshot=forge_descriptor,
-        tip_verified=args.repo is not None,
-    )
 
     if args.repo is None:
         _report(

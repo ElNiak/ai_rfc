@@ -429,17 +429,17 @@ def run(args: argparse.Namespace) -> int:
             return perform(partial(_render_workspace, args))
         try:
             text = render_all(load(args.manifest))
+            if text:
+                print(text, end="")
+            if args.out is not None:
+                args.out.mkdir(parents=True, exist_ok=True)
+                # The checkpoint writers freeze these bytes and the gate
+                # compares them; `write_text` would translate the newlines and
+                # the two renderings of one manifest would differ off POSIX.
+                (args.out / STRUCTURES_FILE).write_bytes(text.encode())
         except (ValueError, OSError) as error:
             report_diagnostic("error: ", error)
             return 1
-        if text:
-            print(text, end="")
-        if args.out is not None:
-            args.out.mkdir(parents=True, exist_ok=True)
-            # The checkpoint writers freeze these bytes and the gate compares
-            # them; `write_text` would translate the newlines and the two
-            # renderings of one manifest would differ off POSIX.
-            (args.out / STRUCTURES_FILE).write_bytes(text.encode())
         return 0
 
     if args.verb == "completeness":
@@ -452,11 +452,10 @@ def run(args: argparse.Namespace) -> int:
                 workspace / "revisions.yaml",
                 workspace / "draft",
             )
+            write_completeness_report(args.out, completeness_report)
         except (CompletenessError, OSError) as error:
             report_diagnostic("error: ", error)
             return 1
-
-        write_completeness_report(args.out, completeness_report)
 
         found = completeness_findings(completeness_report)
         for finding in found:
@@ -565,10 +564,10 @@ def run(args: argparse.Namespace) -> int:
                 manifest_error=manifest_error,
                 source={"path": str(args.draftrepo), "ref": ref},
             )
+            report_path = write_lint_report(args.out, lint_report)
         except (ValueError, OSError) as error:
             report_diagnostic("error: ", error)
             return 1
-        report_path = write_lint_report(args.out, lint_report)
         for finding in lint_report.findings:
             report(f"finding: {finding}")
         report(f"note: lint report at {report_path}")
@@ -586,11 +585,10 @@ def run(args: argparse.Namespace) -> int:
                 args.revisions,
                 consolidations_dir=args.consolidations,
             )
+            write_gate_report(args.out, findings)
         except (GateError, OSError) as error:
             report_diagnostic("error: ", error)
             return 1
-
-        write_gate_report(args.out, findings)
 
         for finding in findings:
             report(f"finding: {finding}")

@@ -210,15 +210,20 @@ def test_version_takes_the_first_line_and_is_empty_on_a_nonzero_exit():
     assert _version(failing, "make", "--version") == ""
 
 
-def test_cli_toolchain_verify_reports_a_reason_naming_the_record_and_exits_one(
+def test_cli_toolchain_verify_reports_a_reason_naming_the_record_and_exits_three(
     tmp_path, capsys
 ):
-    """The verb reports through ``report()``, so a reason lands on stderr."""
+    """The verb reports through ``report()``, so a reason lands on stderr.
+
+    ``verify`` completed and returned a verdict, so the code is 3 — findings —
+    not 1. 1 is reserved for a command that could not complete, which is what
+    the ``provision`` refusal above it still returns.
+    """
     from ai_rfc.cli import main
 
     code = main(["toolchain", "verify", "--root", str(tmp_path)])
     err = capsys.readouterr().err
-    assert code == 1
+    assert code == 3
     assert str(tmp_path / TOOLS_DIR / RECORD_FILE) in err
 
 
@@ -227,7 +232,7 @@ def test_cli_toolchain_verify_reads_a_record_named_elsewhere(tmp_path, capsys):
     from ai_rfc.cli import main
 
     elsewhere = tmp_path / "elsewhere" / RECORD_FILE
-    assert main(["toolchain", "verify", "--record", str(elsewhere)]) == 1
+    assert main(["toolchain", "verify", "--record", str(elsewhere)]) == 3
     assert str(elsewhere) in capsys.readouterr().err
 
 

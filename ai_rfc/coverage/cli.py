@@ -109,49 +109,52 @@ def run(args: argparse.Namespace) -> int:
     Returns:
         0 on success, including when a run corroborates nothing — a report
         that reached none of the cited lines is a finding about the test suite,
-        not a failure of this command. 1 if an input could not be read or the
-        checkout could not be bound. 2 is left to argparse.
+        not a failure of this command. 1 if the command could not complete: an
+        input could not be read, the checkout could not be bound, or the
+        proposals could not be written. 2 is left to argparse.
     """
     try:
         manifest = load(args.manifest)
         report = READERS[args.format](args.coverage)
         proposals, skipped, commit = propose(manifest, report, args.repo, args.commit)
+
+        args.out.mkdir(parents=True, exist_ok=True)
+        fragment = {"requirements": {}}
+        for proposal in proposals:
+            entry = fragment["requirements"].setdefault(
+                proposal.claim_id, {"anchors": []}
+            )
+            entry["anchors"].append(
+                {
+                    "evidence_class": "runtime",
+                    "locator": proposal.locator,
+                    "commit": proposal.commit,
+                    "line": proposal.line,
+                    "line_sha256": proposal.line_sha256,
+                }
+            )
+        (args.out / "runtime-anchors.yaml").write_text(
+            yaml.safe_dump(fragment, sort_keys=True, default_flow_style=False)
+        )
+        (args.out / "runtime-anchors.json").write_text(
+            json.dumps(
+                {
+                    "tool": report.tool,
+                    "tool_version": report.tool_version,
+                    "report_sha256": report.report_sha256,
+                    "criterion": PROPOSAL_CRITERION,
+                    "commit": commit,
+                    "proposed": [asdict(proposal) for proposal in proposals],
+                    "skipped": [asdict(entry) for entry in skipped],
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n"
+        )
     except (SchemaError, CoverageError, PinError, OSError) as error:
         _report(f"error: {error}")
         return 1
-
-    args.out.mkdir(parents=True, exist_ok=True)
-    fragment = {"requirements": {}}
-    for proposal in proposals:
-        entry = fragment["requirements"].setdefault(proposal.claim_id, {"anchors": []})
-        entry["anchors"].append(
-            {
-                "evidence_class": "runtime",
-                "locator": proposal.locator,
-                "commit": proposal.commit,
-                "line": proposal.line,
-                "line_sha256": proposal.line_sha256,
-            }
-        )
-    (args.out / "runtime-anchors.yaml").write_text(
-        yaml.safe_dump(fragment, sort_keys=True, default_flow_style=False)
-    )
-    (args.out / "runtime-anchors.json").write_text(
-        json.dumps(
-            {
-                "tool": report.tool,
-                "tool_version": report.tool_version,
-                "report_sha256": report.report_sha256,
-                "criterion": PROPOSAL_CRITERION,
-                "commit": commit,
-                "proposed": [asdict(proposal) for proposal in proposals],
-                "skipped": [asdict(entry) for entry in skipped],
-            },
-            indent=2,
-            sort_keys=True,
-        )
-        + "\n"
-    )
 
     _report(
         f"note: {len(proposals)} runtime anchor(s) proposed, "

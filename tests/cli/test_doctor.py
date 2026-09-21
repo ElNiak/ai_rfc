@@ -35,13 +35,13 @@ def _no_ambient_config(monkeypatch):
     monkeypatch.delenv("AI_RFC_CONFIG", raising=False)
 
 
-def test_doctor_reports_a_missing_claude_binary_as_an_error(
+def test_doctor_reports_a_missing_claude_binary_as_a_finding(
     tmp_path, monkeypatch, capsys
 ):
     monkeypatch.setenv("AI_RFC_EXPERIMENTS_ROOT", str(tmp_path / "root"))
     monkeypatch.setenv("PATH", str(tmp_path / "empty"))
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
-    assert cli.main(["doctor", "--config", str(_config(tmp_path))]) == 1
+    assert cli.main(["doctor", "--config", str(_config(tmp_path))]) == 3
     out = capsys.readouterr().out
     assert "claude: error" in out and "not found on PATH" in out
 
@@ -107,7 +107,7 @@ def test_doctor_reports_a_check_that_itself_failed_rather_than_raising(
         raise OSError("Read-only file system")
 
     monkeypatch.setattr(toolchain, "verify", _explode)
-    assert cli.main(["doctor", "--json"]) == 1
+    assert cli.main(["doctor", "--json"]) == 3
     checks = {c["name"]: c for c in json.loads(capsys.readouterr().out)["checks"]}
     assert checks["toolchain"]["severity"] == "error"
     assert "Read-only file system" in checks["toolchain"]["detail"]
@@ -137,7 +137,7 @@ def test_doctor_warns_about_a_claude_md_ancestor_and_a_missing_token(
     )
 
 
-def test_doctor_fails_when_a_present_toolchain_record_does_not_verify(
+def test_doctor_reports_a_finding_when_a_toolchain_record_does_not_verify(
     tmp_path, monkeypatch, capsys
 ):
     root = tmp_path / "root"
@@ -154,7 +154,7 @@ def test_doctor_fails_when_a_present_toolchain_record_does_not_verify(
             ("refcache contents differ from the recorded digest",),
         ),
     )
-    assert cli.main(["doctor"]) == 1
+    assert cli.main(["doctor"]) == 3
     assert "refcache contents differ" in capsys.readouterr().out
 
 

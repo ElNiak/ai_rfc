@@ -289,8 +289,11 @@ def run(args: argparse.Namespace) -> int:
         args: The parsed arguments, from either door.
 
     Returns:
-        1 when any error-severity check failed, else 0. A warning names
-        something worth fixing that a run survives, so it does not.
+        3 when any error-severity check failed, else 0. A warning names
+        something worth fixing that a run survives, so it does not. 3 is
+        findings — every check ran and the report below names what they found;
+        1 is reserved for the command not completing, which here is a
+        configuration that could not be read at all.
     """
     config = None
     config_path = args.config or (
@@ -316,7 +319,7 @@ def run(args: argparse.Namespace) -> int:
             if check.fix and not check.ok:
                 line += f" (fix: {check.fix})"
             print(line)
-    return 1 if any(not c.ok and c.severity == "error" for c in results) else 0
+    return 3 if any(not c.ok and c.severity == "error" for c in results) else 0
 
 
 def main(argv: list[str] | None = None) -> int:
