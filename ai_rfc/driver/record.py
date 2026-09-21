@@ -410,6 +410,52 @@ def _rows(path: Path) -> list[dict[str, Any]]:
     return rows
 
 
+def session_rows(workspace: Path) -> list[dict[str, Any]]:
+    """Every session row this workspace's runs recorded, in run order.
+
+    Moved-aside runs are included for the reason :func:`spent` gives: what an
+    interruption left is evidence, and a row written before the kill still says
+    which cluster its session was launched for. Unreadable lines are skipped
+    rather than fatal, by :func:`_rows`' rule.
+
+    Args:
+        workspace: The workspace root.
+
+    Returns:
+        The rows, oldest run first; empty when the workspace has never run.
+    """
+    return [
+        row
+        for run_dir in _run_dirs(workspace)
+        for row in _rows(run_dir / SESSIONS_FILE)
+    ]
+
+
+def transcripts(workspace: Path) -> list[Path]:
+    """Every transcript this workspace's runs left behind, in run order.
+
+    The paths only; reading one is the caller's to do, because how a damaged
+    transcript is handled differs by caller — the budget salvages what it can
+    (:func:`spent`), an adjudication refuses the whole file
+    (:func:`ai_rfc.driver.coverage.read_transcript`).
+
+    A run directory holding no transcript is passed over rather than returned
+    as a missing path: a run killed before its first event wrote nothing, which
+    is ordinary and is not damage to report.
+
+    Args:
+        workspace: The workspace root.
+
+    Returns:
+        The existing ``events.jsonl`` paths, oldest run first.
+    """
+    return [
+        run_dir / EVENTS_FILE
+        for run_dir in _run_dirs(workspace)
+        if (run_dir / EVENTS_FILE).is_file()
+    ]
+
+
 def _consumed(row: dict[str, Any]) -> bool:
     """Whether one session row spent an attempt, failing safe when unsure.
 

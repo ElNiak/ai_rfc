@@ -85,7 +85,7 @@ def test_verify_names_the_checks_it_could_not_run(initialised, capsys):
     capsys.readouterr()
     assert cli.main(["verify", "--config", str(config_path)]) == 0
     err = capsys.readouterr().err
-    assert "checks: 3 ran, 3 skipped (gate, completeness, build)" in err
+    assert "checks: 4 ran, 3 skipped (gate, completeness, build)" in err
 
 
 def test_verify_builds_when_the_config_names_a_usable_toolchain(
@@ -100,7 +100,7 @@ def test_verify_builds_when_the_config_names_a_usable_toolchain(
     err = capsys.readouterr().err
     assert "build: skipped" not in err
     assert "build: ok" in err
-    assert "checks: 6 ran, 0 skipped" in err
+    assert "checks: 7 ran, 0 skipped" in err
 
 
 def test_verify_reports_a_refused_drift_as_a_finding(initialised, capsys):
@@ -131,7 +131,7 @@ def test_verify_strict_exits_zero_when_every_check_that_ran_passed(
     capsys.readouterr()
 
     assert cli.main(["verify", "--config", str(config_path), "--strict"]) == 0
-    assert "checks: 3 ran, 3 skipped" in capsys.readouterr().err
+    assert "checks: 4 ran, 3 skipped" in capsys.readouterr().err
 
 
 def test_a_verb_reads_the_config_from_the_environment(initialised, capsys, monkeypatch):
