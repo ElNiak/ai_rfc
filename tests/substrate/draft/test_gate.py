@@ -576,16 +576,25 @@ def _entry(cluster_id: str, **changes) -> RevisionEntry:
     return RevisionEntry(**fields)
 
 
-def test_a_checkpoint_directory_is_refused_for_an_id_the_timeline_lacks(tmp_path):
-    """Membership at the join itself, so no caller can reach it unguarded."""
+@pytest.mark.parametrize("forged", ["../foreign", "None", "1"])
+def test_a_checkpoint_directory_is_refused_for_an_id_the_timeline_lacks(
+    tmp_path, forged
+):
+    """Membership at the join itself, so no caller can reach it unguarded.
+
+    ``None`` and ``1`` are what YAML's implicit typing leaves of an empty
+    ``cluster_id`` and of ``01``. Neither climbs anywhere, and neither names a
+    cluster — which is why the guard here is membership and not a test over
+    the characters in the value.
+    """
     with pytest.raises(GateError) as error:
         _checkpoint_dir(
-            _entry("../foreign"),
+            _entry(forged),
             tmp_path / "checkpoints",
             tmp_path / "consolidations",
             {"c0001-x": 1},
         )
-    assert "'../foreign'" in str(error.value)
+    assert repr(forged) in str(error.value)
 
 
 def test_a_caller_without_the_timeline_may_join_only_one_segment(tmp_path):
