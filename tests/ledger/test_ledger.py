@@ -257,7 +257,7 @@ def test_a_draft_repository_that_will_not_answer_is_an_error(ws, monkeypatch):
     assert "could not run git" in str(missing.value)
 
 
-def test_the_five_old_readers_agree_with_the_ledger(ws, monkeypatch):
+def test_the_old_readers_agree_with_the_ledger(ws, monkeypatch):
     """The surfaces this module replaces must report what it reports.
 
     They answer two different questions, and each question now has one home.
