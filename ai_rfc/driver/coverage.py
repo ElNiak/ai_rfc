@@ -93,7 +93,7 @@ class Era:
     closed: str | None
     closed_by: str | None
     mcp_tool: str
-    cli_prefix: str
+    cli_prefixes: tuple[str, ...]
     module_forms: tuple[str, ...]
 
 
@@ -112,7 +112,9 @@ class Era:
 #: the last campaign run under it is ``pilot-aioquic-w02-11-20260831``. Era 2
 #: takes arm B's prefix from the arm profile rather than spelling it, so the
 #: live half of the table cannot drift. Two entries; a third would mean a third
-#: era exists, and then it needs its own closing event.
+#: era exists, and then it needs its own closing event. Each era carries a
+#: *tuple* of command prefixes for the same reason ``arms.py`` states: how
+#: many an arm declares is that module's business, not a reader's.
 ALIASES: tuple[Era, ...] = (
     Era(
         first_seen="2026-08-28",
@@ -122,7 +124,7 @@ ALIASES: tuple[Era, ...] = (
             "(PANTHER 17a99e079)"
         ),
         mcp_tool="mcp__arfc__arfc_checkpoint",
-        cli_prefix="arfc ",
+        cli_prefixes=("arfc ",),
         module_forms=(".draft checkpoint", " draft checkpoint"),
     ),
     Era(
@@ -130,7 +132,7 @@ ALIASES: tuple[Era, ...] = (
         closed=None,
         closed_by=None,
         mcp_tool="mcp__ai_rfc__ai_rfc_checkpoint",
-        cli_prefix=bash_prefixes(arm_profile("B"))[0],
+        cli_prefixes=bash_prefixes(arm_profile("B")),
         module_forms=(".draft checkpoint", " draft checkpoint"),
     ),
 )
@@ -232,9 +234,13 @@ def _cluster_of_call(
     if stage is None:
         return None
     for era in ALIASES:
-        argument = _verb_argument(stage, era.cli_prefix, CHECKPOINT_VERB)
-        if argument is not None:
-            return ("B", argument) if _is_cluster_argument(argument) else None
+        # Every prefix the era declares is tried: the cardinality is
+        # ``arms.py``'s business, and a reader that took only the first would
+        # stop seeing arm B's calls the day it declares a second family.
+        for prefix in era.cli_prefixes:
+            argument = _verb_argument(stage, prefix, CHECKPOINT_VERB)
+            if argument is not None:
+                return ("B", argument) if _is_cluster_argument(argument) else None
     for era in ALIASES:
         # Both invocation forms name the same call: the module form
         # (`ai_rfc.draft checkpoint`, still a valid direct invocation) and the

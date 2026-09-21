@@ -366,6 +366,6 @@ def test_the_alias_table_holds_two_dated_eras_and_names_what_closed_the_first():
     assert first.first_seen and second.first_seen
 
 
-def test_the_current_eras_prefix_is_derived_from_the_arm_not_spelled_again():
-    assert ALIASES[-1].cli_prefix == ARM_B_PREFIX
-    assert ALIASES[0].cli_prefix != ARM_B_PREFIX
+def test_the_current_eras_prefixes_are_derived_from_the_arm_not_spelled_again():
+    assert ALIASES[-1].cli_prefixes == bash_prefixes(arm_profile("B"))
+    assert ARM_B_PREFIX not in ALIASES[0].cli_prefixes
