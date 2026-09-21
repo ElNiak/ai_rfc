@@ -6,6 +6,7 @@ Every verb mounts under ``ai-rfc``, forwards untouched, and shares one help.
 import argparse
 import importlib
 import re
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -310,3 +311,51 @@ def test_config_example_prints_a_loadable_starter(tmp_path, capsys):
     assert load_config(tmp_path / "recon.yaml").name == "example"
     assert cli.main(["config", "reference"]) == 0
     assert "| `source.pin` |" in capsys.readouterr().out
+
+
+# --- the SIGTERM disposition main() borrows ----------------------------------
+
+
+def test_main_leaves_the_sigterm_disposition_as_it_found_it(tmp_path, capsys):
+    """``main()`` borrows SIGTERM for the call and hands it back.
+
+    The install is not a detail of the signal path, it is what makes ``main()``
+    safe to call in-process — which is how ``panther ai-rfc`` reaches it and
+    how most of this suite does. A handler left behind in a pytest-xdist
+    worker turns that worker's own shutdown into a traceback, so the
+    disposition afterwards is asserted to be the same **object** the call
+    started with.
+    """
+    empty = tmp_path / "ws"
+    empty.mkdir()
+    before = signal.getsignal(signal.SIGTERM)
+
+    assert cli.main(["pipeline", "status", str(empty)]) == 0
+    capsys.readouterr()
+
+    assert signal.getsignal(signal.SIGTERM) is before
+
+
+def test_main_does_not_take_sigterm_from_an_embedder_that_set_one(tmp_path, capsys):
+    """A disposition somebody else installed is left alone, not overwritten.
+
+    ``ai-rfc`` is not always the process: ``panther ai-rfc`` forwards argv into
+    :func:`ai_rfc.cli.main` in-process, and an embedder that had already taken
+    SIGTERM for its own shutdown would find it replaced by one that raises
+    ``KeyboardInterrupt`` out of the middle of its call. Only the default
+    disposition is borrowed, because only that one belongs to nobody.
+    """
+    empty = tmp_path / "ws"
+    empty.mkdir()
+    theirs = []
+
+    def _embedders_handler(signum, frame):  # pragma: no cover - never raised
+        theirs.append(signum)
+
+    previous = signal.signal(signal.SIGTERM, _embedders_handler)
+    try:
+        assert cli.main(["pipeline", "status", str(empty)]) == 0
+        capsys.readouterr()
+        assert signal.getsignal(signal.SIGTERM) is _embedders_handler
+    finally:
+        signal.signal(signal.SIGTERM, previous)

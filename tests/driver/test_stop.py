@@ -44,6 +44,10 @@ CONFIG = Path("/w/recon.yaml")
 #: that fixes something else. Task 11 added ``bound_reached`` and Task 12
 #: ``action_performed`` — the two ways a sweep stops because the *operator*
 #: asked it to stop there rather than because anything went wrong.
+#: ``operator_interrupt`` is the third such way and the fifth event outside
+#: the rows: D59 lists an operator interrupt among the stop conditions, and
+#: until Task 2 it was the only one of them with no member — the sweep let
+#: the ``KeyboardInterrupt`` through and wrote nothing.
 REASONS = (
     "needs_init",
     "stage_failed",
@@ -55,6 +59,7 @@ REASONS = (
     "session_failed",
     "consolidation_failed",
     "build_failed",
+    "operator_interrupt",
     "bound_reached",
     "action_performed",
     "done",
@@ -330,6 +335,9 @@ def test_strict_findings_is_refused_on_a_reason_that_never_ran_the_gate() -> Non
         ("session_failed", "ai-rfc run --config /w/recon.yaml"),
         ("consolidation_failed", "ai-rfc run --config /w/recon.yaml"),
         ("build_failed", "ai-rfc run --config /w/recon.yaml"),
+        # The operator stopped the sweep themselves, so the line is simply the
+        # sweep again: nothing is owed a repair, and nothing was reached.
+        ("operator_interrupt", "ai-rfc run --config /w/recon.yaml"),
         ("bound_reached", "ai-rfc run --config /w/recon.yaml"),
         # The one line in this table that does not say ``run``: only
         # ``mode="one"`` mints this reason, and the operator who asked for one

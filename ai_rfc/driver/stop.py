@@ -4,10 +4,12 @@ Three vocabularies meet here, and keeping them apart is the point of the
 module.
 
 :class:`StopReason` names why a *sweep* stopped — one member per stopping row
-of spec §5's state machine, plus four events its rows cannot spell:
+of spec §5's state machine, plus five events its rows cannot spell:
 ``session_failed`` and ``consolidation_failed`` (named in §5's prose),
 ``bound_reached`` and ``action_performed`` (the two stops the *operator*
-asked for, through ``--until`` and ``ai-rfc next``); see their members.
+asked for, through ``--until`` and ``ai-rfc next``), and
+``operator_interrupt`` (the one they ask for with a signal); see their
+members.
 Its members are the only stop names production
 uses; before this module there were two unrelated ones (``budget`` as a
 ``budget_hit`` substring test in the campaign runner, ``surface_shortfall`` as
@@ -56,9 +58,10 @@ ERRORED = "errored"
 #:
 #: Spec §5 says "timeout or interrupt", but only the timeout can reach here:
 #: ``spawn.py:97-108`` re-raises on an interrupt, so ``run_session`` never
-#: returns and there is no result to classify. That is the design working — an
-#: interrupted run writes no ``status.json`` and is moved aside on the next
-#: resume — not a branch this function is missing.
+#: returns and there is no result to classify. That is the design working —
+#: an interrupt is the *sweep's* stop rather than a session's classification,
+#: and since Task 2 the sweep names it :attr:`StopReason.operator_interrupt`
+#: — not a branch this function is missing.
 KILLED = "killed"
 #: The session stopped because ``--max-budget-usd`` was reached. A cap stopped
 #: it, exactly as the wall clock stops a killed one, so it consumes no attempt.
@@ -98,9 +101,9 @@ STRICT_FINDINGS_EXIT = 3
 
 
 class StopReason(Enum):
-    """Why a sweep stopped: spec §5's nine rows, and four it does not spell.
+    """Why a sweep stopped: spec §5's nine rows, and five it does not spell.
 
-    ``session_failed`` and ``consolidation_failed`` are two of the four. Spec
+    ``session_failed`` and ``consolidation_failed`` are two of the five. Spec
     §5 says an *errored* session "stops with the resume line" and D59 says a
     failing sweep-end consolidation exits 1, but neither is a row of the table,
     so reporting them meant either a new name or a borrowed one.
@@ -114,6 +117,12 @@ class StopReason(Enum):
     that is a stop the table cannot spell either, since the table says why a
     sweep *cannot go on* and this one stops because it was asked for one
     thing and did it.
+
+    ``operator_interrupt`` is the fifth, and the only one of them D59 names
+    outright: it closes that decision's stop-condition list, whose other six
+    conditions all had members from the start. The table has no row for it
+    because the table is read *between* actions, and a signal arrives during
+    one.
 
     What borrowing would have cost differs by candidate, and only one of them
     is repair-level. ``cluster_halted`` would print ``--retry <id>``, telling
@@ -161,6 +170,26 @@ class StopReason(Enum):
     consolidation_failed = "consolidation_failed"
     #: The build gate (``check --strict``, ``lint``, ``build``) had findings.
     build_failed = "build_failed"
+    #: The operator stopped the sweep with a signal — Ctrl-C, or the SIGTERM
+    #: a supervisor or a ``kill`` sends. D59 lists an operator interrupt among
+    #: the stop conditions and it was the only one of them with no member:
+    #: the ``KeyboardInterrupt`` went straight through ``sweep.run``, so the
+    #: run wrote no ``status.json``, printed no resume line, and was filed as
+    #: a crash by the *next* invocation. Added by Task 2, which also made
+    #: SIGTERM raise the same exception so one stop serves both signals.
+    #:
+    #: A failure for the exit code's purpose, and rightly so: the sweep could
+    #: not go on, and work is outstanding. It is not
+    #: :attr:`bound_reached` or :attr:`action_performed`, which are places the
+    #: operator asked the sweep to *reach*; this is a place it was stopped at,
+    #: which says nothing about what remains.
+    #:
+    #: **It no longer means "moved aside".** Spec §5's leftover rule — a
+    #: ``runs/<ts>/`` without ``status.json`` becomes
+    #: ``runs/<ts>.interrupted-<cause>/`` — now fires only for a kill the
+    #: process never got to handle: a SIGKILL, a power loss, an OOM. An
+    #: interrupt it *did* handle is a recorded stop like any other.
+    operator_interrupt = "operator_interrupt"
     #: A ``--until`` bound was reached. Not a failure, and **not** ``done``:
     #: the operator asked the sweep to stop somewhere and it got there, which
     #: says nothing about whether the reconstruction is finished — a bounded
@@ -223,6 +252,7 @@ _VERB: dict[StopReason, str] = {
     StopReason.session_failed: "run",
     StopReason.consolidation_failed: "run",
     StopReason.build_failed: "run",
+    StopReason.operator_interrupt: "run",
     StopReason.bound_reached: "run",
     StopReason.action_performed: "next",
 }

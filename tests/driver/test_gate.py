@@ -49,7 +49,7 @@ from pathlib import Path
 import pytest
 
 from ai_rfc import cli, ledger
-from ai_rfc.driver import record, sweep
+from ai_rfc.driver import record
 from ai_rfc.driver.stop import StopReason, resume_line
 from ai_rfc.driver.stream import salvage_stream, session_ids
 from ai_rfc.server.testing import git
@@ -233,6 +233,21 @@ class Reconstruction:
         live = [p for p in self.runs() if record.INTERRUPTED not in p.name]
         assert len(live) == 1, [p.name for p in self.runs()]
         return live[0]
+
+    def latest_run(self) -> Path:
+        """The newest run directory, whether or not an earlier one survives.
+
+        Separate from :meth:`live_run` rather than a loosening of it. Since
+        an operator interrupt became a stop of its own, an interrupted run
+        writes ``status.json`` and is **not** moved aside, so a workspace that
+        was interrupted and then resumed holds two directories neither of
+        which is a leftover — and ``live_run``'s "exactly one" is what the
+        budget and per-cluster criteria below rest on. Run ids sort
+        chronologically (``sweep.RUN_ID_FORMAT``), so newest is last.
+        """
+        runs = self.runs()
+        assert runs, "no run directory was ever opened"
+        return runs[-1]
 
 
 @pytest.fixture
@@ -513,10 +528,18 @@ def test_a_killed_sweep_resumes_without_redoing_the_finished_cluster(
     session's ``$0.50`` — and the resumed run has to find it there.
 
     Three things are asserted of the resume, because three separate mechanisms
-    have to agree: the leftover is renamed rather than deleted (its absence of
-    a ``status.json`` is the only marker of an interrupted run), the finished
-    cluster's checkpoint is byte-identical afterwards, and the new run's own
-    ``run.json`` opens at the spend the killed one reached.
+    have to agree: the interrupted run is recorded rather than lost, the
+    finished cluster's checkpoint is byte-identical afterwards, and the new
+    run's own ``run.json`` opens at the spend the killed one reached.
+
+    **The marker changed with Task 2 and this is what it now reads.** An
+    operator interrupt is a stop of its own: the sweep catches it, writes
+    ``status.json`` with ``operator_interrupt`` and prints the resume line, so
+    the interrupted run is *not* a leftover and is *not* moved aside. The
+    absence of ``status.json`` still means a killed run — but now only for a
+    kill the process never got to handle (SIGKILL, a power loss), which no
+    test at this level can stage. ``move_leftovers_aside`` keeps its unit
+    coverage in ``tests/driver/test_sweep.py``.
     """
     recon = reconstruction("resume", SWEEP_STEPS, sleep=KILL_WINDOW_S)
     first = subprocess.Popen(
@@ -530,8 +553,9 @@ def test_a_killed_sweep_resumes_without_redoing_the_finished_cluster(
     os.kill(first.pid, signal.SIGINT)
     first.communicate(timeout=120)
 
-    killed = recon.live_run()
-    assert not (killed / record.STATUS_FILE).exists()
+    killed = recon.latest_run()
+    status = json.loads((killed / record.STATUS_FILE).read_text())
+    assert status["reason"] == StopReason.operator_interrupt.value
     states = {state.ordinal: state.done for state in ledger.clusters(recon.workspace)}
     assert states == {1: True, 2: False}
     assert record.spent(recon.workspace) == pytest.approx(SESSION_COST)
@@ -549,20 +573,99 @@ def test_a_killed_sweep_resumes_without_redoing_the_finished_cluster(
     )
 
     assert second.returncode == 0, second.stderr
-    moved = [p.name for p in recon.runs() if record.INTERRUPTED in p.name]
-    assert moved == [f"{killed.name}{record.INTERRUPTED}{sweep.INTERRUPT_CAUSE}"]
+    # Nothing is moved aside any more: the interrupted run said why it
+    # stopped, so the resume has no leftover to file as a crash.
+    assert [p.name for p in recon.runs() if record.INTERRUPTED in p.name] == []
+    assert [p.name for p in recon.runs()][0] == killed.name
     assert (
         recon.workspace / "checkpoints" / finished.id / "checkpoint.json"
     ).read_bytes() == frozen
-    rows = recon.sessions(recon.live_run())
+    rows = recon.sessions(recon.latest_run())
     assert [(row["kind"], row["ordinal"]) for row in rows] == [
         ("cluster", 2),
         ("consolidation", None),
     ]
-    opened = json.loads((recon.live_run() / "run.json").read_text())
+    opened = json.loads((recon.latest_run() / "run.json").read_text())
     assert opened["spent_before_usd"] == pytest.approx(SESSION_COST)
     assert record.spent(recon.workspace) == pytest.approx(3 * SESSION_COST)
     assert ledger.counts(ledger.clusters(recon.workspace))["done"] == 2
+
+
+# --- the operator's interrupt: SIGINT and SIGTERM are one stop ---------------
+
+
+def _assert_the_session_group_died(recon: Reconstruction) -> None:
+    """Assert by consequence that the interrupted session's group is gone.
+
+    There is no pid to signal: the fake records its argv, cwd and four
+    environment variables under ``fake-calls/`` and no process id, and
+    ``spawn`` keeps the child's pid to itself. So what is asserted is the one
+    thing an orphan could not help doing. The kill lands inside the scenario's
+    sleep, which the fake performs **before** it touches the workspace, so a
+    session that outlived the driver would wake, replay cluster 2's round and
+    leave a checkpoint behind. Waiting past the window and finding none is the
+    group's death, read off the workspace.
+
+    Args:
+        recon: The interrupted reconstruction, after the driver has exited.
+
+    Raises:
+        AssertionError: If cluster 2 finished, or its checkpoint exists.
+    """
+    time.sleep(KILL_WINDOW_S * 2)
+    states = {state.ordinal: state for state in ledger.clusters(recon.workspace)}
+    assert not states[2].done
+    assert not (
+        recon.workspace / "checkpoints" / states[2].id / "checkpoint.json"
+    ).exists()
+
+
+@pytest.mark.parametrize(
+    "sig", [signal.SIGINT, signal.SIGTERM], ids=["sigint", "sigterm"]
+)
+def test_an_operator_interrupt_stops_with_a_record_and_a_resume_line(
+    reconstruction, sig: signal.Signals
+) -> None:
+    """Both signals reach one stop: the record, the line, and a dead group.
+
+    Parametrised over the two rather than written twice because that sameness
+    **is** the claim. SIGTERM is turned into the ``KeyboardInterrupt`` SIGINT
+    already raises, by a handler ``ai_rfc.cli.main`` installs, so exactly one
+    path in the sweep serves both — and ``spawn``'s ``except BaseException``
+    keeps killing the session's group for either.
+
+    Before Task 2 neither worked and they failed differently, which is why
+    both are pinned here. SIGINT left a traceback and no ``status.json``, so
+    the following invocation filed a real run as a crash. SIGTERM's default
+    disposition killed the driver outright: no record, no line, and a session
+    still spending in a group nothing was left to kill.
+
+    Args:
+        sig: The signal sent to the driver process.
+    """
+    scenario = f"interrupt-{sig.name.lower()}"
+    recon = reconstruction(scenario, SWEEP_STEPS, sleep=KILL_WINDOW_S)
+    driver = subprocess.Popen(
+        [str(AI_RFC), "run", "--config", str(recon.config)],
+        env=recon.env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    _await_session(recon.profile, recon.scenario, 2)
+    os.kill(driver.pid, sig)
+    _out, err = driver.communicate(timeout=120)
+
+    assert driver.returncode == 1, err
+    status = json.loads((recon.latest_run() / record.STATUS_FILE).read_text())
+    assert status["reason"] == StopReason.operator_interrupt.value
+    assert status["exit_code"] == 1
+    # The first session completed and was recorded; the second was interrupted
+    # before it could report, so the count is what the run really finished.
+    assert status["sessions"] == 1
+    expected = "resume: " + resume_line(StopReason.operator_interrupt, recon.config)
+    assert expected in err.splitlines(), err
+    _assert_the_session_group_died(recon)
 
 
 # --- criterion 3: a budget stop reproduces the resume line --------------------

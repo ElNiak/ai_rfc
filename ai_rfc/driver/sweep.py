@@ -88,6 +88,12 @@ CONSOLIDATION_PROMPT_FILE = "prompt-consolidation.md"
 #: The cause an interrupted run directory is moved aside under. A checkpoint
 #: is moved aside under a timestamp instead, because several may be leftover
 #: at once and the cause is the same for all of them.
+#:
+#: Since Task 2 this names a kill the process never got to handle — a
+#: SIGKILL, an OOM, a power loss. An operator's SIGINT or SIGTERM is caught
+#: by :func:`run` and recorded as
+#: :attr:`~ai_rfc.driver.stop.StopReason.operator_interrupt` instead, so such
+#: a run has a ``status.json`` and is not moved aside at all.
 INTERRUPT_CAUSE = "interrupt"
 #: Fixed width and chronological as a string, which is what
 #: :func:`~ai_rfc.driver.record.previous_run_record` orders by. Microseconds
@@ -1253,9 +1259,13 @@ def _finish(
     """Write the status record, print the ledger and the resume line, exit.
 
     The status is written **here and nowhere else**, and never from a
-    ``finally``: its absence is what marks a run interrupted, so a sweep that
-    wrote it unconditionally would make a killed run indistinguishable from a
-    finished one and leave the next resume nothing to move aside.
+    ``finally``: its absence is what marks a run killed without the chance to
+    finish, so a sweep that wrote it unconditionally would make such a run
+    indistinguishable from a finished one and leave the next resume nothing to
+    move aside. What counts as that kind of kill narrowed with Task 2 and is
+    now only a kill the process could not handle — a SIGKILL, an OOM, a power
+    loss. An operator's SIGINT or SIGTERM reaches here like any other stop,
+    under :attr:`~ai_rfc.driver.stop.StopReason.operator_interrupt`.
 
     Args:
         cfg: The validated configuration, for the window the ledger line is
@@ -1346,14 +1356,16 @@ def run(
 
     Returns:
         0 when the sweep finished, its bound was reached, or ``mode="one"``
-        performed its action; 1 when it stopped with work it could not do;
-        3 when ``check --strict`` reported findings.
+        performed its action; 1 when it stopped with work it could not do —
+        an operator's SIGINT or SIGTERM among them, which is caught around the
+        session loop and reported as
+        :attr:`~ai_rfc.driver.stop.StopReason.operator_interrupt` with a
+        status record and a resume line; 3 when ``check --strict`` reported
+        findings.
 
     Raises:
         DriverError: If no sessions are configured, the mode is not one of the
             two, or a bound or a retry names nothing.
-        KeyboardInterrupt: Straight through. An interrupted run writes no
-            status record, which is the whole of the resume contract.
     """
     if cfg.sessions is None:
         raise DriverError(
@@ -1368,80 +1380,41 @@ def run(
     swept = _Sweep()
     run_dir: Path | None = None
     prompt_path: Path | None = None
-    while True:
-        obs = observe(
-            workspace,
-            cfg,
-            deadline=deadline,
-            shortfall=swept.shortfall,
-            last_error=swept.last_error,
-            launches=swept.launches,
-            attempted_rounds=swept.attempted_rounds,
-            forgiven=forgiven,
-        )
-        if _bound_reached(until, obs):
-            # Through `_finish` like every other stop, and for the reason
-            # `_finish` exists: it is the only writer of `status.json`, and the
-            # absence of that file is what `move_leftovers_aside` reads as
-            # *this run was killed*. Returning early here meant a bounded
-            # `run --until cluster:c1` that had launched real sessions left a
-            # run directory the **next** invocation renamed
-            # `.interrupted-interrupt`, and said nothing about what it did.
-            assert until is not None  # noqa: S101 - a None bound is never reached
-            return _finish(
-                cfg,
+    # Kept outside the loop for the interrupt handler below, which may have to
+    # finish a sweep that was stopped before the first observation. An empty
+    # tuple is the honest answer there — no timeline was read — and it is what
+    # `resume_for` wants anyway for a reason that names no cluster.
+    known_clusters: tuple[str, ...] = ()
+    try:
+        while True:
+            obs = observe(
                 workspace,
-                run_dir,
-                Action(
-                    "stop",
-                    reason=StopReason.bound_reached,
-                    detail=printable(until),
-                ),
-                swept,
-                config_path=resume_path,
-                known_clusters=obs.known_clusters,
-                until=until,
-                mode=mode,
-            )
-        action = plan_next(obs, cfg)
-        if action.kind == "stop":
-            return _finish(
                 cfg,
-                workspace,
-                run_dir,
-                action,
-                swept,
-                config_path=resume_path,
-                known_clusters=obs.known_clusters,
-                until=until,
-                mode=mode,
+                deadline=deadline,
+                shortfall=swept.shortfall,
+                last_error=swept.last_error,
+                launches=swept.launches,
+                attempted_rounds=swept.attempted_rounds,
+                forgiven=forgiven,
             )
-        if action.kind == "gate":
-            reason, strict = _build_gate(cfg, workspace)
-            return _finish(
-                cfg,
-                workspace,
-                run_dir,
-                Action("stop", reason=reason),
-                swept,
-                config_path=resume_path,
-                known_clusters=obs.known_clusters,
-                strict_findings=strict,
-                until=until,
-                mode=mode,
-            )
-        if action.kind == "stage":
-            assert action.stage is not None  # noqa: S101 - plan_next names one
-            result = perform(BY_NAME[action.stage], workspace_from(workspace))
-            if not result.ok:
+            known_clusters = obs.known_clusters
+            if _bound_reached(until, obs):
+                # Through `_finish` like every other stop, and for the reason
+                # `_finish` exists: it is the only writer of `status.json`, and the
+                # absence of that file is what `move_leftovers_aside` reads as
+                # *this run was killed*. Returning early here meant a bounded
+                # `run --until cluster:c1` that had launched real sessions left a
+                # run directory the **next** invocation renamed
+                # `.interrupted-interrupt`, and said nothing about what it did.
+                assert until is not None  # noqa: S101 - a None bound is never reached
                 return _finish(
                     cfg,
                     workspace,
                     run_dir,
                     Action(
                         "stop",
-                        reason=StopReason.stage_failed,
-                        detail=f"{action.stage} exited {result.exit_code}",
+                        reason=StopReason.bound_reached,
+                        detail=printable(until),
                     ),
                     swept,
                     config_path=resume_path,
@@ -1449,34 +1422,45 @@ def run(
                     until=until,
                     mode=mode,
                 )
-            report(f"performed: {action.stage}")
-        else:
-            if run_dir is None:
-                # The last moment before anything is spent, and deliberately
-                # not the top of this function: a malformed `--until` or
-                # `--retry` is the operator's own typo and is refused by
-                # `observe` above, so checking the environment first would
-                # answer a typo with "provision a toolchain". Everything
-                # between here and there is free and idempotent.
-                _require_toolchain(cfg)
-                run_dir, prompt_path = _open_run(workspace, cfg, obs)
-            assert prompt_path is not None  # noqa: S101 - written beside run_dir
-            if action.kind == "consolidation":
-                recorded = _run_consolidation(
-                    cfg, workspace, run_dir, swept, obs, action
+            action = plan_next(obs, cfg)
+            if action.kind == "stop":
+                return _finish(
+                    cfg,
+                    workspace,
+                    run_dir,
+                    action,
+                    swept,
+                    config_path=resume_path,
+                    known_clusters=obs.known_clusters,
+                    until=until,
+                    mode=mode,
                 )
-                if not action.at_end:
-                    assert action.round_due is not None  # noqa: S101
-                    swept.attempted_rounds.add(action.round_due.ordinal)
-                elif not recorded:
+            if action.kind == "gate":
+                reason, strict = _build_gate(cfg, workspace)
+                return _finish(
+                    cfg,
+                    workspace,
+                    run_dir,
+                    Action("stop", reason=reason),
+                    swept,
+                    config_path=resume_path,
+                    known_clusters=obs.known_clusters,
+                    strict_findings=strict,
+                    until=until,
+                    mode=mode,
+                )
+            if action.kind == "stage":
+                assert action.stage is not None  # noqa: S101 - plan_next names one
+                result = perform(BY_NAME[action.stage], workspace_from(workspace))
+                if not result.ok:
                     return _finish(
                         cfg,
                         workspace,
                         run_dir,
                         Action(
                             "stop",
-                            reason=StopReason.consolidation_failed,
-                            detail="the sweep-end round recorded no revision",
+                            reason=StopReason.stage_failed,
+                            detail=f"{action.stage} exited {result.exit_code}",
                         ),
                         swept,
                         config_path=resume_path,
@@ -1484,48 +1468,116 @@ def run(
                         until=until,
                         mode=mode,
                     )
+                report(f"performed: {action.stage}")
             else:
-                assert action.cluster is not None  # noqa: S101 - a session's row
-                report(
-                    f"cluster {action.cluster.id} (ordinal "
-                    f"{action.cluster.ordinal}): attempt "
-                    f"{obs.attempts + 1} of {cfg.sessions.attempts_per_cluster}, "
-                    f"${cfg.sessions.budget_usd - obs.spent_usd:.2f} left"
-                )
-                _run_one_session(
+                if run_dir is None:
+                    # The last moment before anything is spent, and deliberately
+                    # not the top of this function: a malformed `--until` or
+                    # `--retry` is the operator's own typo and is refused by
+                    # `observe` above, so checking the environment first would
+                    # answer a typo with "provision a toolchain". Everything
+                    # between here and there is free and idempotent.
+                    _require_toolchain(cfg)
+                    run_dir, prompt_path = _open_run(workspace, cfg, obs)
+                assert prompt_path is not None  # noqa: S101 - written beside run_dir
+                if action.kind == "consolidation":
+                    recorded = _run_consolidation(
+                        cfg, workspace, run_dir, swept, obs, action
+                    )
+                    if not action.at_end:
+                        assert action.round_due is not None  # noqa: S101
+                        swept.attempted_rounds.add(action.round_due.ordinal)
+                    elif not recorded:
+                        return _finish(
+                            cfg,
+                            workspace,
+                            run_dir,
+                            Action(
+                                "stop",
+                                reason=StopReason.consolidation_failed,
+                                detail="the sweep-end round recorded no revision",
+                            ),
+                            swept,
+                            config_path=resume_path,
+                            known_clusters=obs.known_clusters,
+                            until=until,
+                            mode=mode,
+                        )
+                else:
+                    assert action.cluster is not None  # noqa: S101 - a session's row
+                    report(
+                        f"cluster {action.cluster.id} (ordinal "
+                        f"{action.cluster.ordinal}): attempt "
+                        f"{obs.attempts + 1} of {cfg.sessions.attempts_per_cluster}, "
+                        f"${cfg.sessions.budget_usd - obs.spent_usd:.2f} left"
+                    )
+                    _run_one_session(
+                        cfg,
+                        workspace,
+                        run_dir,
+                        prompt_path,
+                        swept,
+                        obs,
+                        kind="cluster",
+                        task=render.render_task(
+                            (action.cluster.ordinal, action.cluster.ordinal)
+                        ),
+                        task_template=render.TASK_TEMPLATE,
+                        cluster=action.cluster,
+                    )
+            if mode == "one":
+                # Through `_finish` like every other stop, and for the reason the
+                # bounded stop above gives: it is the only writer of `status.json`,
+                # and the absence of that file is what `move_leftovers_aside`
+                # reads as *this run was killed*. Returning early here meant every
+                # `ai-rfc next` that launched a session left a run directory the
+                # **next** `next` renamed `.interrupted-interrupt`, and said
+                # neither what it had done nor what to type after it.
+                return _finish(
                     cfg,
                     workspace,
                     run_dir,
-                    prompt_path,
-                    swept,
-                    obs,
-                    kind="cluster",
-                    task=render.render_task(
-                        (action.cluster.ordinal, action.cluster.ordinal)
+                    Action(
+                        "stop",
+                        reason=StopReason.action_performed,
+                        detail=_performed(action),
                     ),
-                    task_template=render.TASK_TEMPLATE,
-                    cluster=action.cluster,
+                    swept,
+                    config_path=resume_path,
+                    known_clusters=obs.known_clusters,
+                    until=until,
+                    mode=mode,
                 )
-        if mode == "one":
-            # Through `_finish` like every other stop, and for the reason the
-            # bounded stop above gives: it is the only writer of `status.json`,
-            # and the absence of that file is what `move_leftovers_aside`
-            # reads as *this run was killed*. Returning early here meant every
-            # `ai-rfc next` that launched a session left a run directory the
-            # **next** `next` renamed `.interrupted-interrupt`, and said
-            # neither what it had done nor what to type after it.
-            return _finish(
-                cfg,
-                workspace,
-                run_dir,
-                Action(
-                    "stop",
-                    reason=StopReason.action_performed,
-                    detail=_performed(action),
-                ),
-                swept,
-                config_path=resume_path,
-                known_clusters=obs.known_clusters,
-                until=until,
-                mode=mode,
-            )
+    except KeyboardInterrupt:
+        # The operator's stop, and the only one that arrives from outside the
+        # table. It is caught **here** rather than in `run`'s or `next`'s CLI
+        # clause because `_finish` is the single writer of `status.json` and
+        # is reachable from nowhere else: a clause up there could report the
+        # interrupt but could not record it, so the following invocation would
+        # still file this run as a crash.
+        #
+        # `spawn` has already killed the session's process group on the way
+        # out — its `except BaseException` runs before this frame — so by the
+        # time control arrives nothing of the run is still spending.
+        #
+        # Returning rather than re-raising, so `run` and `next` need no new
+        # clause of their own and the resume line goes out through the same
+        # path every other stop uses. A second interrupt arriving inside
+        # `_finish` is deliberately not caught: an operator pressing Ctrl-C
+        # again is asking for the process to stop rather than for a tidier
+        # record, and a run without `status.json` is still resumable.
+        return _finish(
+            cfg,
+            workspace,
+            run_dir,
+            Action(
+                "stop",
+                reason=StopReason.operator_interrupt,
+                detail=f"interrupted after {swept.sessions_run} session(s)",
+            ),
+            swept,
+            config_path=resume_path,
+            known_clusters=known_clusters,
+            until=until,
+            mode=mode,
+        )

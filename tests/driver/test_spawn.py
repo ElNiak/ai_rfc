@@ -3,6 +3,7 @@ import subprocess
 
 import pytest
 
+from ai_rfc import cli
 from ai_rfc.driver import spawn as spawn_module
 
 
@@ -182,16 +183,27 @@ def test_an_interrupt_as_the_grace_wait_returns_skips_the_escalation(
     assert killed == [(4242, signal.SIGTERM)]
 
 
-def test_a_systemexit_kills_the_group_too(tmp_path, monkeypatch):
-    """Not only Ctrl-C: any abnormal exit must take the session with it.
+def test_the_sigterm_handler_kills_the_group_too(tmp_path, monkeypatch):
+    """Not only Ctrl-C: SIGTERM must take the session with it as well.
 
-    A SIGTERM handler installed at the CLI entry point raises ``SystemExit``
-    through this code, and an orphaned group costs the same either way.
+    Driven through the handler ``ai_rfc.cli`` really installs, rather than
+    through an injected exception. The earlier spelling raised ``SystemExit``
+    here and said in its own docstring that "a SIGTERM handler installed at
+    the CLI entry point raises ``SystemExit`` through this code" — while no
+    handler was installed anywhere, so SIGTERM killed the driver outright and
+    nothing ever raised through this frame. The test passed on the strength of
+    ``except BaseException`` catching an exception no production path
+    produced: it proved the breadth of the clause, not the behaviour it was
+    written to certify.
+
+    What the handler raises is deliberately not restated here. It is
+    ``KeyboardInterrupt`` so that one path serves both signals, and a test
+    that hard-coded the type would keep passing if the install were removed.
     """
     killed: list[tuple[int, int]] = []
 
-    class _Exiting:
-        """Exit on the first wait, then reap on the group-kill wait."""
+    class _Signalled:
+        """Take the signal on the first wait, then reap on the group-kill wait."""
 
         pid = 4242
         calls = 0
@@ -200,15 +212,18 @@ def test_a_systemexit_kills_the_group_too(tmp_path, monkeypatch):
         def wait(self, timeout=None):
             type(self).calls += 1
             if type(self).calls == 1:
-                raise SystemExit(1)
+                # What the kernel does to a process running under the
+                # disposition `ai_rfc.cli.main` installs for SIGTERM.
+                return cli._interrupted(signal.SIGTERM, None)
             return 0
 
-    monkeypatch.setattr(spawn_module.subprocess, "Popen", lambda *a, **k: _Exiting())
+    monkeypatch.setattr(spawn_module.subprocess, "Popen", lambda *a, **k: _Signalled())
     monkeypatch.setattr(
         spawn_module.os, "killpg", lambda pid, sig: killed.append((pid, sig))
     )
 
-    with pytest.raises(SystemExit):
+    with pytest.raises(BaseException) as raised:
         _spawn(spawn_module, tmp_path)
 
+    assert not isinstance(raised.value, Exception), "the stop must not be catchable"
     assert killed and killed[0] == (4242, signal.SIGTERM)

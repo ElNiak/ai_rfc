@@ -661,13 +661,17 @@ def test_move_aside_accepts_the_stop_reason_vocabulary(tmp_path: Path) -> None:
     ``bound_reached`` — a ``--until`` bound that is reached, which is neither
     a failure nor the ``done`` of a finished reconstruction. Task 12 added
     ``action_performed``, which ``ai-rfc next`` mints after its one action.
+    Task 2 added ``operator_interrupt``, which the sweep mints when SIGINT or
+    SIGTERM reaches it.
 
     Nothing here claims a run is moved aside *under* a stop reason. By the
     plan's Ruling D a stop-classified exit writes ``status.json``, so what gets
-    moved aside is an interrupted run, whose cause is ``interrupt`` or a
-    timestamp. What is asserted is the grammar: an identifier with underscores
-    must be accepted, as must the ISO timestamp a checkpoint is moved aside
-    under.
+    moved aside is a run killed without the chance to finish — a SIGKILL or a
+    power loss, whose cause is ``interrupt`` or a timestamp. An operator's
+    SIGINT or SIGTERM is no longer among them: since Task 2 the sweep catches
+    it and records ``operator_interrupt``. What is asserted is the grammar: an
+    identifier with underscores must be accepted, as must the ISO timestamp a
+    checkpoint is moved aside under.
     """
     for cause in (
         "needs_init",
@@ -680,6 +684,7 @@ def test_move_aside_accepts_the_stop_reason_vocabulary(tmp_path: Path) -> None:
         "session_failed",
         "consolidation_failed",
         "build_failed",
+        "operator_interrupt",
         "bound_reached",
         "action_performed",
         "done",

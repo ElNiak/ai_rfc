@@ -1030,28 +1030,68 @@ def test_run_hands_classify_the_same_seen_it_hands_run_session(
     )
 
 
-def test_an_interrupt_leaves_the_run_without_a_status_record(
+def test_an_interrupt_is_a_stop_of_its_own_and_records_one(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Ruling D, and the whole of the resume contract.
+    """Task 2's half of Ruling D: a handled interrupt is a stop, not a leftover.
 
-    The absence of ``status.json`` is what marks a run interrupted, so nothing
-    may write it from a ``finally``. A sweep that did would make the leftover
-    indistinguishable from a finished run, the next resume would find nothing
-    to move aside, and Task 15's second criterion would pass while
-    resumability was broken.
+    Until Task 2 the ``KeyboardInterrupt`` went straight through ``run``, and
+    this test asserted the absence of ``status.json`` as the whole of the
+    resume contract. What that left the operator with was the *worst* of both:
+    a traceback instead of a diagnosis, no resume line, and a real run that
+    the following invocation filed as a crash. D59 had listed an operator
+    interrupt among the stop conditions all along.
+
+    So the interrupt is caught around the session loop and reported like every
+    other stop — exit 1, a record naming ``operator_interrupt``, the ledger
+    and the line to type next. The run is *not* moved aside, because it said
+    why it stopped.
+
+    Ruling D itself is untouched and is what
+    :func:`test_a_run_that_ends_on_its_own_terms_writes_a_status_record` and
+    :func:`test_resuming_moves_an_interrupted_run_aside_and_keeps_its_transcript`
+    still hold: ``status.json`` is written only by ``_finish``, never from a
+    ``finally``, and its absence still marks a run killed without the chance
+    to finish — now a SIGKILL or a power loss rather than a Ctrl-C.
     """
     ws = _workspace(tmp_path, clusters=({"id": "c1", "ordinal": 1},))
     _drive(monkeypatch, ws, [_obs()], results=[KeyboardInterrupt()])
 
-    with pytest.raises(KeyboardInterrupt):
-        sweep.run(_cfg(), ws)
+    assert sweep.run(_cfg(), ws) == 1
 
     runs = sorted((ws / record.RUNS_DIR).iterdir())
 
     assert len(runs) == 1
     assert (runs[0] / record.RUN_RECORD_FILE).is_file()
-    assert not (runs[0] / record.STATUS_FILE).exists()
+    status = json.loads((runs[0] / record.STATUS_FILE).read_text())
+    assert status["reason"] == StopReason.operator_interrupt.value
+    assert status["exit_code"] == 1
+    # The interrupt landed inside the first session, so the run finished none:
+    # `_run_one_session` appends its row only after the process returns.
+    assert status["sessions"] == 0
+
+
+def test_an_interrupt_prints_the_ledger_and_the_line_to_type_next(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The other half of what the traceback cost: D59's "exact resume line".
+
+    Asserted at unit level as well as through the gate because this is the
+    only place the bound can be carried: a ``run --until`` that the operator
+    interrupts must hand back a line that still stops where they asked, or the
+    copied line sweeps past it.
+    """
+    ws = _workspace(
+        tmp_path, clusters=({"id": "c1", "ordinal": 1}, {"id": "c2", "ordinal": 2})
+    )
+    _drive(monkeypatch, ws, [_obs()], results=[KeyboardInterrupt()])
+
+    assert sweep.run(_cfg(), ws, until="cluster:c2", config_path=Path("/w/r.yaml")) == 1
+
+    lines = capsys.readouterr().err.splitlines()
+    assert "operator_interrupt: interrupted after 0 session(s)" in lines
+    assert "clusters: 0 of 2 done, 0 partial, 2 outstanding" in lines
+    assert "resume: ai-rfc run --config /w/r.yaml --until cluster:c2" in lines
 
 
 def test_a_run_that_ends_on_its_own_terms_writes_a_status_record(
