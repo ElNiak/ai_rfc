@@ -18,13 +18,24 @@ from .store import FIDELITY_CEILINGS, FULL_FIDELITY, ForgeError, write_snapshot
 
 
 def _report(message: str) -> None:
-    """Write a diagnostic to stderr.
+    """Write a diagnostic to stderr, as one printable line.
 
     Deliberately not the ``logging`` module. Every ``panther.*`` logger is
     configured with ``propagate=False`` and a handler admitting only ``ERROR``,
     so a logged warning here is discarded before anyone sees it.
+
+    Escaped here rather than at each call site, which is the shape
+    :func:`ai_rfc.lifecycle.common.report` already gives the lifecycle verbs
+    and ``draft/cli.py``: every caller interpolates an operator- or
+    agent-controlled value into these lines — a repository path, a cluster
+    id, the text of a caught error carrying ``git``'s own stderr — and one
+    carrying a line break forges a second line beneath the first.
+    :func:`~ai_rfc.driver.printable` is the predicate over the unprintable
+    category, so the escape is not an enumeration of line endings. The
+    substrate may not import ``lifecycle``, which is why this is that
+    boundary's twin rather than a call to it.
     """
-    print(message, file=sys.stderr)
+    print(printable(message), file=sys.stderr)
 
 
 def _add_target_arguments(parser: argparse.ArgumentParser) -> None:
@@ -171,15 +182,11 @@ def run(args: argparse.Namespace, transport: Transport | None = None) -> int:
         text=True,
     )
     if head.returncode != 0:
-        # `git`'s own stderr, escaped where this line is composed. The clone
-        # is a repository the session being observed can write, so what
-        # `rev-parse` prints when it fails is that session's to choose, and a
-        # break in it would buy a second stderr line reading as this verb's
-        # own `note:` verdict.
-        _report(
-            f"error: {printable(str(args.repo))} is not a git repository: "
-            f"{printable(head.stderr.strip())}"
-        )
+        # The clone is a repository the session being observed can write, so
+        # what `rev-parse` prints when it fails is that session's to choose.
+        # `_report` escapes it: one boundary per module, not a rule this line
+        # has to remember.
+        _report(f"error: {args.repo} is not a git repository: {head.stderr.strip()}")
         return 1
 
     if args.verb == "adopt":

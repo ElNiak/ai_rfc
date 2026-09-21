@@ -575,8 +575,14 @@ so the debt *was* discovered twice. **Adding a substrate subpackage means
 adding its copies here**, and since then something counts them:
 `tests/substrate/test_cli_conventions.py` scans the package for every helper
 the table names and fails when a row and the code disagree. The bodies
-themselves have not drifted: all eight `_report` copies are identical but for
-one clause `check/cli.py` adds about its own exit-3 gate.
+themselves have not drifted: all seven `_report` copies are identical but for
+one clause `check/cli.py` adds about its own exit-3 gate. (Seven, not the
+eight this sentence said until the count above dropped to seven — the row and
+the prose are maintained by different hands and drifted apart, which is the
+failure the row's own test now catches and this sentence did not have.) Each
+body is `print(printable(message), file=sys.stderr)`: every copy is an
+escaping boundary, the twin of `lifecycle/common.report`, because the
+substrate may not import `lifecycle` to call the original.
 
 **The register speaks for the substrate only.** `server/` and `experiment/`
 keep their own `_git` (`server/core/draft.py`, `experiment/workspace.py`) and

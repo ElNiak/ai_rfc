@@ -212,3 +212,50 @@ def test_main_is_the_standalone_door_over_configure_and_run(capsys):
             module.main(["--help"])
         assert excinfo.value.code == 0, entry.verb
         assert f"usage: {entry.prog}" in capsys.readouterr().out, entry.verb
+
+
+#: A message shaped like the forgery every escaped boundary exists to stop:
+#: one record, a line ending, and a second line spelled as a verb's own
+#: verdict. Built by concatenation — ``test_source_hygiene`` forbids a source
+#: file carrying a character :meth:`str.isprintable` refuses.
+_FORGED_TAIL = "note: 3 cluster view(s) written to /forged"
+
+
+@pytest.mark.parametrize("separator", [chr(0x0A), chr(0x0D), chr(0x2028)])
+@pytest.mark.parametrize("module", sorted(_defines("_report")))
+def test_every_report_helper_escapes_what_it_prints(module, separator, capsys):
+    """A diagnostic is one line, and every copy of the helper makes it so.
+
+    Parametrised over the register's own measured set rather than a written
+    list, for the reason :func:`_defines` exists: a copy that lands without
+    anyone updating a list is exactly the drift this file was written to
+    catch, and an eighth ``_report`` arriving unescaped must fail here rather
+    than be discovered by a forged line in somebody's terminal.
+
+    Asserted at the **boundary**, which is where the remedy now lives. Each
+    of these modules interpolates operator- or agent-controlled values into
+    its diagnostics — a repository path, a cluster id, a caught error
+    carrying ``git``'s own stderr — and escaping them one call site at a time
+    is a rule every future author has to remember. Escaping here is a
+    property of the function, and it is the shape
+    :func:`ai_rfc.lifecycle.common.report` already gives the lifecycle verbs
+    and ``draft/cli.py``.
+
+    CR is in the enumeration beside LF because a terminal ends a line on it
+    just as readily, and U+2028 because ``str.splitlines`` does — but the
+    implementation is :func:`ai_rfc.driver.printable`'s predicate over the
+    unprintable category, so these three are witnesses and not the rule.
+    """
+    imported = importlib.import_module(
+        "ai_rfc." + module.removesuffix(".py").replace("/", ".")
+    )
+    imported._report("error: boom" + separator + _FORGED_TAIL)
+    # `splitlines` first, then assert on the line: the trailing break `print`
+    # itself writes is not the value's, and a check over the whole capture
+    # fails on it for LF while passing for the two separators that matter
+    # most — a test that is green for the wrong reason in two cases of three.
+    lines = capsys.readouterr().err.splitlines()
+
+    assert len(lines) == 1
+    assert separator not in lines[0]
+    assert _FORGED_TAIL in lines[0]

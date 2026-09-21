@@ -11,17 +11,25 @@ Each verb catches the exception family its CLI branch catches, and only that
 family; :func:`ai_rfc.server.core.reported` rebuilds the boundary the child
 process used to provide for everything else.
 
-**Every value interpolated into a diagnostic here is escaped at the line that
-composes it** — the ``error:`` lines *and* the ``finding:`` lines — never at
-:func:`ai_rfc.server.core.diagnostics`, which splits the result into one
-element per line. That function's docstring gives the reason: joining the
-lines there would hide a forgery rather than fix it, and would change the
-split shape the move off the subprocess promised to preserve. Escaping is not
-joining: each line below wraps what it interpolates in
-:func:`ai_rfc.driver.printable` — the predicate over the unprintable category
-— so a break inside a caught message or inside a gate's finding becomes a
-visible escape inside one element instead of a second element spelled as this
-verb's own ``note:``.
+**Every value that arrives from outside this package is escaped at the line
+that composes it**, never at :func:`ai_rfc.server.core.diagnostics`, which
+splits the result into one element per line. That function's docstring gives
+the reason: joining the lines there would hide a forgery rather than fix it,
+and would change the split shape the move off the subprocess promised to
+preserve. Escaping is not joining: each such line wraps what it interpolates
+in :func:`ai_rfc.driver.printable` — the predicate over the unprintable
+category — so a break in a caught message, a gate's finding, a violation or an
+unverified anchor becomes a visible escape inside one element instead of a
+second element spelled as this verb's own ``note:``.
+
+**The exception, stated rather than left to be discovered:** the ``note:``
+lines interpolate no such value. ``gates.py``'s names the directory the
+checkpoint writer returned, and ``build.py``'s two name a twelve-character
+commit, an exit code and paths this package composed from its own constants —
+and the writer refuses a cluster the timeline does not have before it creates
+anything, so none of the three can carry a character the grammar reads. They
+are the lines a forgery imitates, which is the reason to say why they are safe
+instead of leaving the silence to be read either way.
 
 This is the tool arm's half of an arrangement the CLI arm already has: there
 every diagnostic goes through :func:`ai_rfc.lifecycle.common.report`, which
@@ -174,10 +182,10 @@ def _check_manifest(ctx: Context, strict: bool) -> tuple[int, list[str]]:
     (out / "report.md").write_text(to_markdown(report))
 
     messages = [
-        f"violation: {violation.claim_id}: {violation.reason}"
+        f"violation: {printable(violation.claim_id)}: {printable(violation.reason)}"
         for violation in report.violations
     ]
-    messages += [f"unverified: {item}" for item in report.unverified]
+    messages += [f"unverified: {printable(item)}" for item in report.unverified]
     if (report.violations or report.unverified) and strict:
         return 3, diagnostics(*messages)
     return 0, diagnostics(*messages)

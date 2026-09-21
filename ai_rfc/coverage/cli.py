@@ -11,6 +11,7 @@ from pathlib import Path
 import yaml
 
 from ai_rfc import __version__
+from ai_rfc.driver import printable
 
 from ..schema import SchemaError, load
 from .commit import PinError
@@ -24,13 +25,24 @@ READERS = {"jacoco": read_jacoco}
 
 
 def _report(message: str) -> None:
-    """Write a diagnostic to stderr.
+    """Write a diagnostic to stderr, as one printable line.
 
     Deliberately not the ``logging`` module. Every ``panther.*`` logger is
     configured with ``propagate=False`` and a handler admitting only ``ERROR``,
     so a logged warning here is discarded before anyone sees it.
+
+    Escaped here rather than at each call site, which is the shape
+    :func:`ai_rfc.lifecycle.common.report` already gives the lifecycle verbs
+    and ``draft/cli.py``: every caller interpolates an operator- or
+    agent-controlled value into these lines — a repository path, a cluster
+    id, the text of a caught error carrying ``git``'s own stderr — and one
+    carrying a line break forges a second line beneath the first.
+    :func:`~ai_rfc.driver.printable` is the predicate over the unprintable
+    category, so the escape is not an enumeration of line endings. The
+    substrate may not import ``lifecycle``, which is why this is that
+    boundary's twin rather than a call to it.
     """
-    print(message, file=sys.stderr)
+    print(printable(message), file=sys.stderr)
 
 
 def configure(parser: argparse.ArgumentParser) -> None:
