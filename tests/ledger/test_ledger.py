@@ -381,7 +381,11 @@ def test_a_narrowed_window_that_finished_its_cluster_is_done_everywhere(ws, caps
     assert second not in report.unprocessed_clusters
 
     capsys.readouterr()
-    cli.main(["verify", "--config", str(ws / "recon.yaml"), "--strict"])
+    # Not ``== 0``: ``lint`` reports this fixture's draft whatever the window
+    # does. ``!= 1`` is the aggregation guard — a check that degrades into an
+    # error is reported as 1 (``lifecycle/verify/cli.py:108-109``), and the
+    # ``completeness`` line below would still read ok while it happened.
+    assert cli.main(["verify", "--config", str(ws / "recon.yaml"), "--strict"]) != 1
     assert "completeness: ok" in capsys.readouterr().err
     frozen = json.loads((ws / "out" / "completeness.json").read_text())
     assert frozen["unprocessed_clusters"] == []
@@ -419,11 +423,40 @@ def test_a_pre_seeded_cluster_is_not_counted_as_this_runs_work(ws, capsys):
     assert second not in report.silent_clusters
 
     capsys.readouterr()
-    cli.main(["verify", "--config", str(ws / "recon.yaml"), "--strict"])
+    # The same aggregation guard as the case above, for the same reason.
+    assert cli.main(["verify", "--config", str(ws / "recon.yaml"), "--strict"]) != 1
     assert "completeness: ok" in capsys.readouterr().err
     frozen = json.loads((ws / "out" / "completeness.json").read_text())
     assert frozen["unprocessed_clusters"] == []
     assert frozen["totals"]["clusters_total"] == 1
+
+
+def test_a_window_that_is_entirely_pre_seeded_has_nothing_to_checkpoint(ws):
+    """An empty scope is finished, not pending: there is nothing to offer.
+
+    Every cluster here is a baseline's, so this run was asked to produce none
+    of them. Counting timeline rows made the stage read "no cluster
+    checkpointed of 0" and offer an operator a stage that cannot be run, and
+    gave ``completeness`` a denominator it was never measured against.
+    """
+    from ai_rfc.pipeline.state import State
+
+    first, second = _ids(ws)
+    _preseed(ws, first, ordinal=1)
+    _preseed(ws, second, ordinal=2)
+
+    summary = counts(clusters(ws))
+    assert summary["in_window"] == 0 and summary["pre_seeded"] == 2
+    assert next_cluster(ws) is None
+
+    stage = _checkpoint_stage(ws)
+    assert stage.state is State.DONE
+    assert stage.reason == "no cluster in this run's window to checkpoint"
+    report = _completeness(ws)
+    assert report.unprocessed_clusters == () and report.silent_clusters == ()
+    assert report.totals["clusters_total"] == 0
+    assert report.totals["clusters_processed"] == 0
+    assert report.totals["processed_fraction"] == 0.0
 
 
 @pytest.mark.skipif(not MARK.is_dir(), reason="the sealed MARK A1 copy is not here")
