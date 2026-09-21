@@ -18,7 +18,7 @@ import os
 import signal
 import subprocess
 from pathlib import Path
-from typing import BinaryIO
+from typing import BinaryIO, Literal
 
 from . import DriverError
 
@@ -66,7 +66,7 @@ def _kill_group(process: subprocess.Popen) -> None:
         raise
 
 
-def _claim(path: Path, mode: str) -> BinaryIO:
+def _claim(path: Path, mode: Literal["ab", "xb"]) -> BinaryIO:
     """Open one of a session's output files, never destroying a held one.
 
     Args:
@@ -132,7 +132,10 @@ def spawn(
             already held by another launch. Nothing is spawned.
         OSError: If either output file cannot be opened.
     """
-    mode = "ab" if append else "xb"
+    # Annotated rather than inferred: the two modes are the whole vocabulary
+    # here, and a widened ``str`` would let a third one -- ``"wb"``, the one
+    # this replaced -- pass the type checker into the call below.
+    mode: Literal["ab", "xb"] = "ab" if append else "xb"
     timed_out = False
     exit_code: int | None = None
     # The transcript is opened first because it is the claim: a second launch
