@@ -380,9 +380,9 @@ def observe(
         workspace: The workspace root.
         cfg: The validated configuration.
         deadline: A ``time.monotonic`` value the sweep must finish by, or None
-            for no wall-clock cap. Nothing in a ``recon.yaml`` supplies one
-            today; the argument exists so the row is implemented rather than
-            unreachable.
+            for no wall-clock cap. ``sessions.deadline_s`` is where an
+            operator sets one; the verbs turn it into this absolute value at
+            the sweep's own door, so the deterministic stages do not spend it.
         shortfall: What the first judgeable session mounted instead of the
             ``ai_rfc`` server.
         last_error: Why the last session was a launch or API failure.
@@ -1351,8 +1351,10 @@ def run(
         config_path: The configuration the resume line names. Defaults to the
             workspace's sealed copy, which is a path ``--config`` accepts;
             a caller that knows what the operator typed should pass it.
-        deadline: A ``time.monotonic`` value the sweep must finish by. Nothing
-            in a ``recon.yaml`` supplies one today.
+        deadline: A ``time.monotonic`` value the sweep must finish by, from
+            ``sessions.deadline_s`` through
+            :func:`~ai_rfc.lifecycle.run.cli.sweep_deadline`, or None for no
+            wall-clock cap.
 
     Returns:
         0 when the sweep finished, its bound was reached, or ``mode="one"``

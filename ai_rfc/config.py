@@ -207,6 +207,14 @@ FIELDS: tuple[Field, ...] = (
         example=7200,
     ),
     Field(
+        "sessions.deadline_s",
+        "int",
+        "Seconds a whole sweep may run before it stops on the wall clock; "
+        "no cap when omitted. Measured from the first session, not from "
+        "`run` — the deterministic stages are free and idempotent.",
+        example=86400,
+    ),
+    Field(
         "sessions.attempts_per_cluster",
         "int",
         "Sessions a cluster may consume before the sweep halts.",
@@ -395,12 +403,24 @@ class DraftConfig:
 
 @dataclass(frozen=True)
 class SessionsConfig:
-    """How a reconstruction's model sessions are launched, capped and halted."""
+    """How a reconstruction's model sessions are launched, capped and halted.
+
+    ``timeout_s`` and ``deadline_s`` are the two clocks and they cap different
+    things: the first kills **one** session's process group, the second stops
+    the **whole sweep** at the next observation. Neither substitutes for the
+    other — a sweep of twenty sessions under a two-hour per-session timeout
+    has no bound at all until ``deadline_s`` gives it one.
+
+    ``deadline_s`` carries no default, as ``profile`` does not: every
+    construction names every field, so a field added here cannot be silently
+    forgotten at a call site.
+    """
 
     model: str
     effort: str
     budget_usd: float
     timeout_s: int
+    deadline_s: int | None
     attempts_per_cluster: int
     consolidate_every: int
     profile: Path | None
@@ -630,6 +650,7 @@ def load_config(path: Path) -> ReconConfig:
             effort=values["sessions.effort"],
             budget_usd=values["sessions.budget_usd"],
             timeout_s=values["sessions.timeout_s"],
+            deadline_s=values["sessions.deadline_s"],
             attempts_per_cluster=values["sessions.attempts_per_cluster"],
             consolidate_every=values["sessions.consolidate_every"],
             profile=values["sessions.profile"],
@@ -716,6 +737,10 @@ def dump_config(config: ReconConfig) -> str:
                 "sessions.effort": s.effort,
                 "sessions.budget_usd": s.budget_usd,
                 "sessions.timeout_s": s.timeout_s,
+                # Dropped by the `is not None` filter below when no cap was
+                # set, which is what makes an absent wall clock round-trip as
+                # an absent one rather than as a key the loader must reject.
+                "sessions.deadline_s": s.deadline_s,
                 "sessions.attempts_per_cluster": s.attempts_per_cluster,
                 "sessions.consolidate_every": s.consolidate_every,
                 "sessions.profile": str(s.profile) if s.profile else None,

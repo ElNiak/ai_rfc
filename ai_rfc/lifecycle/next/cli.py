@@ -30,7 +30,7 @@ from ..common import (
     report,
     report_diagnostic,
 )
-from ..run.cli import BOUNDARY, add_sweep_arguments
+from ..run.cli import BOUNDARY, add_sweep_arguments, sweep_deadline
 
 
 def run_one(
@@ -92,6 +92,12 @@ def run_one(
     # a `sessions:` block added after `init` is noted drift rather than
     # refused (D57), so the seal does not carry it. `config_path` is the path
     # the operator typed, which is what the resume line prints back.
+    # The wall clock is passed here too, and it is not decorative: one action
+    # is still a *sweep* of one row, and `observe` reads the clock before it
+    # plans anything. A `next` under a spent deadline therefore stops with
+    # `wall_clock` and its resume line instead of launching a session the
+    # operator's own cap had already ruled out — which is what `run` does at
+    # the same moment, and the two verbs read one configuration key.
     return sweep.run(
         given,
         layout.root,
@@ -99,6 +105,7 @@ def run_one(
         until=until,
         retry=retry,
         config_path=config_path,
+        deadline=sweep_deadline(given.sessions.deadline_s),
     )
 
 

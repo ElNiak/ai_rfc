@@ -55,6 +55,7 @@ def _cfg(**overrides: Any) -> ReconConfig:
         effort="high",
         budget_usd=40.0,
         timeout_s=7200,
+        deadline_s=None,
         attempts_per_cluster=2,
         consolidate_every=10,
         profile=None,

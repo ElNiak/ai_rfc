@@ -266,6 +266,7 @@ def reconstruction(
         *,
         budget_usd: float = 5.0,
         sleep: float | None = None,
+        deadline_s: int | None = None,
     ) -> Reconstruction:
         workspace = tmp_path / scenario / "workspace"
         profile = tmp_path / f"profile-{scenario}"
@@ -295,6 +296,7 @@ def reconstruction(
             f"  claude: {FAKE_CLAUDE}\n"
             f"  profile: {profile}\n"
             "  timeout_s: 120\n"
+            + ("" if deadline_s is None else f"  deadline_s: {deadline_s}\n")
         )
         payload: dict = {"arm": "A", "cost": SESSION_COST, "steps": steps}
         if sleep is not None:
@@ -666,6 +668,42 @@ def test_an_operator_interrupt_stops_with_a_record_and_a_resume_line(
     expected = "resume: " + resume_line(StopReason.operator_interrupt, recon.config)
     assert expected in err.splitlines(), err
     _assert_the_session_group_died(recon)
+
+
+# --- the wall clock a recon.yaml can now set ---------------------------------
+
+
+def test_a_configured_wall_clock_stops_the_sweep_with_its_resume_line(
+    reconstruction, capsys
+) -> None:
+    """``sessions.deadline_s`` makes spec §5's wall-clock row reachable.
+
+    The row and its ``StopReason`` were built with the driver, and
+    ``sweep.run`` has taken a ``deadline=`` since — but nothing in a
+    ``recon.yaml`` supplied one and no caller passed it, so the branch could
+    only ever be reached by a unit test calling ``observe`` by hand. One
+    optional integer closes that: the stop is the sweep's own, written the
+    same way as the budget's.
+
+    One second against a scenario that sleeps ``KILL_WINDOW_S``. The clock
+    starts where the sweep does — after the deterministic stages, which are
+    free and idempotent and would otherwise spend the operator's cap before
+    anything was launched — so the first session launches with the whole
+    second in hand and the stop lands at the observation after it.
+    """
+    recon = reconstruction("wall-clock", SWEEP_STEPS, sleep=KILL_WINDOW_S, deadline_s=1)
+
+    assert cli.main(["run", "--config", str(recon.config)]) == 1
+
+    lines = capsys.readouterr().err.splitlines()
+    assert "wall_clock: the wall clock is reached" in lines
+    assert "resume: " + resume_line(StopReason.wall_clock, recon.config) in lines
+    status = json.loads((recon.latest_run() / record.STATUS_FILE).read_text())
+    assert status["reason"] == StopReason.wall_clock.value
+    assert status["exit_code"] == 1
+    # The cap stopped the sweep, it did not cancel the session that was
+    # already running: the first one finished and was recorded.
+    assert status["sessions"] == 1
 
 
 # --- criterion 3: a budget stop reproduces the resume line --------------------

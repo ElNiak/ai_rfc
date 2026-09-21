@@ -178,6 +178,36 @@ def test_example_round_trips_and_documents_every_field(tmp_path, monkeypatch):
         assert f"`{field.path}`" in reference
 
 
+def test_an_absent_wall_clock_is_none_and_a_set_one_survives_the_seal(
+    tmp_path, monkeypatch
+):
+    """``sessions.deadline_s`` is optional, and the seal must not lose it.
+
+    Two halves, because the field is read through two doors. The loader has to
+    yield ``None`` for an absent optional integer — that is what lets
+    ``run`` pass ``deadline=None`` and leave the sweep uncapped — and
+    :func:`~ai_rfc.config.dump_config` has to carry a set one, which nothing
+    derives: its flat mapping is written by hand, so a field added to the
+    dataclass and forgotten there would be silently dropped at ``init`` and
+    the sealed copy would sweep without the cap the operator wrote.
+
+    ``MINIMAL`` declares no sessions at all, so
+    :func:`test_dump_is_byte_stable_and_reloads` could not have caught it.
+    """
+    monkeypatch.setenv("AI_RFC_EXPERIMENTS_ROOT", str(tmp_path / "root"))
+    uncapped = load_config(_write(tmp_path, MINIMAL + "sessions:\n  budget_usd: 200\n"))
+    assert uncapped.sessions is not None
+    assert uncapped.sessions.deadline_s is None
+    assert "deadline_s" not in dump_config(uncapped)
+
+    capped = load_config(
+        _write(tmp_path, MINIMAL + "sessions:\n  budget_usd: 200\n  deadline_s: 900\n")
+    )
+    assert capped.sessions is not None and capped.sessions.deadline_s == 900
+    again = load_config(_write(tmp_path, dump_config(capped)))
+    assert again.sessions is not None and again.sessions.deadline_s == 900
+
+
 def test_dump_is_byte_stable_and_reloads(tmp_path, monkeypatch):
     monkeypatch.setenv("AI_RFC_EXPERIMENTS_ROOT", str(tmp_path / "root"))
     config = load_config(_write(tmp_path, MINIMAL + "window: [1, 69]\n"))

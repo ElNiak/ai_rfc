@@ -10,6 +10,7 @@ remains rather than only being told whose turn it is.
 from __future__ import annotations
 
 import argparse
+import time
 from pathlib import Path
 
 from ... import __version__, ledger
@@ -58,6 +59,31 @@ def _walkable() -> list[str]:
 def _positional(until: str | None) -> bool:
     """Whether a bound names a place in the timeline rather than a stage."""
     return until is not None and until.startswith((CLUSTER_BOUND, ORDINAL_BOUND))
+
+
+def sweep_deadline(deadline_s: int | None) -> float | None:
+    """The ``time.monotonic`` value a sweep configured this way must finish by.
+
+    Lives here, and ``ai-rfc next`` imports it, for the reason that verb
+    already imports :func:`add_sweep_arguments`: one meaning for one
+    configuration key, declared once, because two spellings of "when does the
+    clock start" is how they come to disagree.
+
+    Called at the sweep's own door rather than at the top of the verb.
+    ``history``, ``timeline`` and ``views`` run first, and they are free and
+    idempotent — a cap spent on them would stop a first sweep before it had
+    launched anything, while on a resume they are already current and cost
+    nothing, so the same ``deadline_s`` would mean two different amounts of
+    model time depending on which invocation it was.
+
+    Args:
+        deadline_s: ``sessions.deadline_s``, or None for no wall clock.
+
+    Returns:
+        A ``time.monotonic`` deadline, or None when nothing was configured —
+        which is what leaves :func:`ai_rfc.driver.sweep.run` uncapped.
+    """
+    return None if deadline_s is None else time.monotonic() + deadline_s
 
 
 def _bound(value: str) -> str:
@@ -332,7 +358,12 @@ def run_stages(
         # refuse the very block the operator just wrote. `config_path` is the
         # path they typed, which is what the sweep's resume line prints back.
         return sweep.run(
-            given, layout.root, until=until, retry=retry, config_path=config_path
+            given,
+            layout.root,
+            until=until,
+            retry=retry,
+            config_path=config_path,
+            deadline=sweep_deadline(given.sessions.deadline_s),
         )
     # The ledger is read unguarded here, unlike in `status` and `verify`:
     # reaching this line means the walk ran to the boundary, so `views` is
