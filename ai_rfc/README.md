@@ -178,13 +178,14 @@ evidence.
 `verify` report their findings on stderr in either mode and return 3 only
 under `--strict`; `doctor`, `toolchain verify`, `pipeline substrate` and
 `views --verify` take no `--strict` flag at all and return 3 whenever they
-reach a verdict with something in it. Those two lists are every door in the
-package that returns 3 — the `ai-rfc experiment` door's own three are outside
-this table's scope, and the two in `server/core/gates.py` are the MCP twins of
-`check` and `draft gate`, gating on the same flag. 3 is the one code with a
-machine consumer — `_build_gate` in `driver/sweep.py` reads a `check --strict`
-3 back to tell a finding apart from any other way the build gate can fail — so
-it names the outcome, never the flag.
+reach a verdict with something in it. Those two lists hold every verb whose
+*own* verdict is a 3 — `pipeline run` only passes a stage's 3 through, the
+`ai-rfc experiment` door's own three are outside this table's scope, and the
+two in `server/core/gates.py` are the MCP twins of `check` and `draft gate`,
+gating on the same flag. 3 is the one code with a machine consumer —
+`_build_gate` in `driver/sweep.py` reads a `check --strict` 3 back to tell a
+finding apart from any other way the build gate can fail — so it names the
+outcome, never the flag.
 
 A **finding** is either a promotion violation or an anchor that did not resolve
 at its pinned commit. Both gate under `--strict`, and both are named on stderr
