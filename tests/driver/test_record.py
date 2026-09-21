@@ -21,6 +21,9 @@ renamed one holds the same bytes.
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -185,14 +188,19 @@ def test_write_run_record_accepts_a_null_valued_key(tmp_path: Path) -> None:
 def test_a_failed_run_record_write_leaves_nothing_behind(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A kill mid-write must not leave half a JSON, nor a stray ``.tmp``."""
+    """A kill mid-write must not leave half a JSON, nor a stray ``.tmp``.
+
+    Broken at the publish itself, which is :func:`os.link`: the temporary is on
+    disk and complete by then, so this is the one window in which a leftover
+    could survive.
+    """
     run_dir = tmp_path / record.RUNS_DIR / "20260910T120000Z"
     run_dir.mkdir(parents=True)
 
-    def boom(self: Path, target: Any) -> Path:
+    def boom(source: Any, target: Any) -> None:
         raise OSError("interrupted")
 
-    monkeypatch.setattr(Path, "replace", boom)
+    monkeypatch.setattr(record.os, "link", boom)
     with pytest.raises(OSError):
         record.write_run_record(run_dir, _run_record())
 
@@ -238,10 +246,10 @@ def test_a_failed_status_write_leaves_nothing_behind(
     run_dir = tmp_path / "runs" / "r"
     run_dir.mkdir(parents=True)
 
-    def boom(self: Path, target: Any) -> Path:
+    def boom(source: Any, target: Any) -> None:
         raise OSError("interrupted")
 
-    monkeypatch.setattr(Path, "replace", boom)
+    monkeypatch.setattr(record.os, "link", boom)
     with pytest.raises(OSError):
         record.write_status(run_dir, {"outcome": "done"})
 
@@ -747,3 +755,129 @@ def test_previous_run_record_ignores_a_run_that_never_wrote_one(
 
     assert previous is not None
     assert previous["run_id"] == "older"
+
+
+# --- the claim on a run directory --------------------------------------------
+
+#: The other half of :func:`test_two_launches_racing_for_one_run_directory`,
+#: written out as a program rather than run as a thread. The claim is a
+#: filesystem primitive: two threads of one interpreter share a process id and
+#: a file table, so they would prove nothing about two launches of the driver.
+#: The barrier is a file both children spin on, so both are inside
+#: ``write_run_record`` before either publishes.
+_RACING_WRITER = """\
+import json
+import sys
+import time
+from pathlib import Path
+
+from ai_rfc.driver import DriverError, record
+
+run_dir = Path(sys.argv[1])
+gate = Path(sys.argv[2])
+who = sys.argv[3]
+budget = float(sys.argv[4])
+body = json.loads(Path(sys.argv[5]).read_text())
+body["budget_usd"] = budget
+
+gate.with_name(gate.name + "." + who).write_text(who)
+deadline = time.monotonic() + 60
+while not gate.exists():
+    if time.monotonic() > deadline:
+        raise SystemExit("the barrier never opened")
+    time.sleep(0.001)
+
+try:
+    record.write_run_record(run_dir, body)
+except DriverError as error:
+    print(json.dumps({"who": who, "refused": str(error)}))
+else:
+    print(json.dumps({"who": who, "wrote": budget}))
+"""
+
+
+def _await(predicate: Any, what: str, timeout_s: float = 60.0) -> None:
+    """Spin until ``predicate`` holds, failing the test if it never does.
+
+    Args:
+        predicate: Called with no arguments; truthiness is the answer.
+        what: What was being waited for, for the failure message.
+        timeout_s: How long to wait.
+    """
+    deadline = time.monotonic() + timeout_s
+    while not predicate():
+        assert time.monotonic() < deadline, f"{what} did not happen in {timeout_s}s"
+        time.sleep(0.01)
+
+
+def test_two_launches_racing_for_one_run_directory(tmp_path: Path) -> None:
+    """Exactly one of two concurrent launches may hold a run directory.
+
+    The record *is* the claim, so the publish has to be exclusive as well as
+    atomic. ``path.exists()`` followed by a rename is neither: released
+    together, both writers pass the check and both publish, and whichever
+    renames last silently replaces the other's record -- after which two live
+    runs append to one transcript, which is how ``mark-dry-49-51`` spent
+    $28.51 against an $8 cap.
+
+    The loser's message is asserted, not only its type: an operator who
+    cannot see which directory is held, and how to release it if the holder is
+    dead, is left with the same two-runs-one-directory state the refusal
+    exists to end.
+    """
+    run_dir = tmp_path / record.RUNS_DIR / "20260910T120000Z"
+    program = tmp_path / "racing_writer.py"
+    program.write_text(_RACING_WRITER)
+    body = tmp_path / "body.json"
+    body.write_text(json.dumps(_run_record()))
+    gate = tmp_path / "gate"
+    budgets = {"first": 11.0, "second": 22.0}
+
+    children = {
+        who: subprocess.Popen(
+            [
+                sys.executable,
+                str(program),
+                str(run_dir),
+                str(gate),
+                who,
+                str(budget),
+                str(body),
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        for who, budget in budgets.items()
+    }
+    try:
+        _await(
+            lambda: all(
+                gate.with_name(gate.name + "." + who).exists() for who in budgets
+            ),
+            "both writers reached the barrier",
+        )
+        gate.write_text("go")
+        reports = {}
+        for who, child in children.items():
+            out, err = child.communicate(timeout=120)
+            assert child.returncode == 0, f"{who}: {err}"
+            reports[who] = json.loads(out)
+    finally:
+        for child in children.values():
+            if child.poll() is None:
+                child.kill()
+
+    wrote = [who for who, report in reports.items() if "wrote" in report]
+    refused = [who for who, report in reports.items() if "refused" in report]
+    assert len(wrote) == 1 and len(refused) == 1, reports
+
+    message = reports[refused[0]]["refused"]
+    assert str(run_dir / record.RUN_RECORD_FILE) in message, message
+    assert f"mv {run_dir} {run_dir}{record.INTERRUPTED}" in message, message
+
+    published = json.loads((run_dir / record.RUN_RECORD_FILE).read_text())
+    assert published["budget_usd"] == pytest.approx(budgets[wrote[0]])
+    # The whole directory, so a temporary the loser left behind is caught too:
+    # a stray ``.tmp`` is one more thing a resume scan has to explain.
+    assert list(run_dir.iterdir()) == [run_dir / record.RUN_RECORD_FILE]

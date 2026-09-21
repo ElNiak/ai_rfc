@@ -4,6 +4,12 @@ Extracted from :mod:`runner` so a driver that spawns an agent per cluster gets
 the same lifetime guarantees as a single-session run rather than a second,
 subtly different copy of them. The MCP server is a child of the session, so a
 cap enforced on the process alone would leave it running.
+
+A run's transcript is also its directory's claim. A first session creates
+``events.jsonl`` exclusively, so a second launch reaching for the same run
+directory is refused here — before its process exists and before it has spent
+anything — rather than truncating a live run's transcript and spending a fresh
+budget beside it.
 """
 
 from __future__ import annotations
@@ -12,11 +18,21 @@ import os
 import signal
 import subprocess
 from pathlib import Path
+from typing import BinaryIO
+
+from . import DriverError
 
 #: Seconds a terminated group is given to exit before it is killed outright.
 #: Long enough for the MCP server to close its own files, short enough that a
 #: wedged run does not hold the campaign open.
 KILL_GRACE_S = 30
+#: What :func:`ai_rfc.driver.record.move_aside` inserts before the cause. The
+#: literal is duplicated from :data:`ai_rfc.driver.record.INTERRUPTED`, which
+#: cannot be imported here: ``record`` imports ``session`` for its transcript
+#: filename and ``session`` imports this module, so the import would close a
+#: cycle. It is here because the refusal below is worth nothing without the
+#: remedy — an operator told only that a directory is held has to guess.
+INTERRUPTED = ".interrupted-"
 
 
 def _kill_group(process: subprocess.Popen) -> None:
@@ -50,6 +66,36 @@ def _kill_group(process: subprocess.Popen) -> None:
         raise
 
 
+def _claim(path: Path, mode: str) -> BinaryIO:
+    """Open one of a session's output files, never destroying a held one.
+
+    Args:
+        path: The file to open.
+        mode: ``"ab"`` when the session is continuing a run's transcript,
+            ``"xb"`` when it is the run's first. The exclusive create is what
+            claims the run directory: a second launch of the same run id is
+            refused here, before its process exists and before it has spent
+            anything.
+
+    Returns:
+        The open file.
+
+    Raises:
+        DriverError: If the create was exclusive and the file is already
+            there. The message names the holder and how to release it if the
+            holding run is dead.
+        OSError: If the file cannot be opened for any other reason.
+    """
+    try:
+        return open(path, mode)
+    except FileExistsError as error:
+        raise DriverError(
+            f"{path} already exists -- another run holds this directory; if "
+            f"it is dead, move it aside: mv {path.parent} "
+            f"{path.parent}{INTERRUPTED}<cause>"
+        ) from error
+
+
 def spawn(
     argv: list[str],
     *,
@@ -69,17 +115,29 @@ def spawn(
         events_path: Where stdout is streamed as it arrives.
         stderr_path: Where stderr is streamed.
         timeout_s: Wall-clock cap on the whole process group.
-        append: Append to the output files rather than truncating them, so a
-            run made of several sessions leaves one transcript.
+        append: Append to the output files, because this session is continuing
+            a run another session began, so a run made of several sessions
+            leaves one transcript. False means the opposite — this is the run's
+            first session — and never "truncate whatever is there": the
+            transcript is then created exclusively, which is what claims the
+            run directory. Every caller passes False for a run's first session
+            and True after.
 
     Returns:
         ``(exit_code, timed_out)``. The exit code is ``None`` when the group was
         killed on the cap.
+
+    Raises:
+        DriverError: If this is a run's first session and the run directory is
+            already held by another launch. Nothing is spawned.
+        OSError: If either output file cannot be opened.
     """
-    mode = "ab" if append else "wb"
+    mode = "ab" if append else "xb"
     timed_out = False
     exit_code: int | None = None
-    with open(events_path, mode) as events, open(stderr_path, mode) as stderr:
+    # The transcript is opened first because it is the claim: a second launch
+    # is refused on it, before the stderr log it would otherwise have created.
+    with _claim(events_path, mode) as events, _claim(stderr_path, mode) as stderr:
         process = subprocess.Popen(
             argv,
             cwd=cwd,

@@ -4,6 +4,7 @@ import subprocess
 import pytest
 
 from ai_rfc import cli
+from ai_rfc.driver import DriverError
 from ai_rfc.driver import spawn as spawn_module
 
 
@@ -227,3 +228,60 @@ def test_the_sigterm_handler_kills_the_group_too(tmp_path, monkeypatch):
 
     assert not isinstance(raised.value, Exception), "the stop must not be catchable"
     assert killed and killed[0] == (4242, signal.SIGTERM)
+
+
+def test_a_first_session_refuses_to_truncate_an_existing_transcript(
+    tmp_path, monkeypatch
+):
+    """``append=False`` means "this is the run's first session", never "erase".
+
+    A run's first session opened its transcript for writing, so a second launch
+    of the same run directory truncated the first's ``events.jsonl`` before its
+    own process even existed. The live parser then raised on the one malformed
+    line the truncation left, the cost fell to $0.00, and every session after it
+    was handed a fresh budget -- ``mark-dry-49-51``, $28.51 against an $8 cap.
+
+    ``Popen`` is replaced by something that cannot be called, so "nothing was
+    spent" is asserted rather than inferred: the refusal has to land before the
+    process exists, not after it returns.
+    """
+    events = tmp_path / "events.jsonl"
+    held = b'{"type": "system", "subtype": "init"}\n{"type": "result"}\n'
+    events.write_bytes(held)
+
+    def _never(*_args, **_kwargs):
+        raise AssertionError("a process was started over a held transcript")
+
+    monkeypatch.setattr(spawn_module.subprocess, "Popen", _never)
+
+    with pytest.raises(DriverError) as raised:
+        _spawn(spawn_module, tmp_path)
+
+    message = str(raised.value)
+    assert str(events) in message, message
+    assert f"mv {tmp_path} {tmp_path}.interrupted-" in message, message
+    assert events.read_bytes() == held
+
+
+def test_a_continuing_session_still_appends_to_the_transcript(tmp_path):
+    """The other half of the same rule: a run of several sessions is one file.
+
+    Driven through a real process rather than a stub, because what is being
+    asserted is the mode the file is opened in and a stub would open nothing.
+    """
+    events = tmp_path / "events.jsonl"
+    held = b'{"type": "result"}\n'
+    events.write_bytes(held)
+
+    exit_code, timed_out = spawn_module.spawn(
+        ["true"],
+        cwd=tmp_path,
+        env={},
+        events_path=events,
+        stderr_path=tmp_path / "stderr.log",
+        timeout_s=30,
+        append=True,
+    )
+
+    assert (exit_code, timed_out) == (0, False)
+    assert events.read_bytes() == held

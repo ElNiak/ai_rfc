@@ -32,6 +32,7 @@ moves it whole; what it moves is the evidence of the interruption, and
 from __future__ import annotations
 
 import json
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -178,6 +179,13 @@ def _require(body: dict[str, Any], keys: tuple[str, ...], what: str) -> None:
 def _write_once(path: Path, body: dict[str, Any], what: str) -> Path:
     """Write a record atomically, and only if it is not already there.
 
+    The record **is** the claim on its run directory, so the publish has to be
+    exclusive as well as atomic, and one call is both: :func:`os.link` refuses
+    a name that is already taken and makes the whole record appear under it in
+    one step. ``path.exists()`` followed by a rename was neither — two launches
+    released together both passed the check and both published, after which two
+    live runs appended to one transcript.
+
     Args:
         path: Where the record lands.
         body: The record.
@@ -187,14 +195,17 @@ def _write_once(path: Path, body: dict[str, Any], what: str) -> Path:
         The path written.
 
     Raises:
-        DriverError: If the file already exists.
-        OSError: If the write or the rename fails.
+        DriverError: If the file already exists — another run holds the
+            directory. The message names the holder and how to release it if
+            that run is dead.
+        OSError: If the write or the link fails.
     """
-    if path.exists():
-        raise DriverError(
-            f"{path} already exists; {what} is written once and never revised"
-        )
-    temporary = path.with_name(path.name + ".tmp")
+    # Named for this process, because two racing writers sharing one temporary
+    # would be the same defect one layer down: each would overwrite the other's
+    # bytes before linking, and the loser's ``finally`` would unlink the
+    # winner's source — turning the refusal below into a FileNotFoundError that
+    # names nothing.
+    temporary = path.with_name(f"{path.name}.{os.getpid()}.tmp")
     try:
         # default=str: a record may carry a Path — a task template, a profile —
         # and a run that could not be recorded because of one is a run whose
@@ -202,7 +213,15 @@ def _write_once(path: Path, body: dict[str, Any], what: str) -> Path:
         temporary.write_text(
             json.dumps(body, indent=2, sort_keys=True, default=str) + "\n"
         )
-        temporary.replace(path)
+        try:
+            os.link(temporary, path)
+        except FileExistsError as error:
+            raise DriverError(
+                f"{path} already exists; {what} is written once and never "
+                "revised — another run holds this directory; if it is dead, "
+                f"move it aside: mv {path.parent} "
+                f"{path.parent}{INTERRUPTED}<cause>"
+            ) from error
     finally:
         # A kill mid-write must leave neither half a JSON at the real name nor
         # a stray ``.tmp`` beside it: the resume rule reads a run directory by
