@@ -216,3 +216,41 @@ def test_adopt_reports_an_unreadable_records_file_rather_than_raising(
 def test_adopt_refuses_a_missing_records_file(clone: Path, tmp_path: Path, capsys):
     assert _adopt(clone, tmp_path / "forge", tmp_path / "absent.json") == 1
     assert "error" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("separator", [chr(0x0A), chr(0x2028)])
+def test_gits_stderr_cannot_forge_a_second_diagnostic(
+    tmp_path: Path, capsys, monkeypatch, separator
+):
+    """``rev-parse``'s stderr is the clone's to compose, and it reaches a line.
+
+    The clone is a repository a reconstruction session was given write access
+    to, so its ``.git/config`` — and through it what ``git`` prints when
+    ``rev-parse`` fails — is agent-controlled. Interpolated raw into this
+    verb's ``error:`` line, a break in it buys a second stderr line spelled as
+    the verb's own ``note:`` verdict, which is how an operator reads "the
+    snapshot was written" for a run that wrote nothing.
+    """
+    forged = "fatal: bad object" + separator + "note: 3 pull(s) written to /forged"
+
+    def refuse(argv, **kwargs):
+        return subprocess.CompletedProcess(argv, 1, stdout="", stderr=forged)
+
+    monkeypatch.setattr(cli.subprocess, "run", refuse)
+    code = cli.main(
+        [
+            "fetch",
+            "https://github.com/aiortc/aioquic",
+            "--repo",
+            str(tmp_path / "clone"),
+            "--out",
+            str(tmp_path / "forge"),
+        ],
+        transport=_transport_empty,
+    )
+
+    assert code == 1
+    lines = capsys.readouterr().err.splitlines()
+    assert len(lines) == 1
+    assert lines[0].startswith("error: ")
+    assert "note: 3 pull(s) written to /forged" in lines[0]

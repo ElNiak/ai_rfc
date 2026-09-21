@@ -10,6 +10,25 @@ malform; a caller's mistake now arrives as a refusal before any work is done.
 Each verb catches the exception family its CLI branch catches, and only that
 family; :func:`ai_rfc.server.core.reported` rebuilds the boundary the child
 process used to provide for everything else.
+
+**Every value interpolated into a diagnostic here is escaped at the line that
+composes it** — the ``error:`` lines *and* the ``finding:`` lines — never at
+:func:`ai_rfc.server.core.diagnostics`, which splits the result into one
+element per line. That function's docstring gives the reason: joining the
+lines there would hide a forgery rather than fix it, and would change the
+split shape the move off the subprocess promised to preserve. Escaping is not
+joining: each line below wraps what it interpolates in
+:func:`ai_rfc.driver.printable` — the predicate over the unprintable category
+— so a break inside a caught message or inside a gate's finding becomes a
+visible escape inside one element instead of a second element spelled as this
+verb's own ``note:``.
+
+This is the tool arm's half of an arrangement the CLI arm already has: there
+every diagnostic goes through :func:`ai_rfc.lifecycle.common.report`, which
+escapes at the boundary "rather than a rule each caller remembers". The
+substrate's own finding list stays raw on both sides — ``write_gate_report``
+JSON-encodes it, and a structured encoder needs no escaping — so each arm
+escapes once, where it renders.
 """
 
 from __future__ import annotations
@@ -23,6 +42,7 @@ from ai_rfc.draft.checkpoint import CheckpointError
 from ai_rfc.draft.checkpoint import write_checkpoint as write_cluster_checkpoint
 from ai_rfc.draft.checkpoint import write_consolidation_checkpoint
 from ai_rfc.draft.gate import GateError, run_gate, write_gate_report
+from ai_rfc.driver import printable
 from ai_rfc.report import build as build_manifest_report
 from ai_rfc.report import to_json, to_markdown, to_yaml
 from ai_rfc.schema import SchemaError, load
@@ -44,7 +64,7 @@ def _freeze_checkpoint(freeze: partial[Path]) -> tuple[int, list[str]]:
     try:
         written = freeze()
     except (CheckpointError, SchemaError, OSError) as error:
-        return 1, diagnostics(f"error: {error}")
+        return 1, diagnostics(f"error: {printable(str(error))}")
     return 0, diagnostics(f"note: checkpoint written to {written}")
 
 
@@ -138,10 +158,13 @@ def _check_manifest(ctx: Context, strict: bool) -> tuple[int, list[str]]:
     try:
         manifest = load(ctx.manifest)
     except (SchemaError, OSError) as error:
-        return 1, diagnostics(f"error: could not read manifest {ctx.manifest}: {error}")
+        return 1, diagnostics(
+            f"error: could not read manifest {printable(str(ctx.manifest))}: "
+            f"{printable(str(error))}"
+        )
 
     if not (repo / ".git").exists():
-        return 1, diagnostics(f"error: {repo} is not a git repository")
+        return 1, diagnostics(f"error: {printable(str(repo))} is not a git repository")
 
     report = build_manifest_report(manifest, repo=repo)
 
@@ -213,11 +236,11 @@ def _gate_citations(ctx: Context, strict: bool) -> tuple[int, list[str]]:
             ctx.revisions,
         )
     except (GateError, OSError) as error:
-        return 1, diagnostics(f"error: {error}")
+        return 1, diagnostics(f"error: {printable(str(error))}")
 
     write_gate_report(ctx.workspace / "out", findings)
 
-    messages = [f"finding: {finding}" for finding in findings]
+    messages = [f"finding: {printable(finding)}" for finding in findings]
     if findings and strict:
         return 3, diagnostics(*messages)
     if not findings:

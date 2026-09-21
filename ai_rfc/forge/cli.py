@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from ai_rfc import __version__
+from ai_rfc.driver import printable
 
 from .adopt import read_records
 from .fetch import Transport, fetch_pull_data, parse_url
@@ -170,7 +171,15 @@ def run(args: argparse.Namespace, transport: Transport | None = None) -> int:
         text=True,
     )
     if head.returncode != 0:
-        _report(f"error: {args.repo} is not a git repository: {head.stderr.strip()}")
+        # `git`'s own stderr, escaped where this line is composed. The clone
+        # is a repository the session being observed can write, so what
+        # `rev-parse` prints when it fails is that session's to choose, and a
+        # break in it would buy a second stderr line reading as this verb's
+        # own `note:` verdict.
+        _report(
+            f"error: {printable(str(args.repo))} is not a git repository: "
+            f"{printable(head.stderr.strip())}"
+        )
         return 1
 
     if args.verb == "adopt":

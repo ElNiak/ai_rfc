@@ -18,6 +18,7 @@ from ai_rfc.draft.build import BuildError, build, resolve_toolchain
 from ai_rfc.draft.gate import GateError, draft_text
 from ai_rfc.draft.lint import REPORT_FILE as LINT_REPORT
 from ai_rfc.draft.lint import lint, write_lint_report
+from ai_rfc.driver import printable
 from ai_rfc.schema import SchemaError, load
 
 from ..paths import Context
@@ -61,8 +62,10 @@ def _build_draft(ctx: Context, ref: str) -> tuple[int, list[str]]:
             refcache=refcache if refcache.is_dir() else None,
         )
     except (BuildError, OSError) as error:
-        return 1, diagnostics(f"error: {error}")
-    messages = [f"finding: {finding}" for finding in report.findings]
+        return 1, diagnostics(f"error: {printable(str(error))}")
+    # Escaped here, as `gates.py`'s module docstring explains for both
+    # modules: `lifecycle.common.report` is the CLI arm's twin boundary.
+    messages = [f"finding: {printable(finding)}" for finding in report.findings]
     messages.append(
         f"note: build of {report.commit[:12]} exited {report.exit_code}; "
         f"report at {out / BUILD_DIR / BUILD_REPORT}"
@@ -148,9 +151,9 @@ def _lint_draft(ctx: Context, worktree: bool) -> tuple[int, list[str]]:
             source={"path": str(draft_repo), "ref": ref},
         )
     except (ValueError, OSError) as error:
-        return 1, diagnostics(f"error: {error}")
+        return 1, diagnostics(f"error: {printable(str(error))}")
     report_path = write_lint_report(ctx.workspace / "out", report)
-    messages = [f"finding: {finding}" for finding in report.findings]
+    messages = [f"finding: {printable(finding)}" for finding in report.findings]
     messages.append(f"note: lint report at {report_path}")
     return 0, diagnostics(*messages)
 
