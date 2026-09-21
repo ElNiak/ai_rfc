@@ -9,16 +9,16 @@ user-invocable: false
 The substrate (the installed ai_rfc package, python -m ai_rfc --help) is
 built so that a claim's evidential standing is **computed from its evidence,
 never asserted by its author**. These rules keep you on the right side of
-that design; each exists because the failure it prevents exits zero while
+that design. Each exists because the failure it prevents exits zero while
 producing wrong results.
 
 ## Never write `status`
 
 Omit `status` on every claim you write or edit. Omission is always safe: it
-defaults to `gap`, the lowest rank, and a violation only ever fires when a
+defaults to `gap`, the lowest rank, and a violation only fires when a
 *stored* status exceeds what the evidence supports. When the report's
 `claims` payload shows `supported` above `stored`, record exactly the
-supported value — never more. Understatement is always permitted;
+supported value, never more. Understatement is always permitted;
 overstatement is a gate finding. The single authority is
 `promotion.adjudicate`:
 
@@ -27,10 +27,42 @@ overstatement is a gate finding. The single authority is
 > `runtime`). Claims resting only on `adr` or `paper` cap at `inferred`. No
 > anchors means `gap`, sign-off notwithstanding.
 
+## Scope the claim to the diff
+
+A reviewer reads the cluster's diff and asks whether it implements the
+claim as worded. Every word beyond the diff is a claim the evidence does
+not support. Before recording a claim:
+
+- **Name only what changed.** If the diff touches one class, do not name a
+  sibling it left alone. If the diff adds logging for some frame types, say
+  "for the frame types it handles", not "every frame type".
+- **Declaration is not behaviour.** A new field, parameter or docstring
+  shows that the field exists and what it means. It does not show that it
+  is populated, consulted or released unless the diff contains the line
+  that does so. Claim the declaration, or anchor the line that uses it.
+- **No lifecycle you did not see.** Do not add "released", "removed",
+  "validated" or "in order" unless a changed line does it.
+- **No numbers you did not read.** A value, size, timeout or count in the
+  claim must appear literally in a changed line.
+- **Level follows enforcement.** A behaviour the code performs
+  unconditionally, or guards with an assert or raise, is `MUST`. A
+  configurable default is `SHOULD`. An opt-in option or an API a caller
+  may choose to use is `MAY`. A hard-coded value with no opt-out is not a
+  SHOULD.
+- **One behaviour per claim.** Split compound claims, so that a partially
+  shown half does not sink the shown half.
+- **Anchor where the behaviour lives.** The anchor path must be a file the
+  cluster changed, spelled exactly as in the cluster evidence, and the
+  `line` should be the changed line that performs the behaviour. An anchor
+  on an untouched file earns nothing.
+
+When in doubt, state less. A narrower claim the diff fully proves is worth
+more than a broader one it half proves.
+
 ## Why interview + paper stays `inferred`
 
 A paper and an interview are two classes but may be one person speaking
-twice — in the case this substrate was built for, the papers share authors
+twice. In the case this substrate was built for, the papers share authors
 with the developers who validate the claims. Promoting on two narrative
 sources launders exactly the circularity that evidence-provenance
 stratification exists to detect. `{interview, code}` reaches `confirmed`;
@@ -52,7 +84,7 @@ stratification exists to detect. `{interview, code}` reaches `confirmed`;
 ## The honesty metric
 
 `checked_fraction_by_req_class` (report.json) is the fraction of *confirmed*
-claims a non-model oracle — a person or a run — actually saw. For a spec
+claims a non-model oracle (a person or a run) actually saw. For a spec
 mined from source and prose it starts at **0.0, and that is expected**: it
 measures how much of what is called confirmed rests on nothing but a
 reading. It moves only through sign-offs and runtime anchors, never through

@@ -12,7 +12,11 @@ allowed-tools: Read, Grep, Glob, Edit, Write, Bash(python -m ai_rfc*), Bash(git 
 
 One iteration turns one timeline cluster into evidence-honest claims and,
 when it changed normative behaviour, a new draft revision. Work through the
-clusters in ordinal order; never skip silently.
+clusters in ordinal order; never skip silently. Finish the cluster you
+were given: claims recorded, checkpoint written, prose committed when the
+change is normative, and a revision recorded and tagged. Claims without a
+tagged revision leave the reconstruction incomplete however good they are,
+so never stop before the tag.
 
 Load `ai-rfc-evidence-hygiene` before touching claims and `ai-rfc-rfc-style` before touching prose.
 
@@ -23,46 +27,77 @@ When the `ai_rfc` MCP server is connected, prefer its tools (`ai_rfc_cluster_nex
 - `AI_RFC_WORKSPACE` is set; commands below run with an interpreter that imports `ai_rfc` (`python -m ai_rfc …`).
 - The workspace holds `corpus/`, `timeline/`, `clusters/` and the pinned
   `clone/`. When a forge snapshot exists, the timeline MUST have been built
-  with `--forge` **before any checkpoint is written** — forge data
+  with `--forge` **before any checkpoint is written**. Forge data
   restructures cluster ids, and checkpoints pin them.
+- Use only the tools offered. Never hand-edit the claim register, the
+  question register or any interview transcript; every change goes through
+  a verb. Never shell out to reach what a verb already does.
+
+## What a good iteration produces
+
+A small set of claims, each stating only what the cluster's own diff
+shows, anchored to a file that cluster changed, and cited once in a
+normative sentence carrying that claim's keyword. One claim the diff
+proves beats three it only suggests. Spread claims across the cluster's
+changed source files, one or two per file, so the claims cover what the
+cluster changed rather than one corner of it. Spend turns on reading the
+diff, not on re-running tools: batch independent calls into one turn, and
+never repeat a call whose result you already hold.
 
 ## One iteration
 
 1. **Pick the next cluster**: read `$AI_RFC_WORKSPACE/timeline/clusters.jsonl` in ordinal order and take the lowest-ordinal in-window cluster that is not done. A cluster is done when `checkpoints/<id>/` holds its checkpoint, `revisions.yaml` holds an entry for it whose `kind` is `cluster` or absent (an entry with no `kind` is a cluster entry), and that entry's tag exists in `$AI_RFC_WORKSPACE/draft`; pre-seeded clusters count as done.
-2. **Read its evidence**: read `$AI_RFC_WORKSPACE/clusters/<id>/view.json` (file set, PR number), `span.diff` (paginate long diffs with `sed -n`) and `evidence/pr.json` when present. For context beyond the cluster,
-   query the corpus index — churn-ranked reading beats the directory tree:
-   `sqlite3 $AI_RFC_WORKSPACE/corpus/index.sqlite "SELECT path, COUNT(*) c FROM file_changes GROUP BY path ORDER BY c DESC LIMIT 20"`.
+2. **Read its evidence once**: read `$AI_RFC_WORKSPACE/clusters/<id>/view.json` (file set, PR number), `span.diff` (paginate long diffs with `sed -n`) and `evidence/pr.json` when present. Write down the changed file
+   paths exactly as the evidence prints them, and the member commit shas;
+   anchors use those paths at those commits (no guessed prefixes such as
+   `src/`). Skip test, fixture and build files as anchors unless nothing
+   else changed. Query the corpus only when the diff alone cannot tell you
+   what a changed line does: `sqlite3 $AI_RFC_WORKSPACE/corpus/index.sqlite "SELECT path, COUNT(*) c FROM file_changes GROUP BY path ORDER BY c DESC LIMIT 20"`.
 3. **Mine claims**: behaviours the cluster introduces or changes, each with
-   pinned anchors (the cluster's member commits are the natural pins) and
-   NO `status`: edit `$AI_RFC_WORKSPACE/manifest.yaml` by hand — quote every id and section, never write `status`. A commit message stating a decision is an
-   `adr` anchor; PR discussion explaining intent supports `intent:` but is
-   not itself an anchor class.
+   pinned anchors on a file the cluster changed (a member commit is the
+   pin, and `line` is a line the diff added or changed) and NO `status`:
+   edit `$AI_RFC_WORKSPACE/manifest.yaml` by hand — quote every id and section, never write `status`. Before each upsert, check the claim text against the
+   diff line by line (see evidence hygiene: *Scope the claim to the
+   diff*). A commit message stating a decision is an `adr` anchor; PR
+   discussion explaining intent supports `intent:` but is not itself an
+   anchor class. Issue all independent upserts together in one turn.
 3b. If this cluster defines or changes a wire format, message, record,
-    enumeration or state machine, register it now, binding every field, value
+    enumeration or state machine, register it, binding every field, value
     or transition to a claim you just recorded: `ai_rfc_structure_upsert` (or `ai-rfc structure upsert`) with the id, kind, title, section and members
-    Then render and paste the block into its owning section: `ai_rfc_draft_render` (or `ai-rfc draft render`)
-    Skip this step when the cluster describes only behaviour.
-4. **Lint**: `python -m ai_rfc check $AI_RFC_WORKSPACE/manifest.yaml --out $AI_RFC_WORKSPACE/out --repo $AI_RFC_WORKSPACE/clone` — fix every unverified anchor (wrong paths, wrong
-   commits, wrong lines) BEFORE anything is built on top.
-5. **Record statuses**: read `$AI_RFC_WORKSPACE/out/report.json` (`claims[]`) and set each claim's `status` in `manifest.yaml` to exactly its `supported` value. Then the strict gate:
-   `python -m ai_rfc check $AI_RFC_WORKSPACE/manifest.yaml --out $AI_RFC_WORKSPACE/out --repo $AI_RFC_WORKSPACE/clone --strict` — exit 0 is the bar.
+    Then render the block and paste it into its owning section:
+    `ai_rfc_draft_render` (or `ai-rfc draft render`). Skip this step when the cluster describes only
+    behaviour.
+4. **Lint once, after all claims exist**: `python -m ai_rfc check $AI_RFC_WORKSPACE/manifest.yaml --out $AI_RFC_WORKSPACE/out --repo $AI_RFC_WORKSPACE/clone`. Fix every unverified
+   anchor (wrong paths, commits, lines) in one pass, then lint again only
+   if you changed something. If an anchor cannot be verified, narrow or
+   drop that claim rather than moving it onto an untouched file.
+5. **Record statuses**: read `$AI_RFC_WORKSPACE/out/report.json` (`claims[]`) and set each claim's `status` in `manifest.yaml` to exactly its `supported` value. Record exactly the supported
+   value the report shows, never more. Then the strict gate: `python -m ai_rfc check $AI_RFC_WORKSPACE/manifest.yaml --out $AI_RFC_WORKSPACE/out --repo $AI_RFC_WORKSPACE/clone --strict`.
+   Exit 0 is the bar.
 6. **Decide spec relevance**:
-   - Normative behaviour changed → update the draft per the RFC-style
-     rules, citing the new/changed claims. Prose goes to the section that
-     owns the behaviour (Protocol Operation, Data Model and Structures,
-     Configuration and Defaults, Error Handling) — never to the
-     Introduction, which describes the system, not the reconstruction. The
-     keyword comes from the claim's level and the keyword policy.
+   - Normative behaviour changed → write the prose in one edit per
+     section, per the RFC-style rules. Every new claim gets exactly one
+     normative sentence that states it, carries the keyword its `level`
+     maps to (that exact keyword, capitalised) and ends with its backticked
+     citation. That includes structure claims: a table or figure needs its
+     own sentence such as "Senders MUST use the values in Table 2
+     `claim-id`." Prose goes to the owning section (Protocol Operation,
+     Data Model and Structures, Configuration and Defaults, Error
+     Handling), never the Introduction. Before committing, check the list
+     of new claim ids against the prose: each appears once, in a sentence
+     with its own keyword.
    - Nothing normative → no prose edit; the revision entry will say so.
 7. **Checkpoint**: `python -m ai_rfc draft checkpoint $AI_RFC_WORKSPACE/manifest.yaml --timeline $AI_RFC_WORKSPACE/timeline --cluster <id> --out $AI_RFC_WORKSPACE/checkpoints`.
-8. **Record, build and tag the revision**: append the entry to `$AI_RFC_WORKSPACE/revisions.yaml` under `revisions:` (`cluster_id`, `checkpoint_manifest_sha256` copied from the checkpoint's `checkpoint.json`, `normative_change`, `note`) — the tag
-   `draft-<name>-NN` (two digits, monotone in cluster ordinal), the cluster
-   id, an explicit `normative_change`, a one-line note. Commit any prose
-   change (`git -C $AI_RFC_WORKSPACE/draft add -A && git -C $AI_RFC_WORKSPACE/draft commit -m "<message>"`), then build it: `ai_rfc_draft_build()` or `ai-rfc draft build` (the template's `make txt html lint idnits`, offline). Exit 0 and no findings is the bar before tagging — a failed stage names the line, a broken reference names a front-matter reference the sealed cache does not hold (cite it inline instead). Then create
-   the annotated tag (`git -C $AI_RFC_WORKSPACE/draft tag -a draft-<name>-NN -m "<message>"` — only after the strict manifest gate and the build both exited 0 with no findings; `ai_rfc_revision_tag` (or `ai-rfc revision tag`) runs manifest gate, build, tag and the strict citation gate together and deletes the tag again on any finding). Every revision entry needs its
-   tag, no-change revisions included.
-9. **Gate**: `python -m ai_rfc draft gate $AI_RFC_WORKSPACE/draft --timeline $AI_RFC_WORKSPACE/timeline --checkpoints $AI_RFC_WORKSPACE/checkpoints --questions $AI_RFC_WORKSPACE/questions.yaml --revisions $AI_RFC_WORKSPACE/revisions.yaml --out $AI_RFC_WORKSPACE/out --strict` — exit 0 before advancing.
-10. **Open questions**: any claim stuck at `gap`/`inferred` that blocks a
+8. **Record, build and tag the revision**: append the entry to `$AI_RFC_WORKSPACE/revisions.yaml` under `revisions:` (`cluster_id`, `checkpoint_manifest_sha256` copied from the checkpoint's `checkpoint.json`, `normative_change`, `note`). Record the
+   tag `draft-<name>-NN` (two digits, monotone in cluster ordinal), the
+   cluster id, an explicit `normative_change` and a one-line note. Commit
+   any prose change (`git -C $AI_RFC_WORKSPACE/draft add -A && git -C $AI_RFC_WORKSPACE/draft commit -m "<message>"`), then build it: `ai_rfc_draft_build()` or `ai-rfc draft build` (the template's `make txt html lint idnits`, offline). Exit 0 and no findings is the bar before tagging — a failed stage names the line, a broken reference names a front-matter reference the sealed cache does not hold (cite it inline instead).
+   Fix any finding it reports (long lines, non-ASCII, unused or undeclared
+   references) before tagging. Then create the annotated tag
+   (`git -C $AI_RFC_WORKSPACE/draft tag -a draft-<name>-NN -m "<message>"` — only after the strict manifest gate and the build both exited 0 with no findings; `ai_rfc_revision_tag` (or `ai-rfc revision tag`) runs manifest gate, build, tag and the strict citation gate together and deletes the tag again on any finding). Every revision entry needs its tag, no-change
+   revisions included.
+9. **Gate**: `python -m ai_rfc draft gate $AI_RFC_WORKSPACE/draft --timeline $AI_RFC_WORKSPACE/timeline --checkpoints $AI_RFC_WORKSPACE/checkpoints --questions $AI_RFC_WORKSPACE/questions.yaml --revisions $AI_RFC_WORKSPACE/revisions.yaml --out $AI_RFC_WORKSPACE/out --strict`. Exit 0 before advancing.
+10. **Open questions**: a claim stuck at `gap`/`inferred` that blocks a
     section gets a question: append a `q-NNN` entry (`question`, `claim_ids`, `status: open`, `asked_at`) to `$AI_RFC_WORKSPACE/questions.yaml`.
 
 ## Failure recovery
@@ -70,8 +105,9 @@ When the `ai_rfc` MCP server is connected, prefer its tools (`ai_rfc_cluster_nex
 | Failure | Response |
 |---|---|
 | Strict gate exit 3 | The system working. Fix anchors first (weakest link), re-adjudicate, re-run. Never hand-edit a status upward, never bypass. |
-| `StaleIndexError` | Rebuild the index (`build_index`), never migrate. If the corpus itself moved, STOP — every anchor needs re-verification. |
+| `StaleIndexError` | Rebuild the index (`build_index`), never migrate. If the corpus itself moved, STOP, because every anchor needs re-verification. |
 | Citation-gate finding | Reconcile prose or claims. Never delete a claim to silence a citation. |
-| Checkpoint refused (exists) | The cluster was processed; re-running is a new decision — investigate before deleting anything. |
-| Giant epoch cluster | Read paginated, mine what you can carry; claims may cover a subset — understatement is safe. |
+| Checkpoint refused (exists) | The cluster was processed; re-running is a new decision, so investigate before deleting anything. |
+| Build finding | Fix the prose or front matter, commit, rebuild once; never run `make` or edit template files. |
+| Giant epoch cluster | Mine the changes whose diff lines plainly show the behaviour, one or two per changed source file; claims may cover a subset, since understatement is safe. |
 | Clone HEAD ≠ corpus tip | Someone moved the clone. Restore the pin; never re-anchor to the new HEAD. |
