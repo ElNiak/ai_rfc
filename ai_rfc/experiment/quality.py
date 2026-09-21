@@ -15,7 +15,7 @@ uncited and score an early draft down for prose it could not have written.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Collection, Mapping
 
 import yaml
 
@@ -24,6 +24,7 @@ from ai_rfc.draft.checkpoint import MANIFEST_FILE
 from ai_rfc.draft.gate import (
     GateError,
     _checkpoint_dir,
+    _cluster_ordinals,
     draft_text,
     latest_tag,
     load_revisions,
@@ -42,7 +43,11 @@ MANIFEST_READ = "read"
 #: list of causes, because the causes are open — a checkpoint deleted after it
 #: was recorded, a consolidation whose `checkpoint` path `_checkpoint_dir`
 #: resolves elsewhere than the writer guarded, and an entry written straight
-#: into the map, which bypasses the writer altogether, all reach it. What is
+#: into the map, which bypasses the writer altogether, all reach it — as does
+#: an entry naming a cluster the run's timeline does not have, which has no
+#: directory to resolve *to*: `_frozen_for` reports that refusal here rather
+#: than resolving it, because a climbing or absolute id would leave the
+#: checkpoint root and be linted as though it were this revision's. What is
 #: ruled *out* is a kill between tagging and checkpointing: `record_revision`
 #: will not record a revision until its `checkpoint.json` exists
 #: (`server/core/revisions.py:67-71`), and the checkpoint step writes
@@ -261,6 +266,80 @@ def reduce_lint(report: LintReport) -> dict[str, Any]:
     }
 
 
+def _known_clusters(timeline_dir: Path) -> tuple[frozenset[str], str | None]:
+    """Which clusters this run's timeline has, and why the set may be empty.
+
+    The set is what makes the checkpoint join checkable: an entry naming a
+    cluster the timeline does not have has no checkpoint directory under this
+    root, whatever it spells.
+
+    Reported rather than raised, the fourth arm of the ruling
+    :func:`_frozen_manifest`, :func:`_draft_at` and :func:`_revision_map`
+    carry: a run whose timeline is gone or half-written is evidence about that
+    run, and this reducer sits inside
+    :func:`~ai_rfc.experiment.metrics.analyze_campaign`'s comprehension, where
+    a raise costs every other run its analysis. An empty set is therefore the
+    honest answer to "which clusters does this run have?" for a run that has
+    no readable timeline, and the reason is carried beside it so a row can say
+    which of the two emptinesses it met.
+
+    Args:
+        timeline_dir: The run's ``timeline`` directory.
+
+    Returns:
+        The cluster ids, and the reason the set is empty when it is empty
+        because the timeline could not be read rather than because it holds no
+        clusters.
+    """
+    try:
+        return frozenset(_cluster_ordinals(timeline_dir)), None
+    except (OSError, ValueError, KeyError) as failure:
+        return frozenset(), f"{timeline_dir}: {failure!r}"
+
+
+def _frozen_for(
+    entry: Any,
+    checkpoints: Path,
+    consolidations: Path,
+    known: Collection[str],
+    timeline_error: str | None,
+) -> tuple[Manifest | None, str | None, str]:
+    """The manifest this revision froze, or why there is none to read.
+
+    Two ways there is none, reported as the one status because the
+    measurement is the same — this revision has no frozen manifest — and the
+    message says which: the directory resolved and held nothing, or the entry
+    names a cluster the timeline does not have, so no directory under the
+    checkpoint root is its checkpoint's and resolving one would leave the root
+    (an absolute id replaces it outright).
+
+    Args:
+        entry: The revision whose frozen manifest is wanted.
+        checkpoints: Root directory of the cluster checkpoints.
+        consolidations: Root directory of the consolidation checkpoints.
+        known: Every cluster id this run's timeline holds.
+        timeline_error: Why ``known`` is empty, when it is empty because the
+            timeline could not be read.
+
+    Returns:
+        What :func:`_frozen_manifest` returns, or ``None``, the refusal and
+        :data:`MANIFEST_MISSING` when the entry has no directory to resolve.
+
+    Raises:
+        OSError: What :func:`_frozen_manifest` raises.
+    """
+    try:
+        directory = _checkpoint_dir(entry, checkpoints, consolidations, known=known)
+    except GateError as refusal:
+        reason = str(refusal)
+        if timeline_error is not None:
+            # Both facts, because they are different repairs: the entry may be
+            # fine and the timeline gone.
+            reason = f"{reason}; the timeline could not be read ({timeline_error})"
+        return None, reason, MANIFEST_MISSING
+    return _frozen_manifest(directory / MANIFEST_FILE)
+
+
 def _frozen_manifest(path: Path) -> tuple[Manifest | None, str | None, str]:
     """The manifest a checkpoint froze, or why it could not be read.
 
@@ -464,9 +543,11 @@ def revision_lints(workspace: Path) -> dict[str, Any]:
     consolidations = workspace / "consolidations"
     rows: list[dict[str, Any]] = []
     # `load_revisions` returns its entries ordered by revision number.
+    known, timeline_error = _known_clusters(workspace / "timeline")
     for entry in entries or ():
-        frozen_path = _checkpoint_dir(entry, checkpoints, consolidations)
-        frozen, error, manifest_status = _frozen_manifest(frozen_path / MANIFEST_FILE)
+        frozen, error, manifest_status = _frozen_for(
+            entry, checkpoints, consolidations, known, timeline_error
+        )
         drafted, draft_error, draft_status = _draft_at(draft_repo, entry.tag)
         if drafted is None:
             metrics = _unmeasured_lint()

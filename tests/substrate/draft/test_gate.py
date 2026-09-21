@@ -592,26 +592,9 @@ def test_a_checkpoint_directory_is_refused_for_an_id_the_timeline_lacks(
             _entry(forged),
             tmp_path / "checkpoints",
             tmp_path / "consolidations",
-            {"c0001-x": 1},
+            known={"c0001-x": 1},
         )
     assert repr(forged) in str(error.value)
-
-
-def test_a_caller_without_the_timeline_may_join_only_one_segment(tmp_path):
-    """The quality reducer has no timeline to check against, and still may not escape.
-
-    Membership is the guard where the known set is in hand. Where it is not,
-    the join is still not allowed to leave ``checkpoints_dir`` — a value that
-    merely names nothing resolves to a missing checkpoint, which that reducer
-    reports, but a value that climbs out resolves to a stranger's.
-    """
-    with pytest.raises(GateError) as error:
-        _checkpoint_dir(
-            _entry("../foreign"),
-            tmp_path / "checkpoints",
-            tmp_path / "consolidations",
-        )
-    assert "'../foreign'" in str(error.value)
 
 
 def test_a_cluster_id_that_climbs_out_of_the_checkpoints_root_is_never_read(

@@ -232,7 +232,8 @@ def _checkpoint_dir(
     entry: RevisionEntry,
     checkpoints_dir: Path,
     consolidations_dir: Path,
-    known: Collection[str] | None = None,
+    *,
+    known: Collection[str],
 ) -> Path:
     """Where this revision's checkpoint lives.
 
@@ -251,32 +252,24 @@ def _checkpoint_dir(
         entry: The revision whose checkpoint is wanted.
         checkpoints_dir: Root directory of the cluster checkpoints.
         consolidations_dir: Root directory of the consolidation checkpoints.
-        known: Every cluster id the caller's timeline holds, or ``None`` from a
-            caller that has no timeline to check against. Such a caller gets
-            the weaker guarantee its position allows: the id must be a single
-            path segment, so a value that merely names nothing resolves to a
-            missing checkpoint — which is a thing to report — while one that
-            climbs out of the root does not resolve at all.
+        known: Every cluster id the caller's timeline holds. Required, and by
+            keyword: membership is the predicate, not a refinement of one, and
+            a caller that cannot supply the set cannot check this join at all
+            — it must report the refusal instead, which is what
+            ``experiment/quality._frozen_for`` does.
 
     Returns:
         The directory the revision's checkpoint should occupy.
 
     Raises:
-        GateError: If the cluster id is not one of ``known``, or — with no
-            ``known`` — is not a single path segment.
+        GateError: If the cluster id is not one of ``known``.
     """
     if entry.kind == "consolidation" and entry.checkpoint:
         return consolidations_dir / Path(entry.checkpoint).name
     cluster_id = entry.cluster_id
-    if known is None:
-        if cluster_id in ("", ".", "..") or Path(cluster_id).name != cluster_id:
-            # Repr, not the bare value: this message is a line-per-record
-            # artifact and a forged id carries a newline.
-            raise GateError(
-                f"{entry.tag}: cluster id {cluster_id!r} is not one path "
-                f"segment, so it names nothing under {checkpoints_dir}"
-            )
-    elif cluster_id not in known:
+    if cluster_id not in known:
+        # Repr, not the bare value: this message is a line-per-record artifact
+        # and a forged id carries a newline.
         raise GateError(
             f"{entry.tag}: cluster id {cluster_id!r} is not a cluster of the "
             f"timeline, so no directory under {checkpoints_dir} is its "
@@ -378,7 +371,7 @@ def run_gate(
             )
             continue
         checkpoint_dir = _checkpoint_dir(
-            entry, checkpoints_dir, consolidations_dir, ordinals
+            entry, checkpoints_dir, consolidations_dir, known=ordinals
         )
         if not (checkpoint_dir / CHECKPOINT_FILE).exists():
             if entry.kind == "consolidation":

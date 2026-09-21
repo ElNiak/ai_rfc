@@ -1,5 +1,7 @@
 import json
 
+import yaml
+
 from ai_rfc.driver.arms import arm_profile
 from ai_rfc.driver.enforcement import bash_prefixes
 from ai_rfc.driver.stream import parse_stream
@@ -708,3 +710,40 @@ def test_a_cluster_with_only_a_consolidation_is_not_complete(tmp_path):
         "    checkpoint: consolidations/01\n",
     )
     assert not cluster_artifacts(workspace, {"id": "c9", "ordinal": 9})["artifacts"]
+
+
+def test_a_revision_naming_an_escaping_cluster_does_not_abort_the_aggregate(
+    campaign, write_scenario
+):
+    """The sibling of the build case above, for the checkpoint join.
+
+    ``revision_lints`` resolves each entry's checkpoint directory, and the
+    guard that keeps a climbing ``cluster_id`` out of that join refuses it.
+    The refusal must arrive as a row, not as an exception: this comprehension
+    is what turns one hand-edited ``revisions.yaml`` into a campaign with no
+    analysis at all — ``aggregate.json`` never written, and ``B1``'s intact
+    analysis lost with it.
+    """
+    _run(
+        campaign,
+        write_scenario,
+        {
+            "A1": {"arm": "A", "cost": 1.0, "steps": COMPLETE_STEPS},
+            "B1": {"arm": "B", "cost": 1.0, "steps": COMPLETE_STEPS},
+        },
+    )
+    path = campaign.runs_dir / "A1" / "workspace" / "revisions.yaml"
+    document = yaml.safe_load(path.read_text())
+    document["revisions"][min(document["revisions"])]["cluster_id"] = "../foreign"
+    path.write_text(yaml.safe_dump(document, sort_keys=True))
+
+    aggregate = analyze_campaign(campaign)
+
+    assert (campaign.analysis_dir / "aggregate.json").is_file()
+    (damaged,) = aggregate["runs"]["A1"]["quality"]["revisions"]
+    assert damaged["manifest_status"] == "missing"
+    assert "../foreign" in damaged["manifest_error"]
+    # The intact run kept its analysis, which is what says the failure was
+    # contained rather than that nothing was measured.
+    (intact,) = aggregate["runs"]["B1"]["quality"]["revisions"]
+    assert intact["manifest_status"] == "read"

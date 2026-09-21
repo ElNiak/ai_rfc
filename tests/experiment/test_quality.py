@@ -822,3 +822,33 @@ def test_a_metric_only_one_side_carries_has_no_delta():
     )
     assert "| only_before | 3 | — | — |" in table
     assert "| only_after | — | 4 | — |" in table
+
+
+@pytest.mark.parametrize("forged", ["../foreign", "/tmp/foreign"])
+def test_a_revision_whose_cluster_id_would_escape_is_reported_not_raised(
+    two_tag_workspace, forged
+):
+    """The same ruling ``_draft_at`` and ``_revision_map`` carry (R23, R27).
+
+    An arm writes ``revisions.yaml`` by hand — ``driver/render.py``'s
+    ``revision_record`` step instructs it to — and ``load_revisions`` does not
+    validate the shape of a ``cluster_id``, so a climbing or absolute one
+    reaches the checkpoint join. Refusing the join is right; raising out of
+    this function is not, because ``analyze_campaign`` builds its runs in a
+    dict comprehension and one such run would take every other run's analysis
+    down with it.
+    """
+    path = two_tag_workspace / "revisions.yaml"
+    document = yaml.safe_load(path.read_text())
+    first = min(document["revisions"])
+    document["revisions"][first]["cluster_id"] = forged
+    path.write_text(yaml.safe_dump(document, sort_keys=True))
+
+    rows = revision_lints(two_tag_workspace)["revisions"]
+
+    assert [row["manifest_status"] for row in rows] == ["missing", "read"]
+    # The row says which id it refused, or the reader cannot tell this from a
+    # checkpoint that never landed.
+    assert forged in rows[0]["manifest_error"]
+    # The rest of the run still measures: the damage is one row's.
+    assert rows[1]["citations"]["cited_fraction"] == 1.0
