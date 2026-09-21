@@ -139,8 +139,9 @@ Exit codes are the same through every door: 0 clean; 1 the command could not
 complete — a refusal, a crash, an unreadable input, an unwritable `--out`, or a
 sweep that stopped with work outstanding; 2 a malformed invocation, which
 belongs to argparse alone; 3 findings, which is the one code with a machine
-consumer — `driver/sweep.py:798` reads a `check --strict` 3 back to tell a
-finding apart from any other way the build gate can fail.
+consumer — `_build_gate` in `driver/sweep.py` reads a `check --strict` 3 back
+to tell a finding apart from any other way the build gate can fail. (The
+function, not a line number: `sweep.py` is edited elsewhere in this branch.)
 
 ## Plugin
 

@@ -122,7 +122,7 @@ help.
 | `ai-rfc run --config recon.yaml [--until history\|timeline\|views]` | Perform every deterministic stage that is next, then stop at the agent boundary with the ledger printed |
 | `ai-rfc status --config recon.yaml [--json]` | Stage states, the cluster ledger, the pin, config drift |
 | `ai-rfc verify --config recon.yaml [--strict]` | Config drift, strict check, citation gate, completeness, lint and build in one exit code; a check whose inputs are missing is skipped and named |
-| `ai-rfc doctor [--config recon.yaml] [--json]` | Six environment checks — claude, profile, toolchain, forge token, deps, workspace; exit 1 only for what a run cannot survive |
+| `ai-rfc doctor [--config recon.yaml] [--json]` | Six environment checks — claude, profile, toolchain, forge token, deps, workspace; exit 3 only for what a run cannot survive, since a warning names something a run survives |
 | `ai-rfc toolchain provision\|verify` | Install the Internet-Draft toolchain once (networked), or re-check it offline |
 | `ai-rfc forge fetch URL --repo CLONE --out DIR [--host github\|gitlab]` | Fetch pull data into an immutable snapshot (the only networked substrate program); a token is optional and the snapshot records the fidelity it reached |
 | `ai-rfc forge adopt RECORDS URL --repo CLONE --out DIR [--host github\|gitlab]` | Write the same snapshot from records obtained without credentials |
@@ -162,16 +162,25 @@ Exit codes:
 
 | Code | Meaning |
 |---|---|
-| 0 | Success — reports written; findings, if any, reported but tolerated |
-| 1 | The manifest could not be read, or `--repo` is not a git repository |
-| 2 | Argument error, raised by `argparse` itself |
-| 3 | Findings were reported and `--strict` was given |
+| 0 | Clean — the command completed and reported nothing it gates on |
+| 1 | The command could not complete: a refusal, a crash, an input that would not load, an `--out` that could not be written, a sweep that stopped with work outstanding |
+| 2 | A malformed invocation, raised by `argparse` itself and by nothing else |
+| 3 | Findings |
 
 Every command in the package holds to that table, so 2 always means the
 invocation was malformed and never that the evidence was. Sharing one code
 between the two left a scripted caller unable to tell a mistyped flag from a
 real finding, and the responses are opposite: fix the command, or fix the
 evidence.
+
+`--strict` decides whether *this* command's findings gate, not what 3 means.
+`check`, `draft gate`, `draft lint`, `draft completeness` and `verify` report
+their findings on stderr in either mode and return 3 only under `--strict`;
+`doctor`, `toolchain verify` and `pipeline substrate` take no `--strict` flag
+at all and return 3 whenever they reach a verdict with something in it. 3 is
+the one code with a machine consumer — `_build_gate` in `driver/sweep.py`
+reads a `check --strict` 3 back to tell a finding apart from any other way the
+build gate can fail — so it names the outcome, never the flag.
 
 A **finding** is either a promotion violation or an anchor that did not resolve
 at its pinned commit. Both gate under `--strict`, and both are named on stderr
@@ -218,8 +227,8 @@ it added no claim id *and* left the manifest digest unchanged, because a
 checkpoint that promotes a status or edits a claim's text adds no id but is not
 silent.
 
-Exit codes follow the table above: 0 as a linter, 1 on unreadable input, 3 under
-`--strict` when anything is outstanding.
+Exit codes follow the table above: 0 as a linter, 1 when the command could not
+complete, 3 under `--strict` when anything is outstanding.
 
 ## How to use
 

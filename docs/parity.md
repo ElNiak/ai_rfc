@@ -75,9 +75,13 @@ number for the same outcome.
 | Code | Meaning |
 |---|---|
 | 0 | Clean |
-| 1 | Inputs unusable — a manifest that will not load, a path that is not a repository |
+| 1 | The command could not complete — an input that will not load, a path that is not a repository, an `--out` that cannot be written, a refusal, a crash, or a sweep stopped with work outstanding |
 | 2 | A usage error raised by `argparse` itself: the invocation was malformed |
-| 3 | Strict findings — a promotion violation, an unresolved anchor, or a citation the gate refused |
+| 3 | Findings — a promotion violation, an unresolved anchor, a citation the gate refused, or any other verdict a command reached and gates on |
+
+A verb that takes `--strict` returns 3 only when given it; `doctor`,
+`toolchain verify` and `pipeline substrate` take no such flag and return 3
+whenever their verdict carries something. 3 names the outcome, not the flag.
 
 The 2/3 split matters because argparse owns 2 unconditionally. While strict
 findings also exited 2, a caller branching on it could not distinguish a
