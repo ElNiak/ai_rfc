@@ -2,40 +2,11 @@
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from ai_rfc.driver import printable
 
-from .markdown import cell, fmt, separator
-
-
-def _code(value: Any) -> str:
-    """One value as a Markdown code span that its own content cannot break.
-
-    A run of backticks inside the value is fenced by a longer run outside it,
-    per CommonMark; a leading or trailing backtick needs the padding space.
-
-    :func:`~ai_rfc.driver.printable` runs first, so a character that would end
-    the line is already a visible escape by the time the fence is measured. It
-    is the predicate over the whole unprintable category, which is what this
-    needs: neutralising ``\\n`` alone left CR — CommonMark's other line ending
-    — and five further characters :meth:`str.splitlines` breaks on. Nothing
-    else is escaped, because a code span's content is literal.
-
-    Args:
-        value: Any value; ``None`` renders as the em dash, never as a span.
-
-    Returns:
-        The fenced span, or ``"—"`` for ``None``.
-    """
-    if value is None:
-        return "—"
-    text = printable(str(value))
-    longest = max((len(m) for m in re.findall(r"`+", text)), default=0)
-    fence = "`" * (longest + 1)
-    pad = " " if text.startswith("`") or text.endswith("`") else ""
-    return f"{fence}{pad}{text}{pad}{fence}"
+from ..markdown import cell, code, fmt, separator
 
 
 def _arm_rows(arms: dict[str, dict[str, Any]]) -> list[str]:
@@ -242,19 +213,19 @@ def render_report(aggregate: dict[str, Any]) -> str:
     """
     git = aggregate.get("git") or {}
     lines = [
-        # The heading, not a span: `_code` would change how it renders. A
+        # The heading, not a span: `code` would change how it renders. A
         # campaign id is never charset-validated, and a line ending inside one
         # ends the heading, so everything after it parses as fresh markdown.
         f"# Campaign {printable(str(aggregate['campaign']))}",
         "",
-        f"- target: {_code(aggregate['target'])}, window {aggregate['window']}",
-        f"- model: {_code(aggregate['model'])}, effort {_code(aggregate['effort'])}, harness {_code(aggregate['claude_version'])}",
+        f"- target: {code(aggregate['target'])}, window {aggregate['window']}",
+        f"- model: {code(aggregate['model'])}, effort {code(aggregate['effort'])}, harness {code(aggregate['claude_version'])}",
         # An archived aggregate also carries `panther`; it is read straight
         # past rather than printed, because the value it holds described this
         # package's own root under PANTHER's label.
-        f"- git: ai_rfc {_code(git.get('ai_rfc'))}",
+        f"- git: ai_rfc {code(git.get('ai_rfc'))}",
         f"- parity pre-run: {aggregate.get('parity_pre_run')}",
-        f"- run order: {', '.join(_code(r) for r in aggregate['run_order'])}",
+        f"- run order: {', '.join(code(r) for r in aggregate['run_order'])}",
         "",
         "## Per arm",
         "",

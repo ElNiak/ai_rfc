@@ -33,8 +33,8 @@ from ai_rfc.draft.lint import LintReport, lint
 from ai_rfc.schema import SchemaError, load
 
 from ..lifecycle.workspace import REFCACHE_DIR
+from ..markdown import cell, fmt, separator
 from ..models import Manifest
-from .markdown import cell, fmt, separator
 
 #: The frozen manifest loaded.
 MANIFEST_READ = "read"
@@ -749,7 +749,7 @@ def compare_lints(
 
     Both records are flattened to dotted metric names first, so a nested
     projection and a flat one compare the same way. Every cell goes through
-    :func:`~ai_rfc.experiment.markdown.cell`: a metric name or a label
+    :func:`~ai_rfc.markdown.cell`: a metric name or a label
     carrying a pipe must not be able to add a column, and the values are
     agent-controlled prose in the end.
 
