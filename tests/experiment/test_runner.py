@@ -6,6 +6,8 @@ from pathlib import Path
 
 import pytest
 
+from ai_rfc.driver import DriverError
+from ai_rfc.driver.record import INTERRUPTED
 from ai_rfc.driver.session import EVENTS_FILE, GUARD_FILE, prepare_argv, session_env
 from ai_rfc.experiment import ExperimentError
 from ai_rfc.experiment.runner import (
@@ -198,3 +200,40 @@ def test_the_default_prompt_is_still_the_arm_prompt(campaign):
     ref = _ready(campaign, "A1")
     argv = prepare_argv(session_spec(campaign, ref), ref.run_dir)
     assert f"arm-{ref.arm}.md" in " ".join(argv)
+
+
+def test_launch_refuses_a_run_whose_transcript_is_already_held(
+    campaign, write_scenario
+):
+    """A campaign run directory is claimed by its transcript, at the first spawn.
+
+    The campaign path mints deterministic ids (`A1`), so two launches of one
+    campaign reach for the same directory by construction -- and until the
+    first session's transcript became an exclusive create, the second launch
+    truncated the first's `events.jsonl` and then spent a fresh budget beside
+    it. The state built here is what a live first launch leaves: a transcript
+    with lines in it and no `status.json` yet, which the relaunch guard above
+    does not see.
+
+    Three things are asserted rather than one, because three separate
+    mechanisms have to hold: the refusal names the transcript it is refusing
+    over and how to release it, the held lines are still there, and the fake
+    `claude` was never called -- nothing was spent.
+    """
+    ref = _ready(campaign, "A1")
+    write_scenario(
+        campaign.profile_dir, "A1", {"arm": "A", "cost": 1.25, "steps": COMPLETE_STEPS}
+    )
+    transcript = ref.run_dir / EVENTS_FILE
+    held = '{"type": "system", "subtype": "init"}\n{"type": "result"}\n'
+    transcript.write_text(held)
+
+    with pytest.raises(DriverError) as raised:
+        launch(campaign, ref, report=lambda _: None)
+
+    message = str(raised.value)
+    assert str(transcript) in message, message
+    assert f"mv {ref.run_dir} {ref.run_dir}{INTERRUPTED}" in message, message
+    assert transcript.read_text() == held
+    assert not (campaign.profile_dir / "fake-calls" / f"{ref.run_id}.json").exists()
+    assert load_status(ref.run_dir) is None

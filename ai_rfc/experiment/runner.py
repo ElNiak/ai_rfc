@@ -4,6 +4,11 @@ The process gets a minimal environment, its stdout streams straight into
 ``events.jsonl`` as it arrives, a wall-clock cap is enforced on the whole
 process group (the MCP server is a child), and ``status.json`` is written
 exactly once — a run is never relaunched in place.
+
+That last rule holds for a run still going as well as for a finished one, and
+by the same file: ``events.jsonl`` is created exclusively by a run's first
+session, so it is the claim on the run directory, and a second launch of one
+run id is refused before it starts a process.
 """
 
 from __future__ import annotations
@@ -174,6 +179,17 @@ def launch(
 ) -> RunStatus:
     """Run one session to completion or timeout, streaming its output to disk.
 
+    A campaign mints its run ids from the frozen order — ``A1``, ``B1``, ``C1``
+    — so two launches of one campaign reach for the same directory by
+    construction, and the guard below sees only a run that already *finished*.
+    A run still going is held by its transcript instead: the first session
+    creates ``events.jsonl`` exclusively
+    (:func:`~ai_rfc.driver.spawn.spawn`), so a second launch is refused at that
+    session, before its process exists and before it has spent anything. That
+    is the whole of the claim — no ``run.json`` is written here, since the
+    campaign layout ``audit_run`` and ``analyze_run`` read is
+    ``status.json``, ``events.jsonl``, ``arfc.json`` and ``workspace/``.
+
     Args:
         campaign: The frozen campaign.
         ref: The run to launch; its workspace copy must already exist.
@@ -187,6 +203,10 @@ def launch(
     Raises:
         ExperimentError: If the campaign carries no toolchain, the workspace
             is missing, or the run already has a status record.
+        DriverError: If another launch holds this run directory — its
+            transcript is already there. Nothing is spawned and nothing is
+            spent; the message names the transcript and the move-aside that
+            releases it if the holding run is dead.
     """
     if campaign.toolchain is None:
         # `Campaign.toolchain` defaults to `None` so a campaign frozen before
@@ -202,6 +222,10 @@ def launch(
         raise ExperimentError(
             f"{ref.workspace} is missing; copy the pristine workspace first"
         )
+    # A *finished* run only. A run still going has no status record — that is
+    # what the absence of one means — so this guard cannot see it, and adding
+    # an `events.jsonl` check here would be the same check-then-act the claim
+    # replaced. The live case is held by the transcript, below.
     if (ref.run_dir / STATUS_FILE).exists():
         raise ExperimentError(
             f"{ref.run_id} already ran; a run is never relaunched in place. "
