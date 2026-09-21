@@ -240,3 +240,82 @@ def test_a_blank_quote_is_refused(workspace, quote):
             author_confirmed_exact_text=True,
         )
     assert "non-empty" in str(excinfo.value)
+
+
+@pytest.mark.parametrize("forged", ["../..", "None", "1"])
+def test_cluster_get_refuses_an_id_that_names_no_cluster(workspace, forged):
+    """The read side needs the same membership guard the write side has.
+
+    ``None`` and ``1`` are what YAML's implicit typing leaves of an empty
+    value and of ``01``; neither carries a character a filter would catch, and
+    neither names a cluster. The refusal names the id it refused.
+    """
+    with pytest.raises(CoreError) as error:
+        cluster_get(workspace, forged)
+    message = str(error.value)
+    assert repr(forged) in message
+    assert "timeline" in message
+
+
+def test_cluster_get_cannot_read_a_view_outside_the_workspace(workspace, tmp_path):
+    """An absolute id replaces the workspace root and the read succeeds.
+
+    "No view for that id" is not the guard: an id that resolves to a real
+    ``view.json`` somewhere else is served as though it were this workspace's
+    cluster, and the agent reading it cannot tell.
+    """
+    foreign = tmp_path / "foreign"
+    foreign.mkdir()
+    (foreign / "view.json").write_text('{"id": "elsewhere"}')
+    with pytest.raises(CoreError) as error:
+        cluster_get(workspace, str(foreign))
+    assert str(foreign) in str(error.value)
+
+
+def test_a_transcript_climbing_out_of_the_interviews_directory_is_refused(
+    workspace, tmp_path
+):
+    """Containment, because the transcript is evidence and its location is the claim.
+
+    ``interviews/../../outside.md`` is a file the author never saved as an
+    interview, and the quote found in it anchors — or signs off — a claim on
+    it. The refusal names the directory the transcript has to be in.
+    """
+    draft_question(workspace, "Is 'Thing one.' deliberate?", ["t:1.1"])
+    outside = tmp_path / "outside.md"
+    outside.write_text("2026-08-25, dev-01: yes it is deliberate.\n")
+    with pytest.raises(CoreError) as error:
+        record_answer(
+            workspace,
+            "q-001",
+            "yes",
+            "dev-01",
+            "../../outside.md",
+            "yes it is deliberate",
+        )
+    assert "interviews" in str(error.value)
+
+
+def test_a_transcript_symlinked_out_of_the_interviews_directory_is_refused(
+    workspace, tmp_path
+):
+    """A name that stays inside is not a path that stays inside.
+
+    The lexical check ``interviews`` + one segment passes here and the file
+    read is still the one outside, so containment is decided after
+    ``resolve()`` or not at all.
+    """
+    draft_question(workspace, "Is 'Thing one.' deliberate?", ["t:1.1"])
+    outside = tmp_path / "outside.md"
+    outside.write_text("2026-08-25, dev-01: yes it is deliberate.\n")
+    (workspace.workspace / "interviews" / "int-009.md").symlink_to(outside)
+    with pytest.raises(CoreError) as error:
+        record_answer(
+            workspace,
+            "q-001",
+            "yes",
+            "dev-01",
+            "int-009.md",
+            "yes it is deliberate",
+        )
+    assert "interviews" in str(error.value)

@@ -10,6 +10,7 @@ from typing import Any
 from ... import ledger
 from ..paths import Context
 from . import CoreError, GuardrailError
+from .clusters import checked_cluster_id
 
 _SELECT_ONLY = re.compile(r"^\s*select\b", re.IGNORECASE)
 #: Rows a single corpus query may return. The cap exists because the result
@@ -100,8 +101,14 @@ def cluster_get(
         ``{view, evidence, patch?, patch_total_bytes?}``.
 
     Raises:
-        CoreError: If the cluster view does not exist.
+        CoreError: If the cluster is not one of this workspace's timeline, or
+            its view does not exist.
     """
+    # "No view for that id" is not this guard: an id that resolves to a real
+    # `view.json` somewhere else — an absolute path replaces the root of the
+    # join — is served as though it were this workspace's cluster, and the
+    # agent reading it cannot tell.
+    checked_cluster_id(ctx.workspace, cluster_id)
     cluster_dir = ctx.workspace / "clusters" / cluster_id
     view_path = cluster_dir / "view.json"
     if not view_path.exists():

@@ -16,7 +16,7 @@ import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Collection, Sequence
 
 import yaml
 
@@ -229,7 +229,10 @@ def cited_ids(draft_repo: Path, tag: str) -> tuple[set[str], str | None]:
 
 
 def _checkpoint_dir(
-    entry: RevisionEntry, checkpoints_dir: Path, consolidations_dir: Path
+    entry: RevisionEntry,
+    checkpoints_dir: Path,
+    consolidations_dir: Path,
+    known: Collection[str] | None = None,
 ) -> Path:
     """Where this revision's checkpoint lives.
 
@@ -237,17 +240,49 @@ def _checkpoint_dir(
     directory under a separate root, so the cluster root keeps enumerating
     cluster checkpoints only (D48).
 
+    Both halves of the join come out of an agent-written ``revisions.yaml``.
+    The consolidation half has always been reduced to one segment with
+    ``Path(...).name``; the cluster half is guarded by membership, which also
+    catches what a filter over characters cannot — YAML's implicit typing
+    leaves an empty value as ``None`` and ``01`` as ``1``, and neither carries
+    a character to catch.
+
     Args:
         entry: The revision whose checkpoint is wanted.
         checkpoints_dir: Root directory of the cluster checkpoints.
         consolidations_dir: Root directory of the consolidation checkpoints.
+        known: Every cluster id the caller's timeline holds, or ``None`` from a
+            caller that has no timeline to check against. Such a caller gets
+            the weaker guarantee its position allows: the id must be a single
+            path segment, so a value that merely names nothing resolves to a
+            missing checkpoint — which is a thing to report — while one that
+            climbs out of the root does not resolve at all.
 
     Returns:
         The directory the revision's checkpoint should occupy.
+
+    Raises:
+        GateError: If the cluster id is not one of ``known``, or — with no
+            ``known`` — is not a single path segment.
     """
     if entry.kind == "consolidation" and entry.checkpoint:
         return consolidations_dir / Path(entry.checkpoint).name
-    return checkpoints_dir / entry.cluster_id
+    cluster_id = entry.cluster_id
+    if known is None:
+        if cluster_id in ("", ".", "..") or Path(cluster_id).name != cluster_id:
+            # Repr, not the bare value: this message is a line-per-record
+            # artifact and a forged id carries a newline.
+            raise GateError(
+                f"{entry.tag}: cluster id {cluster_id!r} is not one path "
+                f"segment, so it names nothing under {checkpoints_dir}"
+            )
+    elif cluster_id not in known:
+        raise GateError(
+            f"{entry.tag}: cluster id {cluster_id!r} is not a cluster of the "
+            f"timeline, so no directory under {checkpoints_dir} is its "
+            f"checkpoint's"
+        )
+    return checkpoints_dir / cluster_id
 
 
 def run_gate(
@@ -327,7 +362,24 @@ def run_gate(
     manifest_by_tag: dict[str, Manifest] = {}
     frozen_by_tag: dict[str, dict[str, str]] = {}
     for entry in entries:
-        checkpoint_dir = _checkpoint_dir(entry, checkpoints_dir, consolidations_dir)
+        if (
+            not (entry.kind == "consolidation" and entry.checkpoint)
+            and entry.cluster_id not in ordinals
+        ):
+            # The loop above already reported that this id names no cluster.
+            # Joining it as well would leave the root entirely — a real
+            # checkpoint planted one level up satisfies every check below and
+            # the gate would say nothing — so the finding is stated here
+            # instead, in the words the join used to reach for the ordinary
+            # case of an id that resolves to nothing.
+            findings.append(
+                f"{entry.tag}: no checkpoint for {entry.cluster_id} under "
+                f"{checkpoints_dir}"
+            )
+            continue
+        checkpoint_dir = _checkpoint_dir(
+            entry, checkpoints_dir, consolidations_dir, ordinals
+        )
         if not (checkpoint_dir / CHECKPOINT_FILE).exists():
             if entry.kind == "consolidation":
                 findings.append(f"{entry.tag}: no checkpoint at {checkpoint_dir}")

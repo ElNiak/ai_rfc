@@ -1,11 +1,19 @@
 import hashlib
 import json
+import shutil
 from pathlib import Path
 
 import pytest
 import yaml
 
-from ai_rfc.draft.gate import GateError, draft_text, load_revisions, run_gate
+from ai_rfc.draft.gate import (
+    GateError,
+    RevisionEntry,
+    _checkpoint_dir,
+    draft_text,
+    load_revisions,
+    run_gate,
+)
 
 from .conftest import _append_to_draft, _record_consolidation, _retag_draft_with, git
 
@@ -544,3 +552,76 @@ def test_a_missing_consolidation_checkpoint_names_the_consolidations_root(
         consolidations_dir=ws["consolidations"],
     )
     assert f"draft-test-spec-02: no checkpoint at {directory}" in findings
+
+
+def _entry(cluster_id: str, **changes) -> RevisionEntry:
+    """One revision row, for the checkpoint-directory join in isolation.
+
+    Args:
+        cluster_id: The id the row names.
+        **changes: Fields overriding the defaults.
+
+    Returns:
+        The entry.
+    """
+    fields = {
+        "tag": "draft-test-spec-00",
+        "number": 0,
+        "cluster_id": cluster_id,
+        "checkpoint_manifest_sha256": "a" * 64,
+        "normative_change": True,
+        "note": "x",
+    }
+    fields.update(changes)
+    return RevisionEntry(**fields)
+
+
+def test_a_checkpoint_directory_is_refused_for_an_id_the_timeline_lacks(tmp_path):
+    """Membership at the join itself, so no caller can reach it unguarded."""
+    with pytest.raises(GateError) as error:
+        _checkpoint_dir(
+            _entry("../foreign"),
+            tmp_path / "checkpoints",
+            tmp_path / "consolidations",
+            {"c0001-x": 1},
+        )
+    assert "'../foreign'" in str(error.value)
+
+
+def test_a_caller_without_the_timeline_may_join_only_one_segment(tmp_path):
+    """The quality reducer has no timeline to check against, and still may not escape.
+
+    Membership is the guard where the known set is in hand. Where it is not,
+    the join is still not allowed to leave ``checkpoints_dir`` — a value that
+    merely names nothing resolves to a missing checkpoint, which that reducer
+    reports, but a value that climbs out resolves to a stranger's.
+    """
+    with pytest.raises(GateError) as error:
+        _checkpoint_dir(
+            _entry("../foreign"),
+            tmp_path / "checkpoints",
+            tmp_path / "consolidations",
+        )
+    assert "'../foreign'" in str(error.value)
+
+
+def test_a_cluster_id_that_climbs_out_of_the_checkpoints_root_is_never_read(
+    draft_workspace, tmp_path
+):
+    """The gate must not accept a checkpoint that is not under its own root.
+
+    The first loop already reports that the id names no cluster, and then the
+    second loop joins it anyway: with a real checkpoint planted one level up,
+    ``checkpoints/../foreign`` resolves to it, its sha matches the pin, and the
+    revision passes every remaining check on a checkpoint this workspace's
+    root does not hold.
+    """
+    foreign = draft_workspace["checkpoints"].parent / "foreign"
+    shutil.copytree(draft_workspace["first_checkpoint"], foreign)
+    _patch_revisions(draft_workspace, "draft-test-spec-00", cluster_id="../foreign")
+    findings = _gate(draft_workspace)
+    assert any("no cluster ../foreign in the timeline" in f for f in findings)
+    assert any(
+        f"no checkpoint for ../foreign under {draft_workspace['checkpoints']}" in f
+        for f in findings
+    )

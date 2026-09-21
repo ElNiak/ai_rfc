@@ -405,3 +405,24 @@ def test_a_stale_build_report_is_not_read_after_a_refusal(
     _unusable_toolchain(tmp_path, monkeypatch)
     result = draft_build(resolve_context())
     assert result["commit"] is None and result["outputs"] == {}
+
+
+@pytest.mark.parametrize("escape", ["../../etc", "/etc"])
+def test_a_cluster_id_that_would_leave_the_checkpoint_root_freezes_nothing(
+    workspace, escape, tmp_path
+):
+    """Row #28's join is inert, and this is the evidence the decline rests on.
+
+    ``record_dir = out / cluster_id`` is computed before the freeze and read
+    only after it reports success, and the freeze refuses an id the timeline
+    does not have (``draft/checkpoint.py:57``) before it creates anything. The
+    unknown cluster is *reported* here rather than raised, which
+    ``test_write_checkpoint_reports_an_unknown_cluster`` pins as the contract
+    of this verb; guarding the join would convert that report into a refusal
+    and change what every MCP caller sees.
+    """
+    result = write_checkpoint(workspace, escape)
+    assert result["exit_code"] == 1
+    assert escape in result["stderr"][0]
+    assert "manifest_sha256" not in result
+    assert not (tmp_path / "etc").exists()

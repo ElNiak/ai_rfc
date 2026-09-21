@@ -14,6 +14,7 @@ from ai_rfc.draft.gate import GateError, load_revisions
 from ..paths import Context
 from . import CoreError
 from .claims import _atomic_write
+from .clusters import checked_cluster_id
 
 
 def record_revision(
@@ -44,11 +45,17 @@ def record_revision(
         The entry as recorded (including the checkpoint sha read from disk).
 
     Raises:
-        CoreError: If the checkpoint is missing, the tag already exists, a
-            consolidation names no checkpoint or one outside the workspace, the
-            cluster already has a cluster revision, or either the revision map
-            already on disk or the resulting one fails the gate's loader.
+        CoreError: If the cluster is not one of this workspace's timeline, the
+            checkpoint is missing, the tag already exists, a consolidation
+            names no checkpoint or one outside the workspace, the cluster
+            already has a cluster revision, or either the revision map already
+            on disk or the resulting one fails the gate's loader.
     """
+    # Before either branch: a cluster revision joins the id into the checkpoint
+    # path below, and both branches write it into the map as the cluster this
+    # revision reflects. An absolute id replaces the root of that join — the
+    # workspace prefix is simply gone — so the guard cannot be the join.
+    checked_cluster_id(ctx.workspace, cluster_id)
     if kind == "consolidation":
         if not checkpoint:
             raise CoreError(f"{tag}: a consolidation must name its checkpoint")

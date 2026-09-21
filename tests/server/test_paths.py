@@ -392,3 +392,28 @@ def test_a_refused_workspace_names_the_handle_it_came_from(tmp_path, monkeypatch
     with pytest.raises(EnvError) as refusal:
         resolve_context()
     assert "AI_RFC_CONFIG" in str(refusal.value) and str(config) in str(refusal.value)
+
+
+def test_a_relative_workspace_is_anchored_to_the_config_not_the_cwd(
+    tmp_path, monkeypatch
+):
+    """``workspace: ./ws`` means the directory beside the config, not beside the cwd.
+
+    The sealed branch above already anchors to ``config_path.parent``; this
+    branch resolved the declared field against whatever directory the server
+    happened to be launched from, so the same config named a different tree
+    per caller — and, launched from a directory holding a ``ws`` of its own, a
+    tree belonging to somebody else entirely.
+    """
+    desk = tmp_path / "desk"
+    (desk / "ws").mkdir(parents=True)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    config = _write(
+        desk / "recon.yaml", "./ws", toolchain=tmp_path / "absent-toolchain.json"
+    )
+    monkeypatch.chdir(elsewhere)
+    monkeypatch.delenv("AI_RFC_WORKSPACE", raising=False)
+    monkeypatch.delenv("AI_RFC_TOOLCHAIN", raising=False)
+    monkeypatch.setenv("AI_RFC_CONFIG", str(config))
+    assert resolve_context().workspace == (desk / "ws").resolve()

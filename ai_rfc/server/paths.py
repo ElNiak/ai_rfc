@@ -294,7 +294,14 @@ def resolve_context() -> Context:
     else:
         if _looks_like_a_workspace(layout):
             raise EnvError(_unsealed_refusal(config_path, layout))
-        workspace_path = config.workspace.expanduser().resolve()
+        # Anchored to the config's own directory, matching the branch above,
+        # which takes the workspace from `Layout(config_path.parent)`. A
+        # relative `workspace:` resolved against the process's working
+        # directory made the same config name a different tree per caller —
+        # and, launched from a directory holding a `ws` of its own, somebody
+        # else's tree. `/` keeps an absolute field absolute, so only the
+        # relative case moves.
+        workspace_path = (config_path.parent / config.workspace.expanduser()).resolve()
     if not workspace_path.is_dir():
         raise EnvError(
             f"workspace {workspace_path}, from {CONFIG_ENV}={config_path}, "

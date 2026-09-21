@@ -144,7 +144,8 @@ def record_answer(
         ``{question_id, claims, anchored, signed_off}``.
 
     Raises:
-        CoreError: If the question or transcript is missing.
+        CoreError: If the question is missing, or the transcript is missing or
+            resolves outside ``interviews/``.
         GuardrailError: If ``quote`` is blank, or is not found verbatim in
             the transcript.
     """
@@ -154,7 +155,18 @@ def record_answer(
     if question_id not in by_id:
         raise CoreError(f"no question {question_id} in the register")
 
-    transcript_path = ctx.workspace / "interviews" / transcript
+    interviews = ctx.workspace / "interviews"
+    transcript_path = interviews / transcript
+    # Containment after resolution, not before: the transcript is the evidence
+    # an answer happened, and where it lives is part of that claim. A
+    # ``../../`` leaves the directory outright, and a name that is one innocent
+    # segment still reads a file outside it when it is a symlink — so the check
+    # is on the resolved path, against the resolved directory.
+    if not transcript_path.resolve().is_relative_to(interviews.resolve()):
+        raise CoreError(
+            f"transcript {transcript!r} resolves outside {interviews}; an "
+            f"interview is evidence only where the author saved it"
+        )
     if not transcript_path.exists():
         raise CoreError(
             f"transcript {transcript_path} does not exist; save the "

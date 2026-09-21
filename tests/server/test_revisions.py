@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from ai_rfc import cli
@@ -189,3 +191,41 @@ def test_the_verb_refuses_a_base_without_a_consolidation(workspace, capsys):
     first = cluster_next(workspace)["id"]
     assert cli.main(["checkpoint", first, "--base", f"checkpoints/{first}"]) == 1
     assert "needs consolidation" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("forged", ["../outside", "None", "1"])
+def test_a_cluster_id_that_names_no_cluster_is_refused_by_membership(workspace, forged):
+    """Membership, not a character filter, is what these three have in common.
+
+    ``../outside`` climbs out of the checkpoint root; ``None`` and ``1`` carry
+    no character a filter would catch and still name nothing — YAML's implicit
+    typing writes an empty value as ``None`` and ``01`` as ``1`` before
+    anything reads the map. One predicate refuses all three, and the refusal
+    has to say which id it refused.
+    """
+    with pytest.raises(CoreError) as error:
+        revisions.record_revision(workspace, "draft-test-spec-00", forged, True, "x")
+    message = str(error.value)
+    assert repr(forged) in message
+    assert "timeline" in message
+
+
+def test_an_absolute_cluster_id_cannot_pin_a_checkpoint_outside_the_workspace(
+    workspace, tmp_path
+):
+    """An absolute id replaces the root of the join, so the guard is not the join.
+
+    ``Path('<ws>/checkpoints') / '/elsewhere'`` is ``/elsewhere``: the
+    workspace prefix is gone, the checkpoint that is read is a stranger's, and
+    the sha pinned into ``revisions.yaml`` testifies to a manifest this
+    workspace never froze.
+    """
+    foreign = tmp_path / "foreign"
+    foreign.mkdir()
+    (foreign / "checkpoint.json").write_text(json.dumps({"manifest_sha256": "f" * 64}))
+    with pytest.raises(CoreError) as error:
+        revisions.record_revision(
+            workspace, "draft-test-spec-00", str(foreign), True, "x"
+        )
+    assert str(foreign) in str(error.value)
+    assert "f" * 64 not in workspace.revisions.read_text()
