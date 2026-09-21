@@ -269,8 +269,8 @@ def run_stages(
     for line in noted:
         report(f"note: config drift: {line}")
     if given.sessions is None and _positional(until):
-        # D16's rule in its second setting: a bound that cannot fire must be
-        # refused, not silently overrun. Only the sweep resolves a cluster or
+        # CLI-1 D16's rule in its second setting: a bound that cannot fire must
+        # be refused, not silently overrun. Only the sweep resolves a cluster or
         # an ordinal, and without sessions there is no sweep — so this bound
         # would let the walk run to the boundary and report success.
         raise LifecycleError(
@@ -286,13 +286,13 @@ def run_stages(
             f"a stage name: {', '.join(_walkable())}"
         )
     if given.sessions is None and retry is not None:
-        # D16's rule a third time. Only a sweep spends a cluster's attempts,
-        # so only a sweep can forgive them; without sessions this walks to the
-        # boundary, reports 0 and forgives nothing, and the operator meets the
-        # same halt again. Repr for the same reason as above: `run_stages` is
-        # reachable from `run` given any namespace, so the parser's
-        # printability refusal is not the only thing between this value and a
-        # line an operator copies.
+        # CLI-1 D16's rule a third time. Only a sweep spends a cluster's
+        # attempts, so only a sweep can forgive them; without sessions this
+        # walks to the boundary, reports 0 and forgives nothing, and the
+        # operator meets the same halt again. Repr for the same reason as
+        # above: `run_stages` is reachable from `run` given any namespace, so
+        # the parser's printability refusal is not the only thing between this
+        # value and a line an operator copies.
         raise LifecycleError(
             f"--retry {retry!r} forgives a cluster's already-spent attempts, "
             "and only a sweep spends them; this workspace's config declares "

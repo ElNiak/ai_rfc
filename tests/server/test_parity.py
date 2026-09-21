@@ -122,8 +122,8 @@ def test_every_tool_is_in_the_parity_table():
 
 
 #: The middle column's cell for a tool with no ``ai-rfc`` verb at all. Only
-#: ``ai_rfc_status`` has one (D16): the folded ``status`` got no verb, because
-#: ``ai-rfc status`` already means the operator's ledger.
+#: ``ai_rfc_status`` has one (CLI-3 D16): the folded ``status`` got no verb,
+#: because ``ai-rfc status`` already means the operator's ledger.
 MCP_ONLY = "— (MCP only)"
 
 #: A cell boundary in a GitHub-flavoured Markdown table. A ``|`` inside a cell
@@ -479,7 +479,7 @@ def _pin_the_register_clock(monkeypatch) -> None:
 
 
 def test_status_parity(make_workspace):
-    """The tool against ``queries.status``, not against an ``ai_rfc`` verb (D16).
+    """The tool against ``queries.status``, not an ``ai_rfc`` verb (CLI-3 D16).
 
     Shaped unlike its nine siblings on purpose, and not to be "fixed" into
     their shape. U3 gives the folded ``status`` no ``ai-rfc`` verb at all — the
@@ -872,7 +872,7 @@ def test_draft_build_parity(make_workspace, capsys, monkeypatch, tmp_path):
 #: ``_parity`` suffix, so any expression over ``dir()`` undercounts and would
 #: pin the wrong number. ``ai_rfc_status``'s twin compares the tool against
 #: ``queries.status`` rather than a CLI verb, because U3 gives the folded
-#: ``status`` no ``ai-rfc`` verb at all (D16).
+#: ``status`` no ``ai-rfc`` verb at all (CLI-3 D16).
 TWINS: dict[str, str] = {
     "ai_rfc_status": "test_status_parity",
     "ai_rfc_corpus_query": "test_corpus_query_parity",

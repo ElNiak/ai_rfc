@@ -283,6 +283,10 @@ _BOUNDABLE: frozenset[str] = frozenset({"run", "next"})
 #: re-issue one or the next step runs past the place the operator named.
 #:
 #: A line is still printed for these — only ``done`` is exempt from D59.
+#:
+#: The measurement two paragraphs up is the one spec D62 quotes in its
+#: parenthetical, so a reader who meets it in the spec can follow it back to
+#: this set, which is where the rule D62 states is enforced.
 _BOUND_SATISFIED: frozenset[StopReason] = frozenset({StopReason.bound_reached})
 
 #: The reasons that are not a failure. ``done`` is a finished reconstruction;

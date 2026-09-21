@@ -262,11 +262,11 @@ def test_a_cluster_or_ordinal_bound_is_handed_to_the_sweep(
 def test_a_cluster_bound_without_sessions_is_refused(initialised, capsys):
     """A bound nothing can honour must be refused, not silently overrun.
 
-    This is D16's rule in its second setting. ``--until forge`` was kept out
-    of the stage choices because the walk skips ``forge``, so the bound could
-    never fire; a cluster bound on a workspace with no ``sessions:`` block is
-    the same shape — only the sweep resolves cluster bounds, and without
-    sessions there is no sweep.
+    This is CLI-1 D16's rule in its second setting. ``--until forge`` was kept
+    out of the stage choices because the walk skips ``forge``, so the bound
+    could never fire; a cluster bound on a workspace with no ``sessions:``
+    block is the same shape — only the sweep resolves cluster bounds, and
+    without sessions there is no sweep.
     """
     config_path, root = initialised
 
@@ -486,7 +486,7 @@ def test_a_retry_that_could_forge_a_line_is_refused_by_the_parser(
 
 
 def test_a_retry_without_sessions_is_refused(initialised, capsys):
-    """D16's rule in its third setting: a flag that cannot fire is refused.
+    """CLI-1 D16's rule in its third setting: a flag that cannot fire is refused.
 
     Only the sweep forgives attempts, and only a configuration with sessions
     reaches the sweep. Left unrefused, ``run --retry c1`` on a hand-mined

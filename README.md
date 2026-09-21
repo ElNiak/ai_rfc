@@ -134,7 +134,7 @@ script over a second parser, holding the twenty workspace-level verbs. CLI-3
 folded those verbs into `ai-rfc` as grouped subcommands and retired the script,
 its campaign shim and both `prog="ai_rfc"` values (D56) — so the AI+CLI arm now
 types the same program a person does, and nineteen verbs answer twenty tools
-(`ai_rfc_status` got none, D16; `docs/parity.md` is the row-for-row table).
+(`ai_rfc_status` got none, CLI-3 D16; `docs/parity.md` is the row-for-row table).
 Exit codes are the same through every door: 0 clean; 1 the command could not
 complete — a refusal, a crash, an unreadable input, an unwritable `--out`, or a
 sweep that stopped with work outstanding; 2 a malformed invocation, which

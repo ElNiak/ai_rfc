@@ -43,7 +43,7 @@ prose: `test_the_parity_table_names_a_verb_the_parser_owns` walks
 `cli.build_parser()` and fails on any cell naming a verb the live parser does
 not own, which is what the column lacked while it drifted through the rename.
 
-**One row has no verb (D16).** `ai_rfc_status` stays an MCP tool and gains no
+**One row has no verb (CLI-3 D16).** `ai_rfc_status` stays an MCP tool and gains no
 `ai-rfc` verb, because `ai-rfc status` already means the operator's ledger and
 a folded read has no claim on a name that is taken. The `draft` verbs, by
 contrast, spell their **workspace** form above; naming a path selects the
@@ -58,7 +58,7 @@ unchanged `Bash(python -m ai_rfc*)` prefix. What D42 freezes is the documented
 tool and verb set, not the substrate the prefix reaches.
 
 Arms A and B share nineteen of the twenty operations above; the twentieth is
-D16's, and it is an **arm-surface change** rather than a documentation one.
+CLI-3 D16's, and it is an **arm-surface change** rather than a documentation one.
 Arm A has an `ai_rfc_status` tool and arm B has no verb for it, so the two
 surfaces are no longer the same size. The information is not withheld from arm
 B — it reads the same four artifacts with Read, and `ai-rfc status` prints the

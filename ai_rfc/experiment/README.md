@@ -86,7 +86,7 @@ three-class taxonomy they instantiate.
 
 **Twenty against nineteen.** CLI-3 folded arm B's verbs into the one door and
 gave one of them no name: `ai_rfc_status` stays an MCP tool with no `ai-rfc`
-verb, because `ai-rfc status` already means the operator's ledger (D16). So the
+verb, because `ai-rfc status` already means the operator's ledger (CLI-3 D16). So the
 two compared surfaces are no longer the same size. Arm B is not denied the
 information — it reads the same artifacts, and `ai-rfc status` prints the
 ledger over them — but the tool's composite costs it several calls instead of

@@ -30,7 +30,7 @@ the campaign shim, and regrouped its verbs under `ai-rfc` (`claim`, `cluster`,
 `question`, `gate`, …). `core/` and the `ai_rfc_*` MCP tool names were left
 exactly as they were: the tool names are identifiers, not a door. One verb did
 not survive the fold — `ai_rfc_status` has no `ai-rfc` verb at all, because
-`ai-rfc status` already means the operator's ledger (D16).
+`ai-rfc status` already means the operator's ledger (CLI-3 D16).
 
 ## Layout
 
