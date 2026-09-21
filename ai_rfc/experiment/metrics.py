@@ -49,6 +49,7 @@ DEFINITIONS = {
     "quality_build": "the draft at the run's highest-numbered tag, built with the campaign's frozen toolchain; null whenever no build report was produced, and build_status is what says which of those cases it was",
     "quality_build_status": "not requested when the analysis was not asked for a build, which is the default; no toolchain when it was and the campaign froze none; built when a build report was produced, whatever its exit code; failed when the build could not start, with build_error carrying the reason and the aggregate still reporting every other run (R31)",
     "quality_revisions_status": "read when the run's revisions.yaml loaded, missing when there is none, unreadable when it is there in a shape the loader refuses; on either of the last two the revisions list is empty because the map could not be enumerated and not because the run recorded none, and revisions_error says which it was",
+    "timeline_status": "read when the run's timeline/clusters.jsonl loaded, missing when the workspace has none, unreadable when a line will not parse or a row carries no ordinal; on either of the last two the run's cluster list is empty because the window could not be enumerated and not because the run was asked for nothing, window_size is 0, every fraction over it is 0.0, and timeline_error says which it was (R2-1)",
     "quality_unmeasured": "null in a lint row is never zero: the metrics a frozen manifest feeds are null whenever no manifest fed them, while the metrics the draft text alone shows stay real so long as draft_status is read; a row whose draft_status is unreadable has no text to measure and every metric in it is null; cited_fraction is the one metric that is also null on a row both statuses call read, when the manifest loaded and declares no claims, and there it is honest rather than unmeasured because a fraction over no claims is not a number",
 }
 
@@ -70,6 +71,46 @@ def window_clusters(workspace: Path) -> list[dict[str, Any]]:
     if bounds is None:
         return rows
     return [row for row in rows if bounds[0] <= row["ordinal"] <= bounds[1]]
+
+
+#: The run's timeline loaded and its window was enumerated.
+TIMELINE_READ = "read"
+#: The run has no ``timeline/clusters.jsonl`` at all.
+TIMELINE_MISSING = "missing"
+#: It is there in a shape the reader refuses — a line that will not parse, or
+#: a row carrying no ordinal, which is what a kill mid-append leaves.
+TIMELINE_UNREADABLE = "unreadable"
+
+
+def timeline_window(workspace: Path) -> tuple[list[dict[str, Any]], str, str | None]:
+    """The run's in-window cluster rows, and whether they could be read at all.
+
+    :func:`analyze_campaign` builds its result in one comprehension, so a
+    timeline that raised took the aggregate down for *every* run in the
+    campaign and not just its own — the same defect R31 fixed for the build,
+    one field along. A run that cannot say which clusters it was asked for is
+    a run with nothing to report, which is a statistic, not an error.
+
+    Absent and damaged are kept apart because they have different causes: a
+    workspace copied without its timeline is a preparation fault, while a
+    truncated line is what a kill mid-append leaves.
+
+    Args:
+        workspace: A run's final workspace.
+
+    Returns:
+        The rows, the status (one of :data:`TIMELINE_READ`,
+        :data:`TIMELINE_MISSING`, :data:`TIMELINE_UNREADABLE`) and the reason
+        it is not ``read``. The rows are empty on anything but ``read``,
+        because the window could not be enumerated — never because the run
+        had none.
+    """
+    try:
+        return window_clusters(workspace), TIMELINE_READ, None
+    except FileNotFoundError as error:
+        return [], TIMELINE_MISSING, str(error)
+    except (OSError, ValueError, KeyError, TypeError, ledger.LedgerError) as error:
+        return [], TIMELINE_UNREADABLE, f"{type(error).__name__}: {error}"
 
 
 def cluster_artifacts(workspace: Path, cluster: dict[str, Any]) -> dict[str, Any]:
@@ -298,7 +339,8 @@ def analyze_run(
         (run_dir / EVENTS_FILE).read_text(errors="replace")
     )
     final = json.loads((run_dir / RESULT_FILE).read_text()) or {}
-    clusters = [cluster_artifacts(workspace, row) for row in window_clusters(workspace)]
+    rows, timeline_status, timeline_error = timeline_window(workspace)
+    clusters = [cluster_artifacts(workspace, row) for row in rows]
     gates = run_gates(workspace, campaign)
     for cluster in clusters:
         cluster["completed"] = bool(cluster["artifacts"] and gates["clean"])
@@ -311,6 +353,10 @@ def analyze_run(
         "repeat": status.repeat,
         "status": asdict(status),
         "window_size": window_size,
+        # Whether the window below was enumerated at all. An empty `clusters`
+        # means "the run was asked for nothing" only when this says `read`.
+        "timeline_status": timeline_status,
+        "timeline_error": timeline_error,
         "clusters": clusters,
         "artifacts_fraction": (
             sum(1 for c in clusters if c["artifacts"]) / window_size
@@ -511,9 +557,14 @@ def analyze_campaign(campaign: Campaign, *, build: bool = False) -> dict[str, An
         if load_status(campaign.runs_dir / run_id) is not None
     }
     window_ids: list[str] = []
+    # The first run that could enumerate its window, not simply the first run:
+    # a run whose timeline was damaged reports no clusters, and taking it
+    # would score every arm's pass^k over an empty window because one run's
+    # file was truncated.
     for result in runs.values():
-        window_ids = [c["cluster_id"] for c in result["clusters"]]
-        break
+        if result["clusters"]:
+            window_ids = [c["cluster_id"] for c in result["clusters"]]
+            break
     arms = {
         arm: _arm_summary(
             [r for r in runs.values() if r["arm"] == arm], window_ids, campaign.repeats

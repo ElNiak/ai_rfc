@@ -747,3 +747,65 @@ def test_a_revision_naming_an_escaping_cluster_does_not_abort_the_aggregate(
     # contained rather than that nothing was measured.
     (intact,) = aggregate["runs"]["B1"]["quality"]["revisions"]
     assert intact["manifest_status"] == "read"
+
+
+def test_a_damaged_timeline_does_not_abort_the_campaigns_analysis(
+    campaign, write_scenario
+):
+    """R2-1, the same defect one field along from R31's.
+
+    ``window_clusters`` read ``timeline/clusters.jsonl`` with a bare
+    ``json.loads`` and a bare ``row["ordinal"]``, and ``analyze_run`` called
+    it with no guard. Every run is analyzed inside one comprehension, so a
+    truncated or absent timeline in one of them took the whole aggregate down:
+    ``aggregate.json`` was never written and no run's analysis survived, not
+    even the runs whose timelines were intact.
+
+    ``A1``'s timeline is truncated mid-line after the run, so the failure is
+    the one a kill really leaves. ``B1`` is untouched, which is the half that
+    says the damage was contained rather than that nothing was analyzed.
+    """
+    _run(
+        campaign,
+        write_scenario,
+        {
+            "A1": {"arm": "A", "cost": 1.0, "steps": COMPLETE_STEPS},
+            "B1": {"arm": "B", "cost": 1.0, "steps": COMPLETE_STEPS},
+        },
+    )
+    timeline = campaign.runs_dir / "A1" / "workspace" / "timeline" / "clusters.jsonl"
+    timeline.write_text(timeline.read_text()[:40])
+
+    aggregate = analyze_campaign(campaign)
+
+    assert (campaign.analysis_dir / "aggregate.json").is_file()
+    damaged = aggregate["runs"]["A1"]
+    assert damaged["timeline_status"] == "unreadable"
+    assert damaged["timeline_error"]
+    assert damaged["clusters"] == [] and damaged["window_size"] == 0
+    assert damaged["completed_fraction"] == 0.0 and damaged["claims"] == {}
+    # The intact run kept its whole analysis, and the window every arm's
+    # pass^k is computed over is read off it rather than off the damaged run
+    # that happens to sort first.
+    intact = aggregate["runs"]["B1"]
+    assert intact["timeline_status"] == "read" and intact["timeline_error"] is None
+    assert intact["clusters"] and intact["window_size"] == len(intact["clusters"])
+    assert set(aggregate["arms"]["B"]["pass_k"]) == {
+        cluster["cluster_id"] for cluster in intact["clusters"]
+    }
+
+
+def test_a_run_with_no_timeline_at_all_is_reported_as_missing(campaign, write_scenario):
+    """Absent and damaged are different causes and must not read the same."""
+    _run(
+        campaign,
+        write_scenario,
+        {"A1": {"arm": "A", "cost": 1.0, "steps": COMPLETE_STEPS}},
+    )
+    (campaign.runs_dir / "A1" / "workspace" / "timeline" / "clusters.jsonl").unlink()
+
+    analysis = analyze_run(campaign, "A1")
+
+    assert analysis["timeline_status"] == "missing"
+    assert analysis["timeline_error"]
+    assert analysis["clusters"] == []
