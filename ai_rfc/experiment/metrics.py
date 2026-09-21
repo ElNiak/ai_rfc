@@ -17,8 +17,8 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
+from ai_rfc.driver import coverage
 from ai_rfc.driver.arms import arm_profile
-from ai_rfc.driver.enforcement import bash_prefixes
 from ai_rfc.driver.session import EVENTS_FILE
 from ai_rfc.driver.stream import (
     ai_rfc_connected,
@@ -51,10 +51,6 @@ DEFINITIONS = {
     "quality_revisions_status": "read when the run's revisions.yaml loaded, missing when there is none, unreadable when it is there in a shape the loader refuses; on either of the last two the revisions list is empty because the map could not be enumerated and not because the run recorded none, and revisions_error says which it was",
     "quality_unmeasured": "null in a lint row is never zero: the metrics a frozen manifest feeds are null whenever no manifest fed them, while the metrics the draft text alone shows stay real so long as draft_status is read; a row whose draft_status is unreadable has no text to measure and every metric in it is null; cited_fraction is the one metric that is also null on a row both statuses call read, when the manifest loaded and declares no claims, and there it is honest rather than unmeasured because a fraction over no claims is not a number",
 }
-#: Arm B's command prefixes, from the one declaration in :mod:`driver.arms`.
-#: The trajectory is the third reader of it: a literal here that fell behind
-#: the guard would drop every point from arm B's curve rather than error.
-ARM_B_PREFIXES = bash_prefixes(arm_profile("B"))
 
 
 def window_clusters(workspace: Path) -> list[dict[str, Any]]:
@@ -169,52 +165,33 @@ def claim_stats(
     }
 
 
-def _cluster_of_call(arm: str, name: str, tool_input: dict[str, Any]) -> str | None:
-    command = str(tool_input.get("command", "")).strip()
-    if arm == "A" and name == "mcp__ai_rfc__ai_rfc_checkpoint":
-        return str(tool_input.get("cluster_id") or "")
-    if (
-        arm == "B"
-        and name == "Bash"
-        and any(command.startswith(f"{prefix}checkpoint") for prefix in ARM_B_PREFIXES)
-    ):
-        parts = command.split()
-        return parts[2] if len(parts) > 2 else ""
-    if (
-        arm == "C"
-        and name == "Bash"
-        # Both invocation forms name the same call: the module form
-        # (``ai_rfc.draft checkpoint``, still a valid direct invocation) and
-        # the dispatcher form (``ai_rfc draft checkpoint``) the regenerated
-        # arm-C prompt now instructs.
-        and (".draft checkpoint" in command or " draft checkpoint" in command)
-        and "--cluster" in command
-    ):
-        parts = command.split()
-        return (
-            parts[parts.index("--cluster") + 1]
-            if parts.index("--cluster") + 1 < len(parts)
-            else ""
-        )
-    return None
-
-
 def checkpoint_calls(events: list[dict[str, Any]], arm: str) -> list[dict[str, Any]]:
-    """Every checkpoint call in the transcript, with the cluster it named.
+    """Every checkpoint call of one arm in the transcript, in stream order.
+
+    The three write shapes are read by
+    :func:`ai_rfc.driver.coverage.checkpoint_calls`, which is where they were
+    promoted to: the coverage predicate needs the same shapes, and the copy
+    that lived here was arm-gated, dropped the ``tool_use`` id its result has
+    to be joined on, and had no shape check — so ``arfc checkpoint --help``,
+    a call the archive really holds, read as a cluster id. The promoted reader
+    also knows the pre-rename spellings, which this one did not.
+
+    The arm filter stays because the trajectory is a *per-arm* curve: a run is
+    one arm, and a point plotted from a shape the run's arm cannot reach would
+    be a point the arm did not produce.
 
     Args:
         events: The parsed transcript.
         arm: The arm the run was launched as.
 
     Returns:
-        One record per checkpoint call, in stream order.
+        One ``{index, cluster_id}`` record per checkpoint call of that arm.
     """
-    calls = []
-    for use in tool_uses(events):
-        cluster = _cluster_of_call(arm, use["name"], use["input"])
-        if cluster:
-            calls.append({"index": use["index"], "cluster_id": cluster})
-    return calls
+    return [
+        {"index": call["index"], "cluster_id": call["cluster_id"]}
+        for call in coverage.checkpoint_calls(events)
+        if call["arm"] == arm
+    ]
 
 
 def trajectory(

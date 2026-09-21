@@ -18,7 +18,9 @@ from pathlib import Path
 from typing import Any
 
 from ai_rfc.driver.arms import RAW_PREFIX, arm_profile
+from ai_rfc.driver.coverage import Route, covers, read_transcript, receipts
 from ai_rfc.driver.enforcement import FILTERS, bash_prefixes, command_groups, is_allowed
+from ai_rfc.driver.record import rows as session_rows_of
 from ai_rfc.driver.session import EVENTS_FILE, GUARD_FILE
 from ai_rfc.driver.stream import (
     is_denial,
@@ -406,6 +408,94 @@ def audit_events(
     }
 
 
+#: The campaign's own ``sessions.jsonl``, beside the transcript rather than
+#: under ``runs/`` — per-cluster mode writes it, single-session mode does not.
+SESSIONS_FILE = "sessions.jsonl"
+
+
+def run_coverage(campaign: Campaign, run_id: str) -> dict[str, Any]:
+    """What says each of one run's checkpoints was produced, not fabricated.
+
+    The predicate is :func:`ai_rfc.driver.coverage.covers`; this is the
+    campaign half of the caller it takes its candidates from. ``verify``
+    cannot be that caller here: in the campaign layout the transcript is a
+    **sibling** of the workspace (``runs/<id>/events.jsonl`` beside
+    ``runs/<id>/workspace/``), and ``verify`` derives one workspace from a
+    config and never looks above it.
+
+    **Candidates are every run directory of this campaign**, this run and the
+    moved-aside leftovers with it, because attestation crosses siblings.
+    Measured on ``mark-dry-49-51``: the ``c0049`` checkpoint on disk in
+    ``A1.interrupted-detached`` is named by a receipt in the sibling
+    ``A1.interrupted-shell-exit``'s transcript and by none of its own, and
+    every receipt in that campaign names ``runs/A1/workspace/checkpoints/…``,
+    the directory name that existed before
+    :func:`ai_rfc.driver.record.move_aside` renamed the run. A run-local
+    reader, or one joining on the absolute path, calls that checkpoint
+    unattested — which reads as tampering when it is nothing of the sort.
+
+    Session rows are read from **this run only**: a row proves a session of
+    that run was launched for a cluster, which says nothing about a sibling's
+    directory. A receipt names a path and is therefore the one route that may
+    cross.
+
+    Args:
+        campaign: The frozen campaign.
+        run_id: The run whose checkpoints are being adjudicated.
+
+    Returns:
+        ``checkpoints`` mapping each cluster id to its ``route`` and the run
+        whose record carried it, ``unverified`` listing the cluster ids no
+        route covered, and ``unreadable`` naming every candidate transcript
+        that could not be adjudicated. An unreadable candidate is neither a
+        finding nor an error.
+    """
+    run_dir = campaign.runs_dir / run_id
+    rows = session_rows_of(run_dir / SESSIONS_FILE)
+    parsed: list[list[dict[str, Any]]] = []
+    unreadable: list[str] = []
+    source_of: dict[str, str] = {}
+    siblings = (
+        sorted(child for child in campaign.runs_dir.iterdir() if child.is_dir())
+        if campaign.runs_dir.is_dir()
+        else []
+    )
+    for sibling in siblings:
+        transcript = sibling / EVENTS_FILE
+        if not transcript.is_file():
+            continue
+        events, damage = read_transcript(transcript)
+        if damage is not None:
+            unreadable.append(damage)
+            continue
+        parsed.append(events)
+        for cluster_id, _digest in receipts(events):
+            source_of.setdefault(cluster_id, sibling.name)
+    routes = covers(
+        run_dir / "workspace" / "checkpoints",
+        session_rows=rows,
+        transcripts=parsed,
+    )
+    checkpoints = {
+        cluster_id: {
+            "route": route.value if route is not None else None,
+            "source": (
+                source_of.get(cluster_id)
+                if route is Route.receipt
+                else run_id if route is Route.session else None
+            ),
+        }
+        for cluster_id, route in routes.items()
+    }
+    return {
+        "checkpoints": checkpoints,
+        "unverified": [
+            cluster_id for cluster_id, route in routes.items() if route is None
+        ],
+        "unreadable": unreadable,
+    }
+
+
 def audit_run(campaign: Campaign, run_id: str) -> dict[str, Any]:
     """Audit one run from its transcript and write ``audit/<run_id>.json``.
 
@@ -434,6 +524,10 @@ def audit_run(campaign: Campaign, run_id: str) -> dict[str, Any]:
         "run_id": run_id,
         **audit_events(events, status.arm, run_dir / "workspace"),
         "guard": guard_stats(events, status.arm, status.guard_sha256, mounted),
+        # What says each checkpoint was produced. Recorded beside integrity
+        # rather than folded into it: an unverified checkpoint is missing
+        # provenance, never evidence of an out-of-arm call.
+        "coverage": run_coverage(campaign, run_id),
     }
     campaign.audit_dir.mkdir(exist_ok=True)
     (campaign.audit_dir / f"{run_id}.json").write_text(

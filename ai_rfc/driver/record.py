@@ -382,8 +382,13 @@ def spent(workspace: Path) -> float:
     return total
 
 
-def _rows(path: Path) -> list[dict[str, Any]]:
+def rows(path: Path) -> list[dict[str, Any]]:
     """The session rows of one run, skipping any line that cannot be read.
+
+    Public because a campaign run keeps its ``sessions.jsonl`` beside the
+    transcript rather than under ``runs/``, so the campaign audit reads one
+    file directly; the salvage rule below is declared here and must not be
+    restated there.
 
     Args:
         path: The ``sessions.jsonl`` to read.
@@ -395,7 +400,7 @@ def _rows(path: Path) -> list[dict[str, Any]]:
         text = path.read_text(errors="replace")
     except OSError:
         return []
-    rows: list[dict[str, Any]] = []
+    parsed: list[dict[str, Any]] = []
     for line in text.splitlines():
         if not line.strip():
             continue
@@ -406,8 +411,8 @@ def _rows(path: Path) -> list[dict[str, Any]]:
             # transcript line. The rows written before it are still the record.
             continue
         if isinstance(row, dict):
-            rows.append(row)
-    return rows
+            parsed.append(row)
+    return parsed
 
 
 def session_rows(workspace: Path) -> list[dict[str, Any]]:
@@ -416,7 +421,7 @@ def session_rows(workspace: Path) -> list[dict[str, Any]]:
     Moved-aside runs are included for the reason :func:`spent` gives: what an
     interruption left is evidence, and a row written before the kill still says
     which cluster its session was launched for. Unreadable lines are skipped
-    rather than fatal, by :func:`_rows`' rule.
+    rather than fatal, by :func:`rows`' rule.
 
     Args:
         workspace: The workspace root.
@@ -425,9 +430,7 @@ def session_rows(workspace: Path) -> list[dict[str, Any]]:
         The rows, oldest run first; empty when the workspace has never run.
     """
     return [
-        row
-        for run_dir in _run_dirs(workspace)
-        for row in _rows(run_dir / SESSIONS_FILE)
+        row for run_dir in _run_dirs(workspace) for row in rows(run_dir / SESSIONS_FILE)
     ]
 
 
@@ -525,7 +528,7 @@ def attempts(workspace: Path, cluster_id: str) -> int:
     return sum(
         1
         for run_dir in _run_dirs(workspace)
-        for row in _rows(run_dir / SESSIONS_FILE)
+        for row in rows(run_dir / SESSIONS_FILE)
         if row.get("cluster_id") == cluster_id and _consumed(row)
     )
 
