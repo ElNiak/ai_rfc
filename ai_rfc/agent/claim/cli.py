@@ -56,8 +56,9 @@ def configure(parser: argparse.ArgumentParser) -> None:
         help=(
             "Anchor as JSON, e.g. "
             '\'{"evidence_class": "code", "locator": "src/a.py", '
-            '"commit": "<sha>", "line": 42}\'; repeatable, replaces the '
-            "claim's anchors when given."
+            '"commit": "<sha>", "line": 42}\' or a decision record, '
+            '\'{"evidence_class": "adr", "locator": "<sha>"}\'; repeatable, '
+            "replaces the claim's anchors when given."
         ),
     )
 

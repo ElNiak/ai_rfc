@@ -298,11 +298,18 @@ SLOT_TABLES: dict[str, dict[str, str]] = {
             "--patch-limit N` to page through long diffs)"
         ),
         "corpus_query": f'`ai-rfc corpus query "{_CHURN_SQL}"`',
+        # Both anchor shapes, spelled out: a session copies the anchor it is
+        # shown, and a claim with one evidence class stays `inferred`. Showing
+        # only the code shape is why arm B reached no `confirmed` claim at all
+        # in the 2026-08-31 pilot while arms A and C, shown no literal anchor
+        # to copy, reached about nine in ten.
         "claim_upsert": (
             "`ai-rfc claim upsert <id> --text … --section … --level … --layer … "
             '[--field intent=…] [--anchor \'{"evidence_class": "code", '
-            '"locator": "…", "commit": "<sha>", "line": N}\']` (repeat '
-            "`--anchor`; the verb refuses `status`)"
+            '"locator": "<path>", "commit": "<sha>", "line": N}\'] '
+            '[--anchor \'{"evidence_class": "adr", '
+            '"locator": "<decision commit sha>"}\']` (repeat `--anchor`, one '
+            "per anchor; the verb refuses `status`)"
         ),
         "lint": "`ai-rfc gate` (the linter; fix every entry under `unverified_anchors`)",
         "record_status": (

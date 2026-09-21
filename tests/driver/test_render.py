@@ -362,3 +362,35 @@ def test_the_loop_tells_a_cluster_to_register_a_structure_it_defines():
         text = render_loop(arm)
         assert "3b" in text
         assert "structure" in text.lower()
+
+
+def test_an_arm_shown_a_literal_anchor_is_shown_an_adr_one():
+    """A slot that spells out a code anchor must spell out an adr one beside it.
+
+    A claim reaches ``confirmed`` only through two evidence classes, one of
+    them primary (``promotion.adjudicate``), and a session copies the anchor it
+    is shown. In the 2026-08-31 aioquic pilot, arm B's slot showed one literal
+    anchor with ``"evidence_class": "code"`` and nothing else: its sessions
+    wrote 106 anchors, every one ``code``, and all 83 of its claims stayed
+    ``inferred`` while arms A and C reached about nine in ten ``confirmed``.
+    An open schema or a hand-edited manifest shows no literal and constrains no
+    class, so only the slots that spell anchors out are held to this.
+    """
+    examples = {
+        arm: re.findall(r"'(\{[^']*\})'", table["claim_upsert"])
+        for arm, table in SLOT_TABLES.items()
+    }
+    # Guards the loop below against passing because it found nothing to check.
+    assert examples["B"], "arm B spells its anchors out; this test must see them"
+    for arm, shown in examples.items():
+        if not shown:
+            continue
+        by_class = {}
+        for example in shown:
+            found = re.search(r'"evidence_class": "(\w+)"', example)
+            assert found, (arm, example)
+            by_class[found.group(1)] = example
+        assert {"code", "adr"} <= set(by_class), arm
+        # An adr anchor is located by the decision commit's sha itself; it
+        # carries no separate `commit`, which is what makes it a different shape.
+        assert '"commit"' not in by_class["adr"], arm

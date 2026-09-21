@@ -282,3 +282,18 @@ def test_every_argument_documents_itself():
     a claim waiting to be paid.
     """
     assert _undocumented(cli.build_parser(), "ai-rfc") == []
+
+
+def test_the_anchor_help_shows_an_adr_anchor_beside_the_code_one(capsys):
+    """``--anchor`` is where an operator or an arm-B session learns the shape.
+
+    Showing only a ``code`` example teaches that ``code`` is the only class, and
+    a claim with one evidence class is capped at ``inferred``. argparse wraps
+    help text wherever it likes, so the text is compared with its whitespace
+    collapsed rather than line by line.
+    """
+    with pytest.raises(SystemExit):
+        cli.main(["claim", "upsert", "--help"])
+    help_text = " ".join(capsys.readouterr().out.split())
+    assert '"evidence_class": "code"' in help_text
+    assert '"evidence_class": "adr"' in help_text
