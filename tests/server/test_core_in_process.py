@@ -409,7 +409,7 @@ def test_a_stale_build_report_is_not_read_after_a_refusal(
 
 @pytest.mark.parametrize("escape", ["../../etc", "/etc"])
 def test_a_cluster_id_that_would_leave_the_checkpoint_root_freezes_nothing(
-    workspace, escape, tmp_path
+    workspace, escape
 ):
     """Row #28's join is inert, and this is the evidence the decline rests on.
 
@@ -421,8 +421,12 @@ def test_a_cluster_id_that_would_leave_the_checkpoint_root_freezes_nothing(
     of this verb; guarding the join would convert that report into a refusal
     and change what every MCP caller sees.
     """
+    escaped = workspace.workspace / "checkpoints" / escape
     result = write_checkpoint(workspace, escape)
     assert result["exit_code"] == 1
     assert escape in result["stderr"][0]
     assert "manifest_sha256" not in result
-    assert not (tmp_path / "etc").exists()
+    # The escaped path itself, not a path only the climbing case could reach:
+    # `<ws>/checkpoints` joined with `/etc` is `/etc`, which exists and which
+    # `tmp_path / "etc"` is not, so that case asserted nothing.
+    assert not (escaped / "checkpoint.json").exists()

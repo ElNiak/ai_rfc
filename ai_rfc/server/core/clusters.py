@@ -36,6 +36,14 @@ def known_cluster_ids(workspace: Path) -> frozenset[str]:
     workspace whole, so a legitimate id can sit below the window's first
     ordinal.
 
+    Three ways the set cannot be produced, and one error type for all of them:
+    the file is not there or will not open, a line will not parse, or a line
+    parses and carries no ``id``/``ordinal``. The last two are the shapes a
+    kill mid-write and a hand-edit leave — ``clusters.jsonl`` is written a
+    record per line — and neither is an :exc:`OSError`, so catching that alone
+    let the guard's own failure path fail in a type the frontends document
+    nothing about.
+
     Args:
         workspace: The workspace root.
 
@@ -43,15 +51,22 @@ def known_cluster_ids(workspace: Path) -> frozenset[str]:
         The ids, as a set.
 
     Raises:
-        CoreError: If the timeline has not been written, or cannot be read.
+        CoreError: If the timeline has not been written, or cannot be read as
+            the record-per-line document it is.
     """
     timeline = workspace / "timeline"
+    rows = timeline / "clusters.jsonl"
     try:
         return frozenset(_cluster_ordinals(timeline))
     except OSError as error:
         raise CoreError(
-            f"no timeline to check a cluster id against at {timeline}: {error}; "
+            f"no timeline to check a cluster id against at {rows}: {error}; "
             "run the timeline stage before naming a cluster"
+        ) from None
+    except (ValueError, KeyError) as error:
+        raise CoreError(
+            f"{rows} is not a cluster record per line ({error!r}); a cluster "
+            "id cannot be checked against a timeline that does not read"
         ) from None
 
 

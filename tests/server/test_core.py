@@ -293,7 +293,11 @@ def test_a_transcript_climbing_out_of_the_interviews_directory_is_refused(
             "../../outside.md",
             "yes it is deliberate",
         )
-    assert "interviews" in str(error.value)
+    message = str(error.value)
+    # "interviews" alone is satisfied by the pre-existing "does not exist"
+    # refusal below the guard, whose path holds the directory name too.
+    assert "resolves outside" in message
+    assert repr("../../outside.md") in message
 
 
 def test_a_transcript_symlinked_out_of_the_interviews_directory_is_refused(
@@ -318,4 +322,28 @@ def test_a_transcript_symlinked_out_of_the_interviews_directory_is_refused(
             "int-009.md",
             "yes it is deliberate",
         )
-    assert "interviews" in str(error.value)
+    message = str(error.value)
+    assert "resolves outside" in message
+    assert repr("int-009.md") in message
+
+
+@pytest.mark.parametrize(
+    "damage",
+    ['{"id": "c0001-x", "ordi', '{"id": "c0001-x"}', ""],
+    ids=["truncated", "no-ordinal", "blank-line"],
+)
+def test_a_damaged_timeline_is_refused_with_the_readers_own_error(workspace, damage):
+    """The guard's own failure path must not fail in a type nobody catches.
+
+    The membership check reads ``timeline/clusters.jsonl``, which is written a
+    line at a time: a run killed mid-write leaves a truncated last line, and a
+    hand-edited one can lose a key. Neither is a ``CoreError`` by nature —
+    ``json`` raises one exception and a missing key another — so both are
+    wrapped here, or the refusal arrives as a type the frontends document
+    nothing about.
+    """
+    rows = workspace.workspace / "timeline" / "clusters.jsonl"
+    rows.write_text(rows.read_text() + damage + "\n")
+    with pytest.raises(CoreError) as error:
+        cluster_get(workspace, "c0001-x")
+    assert str(rows) in str(error.value)
