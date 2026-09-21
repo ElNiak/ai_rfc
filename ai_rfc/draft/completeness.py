@@ -249,7 +249,11 @@ def build(
         draft_repo: The nested prose-draft git repository.
 
     Returns:
-        The assembled report.
+        The assembled report. Its cluster figures — ``unprocessed_clusters``,
+        ``silent_clusters`` and the ``clusters_*`` totals — cover the clusters
+        this run was asked to produce, which is the recorded window less any
+        pre-seeded baseline; ``clusters`` still carries one row per timeline
+        cluster.
 
     Raises:
         CompletenessError: If any input is absent or malformed.
@@ -274,16 +278,27 @@ def build(
         states = ledger.clusters(checkpoints_dir.parent)
     except ledger.LedgerError as error:
         raise CompletenessError(str(error)) from error
-    processed = sum(1 for row in rows if row.checkpointed)
+    # Every cluster figure below is measured over what this run was asked to
+    # produce, which is the ledger's own reducer and not the timeline's length:
+    # counting every row read a finished narrowed window as half done, and a
+    # baseline's pre-seeded checkpoint — frozen from the same manifest as its
+    # predecessor, so it changes no claim by construction — as a cluster this
+    # run visited and left silent.
+    scoped = ledger.this_runs_work(states)
+    scoped_ids = frozenset(state.id for state in scoped)
+    processed = sum(1 for state in scoped if state.checkpoint)
     return CompletenessReport(
         clusters=rows,
         unprocessed_clusters=tuple(
-            state.id for state in states if not state.checkpoint
+            state.id for state in scoped if not state.checkpoint
         ),
         silent_clusters=tuple(
             row.cluster_id
             for row in rows
-            if row.checkpointed and not row.new_claim_ids and not row.manifest_changed
+            if row.cluster_id in scoped_ids
+            and row.checkpointed
+            and not row.new_claim_ids
+            and not row.manifest_changed
         ),
         uncited_at_head=uncited_at_head,
         never_cited=never_cited,
@@ -291,8 +306,8 @@ def build(
         totals={
             "checkpointed_claims": len(checkpointed),
             "clusters_processed": processed,
-            "clusters_total": len(rows),
-            "processed_fraction": round(processed / len(rows), 4) if rows else 0.0,
+            "clusters_total": len(scoped),
+            "processed_fraction": round(processed / len(scoped), 4) if scoped else 0.0,
             "uncited_at_head": len(uncited_at_head),
         },
     )

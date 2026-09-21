@@ -268,6 +268,25 @@ def next_cluster(
     return None
 
 
+def this_runs_work(states: tuple[ClusterState, ...]) -> tuple[ClusterState, ...]:
+    """The clusters a run's own figures are measured over.
+
+    One home for the predicate every surface needs before it counts anything.
+    A cluster outside the window was never this run's to produce, and a
+    pre-seeded one is a baseline's work, so a figure that includes either
+    reports progress this run did not make — or measures it against a
+    denominator it was never asked to fill. Public because the readers that
+    once recomputed it raw are the defect this replaces.
+
+    Args:
+        states: The states from :func:`clusters`.
+
+    Returns:
+        The subset in ordinal order, empty when nothing is this run's work.
+    """
+    return tuple(s for s in states if s.in_window and not s.pre_seeded)
+
+
 def counts(states: tuple[ClusterState, ...]) -> dict[str, int]:
     """Totals a status line prints.
 
@@ -282,7 +301,7 @@ def counts(states: tuple[ClusterState, ...]) -> dict[str, int]:
         ``total``, ``in_window``, ``done``, ``partial``, ``outstanding`` and
         ``pre_seeded``.
     """
-    in_window = [s for s in states if s.in_window and not s.pre_seeded]
+    in_window = this_runs_work(states)
     return {
         "total": len(states),
         "in_window": len(in_window),

@@ -88,6 +88,62 @@ def _finish(root: Path, cluster_id: str, tag: str) -> None:
     _revision(root, tag, cluster_id, sha=sha)
 
 
+def _preseed(root: Path, cluster_id: str, ordinal: int) -> None:
+    """Freeze one cluster the way the harness seeds a baseline's work.
+
+    The shape ``experiment.workspace.preseed`` writes, reproduced rather than
+    imported: the workspace manifest checkpointed against the cluster, plus the
+    marker naming it as work done before this run began.
+    """
+    directory = write_checkpoint(
+        root / "manifest.yaml", root / "timeline", cluster_id, root / "checkpoints"
+    )
+    (directory / "harness.json").write_text(
+        json.dumps(
+            {"pre_seeded": True, "reason": "outside window", "ordinal": ordinal},
+            sort_keys=True,
+        )
+        + "\n"
+    )
+
+
+def _cite_every_claim(root: Path) -> None:
+    """Commit a draft revision that cites both of the fixture's claims.
+
+    ``completeness`` reports every frozen claim no revision cites, and the
+    fixture's prose cites only the first of the manifest's two. A case about the
+    window must not be graded on that unrelated gap, so the prose cites both
+    before any checkpoint is tagged.
+    """
+    (root / "draft" / "draft-test-spec.md").write_text(
+        "# Spec\n\nThing one MUST hold. `ai_rfc:t:1.1`\n\n"
+        "Thing two SHOULD hold. `ai_rfc:t:2.1`\n"
+    )
+    git(root / "draft", "add", "draft-test-spec.md")
+    git(root / "draft", "commit", "-m", "cite every claim", date=DATE)
+
+
+def _completeness(root: Path):
+    """The completeness report ``verify`` freezes, built off ``root``."""
+    from ai_rfc.draft import completeness
+
+    return completeness.build(
+        root / "timeline",
+        root / "checkpoints",
+        root / "manifest.yaml",
+        root / "revisions.yaml",
+        root / "draft",
+    )
+
+
+def _checkpoint_stage(root: Path):
+    """The pipeline's ``checkpoint`` stage, read off ``root``."""
+    from ai_rfc.pipeline.state import state
+    from ai_rfc.pipeline.workspace import Workspace
+
+    return {entry.stage.name: entry for entry in state(Workspace(root))}["checkpoint"]
+
+
 def test_a_fresh_workspace_is_all_outstanding(ws):
     states = clusters(ws)
     assert [s.ordinal for s in states] == [1, 2]
@@ -278,6 +334,96 @@ def test_the_five_old_readers_agree_with_the_ledger(ws, monkeypatch):
     assert _completeness().unprocessed_clusters == ()
     assert _stage().state is State.DONE
     assert "2 of 2" in _stage().reason
+
+
+def test_a_narrowed_window_that_finished_its_cluster_is_done_everywhere(ws, capsys):
+    """A window of one, finished, must read as finished on every surface.
+
+    The fixture the case above uses writes ``{"window": [1, 2]}`` over two
+    clusters, so the window covers everything and a reader that ignores it
+    coincides with one that honours it. Narrowed to the first cluster alone,
+    the two part: a reader counting every timeline row calls a finished
+    reconstruction "1 of 2" and names the second cluster unprocessed, and
+    ``verify --strict`` then reports a completeness finding for work this run
+    was never asked to do.
+
+    The exit code of ``verify`` itself is not the assertion: this fixture's
+    draft is not an Internet-Draft skeleton, so ``lint`` reports findings here
+    whatever the window does. What the window decides is the ``completeness``
+    line, and the ids the frozen report carries.
+    """
+    from ai_rfc import cli
+    from ai_rfc.pipeline.state import State
+
+    first, second = _ids(ws)
+    _cite_every_claim(ws)
+    _finish(ws, first, "draft-test-spec-01")
+    (ws / "init.json").write_text(json.dumps({"window": [1, 1]}))
+
+    states = clusters(ws)
+    assert [s.in_window for s in states] == [True, False]
+    assert counts(states) == {
+        "total": 2,
+        "in_window": 1,
+        "done": 1,
+        "partial": 0,
+        "outstanding": 0,
+        "pre_seeded": 0,
+    }
+
+    stage = _checkpoint_stage(ws)
+    assert stage.state is State.DONE and "1 of 1" in stage.reason
+    report = _completeness(ws)
+    assert report.unprocessed_clusters == ()
+    assert report.totals["clusters_total"] == 1
+    assert report.totals["clusters_processed"] == 1
+    assert report.totals["processed_fraction"] == 1.0
+    assert second not in report.unprocessed_clusters
+
+    capsys.readouterr()
+    cli.main(["verify", "--config", str(ws / "recon.yaml"), "--strict"])
+    assert "completeness: ok" in capsys.readouterr().err
+    frozen = json.loads((ws / "out" / "completeness.json").read_text())
+    assert frozen["unprocessed_clusters"] == []
+    assert frozen["totals"]["clusters_total"] == 1
+
+
+def test_a_pre_seeded_cluster_is_not_counted_as_this_runs_work(ws, capsys):
+    """A baseline's cluster is nobody's outstanding work, on every surface.
+
+    The window is the whole timeline here; what takes the second cluster out of
+    this run's figures is the harness's own marker beside its checkpoint. A
+    reader that counts checkpoint records alone credits the run with work the
+    baseline did, and one that counts timeline rows alone measures it against a
+    denominator that includes them.
+    """
+    from ai_rfc import cli
+    from ai_rfc.pipeline.state import State
+
+    first, second = _ids(ws)
+    _cite_every_claim(ws)
+    _finish(ws, first, "draft-test-spec-01")
+    _preseed(ws, second, ordinal=2)
+
+    states = clusters(ws)
+    assert [s.pre_seeded for s in states] == [False, True]
+    assert counts(states)["in_window"] == 1 and counts(states)["pre_seeded"] == 1
+
+    stage = _checkpoint_stage(ws)
+    assert stage.state is State.DONE and "1 of 1" in stage.reason
+    report = _completeness(ws)
+    assert report.unprocessed_clusters == ()
+    assert report.totals["clusters_total"] == 1
+    assert report.totals["clusters_processed"] == 1
+    assert report.totals["processed_fraction"] == 1.0
+    assert second not in report.silent_clusters
+
+    capsys.readouterr()
+    cli.main(["verify", "--config", str(ws / "recon.yaml"), "--strict"])
+    assert "completeness: ok" in capsys.readouterr().err
+    frozen = json.loads((ws / "out" / "completeness.json").read_text())
+    assert frozen["unprocessed_clusters"] == []
+    assert frozen["totals"]["clusters_total"] == 1
 
 
 @pytest.mark.skipif(not MARK.is_dir(), reason="the sealed MARK A1 copy is not here")

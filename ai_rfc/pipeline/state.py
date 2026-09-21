@@ -224,8 +224,12 @@ def _checkpoint(ws: Workspace, mining: State) -> tuple[State, str]:
     #
     # A directory alone is also not a checkpoint: ``write_checkpoint`` creates
     # it before writing the record, so a kill between the two leaves one that
-    # holds nothing. Requiring the record matches what ``draft/completeness``
-    # and the harness's own metrics already count, so the three agree.
+    # holds nothing. Requiring the record is what ``draft/completeness``
+    # requires too, and both grade it over the clusters this run was asked to
+    # produce — `ledger.this_runs_work`, the reducer `ledger.counts` uses —
+    # rather than over every timeline row: counting rows reported a finished
+    # narrowed window as half done, and credited this run with a baseline's
+    # pre-seeded checkpoints.
     # Graded like `_mining`'s unloadable manifest, and for the same reason: a
     # state reader is asked exactly when a workspace is half-written, so an
     # artifact it cannot read is a stage to re-run rather than an exception
@@ -236,8 +240,15 @@ def _checkpoint(ws: Workspace, mining: State) -> tuple[State, str]:
         states = ledger.clusters(ws.root)
     except ledger.LedgerError as error:
         return State.STALE, f"the ledger does not load: {error}"
-    total = len(states)
-    frozen = sum(1 for state in states if state.checkpoint)
+    scoped = ledger.this_runs_work(states)
+    if not scoped:
+        # A window entirely pre-seeded, or a workspace whose window names no
+        # cluster at all: there is nothing here for this run to freeze, which
+        # is finished rather than pending — PENDING would offer a stage that
+        # has no work to do.
+        return State.DONE, "no cluster in this run's window to checkpoint"
+    total = len(scoped)
+    frozen = sum(1 for state in scoped if state.checkpoint)
     if not frozen:
         return State.PENDING, f"no cluster checkpointed of {total}"
     if frozen < total:
