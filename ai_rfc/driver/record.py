@@ -449,7 +449,9 @@ def attempts(workspace: Path, cluster_id: str) -> int:
     and :data:`ai_rfc.driver.stop.CONSUMES_ATTEMPT`.
 
     Unlike :func:`spent`, this can only be read off ``sessions.jsonl``: a
-    transcript carries no cluster id, so there is nowhere else to look. A
+    transcript carries cluster *actions* — :func:`ai_rfc.driver.coverage.checkpoint_calls`
+    reads them out of three write shapes — but no cluster *assignment*, and an
+    assignment is what this counts, so there is nowhere else to look. A
     session killed *before* its row was appended is therefore absent — and
     under D61's rule that is the right answer rather than an undercount, since
     a session that never returned never ended on its own. What it cost is
