@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from ai_rfc.pipeline import cli
+from ai_rfc.pipeline.run import StageResult
 
 pytestmark = pytest.mark.unit
 
@@ -353,3 +354,64 @@ def test_run_skips_build_when_the_draft_has_no_commit_even_with_a_toolchain(
     assert code == 3
     assert "build" not in performed
     assert "error:" not in captured.err
+
+
+def _stage_exiting(monkeypatch: pytest.MonkeyPatch, code: int) -> None:
+    """Make every stage this door performs exit with ``code`` and do nothing.
+
+    ``perform`` is imported by name into the verb's module, so the stub is
+    installed there rather than on :mod:`ai_rfc.pipeline.run`.
+    """
+
+    def _perform(stage, ws, **kwargs) -> StageResult:
+        return StageResult(stage=stage, exit_code=code, argv=())
+
+    monkeypatch.setattr(cli, "perform", _perform)
+
+
+def test_a_walked_stage_that_exits_two_is_refused_rather_than_propagated(
+    workspace: Path, monkeypatch, capsys
+):
+    """2 belongs to argparse alone, so the walk must not hand one back.
+
+    ``perform`` builds every stage's argv itself, so a 2 says the argv *this*
+    command composed was malformed. Propagating it would tell a caller to fix
+    an invocation nobody typed.
+    """
+    _stage_exiting(monkeypatch, 2)
+
+    assert cli.main(["run", str(workspace)]) == 1
+    err = capsys.readouterr().err
+    # One failure, one line, and it names the stage.
+    assert [line for line in err.splitlines() if line.startswith("error:")] == [
+        "error: stage history exited 2, which belongs to argparse alone; the "
+        "argv this command built for it is malformed"
+    ]
+
+
+def test_a_walked_stage_that_exits_three_still_reaches_the_caller(
+    workspace: Path, monkeypatch
+):
+    """3 means findings, and only the stage that found them can say so."""
+    _stage_exiting(monkeypatch, 3)
+
+    assert cli.main(["run", str(workspace)]) == 3
+
+
+def test_a_rederivable_check_that_exits_two_is_refused_rather_than_ranked(
+    mined_workspace: Path, monkeypatch, capsys
+):
+    """The second door onto the same rule: ``_perform_rederivable``'s ``max``.
+
+    ``mined_workspace`` leaves every walked stage current, so the walk performs
+    nothing and ``check`` is reached only through the re-derivable loop. A 2
+    ranked into ``worst`` there reached the caller exactly as the walk's did.
+    """
+    _stage_exiting(monkeypatch, 2)
+
+    assert cli.main(["run", str(mined_workspace), "--strict"]) == 1
+    err = capsys.readouterr().err
+    assert [line for line in err.splitlines() if line.startswith("error:")] == [
+        "error: stage check exited 2, which belongs to argparse alone; the "
+        "argv this command built for it is malformed"
+    ]

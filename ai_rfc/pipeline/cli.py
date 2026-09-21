@@ -28,6 +28,29 @@ def _report(message: str) -> None:
     print(message, file=sys.stderr)
 
 
+def _refuse_argparse_two(stage_name: str) -> int:
+    """Report a stage's exit 2 as the defect it is, and return 1.
+
+    ``perform`` builds every stage's argv itself (``run.py``'s ``DISPATCH``),
+    so a 2 coming back says the argv *this* command composed was malformed — a
+    defect here, not something the operator typed. Propagating it would hand a
+    caller a 2 about an invocation nobody made. Both places this door performs
+    a stage route through here, so the two doors onto the walk cannot disagree.
+
+    Args:
+        stage_name: The stage that exited 2, named in the diagnostic.
+
+    Returns:
+        Always 1 — the command could not complete. The caller prints no line of
+        its own for this code, so one failure is one ``error:`` line.
+    """
+    _report(
+        f"error: stage {stage_name} exited 2, which belongs to argparse "
+        f"alone; the argv this command built for it is malformed"
+    )
+    return 1
+
+
 def configure(parser: argparse.ArgumentParser) -> None:
     """Add this command's arguments to ``parser``.
 
@@ -283,9 +306,12 @@ def _run(args: argparse.Namespace) -> int:
             }
         )
         if not result.ok:
-            _report(f"error: {stage.name} exited {result.exit_code}")
             halted_at = stage.name
-            code = result.exit_code
+            if result.exit_code == 2:
+                code = _refuse_argparse_two(stage.name)
+            else:
+                _report(f"error: {stage.name} exited {result.exit_code}")
+                code = result.exit_code
             break
 
     rederived = _perform_rederivable(args, ws, performed, until, explicit_start)
@@ -377,7 +403,11 @@ def _perform_rederivable(
                 "argv": list(result.argv),
             }
         )
-        worst = max(worst, result.exit_code)
+        # Refused before the ranking, not after: `max` would let a 2 outrank a
+        # sibling's 1 and leave the caller reading "you mistyped the command"
+        # for an argv nobody typed.
+        code = _refuse_argparse_two(name) if result.exit_code == 2 else result.exit_code
+        worst = max(worst, code)
     return worst
 
 

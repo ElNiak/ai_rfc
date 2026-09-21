@@ -189,7 +189,12 @@ def test_a_stage_that_exits_two_is_reported_as_a_defect_and_run_returns_one(
     assert cli.main(["run", "--config", str(config_path)]) == 1
     err = capsys.readouterr().err
     assert "argparse alone" in err
-    assert "exited 2" in err
+    # One failure, one line. The generic "<stage> exited <code>" line is the
+    # branch's alternative, not its prefix.
+    assert [line for line in err.splitlines() if line.startswith("error:")] == [
+        "error: stage history exited 2, which belongs to argparse alone; the "
+        "argv this command built for it is malformed"
+    ]
 
 
 def test_without_sessions_the_boundary_still_stops_the_walk(

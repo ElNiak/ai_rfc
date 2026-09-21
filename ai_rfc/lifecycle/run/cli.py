@@ -295,19 +295,20 @@ def run_stages(
             result = perform(stage, layout)
             performed.append(stage.name)
             if not result.ok:
-                report(f"error: {stage.name} exited {result.exit_code}")
                 if result.exit_code == 2:
                     # This command builds every stage's argv itself, so a 2
                     # says the argv *this* command composed was malformed —
                     # a defect here, not something the operator typed.
                     # Propagating it would hand them a 2 about an invocation
-                    # they never made.
+                    # they never made. One line, not two: this one says
+                    # everything the generic line below would have.
                     report(
                         f"error: stage {stage.name} exited 2, which belongs to "
                         f"argparse alone; the argv this command built for it "
                         f"is malformed"
                     )
                     return 1
+                report(f"error: {stage.name} exited {result.exit_code}")
                 return result.exit_code
             report(f"performed: {stage.name}")
             by_name = {e.stage.name: e for e in state(layout)}
