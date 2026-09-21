@@ -14,6 +14,8 @@ from pathlib import Path
 import yaml
 
 from .anchors import AnchorError, verify_detailed
+from .driver import printable
+from .markdown import code
 from .models import COMMIT_REQUIRED_FOR, STATUS_RANK, Intent, Manifest
 from .promotion import Violation, adjudicate, structure_statuses, violations
 
@@ -140,12 +142,33 @@ def to_markdown(report: ManifestReport) -> str:
     Claims marked ``intent: accidental`` appear only in the descriptive
     section. Documented behaviour that was never meant is not promoted into
     normative prose, so the specification does not canonize bugs.
+
+    **Every value a manifest carries is escaped here**, because every one of
+    them was written by the reconstruction session this document reports on.
+    Markdown is a grammar with two enclosures in these lines and each gets
+    the escaper that closes it: :func:`~ai_rfc.markdown.code` for a code span,
+    whose significant character is the backtick, and
+    :func:`~ai_rfc.driver.printable` for prose, whose significant character is
+    anything that ends a line — a break followed by ``#`` or ``-`` opens a
+    heading or a list item, and a forged line in *this* document is a forged
+    claim about what the evidence established. ``printable`` is a predicate
+    over the unprintable category rather than a list of line endings, for the
+    reason its own docstring gives.
+
+    An enumeration member's ``value`` and a count are not escaped: both are
+    this package's to produce, from a closed vocabulary ``schema.py`` resolves
+    against or from :func:`len`, and neither can carry a character the
+    document's grammar reads.
+
+    The JSON and YAML renderings need none of this — a structured encoder
+    quotes what it is given — which is why the escaping lives in this function
+    and not in :func:`_payload`.
     """
     manifest = report.manifest
     lines = [
-        f"# {manifest.title}",
+        f"# {printable(manifest.title)}",
         "",
-        f"Identifier: `{manifest.rfc}`  ",
+        f"Identifier: {code(manifest.rfc)}  ",
         f"Claims: {len(manifest.claims)}",
         "",
         "## Status counts",
@@ -179,7 +202,7 @@ def to_markdown(report: ManifestReport) -> str:
         lines.append("_None._")
     for entry in promotable:
         lines.append(
-            f"- **{entry['id']}** — stored {entry['stored']}, "
+            f"- **{printable(entry['id'])}** — stored {entry['stored']}, "
             f"evidence supports {entry['supported']}"
         )
 
@@ -189,9 +212,10 @@ def to_markdown(report: ManifestReport) -> str:
         for structure in sorted(report.manifest.structures, key=lambda s: s.id):
             stored, supported = statuses[structure.id]
             lines.append(
-                f"- `{structure.id}` ({structure.kind.value}) {structure.title} "
-                f"§{structure.section}: stored {stored.value}, supported "
-                f"{supported.value}, {len(structure.claims)} claims"
+                f"- {code(structure.id)} ({structure.kind.value}) "
+                f"{printable(structure.title)} §{printable(structure.section)}: "
+                f"stored {stored.value}, supported {supported.value}, "
+                f"{len(structure.claims)} claims"
             )
 
     lines += ["", "## Normative", ""]
@@ -200,8 +224,8 @@ def to_markdown(report: ManifestReport) -> str:
         lines.append("_None._")
     for claim in normative:
         lines.append(
-            f"- **{claim.id}** ({claim.level.value}, {claim.status.value}) "
-            f"— {claim.text}"
+            f"- **{printable(claim.id)}** ({claim.level.value}, "
+            f"{claim.status.value}) — {printable(claim.text)}"
         )
 
     lines += [
@@ -215,13 +239,18 @@ def to_markdown(report: ManifestReport) -> str:
     if not accidental:
         lines.append("_None._")
     for claim in accidental:
-        lines.append(f"- **{claim.id}** ({claim.status.value}) — {claim.text}")
+        lines.append(
+            f"- **{printable(claim.id)}** ({claim.status.value}) "
+            f"— {printable(claim.text)}"
+        )
 
     lines += ["", "## Promotion violations", ""]
     if not report.violations:
         lines.append("_None._")
     for violation in report.violations:
-        lines.append(f"- **{violation.claim_id}** — {violation.reason}")
+        lines.append(
+            f"- **{printable(violation.claim_id)}** — {printable(violation.reason)}"
+        )
 
     lines += ["", "## Unverified anchors", ""]
     if not report.anchors_checked:
@@ -236,6 +265,10 @@ def to_markdown(report: ManifestReport) -> str:
             f"requiring a repository resolved at their pinned commits._"
         )
     for item in report.unverified:
-        lines.append(f"- {item}")
+        # Composed in `build` above from the claim's id, the anchor's locator
+        # and a reason that is `git`'s own stderr where the anchor named a
+        # commit — three producers, one line, so the escape belongs here and
+        # not at any one of them.
+        lines.append(f"- {printable(item)}")
 
     return "\n".join(lines) + "\n"

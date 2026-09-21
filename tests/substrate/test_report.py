@@ -319,3 +319,208 @@ def test_a_structure_free_report_has_no_structures_section(tmp_path):
     path = tmp_path / "m.yaml"
     path.write_text(_manifest_text(with_second_claim=False))
     assert "## Structures" not in to_markdown(build(load(path)))
+
+
+# --- What the Markdown rendering does to a value it did not choose ---------
+#
+# `ai_rfc/report.py` writes the specification a reconstruction session
+# produced, and every string in a manifest — the identifier, the title, a
+# claim's id and its text, a structure's id, title and section — was written
+# by that session. The grammar it lands in is Markdown, where a line break
+# followed by `#` or `-` is a new heading or a new list item, and a backtick
+# closes a code span.
+
+import re  # noqa: E402
+
+from ai_rfc.promotion import Violation  # noqa: E402
+from ai_rfc.report import ManifestReport  # noqa: E402
+
+#: One representative of each character that ends a line: CR and LF are
+#: CommonMark's two, and the remaining five additionally split
+#: :meth:`str.splitlines`. Built with :func:`chr` so this file carries no
+#: unprintable character of its own — ``test_source_hygiene`` forbids that —
+#: and named as a *sample* of the category, never as the category: the
+#: renderer's defence is :func:`ai_rfc.driver.printable`'s predicate over
+#: ``str.isprintable``, which is why a list like this one is only a witness.
+LINE_BREAKERS = (
+    chr(0x0D),
+    chr(0x0A),
+    chr(0x0B),
+    chr(0x0C),
+    chr(0x85),
+    chr(0x2028),
+    chr(0x2029),
+)
+
+#: A value carrying a backtick run *and* markup that only renders if the run
+#: escapes the span. The `</code>` is what a single-backtick span used to
+#: close into; the `<b>` is what went live after it.
+HOSTILE = "x`</code><b>bold"
+
+#: A code span, fence included. The backreference is what makes it a span
+#: rather than a pair of backticks: a fence closes on a run of its own length.
+CODE_SPAN = re.compile(r"(`+)(.*?)\1")
+
+
+def _outside_spans(line: str) -> str:
+    """What is left of a line once every code span is removed.
+
+    Args:
+        line: One rendered line.
+
+    Returns:
+        The line's text with each ``code span`` cut out, which is the part a
+        Markdown reader renders as markup.
+    """
+    return CODE_SPAN.sub("", line)
+
+
+def _longest_run(text: str) -> int:
+    """The longest run of consecutive backticks in ``text``."""
+    return max((len(run) for run in re.findall(r"`+", text)), default=0)
+
+
+def _line_starting(text: str, prefix: str) -> str:
+    """The one rendered line beginning with ``prefix``.
+
+    Args:
+        text: The whole rendered report.
+        prefix: What the wanted line starts with.
+
+    Returns:
+        That line.
+
+    Raises:
+        AssertionError: If the report has no such line, or more than one —
+            either is the forgery this file is looking for.
+    """
+    lines = [line for line in text.splitlines() if line.startswith(prefix)]
+    assert len(lines) == 1, lines
+    return lines[0]
+
+
+def _structure(**overrides):
+    """One record structure binding ``spec:1.1``, hostile where asked."""
+    from ai_rfc.models import Field, Structure, StructureKind
+
+    base = dict(
+        id="header",
+        kind=StructureKind.RECORD,
+        title="Message header",
+        section="4",
+        fields=(Field(name="a", claim="spec:1.1"),),
+    )
+    base.update(overrides)
+    return Structure(**base)
+
+
+def _one_claim_manifest(structure=None, **overrides):
+    """A one-claim manifest, optionally carrying one structure."""
+    base = dict(rfc="SPEC-1", title="An Example Specification")
+    base.update(overrides)
+    return Manifest(
+        claims=(_claim(status=Status.GAP),),
+        structures=(structure,) if structure is not None else (),
+        **base,
+    )
+
+
+def test_a_backtick_in_the_identifier_cannot_break_its_code_span():
+    """`report.py:148` fenced the rfc with one backtick, so the value closed it.
+
+    Asserted as the fence rule rather than as a rendering: the fence must be
+    longer than the longest run inside it, which is what CommonMark requires
+    and what a hand-checked example does not establish. The second assertion
+    is the consequence — the markup the escape exists to contain stays inside
+    the span, where it is literal text.
+    """
+    text = to_markdown(build(_one_claim_manifest(rfc=HOSTILE)))
+    line = _line_starting(text, "Identifier:")
+    span = CODE_SPAN.search(line)
+
+    assert span is not None
+    assert len(span.group(1)) > _longest_run(HOSTILE)
+    assert span.group(2) == HOSTILE
+    assert "<b>" not in _outside_spans(line)
+
+
+def test_a_backtick_in_a_structure_id_cannot_break_its_code_span():
+    """`:192`'s span carries an id the schema pattern never saw.
+
+    ``schema.py:144`` validates a structure id, so this value cannot arrive
+    through ``load``; a ``Manifest`` built in process — which is what the MCP
+    door and every library caller build — has no such gate, and the renderer
+    is the last place the difference can be caught.
+    """
+    manifest = _one_claim_manifest(structure=_structure(id=HOSTILE))
+    line = _line_starting(to_markdown(build(manifest)), "- `")
+    span = CODE_SPAN.search(line)
+
+    assert span is not None
+    assert len(span.group(1)) > _longest_run(HOSTILE)
+    assert span.group(2) == HOSTILE
+    assert "<b>" not in _outside_spans(line)
+
+
+@pytest.mark.parametrize("breaker", LINE_BREAKERS)
+@pytest.mark.parametrize(
+    "field", ["rfc", "title", "claim_id", "claim_text", "structure_title", "section"]
+)
+def test_no_line_ending_in_a_manifest_value_can_add_a_line(breaker, field):
+    """Every interpolated value is one line, whatever the session wrote in it.
+
+    A break followed by ``#`` or ``-`` is a heading or a list item, so a
+    forged line is a forged *claim* in a document whose whole purpose is to
+    say what was established. The report is compared against the same report
+    built from a benign value, so the assertion is the count the renderer
+    controls rather than a needle that a wording change would retire.
+    """
+    hostile = "a" + breaker + "## forged"
+
+    def _report(value: str) -> str:
+        claim = _claim(
+            id=f"spec:{value}" if field == "claim_id" else "spec:1.1",
+            text=value if field == "claim_text" else "Some text.",
+            status=Status.GAP,
+        )
+        structure = _structure(
+            title=value if field == "structure_title" else "Message header",
+            section=value if field == "section" else "4",
+        )
+        manifest = Manifest(
+            rfc=value if field == "rfc" else "SPEC-1",
+            title=value if field == "title" else "An Example Specification",
+            claims=(claim,),
+            structures=(structure,),
+        )
+        return to_markdown(build(manifest))
+
+    assert len(_report(hostile).splitlines()) == len(_report("a## forged").splitlines())
+
+
+def test_a_line_ending_in_a_finding_cannot_add_a_line():
+    """`:224` and `:239` interpolate text composed outside this module.
+
+    A violation's reason is written by ``promotion``; an unverified anchor's
+    is a caught ``AnchorError`` carrying ``git``'s own stderr, which is the
+    clone's to control. Both land in a list, one item per line.
+    """
+    forged = "b" + chr(0x0A) + "- forged finding"
+    report = ManifestReport(
+        manifest=_one_claim_manifest(),
+        violations=(Violation("spec:1.1", Status.CONFIRMED, Status.GAP, forged),),
+        unverified=(forged,),
+        anchors_checked=True,
+        verifiable_anchor_count=1,
+    )
+    benign = ManifestReport(
+        manifest=_one_claim_manifest(),
+        violations=(Violation("spec:1.1", Status.CONFIRMED, Status.GAP, "b"),),
+        unverified=("b",),
+        anchors_checked=True,
+        verifiable_anchor_count=1,
+    )
+
+    assert len(to_markdown(report).splitlines()) == len(
+        to_markdown(benign).splitlines()
+    )
