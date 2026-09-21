@@ -15,6 +15,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -227,6 +228,51 @@ def _arms(value: str) -> tuple[str, ...]:
     if len(set(arms)) != len(arms):
         raise argparse.ArgumentTypeError(f"repeated arm in {value!r}")
     return arms
+
+
+#: What a campaign id may be: one path segment, opening on a letter or digit.
+#: Written as what is allowed rather than as a list of what is not, so a
+#: separator nobody thought of is refused by default.
+CAMPAIGN_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+
+
+def _campaign_id(value: str) -> str:
+    """Validate a campaign id where it is still one token: at the parser.
+
+    The id names a directory — ``config.py:356`` joins it as ``root /
+    "campaigns" / campaign_id`` — and an **absolute** value replaces the root
+    of that join outright: ``Path('/r/campaigns') / '/tmp/evil'`` is
+    ``/tmp/evil``. The frozen-once guard on the next line then tests a
+    directory under somebody else's root and finds it absent, so it permits
+    the freeze; a ``..`` walks out of the campaigns root the operator named
+    just as quietly. Neither is a thing the sink can discover after the join,
+    which is why the check is here.
+
+    Shape, not membership, and deliberately: unlike a cluster id, a campaign
+    id names a directory that does not exist yet, so there is no set to be a
+    member of.
+
+    Args:
+        value: The raw ``--id`` string.
+
+    Returns:
+        ``value`` unchanged.
+
+    Raises:
+        argparse.ArgumentTypeError: If it is not one segment of that alphabet.
+    """
+    if not CAMPAIGN_ID.fullmatch(value):
+        # Escaped, not merely echoed, for the reason ``_arms`` records:
+        # argparse prints this through its own formatting, which routes
+        # through nothing that escapes, so a newline in the value forges a
+        # second stderr line in the shape of the usage line printed above it.
+        raise argparse.ArgumentTypeError(
+            f"campaign id '{printable(value)}' must match "
+            f"{CAMPAIGN_ID.pattern}; it names one directory under "
+            f"<root>/campaigns, and an absolute id or a '..' would name one "
+            f"somewhere else entirely"
+        )
+    return value
 
 
 def _model(value: str) -> str:
@@ -1351,7 +1397,10 @@ def configure(parser: argparse.ArgumentParser) -> None:
     init = campaign_verbs.add_parser("init", help="Freeze a campaign.")
     _add_root(init)
     init.add_argument(
-        "--id", required=True, help="Campaign identifier; names its directory."
+        "--id",
+        required=True,
+        type=_campaign_id,
+        help="Campaign identifier; names its directory.",
     )
     init.add_argument(
         "--baseline",

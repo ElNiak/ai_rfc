@@ -1082,3 +1082,43 @@ def test_the_consolidation_path_refuses_a_malformed_run_id_too(campaign):
     assert "not an arm letter" in message
     # repr keeps the forged newline from splitting the refusal itself in two.
     assert "\n" not in message
+
+
+@pytest.mark.parametrize("forged", ["/tmp/x", "../x", "a/b", "..", "", ".hidden"])
+def test_a_campaign_id_that_is_not_one_path_segment_exits_two(capsys, forged):
+    """The sink cannot discover this after the join, so the parser refuses it.
+
+    ``experiment/config.py:356`` joins the id as ``root / "campaigns" /
+    campaign_id``. An absolute id *replaces* the root there, so the
+    frozen-once guard below it tests a directory under somebody else's root,
+    finds nothing, and permits the freeze; ``..`` walks out of the campaigns
+    root just as quietly.
+    """
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main(["campaign", "init", "--id", forged])
+    assert exit_info.value.code == 2
+    assert "campaign id" in capsys.readouterr().err
+
+
+def test_a_campaign_id_cannot_forge_a_line_in_its_own_refusal(capsys):
+    """The refusal echoes the value, and argparse escapes nothing it prints.
+
+    The same lesson ``_arms`` records: the value is already refused, so what
+    is left to make safe is the message an operator reads, where a newline
+    would forge a second line in the shape of argparse's own usage line.
+    """
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main(["campaign", "init", "--id", "ok\nusage: ai-rfc experiment"])
+    assert exit_info.value.code == 2
+    err = capsys.readouterr().err
+    assert "\\nusage:" in err
+    assert sum(1 for line in err.splitlines() if line.startswith("usage:")) == 1
+
+
+def test_an_ordinary_campaign_id_still_parses(capsys):
+    """The alphabet has to admit the ids the harness already uses."""
+    parser = cli.build_standalone_parser()
+    parsed = parser.parse_args(
+        ["campaign", "init", "--id", "aioquic-w02-11.2", "--baseline", "p"]
+    )
+    assert parsed.id == "aioquic-w02-11.2"
