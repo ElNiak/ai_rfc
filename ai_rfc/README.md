@@ -174,13 +174,17 @@ real finding, and the responses are opposite: fix the command, or fix the
 evidence.
 
 `--strict` decides whether *this* command's findings gate, not what 3 means.
-`check`, `draft gate`, `draft lint`, `draft completeness` and `verify` report
-their findings on stderr in either mode and return 3 only under `--strict`;
-`doctor`, `toolchain verify` and `pipeline substrate` take no `--strict` flag
-at all and return 3 whenever they reach a verdict with something in it. 3 is
-the one code with a machine consumer — `_build_gate` in `driver/sweep.py`
-reads a `check --strict` 3 back to tell a finding apart from any other way the
-build gate can fail — so it names the outcome, never the flag.
+`check`, `draft gate`, `draft lint`, `draft build`, `draft completeness` and
+`verify` report their findings on stderr in either mode and return 3 only
+under `--strict`; `doctor`, `toolchain verify`, `pipeline substrate` and
+`views --verify` take no `--strict` flag at all and return 3 whenever they
+reach a verdict with something in it. Those two lists are every door in the
+package that returns 3 — the `ai-rfc experiment` door's own three are outside
+this table's scope, and the two in `server/core/gates.py` are the MCP twins of
+`check` and `draft gate`, gating on the same flag. 3 is the one code with a
+machine consumer — `_build_gate` in `driver/sweep.py` reads a `check --strict`
+3 back to tell a finding apart from any other way the build gate can fail — so
+it names the outcome, never the flag.
 
 A **finding** is either a promotion violation or an anchor that did not resolve
 at its pinned commit. Both gate under `--strict`, and both are named on stderr
@@ -208,11 +212,19 @@ it, and writes `completeness.json`. It reports:
 
 | Field | Question it answers |
 |---|---|
-| `unprocessed_clusters` | Which clusters were never checkpointed at all |
-| `silent_clusters` | Which were checkpointed but changed no claim |
+| `unprocessed_clusters` | Which of this run's clusters were never checkpointed |
+| `silent_clusters` | Which of them were checkpointed but changed no claim |
 | `uncited_at_head` | Which claims the newest revision does not cite |
 | `never_cited` | Which claims *no* revision has ever cited |
 | `manifest_drift` | Which live claims are in no checkpoint yet |
+
+"This run's clusters" is the scope the ledger gives the two cluster figures:
+the recorded window, less any pre-seeded baseline — `ledger.this_runs_work`'s
+predicate, not the timeline's length. Counting every row instead read a
+finished narrowed window as half done, and counted a baseline's pre-seeded
+checkpoint — frozen from the same manifest as its predecessor, so it changes
+no claim by construction — as a cluster this run visited and left silent. The
+`clusters` rows still carry one entry per timeline cluster.
 
 `uncited_at_head` and `never_cited` differ only for a claim cited once and later
 dropped; `never_cited` is the subset that was never written about at all.
