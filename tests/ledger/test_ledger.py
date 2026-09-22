@@ -472,3 +472,39 @@ def test_the_finished_mark_run_reads_as_37_done_of_69_with_none_half_finished():
     assert summary["done"] == 37 and summary["total"] == 69
     assert [s.ordinal for s in states if s.partial_reason] == []
     assert next_cluster(MARK).ordinal == 38
+
+
+def test_the_status_tool_counts_this_runs_work_on_both_of_its_own_figures(
+    ws, monkeypatch
+):
+    """``ai_rfc_status`` is the surface an agent reads mid-campaign.
+
+    It printed ``clusters_total`` as the length of the whole timeline and
+    ``clusters_processed`` as every done cluster anywhere in it — two figures
+    built beside ``"ledger": counts(states)`` and disagreeing with it. An
+    agent reading "1 of 2" for a finished window is told there is work left
+    that was never this run's, which is the same defect Task 5 closed for
+    ``status`` and ``completeness``, one package over.
+
+    Both halves of "this run's work" are exercised: the second cluster is
+    outside the window *and* carries the pre-seed marker, so a reader honouring
+    only one of the two still answers 2.
+    """
+    from ai_rfc.server.core import queries
+    from ai_rfc.server.paths import resolve_context
+
+    first, second = _ids(ws)
+    _cite_every_claim(ws)
+    _finish(ws, first, "draft-test-spec-01")
+    _preseed(ws, second, ordinal=2)
+    (ws / "init.json").write_text(json.dumps({"window": [1, 1]}))
+    monkeypatch.setenv("AI_RFC_CONFIG", str(ws / "recon.yaml"))
+
+    summary = counts(clusters(ws))
+    assert summary["total"] == 2 and summary["in_window"] == 1
+
+    composite = queries.status(resolve_context())
+
+    assert composite["ledger"] == summary
+    assert composite["clusters_total"] == summary["in_window"] == 1
+    assert composite["clusters_processed"] == summary["done"] == 1

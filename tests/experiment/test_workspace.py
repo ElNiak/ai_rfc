@@ -137,8 +137,14 @@ def test_preseed_makes_the_server_skip_the_cluster(fixture_workspace):
     ctx = resolve_context()
     assert cluster_next(ctx)["ordinal"] == 2
     composite = status(ctx)
-    assert composite["clusters_total"] == 2
-    assert composite["clusters_processed"] == 1
+    # This run's work, not the timeline's: ordinal 1 is the baseline's, marked
+    # pre-seeded a few lines above, and ordinal 2 is the whole of what this run
+    # was asked for and has not done. The pre-seeded cluster is not lost — the
+    # `ledger` block beside these two figures reports it.
+    assert composite["clusters_total"] == 1
+    assert composite["clusters_processed"] == 0
+    assert composite["ledger"]["total"] == 2
+    assert composite["ledger"]["pre_seeded"] == 1
 
 
 def test_preseed_rejects_an_unknown_ordinal(fixture_workspace):
@@ -439,8 +445,13 @@ def test_prepared_window_is_the_only_unprocessed_range(
     ctx = resolve_context()
     assert cluster_next(ctx)["ordinal"] == 2
     composite = status(ctx)
-    assert composite["clusters_total"] == 2
-    assert composite["clusters_processed"] == 1
+    # The prepared window is one cluster and nothing in it is done, so the two
+    # headline figures are 1 and 0; the baseline the prepare pre-seeded is
+    # reported by the `ledger` block rather than by this run's denominator.
+    assert composite["clusters_total"] == 1
+    assert composite["clusters_processed"] == 0
+    assert composite["ledger"]["total"] == 2
+    assert composite["ledger"]["pre_seeded"] == 1
 
 
 def test_prepare_refuses_to_overwrite_and_cleans_up_after_a_source_it_cannot_clone(

@@ -131,9 +131,14 @@ def status(ctx: Context) -> dict[str, Any]:
     """One composite status view, quoted from the substrate's artifacts."""
     timeline_path = ctx.workspace / "timeline" / "timeline.json"
     timeline = json.loads(timeline_path.read_text()) if timeline_path.exists() else None
-    clusters = _clusters(ctx) if timeline else []
     states = ledger.clusters(ctx.workspace) if timeline else ()
-    processed = {state.id for state in states if state.done}
+    # One reducer for all three figures below. `clusters_total` was the length
+    # of the whole timeline and `clusters_processed` every done cluster
+    # anywhere in it, so the two headline numbers an agent reads mid-campaign
+    # disagreed with the `ledger` block printed beside them: a window this run
+    # finished still read "1 of 2", and a baseline's pre-seeded cluster
+    # counted as this run's denominator.
+    ledger_counts = ledger.counts(states)
     report_path = ctx.workspace / "out" / "report.json"
     report = json.loads(report_path.read_text()) if report_path.exists() else None
 
@@ -162,9 +167,9 @@ def status(ctx: Context) -> dict[str, Any]:
     next_cluster = cluster_next(ctx) if timeline else None
     return {
         "timeline": timeline,
-        "clusters_total": len(clusters),
-        "clusters_processed": len(processed),
-        "ledger": ledger.counts(states),
+        "clusters_total": ledger_counts["in_window"],
+        "clusters_processed": ledger_counts["done"],
+        "ledger": ledger_counts,
         "next_cluster": next_cluster["id"] if next_cluster else None,
         "report": (
             {
