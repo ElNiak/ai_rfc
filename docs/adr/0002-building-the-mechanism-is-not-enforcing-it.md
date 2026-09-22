@@ -141,7 +141,7 @@ asking for. **Two are new**, found while the row was executing. **One instance i
 | `experiment/markdown.py`, shared, covering **tables** while the unescaped sinks were **code spans** (*instance 2*) | every value a renderer interpolates into Markdown | that one escaper above the package covers the sinks that exist, code spans included | `9c61fab` + `2c768b5` (Task 4) |
 | `diagnostics()`'s escaping boundary — **one composition site of two** (*instance 3*) | the sites where an error or a finding line is composed | that the line is composed where its own message cannot forge it, on every arm | `f714135` + `19a8b84` (Task 4) |
 | `_checked_cluster_id`, written twice, applied at **none of the five joins** (*instance 5*) | the cluster ids, workspaces and transcripts that reach a path join | that every join refuses a value which would escape the workspace | `e16bff2` + `fecd60f` (Task 3) |
-| The ledger's reducer `counts()`, beside **two consumers recomputing raw** (*instance 6*) | every cluster state the ledger hands out | that both consumers read the reducer rather than rebuild a window-blind total | `d1e34c3` (Task 5) |
+| The ledger's reducer `counts()`, beside **two consumers recomputing raw** (*instance 6*) | every cluster state the ledger hands out | that both consumers read the reducer rather than rebuild a window-blind total | **Partial.** `d1e34c3` (Task 5) closed it for the two `ClusterState` consumers — `pipeline/state._checkpoint` and `draft/completeness.build` — and the wave's `9f0475b` closed the third the Context paragraph names, `server/core/queries.py`'s `clusters_total` **and** `clusters_processed`, which now read `counts()` beside the `ledger` block they sit next to. It is **not** closed over every surviving expression of "this run's work": `metrics.window_clusters` (`metrics.py:57-73`) keeps pre-seeded clusters, so `metrics.analyze_run`'s `window_size` (`:348`) and the fractions over it (`:361-366`) divide by a baseline-inflated denominator, `progress.py:51-57` re-derives the pre-seed filter over a different data source, and `metrics.analyze_campaign`'s `window_ids` (`:559-565`) carries the same denominator into `pass_k`. Those three are open, on the next row, by the remedy stated below the table. |
 | **New.** `_write_once`'s "only if it is not already there" — a **check-then-act** | the run-directory claim and the transcript writes in `driver/` | that the claim is exclusive: an atomic exclusive create rather than a test followed by a write, and a transcript that is never truncated | `ece0a87` (Task 6) |
 | **New.** `lifecycle/common.report`'s escaping boundary — **seven sibling `_report` helpers bare** | the stderr boundaries the substrate CLIs print through | that all seven escape at the boundary, the shape the lifecycle verbs already had | `19a8b84` (Task 4) |
 | **The review mandate** — *process, not code* (*instance 7*) | the occasions a review is required | **Still open.** Nothing in this row closed it, and nothing here diagnoses why the mandate did not fire; it stays where the map put it, in *Out of scope* | — |
@@ -150,6 +150,18 @@ Two things this table is not. It is not a claim that the shape cannot recur: it 
 instances found, and a fresh one turning up is the expected outcome, not a contradiction. And the
 two new rows are **not** evidence that the class grew — they were found by looking for it, which is
 what naming a shape is for.
+
+**Row 5's open remainder, and why it is not closed here.** The three sites that row names cannot be
+"routed through `this_runs_work`": that reducer takes `tuple[ClusterState, ...]`, while
+`metrics.window_clusters` returns raw rows parsed out of `timeline/clusters.jsonl`. So there are two
+honest moves and only one of them is right. Switching `metrics` and `progress` to
+`ledger.clusters()` and reducing with `this_runs_work` is the correct one — and it changes
+`completed_fraction`'s *numerator* as well as its denominator, because `analyze_run` would then read
+the ledger's definition of done rather than `cluster_artifacts`' own, so every campaign figure moves
+and wants a review of its own. Filtering the raw rows on the pre-seed marker in place is small
+enough to land beside the rest, and is a **fourth** copy of the predicate — the shape this ADR
+exists to refuse. The first is owed; the second is refused. Recording the row as *partial* is not a
+failure of this ADR's thesis; recording it as *closed* over two fifths of its set would be.
 
 ## Consequences
 

@@ -43,8 +43,9 @@ prose: `test_the_parity_table_names_a_verb_the_parser_owns` walks
 `cli.build_parser()` and fails on any cell naming a verb the live parser does
 not own, which is what the column lacked while it drifted through the rename.
 
-**One row has no verb (CLI-3 D16).** `ai_rfc_status` stays an MCP tool and gains no
-`ai-rfc` verb, because `ai-rfc status` already means the operator's ledger and
+**One row has no verb (CLI-3 D16).** `ai_rfc_status` stays an MCP tool and
+gains no `ai-rfc` verb, because `ai-rfc status` already means the operator's
+ledger and
 a folded read has no claim on a name that is taken. The `draft` verbs, by
 contrast, spell their **workspace** form above; naming a path selects the
 explicit form in the right-hand column instead, which prints no JSON and reads

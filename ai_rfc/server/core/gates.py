@@ -25,7 +25,7 @@ second element spelled as this verb's own ``note:``.
 **The exception, stated rather than left to be discovered:** the ``note:``
 lines interpolate no such value. ``gates.py``'s names the directory the
 checkpoint writer returned, and ``build.py``'s two name a twelve-character
-commit, an exit code and paths this package composed from its own constants —
+commit, an exit code and paths rooted at the operator's workspace —
 and the writer refuses a cluster the timeline does not have before it creates
 anything, so none of the three can carry a character the grammar reads. They
 are the lines a forgery imitates, which is the reason to say why they are safe

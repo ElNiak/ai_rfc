@@ -121,7 +121,8 @@ receipt whose invoking `tool_use` is itself a checkpoint-write call — and repo
 otherwise, exactly the weak reading (3) requires. Its operator door is the `coverage` check of
 `ai-rfc verify` (`ai_rfc/lifecycle/verify/cli.py:181-192`), which enumerates the candidates for the
 production layout while the campaign audit supplies the campaign's siblings. Landed at `439af29`
-(the predicate) and `49666a8` (the verify-side finding and the frozen route record). The amendment
+(the predicate), `49666a8` (the verify-side finding and the frozen route record) and `f3e3c94`
+(the campaign door: a campaign's checkpoints covered from its sibling transcripts). The amendment
 above is the reason the detector is framed as absent-provenance detection rather than as
 tamper-evidence: in production its own inputs are inside the session's write reach.
 

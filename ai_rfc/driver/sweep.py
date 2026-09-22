@@ -22,8 +22,11 @@ differing from the previous run's — which is what spec risk 5 asks for without
 saying how. A deliberate template change is therefore *noted*, not refused;
 making it refusable is what the spec reserves ``--reseal-prompts`` for.
 
-*An interrupted run never writes* ``status.json``. The resume rule keys on its
-absence: ``runs/<ts>/`` without one becomes ``runs/<ts>.interrupted-<cause>/``.
+*A run nobody could record never writes* ``status.json``. The resume rule keys
+on its absence: ``runs/<ts>/`` without one becomes
+``runs/<ts>.interrupted-<cause>/``. An operator's Ctrl-C is no longer such a
+run — the sweep catches it and records ``operator_interrupt`` — so what this
+rule is about is the kill nobody handled.
 So nothing here writes it from a ``finally`` — only a normal exit and a
 stop-classified one write it, and a sweep killed between them leaves exactly
 the leftover the next resume is looking for.
@@ -1564,10 +1567,19 @@ def run(
         #
         # Returning rather than re-raising, so `run` and `next` need no new
         # clause of their own and the resume line goes out through the same
-        # path every other stop uses. A second interrupt arriving inside
-        # `_finish` is deliberately not caught: an operator pressing Ctrl-C
-        # again is asking for the process to stop rather than for a tidier
-        # record, and a run without `status.json` is still resumable.
+        # path every other stop uses. A second interrupt is deliberately not
+        # caught: an operator pressing Ctrl-C again is asking for the process
+        # to stop rather than for a tidier record.
+        #
+        # What it interrupts is worth stating exactly, because the six
+        # `return _finish` above all sit *inside* this `try`. So a second
+        # Ctrl-C landing while `_finish` runs re-enters this handler and calls
+        # `_finish` a second time — and `_write_once` refuses that write
+        # because the first `_finish` already made it. The record that
+        # survives is therefore the true one, with the reason the first stop
+        # carried; the second attempt adds nothing and destroys nothing. A run
+        # whose first `_finish` never got as far as `status.json` is still
+        # resumable, as it always was.
         return _finish(
             cfg,
             workspace,

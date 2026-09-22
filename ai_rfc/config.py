@@ -209,9 +209,8 @@ FIELDS: tuple[Field, ...] = (
     Field(
         "sessions.deadline_s",
         "int",
-        "Seconds a whole sweep may run before it stops on the wall clock; "
-        "no cap when omitted. Measured from the first session, not from "
-        "`run` — the deterministic stages are free and idempotent.",
+        "Wall-clock seconds a sweep may run; no cap when omitted. Timed "
+        "from the first session, so `run` and `next`'s stages are free.",
         example=86400,
     ),
     Field(

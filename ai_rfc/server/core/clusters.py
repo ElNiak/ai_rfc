@@ -6,6 +6,17 @@ the revision map's checkpoint pin, the cluster view, and the checkpoint the
 freeze writes. The guard they need is membership, and it is written here once
 rather than three times.
 
+**Two of the three call it; the third is defended by a different route, and
+saying so is the point.** :func:`checked_cluster_id` is called by
+``revisions.py:58`` and ``queries.py:111``. The checkpoint the freeze writes
+(``gates.py:112``, ``record_dir = out / cluster_id``) never reaches it:
+:func:`ai_rfc.draft.checkpoint.write_checkpoint` calls ``_cluster_row`` first,
+which raises for a cluster the timeline does not have before anything is
+created, and ``gates.py`` only reads ``record_dir`` once that returned 0. So
+the join is guarded, by the writer rather than by this module — and a reader
+treating this docstring as the map of where the guard is *applied* would
+otherwise go looking for a call that is not there.
+
 Membership rather than a filter over characters, for the reason
 ``experiment/per_cluster._checked_cluster_id`` records: a cluster id reaches
 these functions out of YAML, whose implicit typing rewrites it before anything

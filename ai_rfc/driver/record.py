@@ -11,22 +11,27 @@ and has no producer — so it comes into being here, with the first run record.
 Two rules hold this module together, and both exist because a run can be
 killed between its process returning and its record being written.
 
-*The budget is a lifetime cap, so* :func:`spent` *counts interrupted runs.* It
-sums the result events of every run directory the workspace holds, moved-aside
-ones included, because a ``sessions.jsonl`` row is appended only after the
-process returns: a kill in between loses the row but not the transcript. A
-:func:`spent` that skipped interrupted runs would let a killed session's cost
-vanish, and the lifetime cap would be quietly overspent on every resume. The
+*The budget is a lifetime cap, so* :func:`spent` *counts a run that was killed
+mid-session.* It sums the result events of every run directory the workspace
+holds, moved-aside ones included, because a ``sessions.jsonl`` row is appended
+only after the process returns: a kill in between loses the row but not the
+transcript. A :func:`spent` that skipped such a run would let a killed
+session's cost vanish, and the lifetime cap would be quietly overspent on every
+resume. **An operator's Ctrl-C is not that case and has not been since the stop
+vocabulary landed**: the sweep catches it, records
+:attr:`~ai_rfc.driver.stop.StopReason.operator_interrupt` and writes
+``status.json``, so the run it leaves is an ended one. What this rule is about
+is the run nobody got to record — a SIGKILL, a power loss, a terminal closed. The
 run directories are therefore enumerated rather than matched against a
 pattern — a moved-aside run is a child of ``runs/`` like any other, and is
 included by construction rather than by a glob someone could later narrow.
 
-*What is interrupted is renamed, never deleted.* The resume rule keys on the
-absence of a marker: ``runs/<ts>/`` without ``status.json`` is an interrupted
-run, ``checkpoints/<id>/`` without ``checkpoint.json`` an interrupted
-checkpoint. :func:`move_aside` names the cause in the directory's own name and
-moves it whole; what it moves is the evidence of the interruption, and
-:func:`spent` still reads it.
+*What was never finished is renamed, never deleted.* The resume rule keys on
+the absence of a marker: ``runs/<ts>/`` without ``status.json`` is a run that
+never ended on its own terms, ``checkpoints/<id>/`` without
+``checkpoint.json`` a checkpoint that was never frozen. :func:`move_aside`
+names the cause in the directory's own name and moves it whole; what it moves
+is the evidence of what stopped, and :func:`spent` still reads it.
 """
 
 from __future__ import annotations
@@ -50,8 +55,10 @@ RUNS_DIR = "runs"
 RUN_RECORD_FILE = "run.json"
 #: One row per session, appended after the process returns.
 SESSIONS_FILE = "sessions.jsonl"
-#: Written only when a run ends on its own terms. Its *absence* is what marks
-#: a run as interrupted, so nothing may write it from a ``finally``.
+#: Written only when a run ends on its own terms — an operator's Ctrl-C
+#: included, which the sweep records rather than leaves unrecorded. Its
+#: *absence* marks a run nobody got to record at all, so nothing may write it
+#: from a ``finally``.
 STATUS_FILE = "status.json"
 #: What :func:`move_aside` inserts before the cause.
 INTERRUPTED = ".interrupted-"
@@ -285,8 +292,9 @@ def write_status(run_dir: Path, status: dict[str, Any]) -> Path:
     """Write ``status.json`` — the mark of a run that ended on its own terms.
 
     Never write this from a ``finally``. Its absence is what tells a resume
-    that a run was interrupted, and a status written unconditionally would
-    make an interrupted run indistinguishable from a finished one.
+    that nobody got to record how the run ended, and a status written
+    unconditionally would make that run indistinguishable from a finished
+    one.
 
     Args:
         run_dir: The run's directory; it must already exist.
@@ -356,8 +364,8 @@ def spent(workspace: Path) -> float:
     The lifetime cap is enforced against this. It is read off the transcripts
     rather than off ``sessions.jsonl`` because a row is appended only after the
     process returns: a kill in between loses the row but not the transcript,
-    and a figure that skipped interrupted runs would let a killed session's
-    cost vanish from the bill.
+    and a figure that skipped a run killed mid-session would let that
+    session's cost vanish from the bill.
 
     A result event is read by the same rule
     :func:`ai_rfc.driver.session.run_session` charges a session by — a

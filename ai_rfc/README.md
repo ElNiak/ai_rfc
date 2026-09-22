@@ -182,7 +182,12 @@ reach a verdict with something in it. Those two lists hold every verb whose
 *own* verdict is a 3 — `pipeline run` only passes a stage's 3 through, the
 `ai-rfc experiment` door's own three are outside this table's scope, and the
 two in `server/core/gates.py` are the MCP twins of `check` and `draft gate`,
-gating on the same flag. 3 is the one code with a machine consumer —
+gating on the same flag. `ai-rfc run` and `ai-rfc next` have a third shape
+again: their 3 is neither their own verdict nor a stage's passed through, but
+the sweep's — `driver/stop.py` maps the stop reason
+`build_gate_findings` to `STRICT_FINDINGS_EXIT` (`:100`) at its single return
+(`:422`), so a sweep that halted because `check --strict` found something
+exits 3 while every other halt exits 1. 3 is the one code with a machine consumer —
 `_build_gate` in `driver/sweep.py` reads a `check --strict` 3 back to tell a
 finding apart from any other way the build gate can fail — so it names the
 outcome, never the flag.
