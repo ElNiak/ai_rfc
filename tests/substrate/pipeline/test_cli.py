@@ -415,3 +415,46 @@ def test_a_rederivable_check_that_exits_two_is_refused_rather_than_ranked(
         "error: stage check exited 2, which belongs to argparse alone; the "
         "argv this command built for it is malformed"
     ]
+
+
+def _stages_exiting(monkeypatch: pytest.MonkeyPatch, codes: dict[str, int]) -> None:
+    """Make each named stage exit with its own code, and every other one 0.
+
+    The single-code stub above cannot express the case these two tests are
+    about: one stage reporting findings beside another that could not run at
+    all. ``perform`` is imported by name into the verb's module, so the stub is
+    installed there rather than on :mod:`ai_rfc.pipeline.run`.
+    """
+
+    def _perform(stage, ws, **kwargs) -> StageResult:
+        return StageResult(stage=stage, exit_code=codes.get(stage.name, 0), argv=())
+
+    monkeypatch.setattr(cli, "perform", _perform)
+
+
+def test_a_walked_stages_findings_do_not_mask_a_check_that_could_not_complete(
+    mined_workspace: Path, monkeypatch
+):
+    """The join between the walk and the re-derivable checks ranks 1 above 3.
+
+    ``if code == 0: code = rederived`` kept the walk's 3 and discarded the
+    re-derivable pass's 1 outright, so a caller branching on the pair was told
+    "findings" about a run in which a check never completed.
+    """
+    _stages_exiting(monkeypatch, {"history": 3, "check": 1})
+
+    assert cli.main(["run", str(mined_workspace), "--from", "history", "--strict"]) == 1
+
+
+def test_a_rederivable_check_that_could_not_complete_outranks_a_siblings_findings(
+    finished_workspace: Path, monkeypatch
+):
+    """The same rule inside ``_perform_rederivable``, where ``max`` inverted it.
+
+    ``max`` ranks 3 above 1, so a ``gate`` that could not run disappeared
+    behind ``check``'s findings. ``verify`` has always ranked them the other
+    way round; the two doors must not disagree.
+    """
+    _stages_exiting(monkeypatch, {"check": 3, "gate": 1})
+
+    assert cli.main(["run", str(finished_workspace), "--strict"]) == 1

@@ -15,7 +15,7 @@ like the workspace's fault.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -45,6 +45,39 @@ class StageResult:
     def ok(self) -> bool:
         """Whether the stage succeeded."""
         return self.exit_code == 0
+
+
+def worst_exit_code(codes: Iterable[int]) -> int:
+    """Rank exit codes the way every aggregating door in this package must.
+
+    One home for the order, because two doors held two of them: *a code that
+    is neither 0 nor 3 means the command could not complete and outranks
+    everything; 3 means findings and outranks 0*. ``max`` inverts the top of
+    that order — it ranks 3 above 1 — so a stage that could not run at all
+    disappeared behind a sibling's findings, and a caller branching on the
+    pair read the opposite of the truth.
+
+    Every code that is not 0 or 3 collapses to 1, which is what 1 means. The
+    door that saw the original has already named it in its own ``error:``
+    line, so nothing is lost and a caller is not handed a fourth code to
+    branch on.
+
+    It lives here, in the substrate, rather than beside either caller:
+    ``lifecycle/verify`` already imports :func:`perform` from this module, so
+    the rule it wrote first is reachable from the two ``pipeline`` sites
+    without a second copy and without a new edge.
+
+    Args:
+        codes: The exit codes to rank. An empty run ranks 0 — nothing ran, so
+            nothing failed.
+
+    Returns:
+        1, 3 or 0.
+    """
+    ranked = tuple(codes)
+    if any(code not in (0, 3) for code in ranked):
+        return 1
+    return 3 if 3 in ranked else 0
 
 
 @dataclass(frozen=True)

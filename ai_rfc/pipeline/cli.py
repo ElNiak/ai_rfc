@@ -13,7 +13,7 @@ from ai_rfc.driver import printable
 from ai_rfc.parser import Parser
 
 from ..ledger import LedgerError
-from .run import PipelineError, perform, workspace_from
+from .run import PipelineError, perform, workspace_from, worst_exit_code
 from .stages import BY_NAME, OPTIONAL, STAGES, Performer, is_optional
 from .state import State, draft_head, next_stage, state
 from .substrate import check
@@ -328,8 +328,10 @@ def _run(args: argparse.Namespace) -> int:
             break
 
     rederived = _perform_rederivable(args, ws, performed, until, explicit_start)
-    if code == 0:
-        code = rederived
+    # Ranked, not preferred: `if code == 0` kept the walk's code whenever it
+    # had one, so a rederivable check that could not complete was discarded
+    # behind a walked stage's findings.
+    code = worst_exit_code((code, rederived))
     return _finish(args, performed, halted_at=halted_at, code=code)
 
 
@@ -380,11 +382,13 @@ def _perform_rederivable(
             to via ``--from``, or ``None`` when the caller gave none.
 
     Returns:
-        The highest exit code any check returned, or 0.
+        The worst exit code any check returned, ranked by
+        :func:`~ai_rfc.pipeline.run.worst_exit_code`: 1 for a check that could
+        not complete, else 3 for findings, else 0.
     """
     already = {entry["stage"] for entry in performed}
     states = {entry.stage.name: entry.state for entry in state(ws)}
-    worst = 0
+    codes: list[int] = []
     for name in ("check", "gate", "lint"):
         if name in already:
             continue
@@ -416,12 +420,14 @@ def _perform_rederivable(
                 "argv": list(result.argv),
             }
         )
-        # Refused before the ranking, not after: `max` would let a 2 outrank a
-        # sibling's 1 and leave the caller reading "you mistyped the command"
-        # for an argv nobody typed.
-        code = _refuse_argparse_two(name) if result.exit_code == 2 else result.exit_code
-        worst = max(worst, code)
-    return worst
+        # Refused for the diagnostic, not for the ranking: `worst_exit_code`
+        # already collapses a 2 into the 1 it means, but only this call says
+        # *why* — that the argv was one this command composed and nobody
+        # typed.
+        codes.append(
+            _refuse_argparse_two(name) if result.exit_code == 2 else result.exit_code
+        )
+    return worst_exit_code(codes)
 
 
 def _finish(

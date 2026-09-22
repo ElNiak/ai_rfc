@@ -124,3 +124,21 @@ def test_build_request_includes_the_sealed_refcache_when_present(tmp_path):
     argv, _ = DISPATCH["build"](_Request(ws, toolchain=tmp_path / "tc.json"))
     assert "--refcache" in argv
     assert argv[argv.index("--refcache") + 1] == str(tmp_path / "refcache")
+
+
+def test_the_exit_code_ranking_puts_could_not_complete_above_findings():
+    """The one home for the rule three doors used to state for themselves.
+
+    ``max`` would answer 3 for the second case and 5 for the last; both are
+    the opposite of what 1 means. Pinned directly as well as through the two
+    doors, because the doors can only reach the codes their stubs supply.
+    """
+    from ai_rfc.pipeline.run import worst_exit_code
+
+    assert worst_exit_code(()) == 0
+    assert worst_exit_code((0, 0)) == 0
+    assert worst_exit_code((0, 3)) == 3
+    assert worst_exit_code((3, 1)) == 1
+    assert worst_exit_code((1, 3)) == 1
+    assert worst_exit_code((3, 5)) == 1
+    assert worst_exit_code((2,)) == 1

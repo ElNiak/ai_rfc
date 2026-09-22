@@ -12,7 +12,7 @@ from ...draft import cli as draft_cli
 from ...driver import record as run_record
 from ...driver.coverage import Route, covers, read_transcript
 from ...parser import Parser
-from ...pipeline.run import perform
+from ...pipeline.run import perform, worst_exit_code
 from ...pipeline.stages import BY_NAME
 from .. import LifecycleError
 from ..common import (
@@ -207,11 +207,12 @@ def verify(config_path: Path, *, strict: bool) -> int:
         f"checks: {len(ran)} ran, {len(skipped)} skipped"
         + (f" ({', '.join(skipped)})" if skipped else "")
     )
-    if any(code not in (0, 3) for code in codes):
-        return 1
-    if 3 in codes:
-        return 3 if strict else 0
-    return 0
+    # The rule this door wrote first, now read from its one home so the two
+    # aggregating doors cannot rank the same three codes in two orders.
+    # `strict` stays here: whether findings are an exit code at all is this
+    # verb's own question, not the ranking's.
+    worst = worst_exit_code(codes)
+    return 0 if worst == 3 and not strict else worst
 
 
 def configure(parser: argparse.ArgumentParser) -> None:
