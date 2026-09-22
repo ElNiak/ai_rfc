@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import argparse
 import signal
-import sys
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from importlib import import_module
@@ -19,6 +18,7 @@ from typing import NoReturn, Union
 
 from . import __version__
 from .entrypoints import ENTRY_POINTS, SECTIONS
+from .parser import Parser
 
 PROG = "ai-rfc"
 
@@ -32,69 +32,6 @@ _Disposition = Union[Callable[[int, FrameType | None], object], int, None]
 #: asserts ``panther ai-rfc --help`` opens with exactly ``usage: ai-rfc
 #: <verb>``, and that test lives in a repository this one cannot edit.
 USAGE = "%(prog)s <verb> [args]\n       %(prog)s --help | --version"
-
-
-class Parser(argparse.ArgumentParser):
-    """An ``ArgumentParser`` whose refusals go through the stderr boundary.
-
-    argparse composes ``unrecognized arguments: %s`` with ``%s`` and not
-    ``%r``, interpolating ``' '.join(argv)`` — the operator's own tokens —
-    straight into a stderr line. A token carrying a newline therefore writes a
-    second line that reads as a diagnostic of the tool's own: driven against a
-    mounted verb it planted ``resume: ai-rfc run --config /tmp/evil.yaml``
-    under a real refusal, which is a fabricated instruction in the one place
-    an operator is most likely to copy one from.
-
-    **A funnel, not a list of sites.** ``error()`` is the single method every
-    argparse diagnostic is routed through, so overriding it covers each of
-    those messages *without enumerating them* — which is the distinction this
-    package keeps making, and the same one :func:`ai_rfc.driver.printable`
-    rests on: a predicate over a category beats a list of characters somebody
-    thought of. Three forging messages are known and each is an **instance**,
-    not the set: ``:1836`` unrecognised arguments from ``parse_args``,
-    ``:2351`` the same message from ``parse_intermixed_args``, and ``:2230``
-    ambiguous option — the last found by a reviewer on a depth-2 sub-parser
-    after this was written, and already covered. (Read out of the 3.10.12
-    stdlib rather than carried over: ``:2351`` is a second entry point onto
-    one message, not a second message. ``invalid choice`` is not among them;
-    it interpolates with ``%r`` and forges nothing.) A newly noticed
-    fourth needs no second fix; if one ever did, that would mean argparse had
-    stopped funnelling, which is the thing to check. Sub-parsers are
-    covered without a second edit and without a registry: ``add_subparsers``
-    does ``kwargs.setdefault("parser_class", type(self))``, and no
-    ``configure`` in this package passes one of its own. Measured over the
-    tree ``build_parser()`` actually returns rather than over a stand-in:
-    all **27** leaves are this class, and so is every sub-verb of the **13**
-    that have one.
-
-    Not covered, and deliberately: each command's ``build_standalone_parser``
-    constructs :class:`argparse.ArgumentParser` directly, so
-    ``python -m ai_rfc.<sub>`` keeps the stock ``error()``. Sweeping those is
-    a separate change to a dozen files with a dozen tests, and this is the
-    door fifteen verbs newly reach.
-    """
-
-    def error(self, message: str) -> NoReturn:
-        """Print the usage and one escaped diagnostic, then exit 2.
-
-        Args:
-            message: argparse's own text, with the offending tokens already
-                interpolated into it.
-
-        Raises:
-            SystemExit: Always, with code 2 — argparse's contract for a
-                malformed invocation, unchanged.
-        """
-        # Function-local: importing ``lifecycle.common`` at module scope costs
-        # 90 modules (measured, 137 -> 227) and ``import ai_rfc.cli`` is on no
-        # error path at all. It is free where it actually runs — by the time a
-        # parser can refuse anything, ``build_parser`` has imported every verb
-        # and ``lifecycle.common`` with them (299 modules, already loaded).
-        from .lifecycle.common import report
-
-        self.print_usage(sys.stderr)
-        report(f"{self.prog}: error: {message}")
-        self.exit(2)
 
 
 def _epilog() -> str:

@@ -7,6 +7,7 @@ from pathlib import Path
 
 from ... import __version__
 from ...config import experiments_root
+from ...parser import Parser
 from ...toolchain import RECORD_FILE, TOOLS_DIR, ToolchainError, provision, verify
 from ..common import report, report_diagnostic
 from ..workspace import TEMPLATE_COMMIT, TEMPLATE_URL
@@ -63,7 +64,7 @@ def build_standalone_parser() -> argparse.ArgumentParser:
         A parser carrying this command's own ``prog`` and ``--version``, over
         the arguments the root mounts through :func:`configure`.
     """
-    parser = argparse.ArgumentParser(prog="ai-rfc toolchain")
+    parser = Parser(prog="ai-rfc toolchain")
     parser.add_argument(
         "--version", action="version", version=f"ai-rfc toolchain {__version__}"
     )

@@ -11,6 +11,7 @@ from pathlib import Path
 
 from ... import __version__, ledger
 from ...config import ConfigError
+from ...parser import Parser
 from ...pipeline.cli import print_status, status_payload
 from .. import LifecycleError
 from ..common import add_config_argument, config_path_from, load_pair, report_diagnostic
@@ -81,7 +82,7 @@ def build_standalone_parser() -> argparse.ArgumentParser:
         A parser carrying this command's own ``prog`` and ``--version``, over
         the arguments the root mounts through :func:`configure`.
     """
-    parser = argparse.ArgumentParser(prog="ai-rfc status")
+    parser = Parser(prog="ai-rfc status")
     parser.add_argument(
         "--version", action="version", version=f"ai-rfc status {__version__}"
     )

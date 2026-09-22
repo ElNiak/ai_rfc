@@ -16,6 +16,7 @@ from pathlib import Path
 from ... import __version__, ledger
 from ...config import ConfigError
 from ...driver import DriverError, sweep
+from ...parser import Parser
 from ...pipeline.run import perform
 from ...pipeline.stages import BY_NAME, STAGES, Performer, is_optional
 from ...pipeline.state import State, state
@@ -405,7 +406,7 @@ def build_standalone_parser() -> argparse.ArgumentParser:
         A parser carrying this command's own ``prog`` and ``--version``, over
         the arguments the root mounts through :func:`configure`.
     """
-    parser = argparse.ArgumentParser(prog="ai-rfc run")
+    parser = Parser(prog="ai-rfc run")
     parser.add_argument(
         "--version", action="version", version=f"ai-rfc run {__version__}"
     )

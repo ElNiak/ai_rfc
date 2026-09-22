@@ -15,6 +15,7 @@ import pytest
 import ai_rfc
 from ai_rfc import __version__
 from ai_rfc.entrypoints import ENTRY_POINTS, PACKAGE
+from ai_rfc.parser import Parser
 
 pytestmark = pytest.mark.unit
 
@@ -42,6 +43,26 @@ def test_a_malformed_invocation_exits_two_everywhere(entry):
     with pytest.raises(SystemExit) as exit_info:
         entry.load().main(["--no-such-flag"])
     assert exit_info.value.code == 2
+
+
+@pytest.mark.parametrize("entry", ENTRY_POINTS, ids=[e.prog for e in ENTRY_POINTS])
+def test_every_standalone_door_is_built_on_the_hardened_parser(entry):
+    """``python -m ai_rfc.<sub>`` must refuse the way the root door refuses.
+
+    :class:`ai_rfc.parser.Parser` overrides ``error()``, the one method every
+    argparse diagnostic funnels through, so asserting the *type* covers each
+    of those messages without enumerating them — the predicate-over-an-
+    enumeration shape this file already uses for the register's ``_report``
+    copies. The set asserted over is the registry's, which
+    :func:`test_every_cli_module_on_disk_is_registered` holds to the tree, so
+    a twenty-eighth command cannot land with a stock parser and no failing
+    test. That is the whole remedy: the enumeration was already derived, only
+    the assertion over it was missing, and every door built a bare
+    :class:`argparse.ArgumentParser` until it existed.
+    """
+    parser = importlib.import_module(entry.module).build_standalone_parser()
+
+    assert isinstance(parser, Parser)
 
 
 @pytest.mark.parametrize("entry", ENTRY_POINTS, ids=[e.prog for e in ENTRY_POINTS])
@@ -219,6 +240,50 @@ def test_main_is_the_standalone_door_over_configure_and_run(capsys):
 #: verdict. Built by concatenation — ``test_source_hygiene`` forbids a source
 #: file carrying a character :meth:`str.isprintable` refuses.
 _FORGED_TAIL = "note: 3 cluster view(s) written to /forged"
+
+
+@pytest.mark.parametrize("entry", ENTRY_POINTS, ids=[e.prog for e in ENTRY_POINTS])
+def test_a_refusal_at_a_standalone_door_cannot_forge_a_line(entry, capsys):
+    """The behavioural twin of the type assertion, at every standalone door.
+
+    :func:`test_a_malformed_invocation_exits_two_everywhere` already holds the
+    exit code; this holds the *shape* of what reaches stderr on the way out.
+    argparse composes ``unrecognized arguments: %s`` by interpolating the
+    operator's own leftover tokens, so a token carrying a line ending writes a
+    second line that reads as a verdict of the tool's own — the forgery
+    ``tests/cli/test_root_errors.py`` pins at the root door, here pinned at
+    the twenty-seven doors ``python -m ai_rfc.<sub>`` opens.
+
+    Driven through ``error()`` with argparse's own composed message rather
+    than through one argv, because **no single argv reaches that branch at
+    every door** — measured over all 27 with the forged token as the sole
+    argument: eight doors (``init run next status verify doctor gate
+    citation-gate``) did print the forgery; thirteen answered ``invalid
+    choice``, which interpolates with ``%r`` and forges nothing; five answered
+    ``the following arguments are required``, which does not interpolate the
+    token at all; and ``checkpoint`` *accepted* it as a positional, so driving
+    ``main`` there would run the verb. An option-shaped token changes none of
+    that: ``_parse_optional`` returns ``None`` for any argument containing a
+    space, and a missing required argument is refused inside
+    ``_parse_known_args`` before a leftover is ever looked at. The message is
+    therefore handed to the funnel directly, which is the site the remedy
+    lives at and the only one every door shares.
+    """
+    parser = importlib.import_module(entry.module).build_standalone_parser()
+
+    with pytest.raises(SystemExit) as exit_info:
+        parser.error("unrecognized arguments: evil" + chr(0x0A) + _FORGED_TAIL)
+
+    assert exit_info.value.code == 2
+    forged = [
+        line for line in capsys.readouterr().err.splitlines() if _FORGED_TAIL in line
+    ]
+    # One line, and it is the diagnostic itself rather than a line standing
+    # under it: the usage argparse prints first is genuinely two lines, so a
+    # count over the whole capture would prove nothing.
+    assert len(forged) == 1
+    assert forged[0].startswith(f"{entry.prog}: error: ")
+    assert "\\n" in forged[0]
 
 
 @pytest.mark.parametrize("separator", [chr(0x0A), chr(0x0D), chr(0x2028)])

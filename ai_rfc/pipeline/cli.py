@@ -10,6 +10,7 @@ from pathlib import Path
 
 from ai_rfc import __version__
 from ai_rfc.driver import printable
+from ai_rfc.parser import Parser
 
 from ..ledger import LedgerError
 from .run import PipelineError, perform, workspace_from
@@ -162,7 +163,7 @@ def build_standalone_parser() -> argparse.ArgumentParser:
         A parser carrying this command's own ``prog`` and ``--version``, over
         the arguments the root mounts through :func:`configure`.
     """
-    parser = argparse.ArgumentParser(prog="ai-rfc pipeline")
+    parser = Parser(prog="ai-rfc pipeline")
     parser.add_argument(
         "--version", action="version", version=f"ai-rfc pipeline {__version__}"
     )

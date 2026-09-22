@@ -11,6 +11,7 @@ from pathlib import Path
 
 from ai_rfc import __version__
 from ai_rfc.driver import printable
+from ai_rfc.parser import Parser
 
 from .adopt import read_records
 from .fetch import Transport, fetch_pull_data, parse_url
@@ -147,7 +148,7 @@ def build_standalone_parser() -> argparse.ArgumentParser:
         A parser carrying this command's own ``prog`` and ``--version``, over
         the arguments the root mounts through :func:`configure`.
     """
-    parser = argparse.ArgumentParser(prog="ai-rfc forge")
+    parser = Parser(prog="ai-rfc forge")
     parser.add_argument(
         "--version", action="version", version=f"ai-rfc forge {__version__}"
     )

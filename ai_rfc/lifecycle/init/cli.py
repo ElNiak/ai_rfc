@@ -13,6 +13,7 @@ from pathlib import Path
 from ... import __version__
 from ...config import ConfigError, ReconConfig, dump_config, load_config
 from ...draft.build import Toolchain
+from ...parser import Parser
 from .. import LifecycleError
 from ..common import add_config_argument, config_path_from, report_diagnostic
 from ..workspace import (
@@ -163,7 +164,7 @@ def build_standalone_parser() -> argparse.ArgumentParser:
         A parser carrying this command's own ``prog`` and ``--version``, over
         the arguments the root mounts through :func:`configure`.
     """
-    parser = argparse.ArgumentParser(prog="ai-rfc init")
+    parser = Parser(prog="ai-rfc init")
     parser.add_argument(
         "--version", action="version", version=f"ai-rfc init {__version__}"
     )

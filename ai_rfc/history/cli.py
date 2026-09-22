@@ -8,6 +8,7 @@ from pathlib import Path
 
 from ai_rfc import __version__
 from ai_rfc.driver import printable
+from ai_rfc.parser import Parser
 
 from .git_log import DEFAULT_FILE_CAP, GitError, extract
 from .index import build_index
@@ -74,7 +75,7 @@ def build_standalone_parser() -> argparse.ArgumentParser:
         A parser carrying this command's own ``prog`` and ``--version``, over
         the arguments the root mounts through :func:`configure`.
     """
-    parser = argparse.ArgumentParser(prog="ai-rfc history")
+    parser = Parser(prog="ai-rfc history")
     parser.add_argument(
         "--version", action="version", version=f"ai-rfc history {__version__}"
     )

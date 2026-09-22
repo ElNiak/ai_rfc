@@ -11,6 +11,7 @@ from ...config import ConfigError
 from ...draft import cli as draft_cli
 from ...driver import record as run_record
 from ...driver.coverage import Route, covers, read_transcript
+from ...parser import Parser
 from ...pipeline.run import perform
 from ...pipeline.stages import BY_NAME
 from .. import LifecycleError
@@ -240,7 +241,7 @@ def build_standalone_parser() -> argparse.ArgumentParser:
         A parser carrying this command's own ``prog`` and ``--version``, over
         the arguments the root mounts through :func:`configure`.
     """
-    parser = argparse.ArgumentParser(prog="ai-rfc verify")
+    parser = Parser(prog="ai-rfc verify")
     parser.add_argument(
         "--version", action="version", version=f"ai-rfc verify {__version__}"
     )

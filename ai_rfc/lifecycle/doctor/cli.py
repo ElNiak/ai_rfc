@@ -19,6 +19,7 @@ from ...config import (
     load_config,
     profile_dir,
 )
+from ...parser import Parser
 from ...toolchain import RECORD_FILE, TOOLS_DIR
 from ..common import CONFIG_ENV, report_diagnostic
 from ..profile import login_command
@@ -274,7 +275,7 @@ def build_standalone_parser() -> argparse.ArgumentParser:
         A parser carrying this command's own ``prog`` and ``--version``, over
         the arguments the root mounts through :func:`configure`.
     """
-    parser = argparse.ArgumentParser(prog="ai-rfc doctor")
+    parser = Parser(prog="ai-rfc doctor")
     parser.add_argument(
         "--version", action="version", version=f"ai-rfc doctor {__version__}"
     )

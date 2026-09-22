@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ai_rfc import __version__
+from ai_rfc.parser import Parser
 
 from ..agent import emit, perform
 from ..schema import SchemaError, load
@@ -341,7 +342,7 @@ def build_standalone_parser() -> argparse.ArgumentParser:
         A parser carrying this command's own ``prog`` and ``--version``, over
         the arguments the root mounts through :func:`configure`.
     """
-    parser = argparse.ArgumentParser(prog="ai-rfc draft")
+    parser = Parser(prog="ai-rfc draft")
     parser.add_argument(
         "--version", action="version", version=f"ai-rfc draft {__version__}"
     )

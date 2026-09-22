@@ -22,6 +22,7 @@ from pathlib import Path
 from ... import __version__, ledger
 from ...config import ConfigError
 from ...driver import DriverError, sweep
+from ...parser import Parser
 from .. import LifecycleError
 from ..common import (
     add_config_argument,
@@ -128,7 +129,7 @@ def build_standalone_parser() -> argparse.ArgumentParser:
         A parser carrying this command's own ``prog`` and ``--version``, over
         the arguments the root mounts through :func:`configure`.
     """
-    parser = argparse.ArgumentParser(prog="ai-rfc next")
+    parser = Parser(prog="ai-rfc next")
     parser.add_argument(
         "--version", action="version", version=f"ai-rfc next {__version__}"
     )

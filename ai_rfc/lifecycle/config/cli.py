@@ -6,6 +6,7 @@ import argparse
 
 from ... import __version__
 from ...config import example, reference_markdown
+from ...parser import Parser
 
 
 def configure(parser: argparse.ArgumentParser) -> None:
@@ -35,7 +36,7 @@ def build_standalone_parser() -> argparse.ArgumentParser:
         A parser carrying this command's own ``prog`` and ``--version``, over
         the arguments the root mounts through :func:`configure`.
     """
-    parser = argparse.ArgumentParser(prog="ai-rfc config")
+    parser = Parser(prog="ai-rfc config")
     parser.add_argument(
         "--version", action="version", version=f"ai-rfc config {__version__}"
     )

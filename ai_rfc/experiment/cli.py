@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any, Callable
 from ai_rfc import __version__
 from ai_rfc.driver import DriverError, printable
 from ai_rfc.driver.arms import ARMS
+from ai_rfc.parser import Parser
 
 from ..config import (
     ConfigError,
@@ -1868,7 +1869,7 @@ def build_standalone_parser() -> argparse.ArgumentParser:
         A parser carrying the instrument's own ``prog`` and ``--version``, over
         the arguments the root door mounts through :func:`configure`.
     """
-    parser = argparse.ArgumentParser(prog="ai-rfc experiment")
+    parser = Parser(prog="ai-rfc experiment")
     parser.add_argument(
         "--version", action="version", version=f"ai-rfc experiment {__version__}"
     )
