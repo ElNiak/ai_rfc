@@ -217,8 +217,11 @@ def to_markdown(report: ManifestReport) -> str:
                 f"- {code(structure.id)} ({structure.kind.value}) "
                 f"{printable(structure.title)} §{printable(structure.section)}: "
             )
-            status = statuses.get(structure.id)
-            if status is None:
+            # Named `pair`, not `status`: the count loop above binds `status`
+            # to a status *name* in this same function, and reusing it makes
+            # mypy read this one as a `str`.
+            pair = statuses.get(structure.id)
+            if pair is None:
                 # `structure_statuses` skips such a structure (`promotion.py:132`):
                 # it binds no claim, so there is nothing for it to be as strong
                 # as. Named rather than skipped, because a structure bound to
@@ -227,7 +230,7 @@ def to_markdown(report: ManifestReport) -> str:
                 # what decides whether the report exists at all.
                 lines.append(f"{head}binds no claim this manifest declares")
                 continue
-            stored, supported = status
+            stored, supported = pair
             lines.append(
                 f"{head}stored {stored.value}, supported {supported.value}, "
                 f"{len(structure.claims)} claims"
