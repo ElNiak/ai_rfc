@@ -164,3 +164,39 @@ def test_toolchain_verbs_are_mounted_on_the_root(capsys):
     assert excinfo.value.code == 0
     out = capsys.readouterr().out
     assert "provision" in out and "verify" in out
+
+
+def test_doctor_walks_the_real_ancestry_of_a_relative_workspace(
+    tmp_path, monkeypatch, capsys
+):
+    """``config.workspace.parents`` is ``[Path('.')]`` for a relative value.
+
+    So the CLAUDE.md check — the one that stops a session loading project
+    settings out of the workspace's ancestry — asked about the process's
+    working directory instead of the workspace's, and answered "no ancestor"
+    for every relative config. The loader anchoring the value is what gives
+    this walk something to walk.
+    """
+    root = tmp_path / "root"
+    monkeypatch.setenv("AI_RFC_EXPERIMENTS_ROOT", str(root))
+    monkeypatch.setenv("PATH", str(_fake_claude(tmp_path).parent))
+    home = tmp_path / "recon"
+    home.mkdir()
+    path = home / "recon.yaml"
+    path.write_text(
+        "name: fixture\n"
+        "workspace: ./ws\n"
+        "source:\n  repo: https://github.com/example/project\n  pin: main\n"
+        "draft:\n  name: draft-test-fixture\n"
+    )
+    (home / "CLAUDE.md").write_text("project notes\n")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+
+    assert cli.main(["doctor", "--config", str(path), "--json"]) == 0
+    checks = {c["name"]: c for c in json.loads(capsys.readouterr().out)["checks"]}
+
+    assert checks["workspace"]["severity"] == "warning"
+    assert "CLAUDE.md" in checks["workspace"]["detail"]
+    assert str(home.resolve()) in checks["workspace"]["detail"]

@@ -261,3 +261,51 @@ def test_the_kind_table_and_the_coercer_cannot_drift():
         assert "unknown field kind" not in str(excinfo.value), kind
     with pytest.raises(ConfigError, match="unknown field kind"):
         _coerce(Field("probe", "nonesuch", "doc"), "x")
+
+
+def test_a_relative_workspace_anchors_to_the_config_files_own_directory(
+    tmp_path, monkeypatch
+):
+    """Three readers built three different roots out of one relative value.
+
+    ``init`` took ``config.workspace`` raw, so it meant the process's working
+    directory; ``doctor`` walked ``config.workspace.parents``, which for a
+    relative value is ``[Path('.')]`` and checks no real ancestor at all; the
+    server anchored it to the config's own directory. So a config naming
+    ``./ws`` named a different tree per caller — and, run from a directory
+    holding a ``ws`` of its own, somebody else's tree.
+
+    Anchored once, in the loader, so every reader is handed the same absolute
+    path and none of them has to remember to do it.
+    """
+    monkeypatch.setenv("AI_RFC_EXPERIMENTS_ROOT", str(tmp_path / "root"))
+    home = tmp_path / "recon"
+    home.mkdir()
+    path = home / "recon.yaml"
+    path.write_text(MINIMAL + "workspace: ./ws\n")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+
+    config = load_config(path)
+
+    assert config.workspace.is_absolute()
+    assert config.workspace == (home / "ws").resolve()
+    # Built from the config's directory, not from the caller's.
+    assert config.workspace != (elsewhere / "ws").resolve()
+    # And the ancestry `doctor` walks is now a real one.
+    assert home.resolve() in config.workspace.parents
+
+
+def test_an_absolute_workspace_is_left_exactly_as_written(tmp_path, monkeypatch):
+    """Anchoring must move the relative case and only the relative case.
+
+    ``Path('/a') / '/b'`` is ``/b``, so joining is already a no-op for an
+    absolute value; asserted rather than reasoned, because the sealed bytes
+    of every workspace in the tree depend on it.
+    """
+    monkeypatch.setenv("AI_RFC_EXPERIMENTS_ROOT", str(tmp_path / "root"))
+    declared = tmp_path / "somewhere" / "else"
+    path = _write(tmp_path, MINIMAL + f"workspace: {declared}\n")
+
+    assert load_config(path).workspace == declared

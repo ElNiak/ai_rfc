@@ -621,7 +621,27 @@ def load_config(path: Path) -> ReconConfig:
 
     name = values["name"]
     root = experiments_root()
-    workspace = values["workspace"] or root / "reconstructions" / name
+    declared = values["workspace"]
+    if declared is None:
+        workspace = root / "reconstructions" / name
+    else:
+        # Anchored to the config file's own directory, once, here. Three
+        # readers took this field and built three different roots out of a
+        # relative value: `lifecycle/init/cli.py` used it raw (so it meant the
+        # process's working directory), `lifecycle/doctor/cli.py` walked its
+        # `parents`, which for a relative value is `[Path('.')]` and checks no
+        # real ancestor at all, and `server/paths.py` anchored it. One config
+        # therefore named a different tree per caller — and, run from a
+        # directory holding a `ws` of its own, somebody else's tree.
+        #
+        # Only the relative case moves: `Path('/a') / '/b'` is `/b`, and
+        # `expanduser` has already made a `~` value absolute. The default
+        # above is absolute by construction and is deliberately left
+        # untouched, so no workspace sealed from a defaulted config sees its
+        # bytes change.
+        workspace = declared.expanduser()
+        if not workspace.is_absolute():
+            workspace = (path.parent / workspace).resolve()
     source = SourceConfig(
         repo=values["source.repo"],
         host=values["source.host"] or _infer_host(values["source.repo"]),
