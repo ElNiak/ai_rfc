@@ -460,13 +460,20 @@ def seal_references(
             b"".join((cache / p.name).read_bytes() for p in sorted(cache.iterdir()))
         ).hexdigest()
         template_home = str(toolchain.template_home)
-    if config.references:
-        (layout.root / REFERENCES_FILE).write_text(
-            "references:\n"
-            + "".join(f"- {reference}\n" for reference in config.references)
+    # Serialised, not concatenated. ``"- " + reference`` is not YAML: a
+    # reference carrying ``": "`` turned its list item into a mapping, and one
+    # opening on ``#`` became a comment and vanished — so the declared set a
+    # build read back was not the declared set that was written. The byte
+    # shape is unchanged for every id in the tree (a block sequence at no
+    # indent, and ``references: []`` when there are none), so no sealed digest
+    # moves; what changes is that an id needing quoting now gets them.
+    (layout.root / REFERENCES_FILE).write_text(
+        yaml.safe_dump(
+            {"references": list(config.references)},
+            default_flow_style=False,
+            sort_keys=False,
         )
-    else:
-        (layout.root / REFERENCES_FILE).write_text("references: []\n")
+    )
     return refcache_sha256, template_home
 
 

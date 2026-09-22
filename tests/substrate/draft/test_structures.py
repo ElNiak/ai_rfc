@@ -430,3 +430,27 @@ def test_each_kind_matches_its_golden(name, build, request):
         f"bytes. If the change is intended, re-run with --update-goldens and "
         f"say so in the commit message."
     )
+
+
+def test_a_backtick_in_a_claim_id_cannot_close_the_span_it_sits_in():
+    """The claim cell is a code span, and ``_cell`` does not defend one.
+
+    ``_cell`` collapses whitespace and escapes pipes — the table's grammar —
+    and a span is delimited by backticks, which is a different grammar. A
+    claim id carrying one therefore closed its own span and left the rest of
+    the id as prose, which is the shape ``markdown.code`` exists to fence.
+    """
+    structure = Structure(
+        id="codes",
+        kind=StructureKind.ENUM,
+        title="Error codes",
+        section="6",
+        values=(Value(name="NO_ERROR", value="0x00", claim="spec:`6.1"),),
+    )
+
+    claim_cell = [
+        line for line in render(structure).splitlines() if "NO_ERROR" in line
+    ][0].split("|")[-2]
+
+    # The whole id is inside one span, fenced by a longer run than it carries.
+    assert "``ai_rfc:spec:`6.1``" in claim_cell

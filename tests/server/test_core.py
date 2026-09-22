@@ -347,3 +347,27 @@ def test_a_damaged_timeline_is_refused_with_the_readers_own_error(workspace, dam
     with pytest.raises(CoreError) as error:
         cluster_get(workspace, "c0001-x")
     assert str(rows) in str(error.value)
+
+
+def test_an_exported_question_cannot_open_a_heading_of_its_own(workspace):
+    """The register's text is agent-written and the export is Markdown.
+
+    ``export_open`` composes headings and a body out of values an agent chose
+    — the question id after ``## ``, the question text on a line of its own.
+    A line ending in the text forged a second block, and a leading ``#`` made
+    the text itself a heading, so a bundle an author reads as the harness's
+    own structure was partly the agent's.
+    """
+    forged = "# Forged heading" + chr(0x0A) + "## q-999" + chr(0x0A) + "Answer: yes."
+    draft_question(workspace, forged, ["t:1.1"])
+
+    bundle = export_open(workspace)
+
+    headings = [line for line in bundle.splitlines() if line.startswith("#")]
+    # Exactly the title and the one question the register holds.
+    assert headings == [
+        "# Questions for the implementation's authors",
+        "## q-001",
+    ]
+    # The text survives, visibly escaped, on one line that is not a heading.
+    assert "\\n## q-999" in bundle

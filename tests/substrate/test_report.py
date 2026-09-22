@@ -524,3 +524,69 @@ def test_a_line_ending_in_a_finding_cannot_add_a_line():
     assert len(to_markdown(report).splitlines()) == len(
         to_markdown(benign).splitlines()
     )
+
+
+def test_a_structure_binding_no_known_claim_is_reported_not_raised():
+    """``statuses[structure.id]`` raised ``KeyError`` and lost the whole report.
+
+    ``promotion.structure_statuses`` skips a structure with no bound claim —
+    it has no claim to be as strong as — so the report's own lookup had no
+    entry for it and the renderer crashed on a manifest it exists to
+    describe. Two structures, because one bound structure is what puts the
+    section on the page at all and so makes the missing entry reachable.
+
+    Built programmatically because :func:`ai_rfc.schema.load` refuses this
+    shape at the door (``header: binds spec:9.9, which is not a
+    requirement``). The renderer is reached by every caller that assembles a
+    :class:`~ai_rfc.models.Manifest` itself, and it must not be the thing
+    that decides whether a report exists.
+    """
+    from ai_rfc.models import (
+        Field,
+        Intent,
+        Level,
+        Manifest,
+        RequirementClaim,
+        RequirementClass,
+        Structure,
+        StructureKind,
+    )
+    from ai_rfc.report import build, to_markdown
+
+    claim = RequirementClaim(
+        id="spec:1.1",
+        text="The system responds within the configured interval.",
+        section="1.1",
+        level=Level.MUST,
+        layer="timing",
+        req_class=RequirementClass.PROTOCOL_BEHAVIORAL,
+        intent=Intent.INTENDED,
+    )
+    manifest = Manifest(
+        rfc="SPEC-1",
+        title="x",
+        claims=(claim,),
+        structures=(
+            Structure(
+                id="alpha",
+                kind=StructureKind.RECORD,
+                title="Bound",
+                section="3",
+                fields=(Field(name="a", claim="spec:1.1"),),
+            ),
+            Structure(
+                id="header",
+                kind=StructureKind.RECORD,
+                title="Message header",
+                section="4",
+                fields=(Field(name="a", claim="spec:9.9"),),
+            ),
+        ),
+    )
+
+    text = to_markdown(build(manifest))
+
+    section = text.split("## Structures")[1].split("##")[0]
+    assert "`alpha`" in section
+    assert "`header`" in section
+    assert "binds no claim this manifest declares" in section

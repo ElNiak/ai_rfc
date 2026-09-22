@@ -5,6 +5,8 @@ from __future__ import annotations
 import datetime
 from typing import Any
 
+from ai_rfc.driver import printable
+
 from ..paths import Context
 from . import CoreError, GuardrailError
 from .claims import _atomic_write, _document, _normalize_and_write
@@ -73,9 +75,7 @@ def draft_question(
         status=register.QuestionStatus.OPEN,
         asked_at=asked_at or datetime.date.today().isoformat(),
     )
-    _atomic_write(
-        ctx.questions, register.dump_questions([*existing, entry])
-    )
+    _atomic_write(ctx.questions, register.dump_questions([*existing, entry]))
 
     linked = []
     for claim_id in claim_ids:
@@ -91,8 +91,31 @@ def draft_question(
     }
 
 
+#: What every question's text is prefixed with, so that the value's own first
+#: character is never a *line's* first character. ``printable`` already makes
+#: the text one line; a ``#`` on the front of that line would still open an
+#: ATX heading, a ``-`` a list and a ``>`` a quote, and the fix for all of
+#: them at once is that the line does not start with the value. Deliberately
+#: not an enumeration of openers — that list is CommonMark's, not ours.
+_QUESTION_LEAD = "Q: "
+
+
 def export_open(ctx: Context) -> str:
-    """Render every open question as one markdown bundle for the author."""
+    """Render every open question as one markdown bundle for the author.
+
+    Every value here — the id, the text, the claim ids — is written by the
+    agent under test into ``questions.yaml``, and the bundle an author reads
+    is Markdown whose structure they take as the harness's own. So each one
+    goes through :func:`~ai_rfc.driver.printable`, which collapses a line
+    ending into a visible escape and cannot be forged past, and the text also
+    carries :data:`_QUESTION_LEAD` so its first character never begins a line.
+
+    Args:
+        ctx: The resolved context.
+
+    Returns:
+        The bundle, or ``"No open questions."`` when the register holds none.
+    """
     register = _register(ctx)
     lines = ["# Questions for the implementation's authors", ""]
     open_entries = [
@@ -103,12 +126,13 @@ def export_open(ctx: Context) -> str:
     if not open_entries:
         return "No open questions.\n"
     for entry in open_entries:
+        claims = ", ".join(printable(claim_id) for claim_id in entry.claim_ids)
         lines += [
-            f"## {entry.id}",
+            f"## {printable(entry.id)}",
             "",
-            entry.question,
+            f"{_QUESTION_LEAD}{printable(entry.question)}",
             "",
-            f"_Claims affected: {', '.join(entry.claim_ids)}_",
+            f"_Claims affected: {claims}_",
             "",
         ]
     return "\n".join(lines)

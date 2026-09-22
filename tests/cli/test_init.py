@@ -477,3 +477,65 @@ def test_a_title_holding_a_dollar_is_not_re_substituted(
     )
 
     assert _frontmatter(body)["title"] == "Costs $target and $5"
+
+
+def _recon_config_with_references(references):
+    """A loaded config carrying exactly these references and nothing sealed.
+
+    Built by loading a minimal ``recon.yaml`` rather than by constructing
+    :class:`~ai_rfc.config.ReconConfig`, so the field the writer reads is the
+    one the loader produces.
+    """
+    import tempfile
+    from pathlib import Path
+
+    from ai_rfc.config import load_config
+
+    home = Path(tempfile.mkdtemp())
+    path = home / "recon.yaml"
+    path.write_text(
+        "name: fixture\n"
+        f"workspace: {home / 'ws'}\n"
+        "source:\n  repo: https://github.com/example/project\n  pin: main\n"
+        "draft:\n  name: draft-test-fixture\n"
+        "references:\n" + "".join(f"  - {yaml_scalar(r)}\n" for r in references)
+    )
+    return load_config(path)
+
+
+def yaml_scalar(value: str) -> str:
+    """The value as a YAML scalar that reads back as itself."""
+    import yaml
+
+    return (
+        yaml.safe_dump(value, default_flow_style=True)
+        .strip()
+        .removesuffix("...")
+        .strip()
+    )
+
+
+def test_a_reference_id_cannot_forge_a_key_in_references_yaml(tmp_path, monkeypatch):
+    """``references.yaml`` was composed with string concatenation.
+
+    ``"- " + reference`` is not YAML serialisation: a reference carrying
+    ``": "`` turns its list item into a mapping, and one opening on ``#``
+    becomes a comment and disappears. The declared set is what the build
+    reads back, so a reference that does not round-trip is a reference the
+    draft silently does not cite.
+    """
+    import yaml
+
+    from ai_rfc.config import ReconConfig
+    from ai_rfc.lifecycle.workspace import REFERENCES_FILE, Layout, seal_references
+
+    forged = ("RFC9000: forged", "#RFC1234", "RFC8446")
+    root = tmp_path / "ws"
+    root.mkdir()
+    config = _recon_config_with_references(forged)
+
+    seal_references(config, Layout(root), None)
+
+    document = yaml.safe_load((root / REFERENCES_FILE).read_text())
+    assert document == {"references": list(forged)}
+    assert isinstance(document["references"], list)

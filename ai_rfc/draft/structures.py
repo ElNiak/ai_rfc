@@ -11,6 +11,7 @@ import re
 from collections.abc import Iterator
 from typing import NamedTuple
 
+from ai_rfc.markdown import code
 from ai_rfc.models import (
     FIELD_KINDS,
     VARIABLE_WIDTH,
@@ -33,6 +34,12 @@ _CLOSE = "{:/comment}"
 
 def _cell(text: object) -> str:
     """Collapse author text onto one line, then escape its pipes.
+
+    The table's grammar and nothing else. A claim id is rendered inside a
+    *code span*, whose grammar is backticks, so those four cells compose
+    :func:`ai_rfc.markdown.code` first — which fences whatever run of
+    backticks the value carries — and pass the finished span through here for
+    the pipe escape the table still needs.
 
     A block's bytes are what the checkpoint freezes and the gate compares, and
     a delimiter marker owns a whole line of its own. So no author text may
@@ -142,7 +149,7 @@ def _body(structure: Structure) -> list[str]:
                     _cell(field.name),
                     _cell(field.width if field.width is not None else "-"),
                     _cell(field.description or "-"),
-                    f"`ai_rfc:{_cell(field.claim)}`",
+                    _cell(code(f"ai_rfc:{field.claim}")),
                 ]
                 for field in structure.fields
             ],
@@ -156,7 +163,7 @@ def _body(structure: Structure) -> list[str]:
                     _cell(field.type or "-"),
                     _cell(field.width if field.width is not None else "-"),
                     _cell(field.description or "-"),
-                    f"`ai_rfc:{_cell(field.claim)}`",
+                    _cell(code(f"ai_rfc:{field.claim}")),
                 ]
                 for field in structure.fields
             ],
@@ -169,7 +176,7 @@ def _body(structure: Structure) -> list[str]:
                     _cell(value.value),
                     _cell(value.name),
                     _cell(value.description or "-"),
-                    f"`ai_rfc:{_cell(value.claim)}`",
+                    _cell(code(f"ai_rfc:{value.claim}")),
                 ]
                 for value in structure.values
             ],
@@ -184,7 +191,7 @@ def _body(structure: Structure) -> list[str]:
                     _cell(transition.event),
                     _cell(transition.guard or "-"),
                     _cell(transition.target),
-                    f"`ai_rfc:{_cell(transition.claim)}`",
+                    _cell(code(f"ai_rfc:{transition.claim}")),
                 ]
                 for transition in structure.transitions
             ],

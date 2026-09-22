@@ -207,14 +207,29 @@ def to_markdown(report: ManifestReport) -> str:
         )
 
     statuses = structure_statuses(report.manifest)
-    if statuses:
+    # Guarded on the structures, not on the statuses: a manifest whose every
+    # structure binds an undeclared claim has an empty `statuses` and is
+    # exactly the manifest this section most needs to describe.
+    if report.manifest.structures:
         lines += ["", "## Structures", ""]
         for structure in sorted(report.manifest.structures, key=lambda s: s.id):
-            stored, supported = statuses[structure.id]
-            lines.append(
+            head = (
                 f"- {code(structure.id)} ({structure.kind.value}) "
                 f"{printable(structure.title)} §{printable(structure.section)}: "
-                f"stored {stored.value}, supported {supported.value}, "
+            )
+            status = statuses.get(structure.id)
+            if status is None:
+                # `structure_statuses` skips such a structure (`promotion.py:132`):
+                # it binds no claim, so there is nothing for it to be as strong
+                # as. Named rather than skipped, because a structure bound to
+                # nothing is the defect a reader of this report needs to see;
+                # named rather than raised, because the renderer must not be
+                # what decides whether the report exists at all.
+                lines.append(f"{head}binds no claim this manifest declares")
+                continue
+            stored, supported = status
+            lines.append(
+                f"{head}stored {stored.value}, supported {supported.value}, "
                 f"{len(structure.claims)} claims"
             )
 
