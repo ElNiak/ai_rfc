@@ -75,13 +75,23 @@ class Parser(argparse.ArgumentParser):
             SystemExit: Always, with code 2 — argparse's contract for a
                 malformed invocation, unchanged.
         """
-        # Function-local: importing ``lifecycle.common`` at module scope costs
-        # 90 modules (measured, 137 -> 227) and ``import ai_rfc.cli`` is on no
-        # error path at all. It is free where it actually runs — by the time a
-        # parser can refuse anything, ``build_parser`` has imported every verb
-        # and ``lifecycle.common`` with them (299 modules, already loaded).
-        from .lifecycle.common import report
+        # Onto the leaf, not onto ``lifecycle.common.report``. The comment
+        # this replaces said the import was free "by the time a parser can
+        # refuse anything, ``build_parser`` has imported every verb and
+        # ``lifecycle.common`` with them". That is true of the root door and
+        # false of all 27 standalone ones — the set this class was moved here
+        # to serve: measured from a fresh interpreter, ``import
+        # ai_rfc.forge.cli`` loads no ``ai_rfc.lifecycle`` at all, and
+        # refusing an argv loaded three of them. Seven of those doors are
+        # substrate, whose own sibling states at ``pipeline/cli.py:28-40``
+        # that the substrate may not import ``lifecycle``.
+        #
+        # Still function-local, because this module imports nothing of
+        # ``ai_rfc`` at module scope and that is what lets a command mounting
+        # one verb import it. ``ai_rfc.driver`` costs the package's ``__init__``
+        # and nothing else: it imports only ``__future__``.
+        from .driver import printable
 
         self.print_usage(sys.stderr)
-        report(f"{self.prog}: error: {message}")
+        print(printable(f"{self.prog}: error: {message}"), file=sys.stderr)
         self.exit(2)

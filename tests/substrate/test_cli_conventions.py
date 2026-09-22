@@ -5,8 +5,10 @@ an agent both drive, so the properties that make them scriptable are worth
 asserting once across all of them rather than once per file.
 """
 
+import ast
 import importlib
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -324,3 +326,42 @@ def test_every_report_helper_escapes_what_it_prints(module, separator, capsys):
     assert len(lines) == 1
     assert separator not in lines[0]
     assert _FORGED_TAIL in lines[0]
+
+
+#: The probe :func:`test_a_substrate_doors_refusal_loads_no_lifecycle` runs in
+#: a fresh interpreter. It must be a fresh one: by the time any test in this
+#: file executes, a sibling has already imported ``ai_rfc.lifecycle``, so the
+#: question cannot be asked in this process at all.
+_LIFECYCLE_PROBE = """
+import sys
+import ai_rfc.forge.cli as door
+before = sorted(n for n in sys.modules if n.startswith("ai_rfc.lifecycle"))
+parser = door.build_standalone_parser()
+try:
+    parser.error("unrecognized arguments: x")
+except SystemExit:
+    pass
+after = sorted(n for n in sys.modules if n.startswith("ai_rfc.lifecycle"))
+print(repr((before, after)))
+"""
+
+
+def test_a_substrate_doors_refusal_loads_no_lifecycle():
+    """``pipeline/cli.py:28-40`` states the invariant; ``error()`` broke it.
+
+    ``Parser.error`` reached ``lifecycle.common.report`` for one line of
+    output, so triggering an argparse error at any of the seven substrate
+    doors imported the layer their own sibling docstring says the substrate
+    may not import. The escape is identical either way; what changes is which
+    layer a refusal drags in.
+    """
+    finished = subprocess.run(
+        [sys.executable, "-c", _LIFECYCLE_PROBE],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    before, after = ast.literal_eval(finished.stdout.strip())
+
+    assert before == [], before
+    assert after == [], after
