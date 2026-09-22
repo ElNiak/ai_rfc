@@ -27,6 +27,10 @@ holds all of it:
 - `plugins/ai-rfc/` — the **Claude Code plugin**: four skills, five commands,
   `.mcp.json`. See "Plugin" below.
 
+The decisions the rest of this repository is built on are recorded as ADRs under
+`docs/adr/`: the threat model for the agent under test, and why building a
+mechanism is not the same as enforcing it.
+
 ## Install
 
 ```bash
