@@ -544,3 +544,30 @@ def test_a_campaign_freezes_the_consolidation_task_template(
         campaign.prompt_sha256[frozen.name]
         == hashlib.sha256(packaged.read_bytes()).hexdigest()
     )
+
+
+def test_load_campaign_refuses_an_id_that_is_not_one_path_segment(
+    tmp_path, pristine, plugin_root
+):
+    """The id is checked where it is read back, not only where it is typed.
+
+    ``_campaign_id`` runs at the argparse boundary, so a ``campaign.json``
+    an operator edited — or one restored from an archive written before the
+    check existed — re-admits whatever it carries. Every consumer joins the
+    id as ``root / "campaigns" / id``, where a ``..`` climbs out and an
+    absolute value replaces the root outright, so the refusal belongs at the
+    load as well.
+    """
+    campaign = _init(tmp_path, pristine, plugin_root)
+    path = campaign.dir / "campaign.json"
+    payload = json.loads(path.read_text())
+    payload["id"] = "../elsewhere"
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+
+    with pytest.raises(ExperimentError) as refusal:
+        load_campaign(campaign.dir)
+
+    # The campaign's own refusal, naming the alphabet — not an OSError or a
+    # KeyError from somewhere downstream that happens to mention a path.
+    assert "campaign id" in str(refusal.value)
+    assert "../elsewhere" in str(refusal.value)

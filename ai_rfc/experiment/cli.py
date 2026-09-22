@@ -15,7 +15,6 @@ import hashlib
 import importlib.util
 import json
 import os
-import re
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -244,12 +243,6 @@ def _arms(value: str) -> tuple[str, ...]:
     return arms
 
 
-#: What a campaign id may be: one path segment, opening on a letter or digit.
-#: Written as what is allowed rather than as a list of what is not, so a
-#: separator nobody thought of is refused by default.
-CAMPAIGN_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
-
-
 def _campaign_id(value: str) -> str:
     """Validate a campaign id where it is still one token: at the parser.
 
@@ -275,16 +268,18 @@ def _campaign_id(value: str) -> str:
     Raises:
         argparse.ArgumentTypeError: If it is not one segment of that alphabet.
     """
+    # Function-local, like every other reach into `config` from this module:
+    # the parser is built for `--help` and for `--version`, and `config`
+    # pulls the render, toolchain and driver-session machinery behind it.
+    from .config import CAMPAIGN_ID, CAMPAIGN_ID_REASON
+
     if not CAMPAIGN_ID.fullmatch(value):
         # Escaped, not merely echoed, for the reason ``_arms`` records:
         # argparse prints this through its own formatting, which routes
         # through nothing that escapes, so a newline in the value forges a
         # second stderr line in the shape of the usage line printed above it.
         raise argparse.ArgumentTypeError(
-            f"campaign id '{printable(value)}' must match "
-            f"{CAMPAIGN_ID.pattern}; it names one directory under "
-            f"<root>/campaigns, and an absolute id or a '..' would name one "
-            f"somewhere else entirely"
+            f"campaign id '{printable(value)}' {CAMPAIGN_ID_REASON}"
         )
     return value
 

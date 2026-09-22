@@ -23,8 +23,9 @@ from ai_rfc.draft.build import BuildError, BuildReport, build, load_toolchain
 from ai_rfc.draft.checkpoint import MANIFEST_FILE
 from ai_rfc.draft.gate import (
     GateError,
+    RevisionEntry,
     _checkpoint_dir,
-    _cluster_ordinals,
+    cluster_ordinals,
     draft_text,
     latest_tag,
     load_revisions,
@@ -292,13 +293,13 @@ def _known_clusters(timeline_dir: Path) -> tuple[frozenset[str], str | None]:
         clusters.
     """
     try:
-        return frozenset(_cluster_ordinals(timeline_dir)), None
+        return frozenset(cluster_ordinals(timeline_dir)), None
     except (OSError, ValueError, KeyError) as failure:
         return frozenset(), f"{timeline_dir}: {failure!r}"
 
 
 def _frozen_for(
-    entry: Any,
+    entry: RevisionEntry,
     checkpoints: Path,
     consolidations: Path,
     known: Collection[str],
@@ -333,9 +334,13 @@ def _frozen_for(
     except GateError as refusal:
         reason = str(refusal)
         if timeline_error is not None:
-            # Both facts, because they are different repairs: the entry may be
-            # fine and the timeline gone.
-            reason = f"{reason}; the timeline could not be read ({timeline_error})"
+            # The timeline leads, because it is the one that is true of every
+            # row. `known` is empty for a run whose timeline will not parse,
+            # so every entry is refused as naming a cluster the timeline does
+            # not have — N identical membership failures standing in for one
+            # unreadable file. Both facts are kept, because they are different
+            # repairs: the entry may be fine and the timeline gone.
+            reason = f"the timeline could not be read ({timeline_error}); {reason}"
         return None, reason, MANIFEST_MISSING
     return _frozen_manifest(directory / MANIFEST_FILE)
 
@@ -581,6 +586,10 @@ def revision_lints(workspace: Path) -> dict[str, Any]:
         "revisions": rows,
         "revisions_status": revisions_status,
         "revisions_error": revisions_error,
+        # Beside the other two instrument-state keys rather than only inside
+        # each row's reason string: one unreadable timeline is one fact about
+        # the run, and a reader had to parse N reason strings to recover it.
+        "timeline_error": timeline_error,
     }
 
 

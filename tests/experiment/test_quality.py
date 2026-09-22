@@ -852,3 +852,31 @@ def test_a_revision_whose_cluster_id_would_escape_is_reported_not_raised(
     assert forged in rows[0]["manifest_error"]
     # The rest of the run still measures: the damage is one row's.
     assert rows[1]["citations"]["cited_fraction"] == 1.0
+
+
+def test_a_damaged_timeline_is_reported_once_and_leads_every_row(two_tag_workspace):
+    """One instrument failure must not read as N different revision problems.
+
+    ``_known_clusters`` answers the empty set both for a run whose timeline
+    holds no clusters and for one whose timeline will not parse, and carries
+    the reason beside it. That reason reached the payload only as the tail of
+    a per-row membership refusal, so a reader saw two revisions each naming a
+    cluster "the timeline does not have" — two membership failures, when
+    there was one unreadable file.
+    """
+    (two_tag_workspace / "timeline" / "clusters.jsonl").write_text("{ not json\n")
+
+    measured = revision_lints(two_tag_workspace)
+
+    # Top level, beside `revisions_status` and `revisions_error`: the state of
+    # an instrument belongs with the instrument, not inside each reading.
+    assert measured["timeline_error"]
+    # What `_known_clusters` actually composes: the timeline directory it was
+    # handed, then the failure's repr. Asserted as the producer writes it.
+    assert str(two_tag_workspace / "timeline") in measured["timeline_error"]
+    assert "JSONDecodeError" in measured["timeline_error"]
+
+    reasons = [row["manifest_error"] for row in measured["revisions"]]
+    assert len(reasons) == 2
+    for reason in reasons:
+        assert reason.startswith("the timeline could not be read"), reason

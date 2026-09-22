@@ -12,6 +12,7 @@ import dataclasses
 import hashlib
 import json
 import random
+import re
 import shlex
 import shutil
 import subprocess
@@ -20,7 +21,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from ai_rfc.driver import DriverError
+from ai_rfc.driver import DriverError, printable
 from ai_rfc.driver.arms import ARMS
 from ai_rfc.driver.render import (
     TASK_TEMPLATE,
@@ -53,6 +54,25 @@ TASK_TEMPLATE_FILE = "task.tmpl.md"
 CONSOLIDATION_TASK_TEMPLATE_FILE = "task-consolidation.tmpl.md"
 LOOP_TEMPLATE_FILE = "loop.tmpl.md"
 CAMPAIGN_FILE = "campaign.json"
+
+#: What a campaign id may be: one path segment, opening on a letter or digit.
+#: Written as what is allowed rather than as a list of what is not, so a
+#: separator nobody thought of is refused by default.
+#:
+#: It lives here, beside the join it defends, rather than in ``cli.py`` where
+#: the argparse validator that first applied it lives: this module composes
+#: ``root / "campaigns" / id`` at :attr:`Campaign.dir` and at
+#: :func:`init_campaign`, and :func:`load_campaign` reads an id back off disk
+#: long after any parser has seen it. ``cli.py`` imports it from here.
+CAMPAIGN_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+
+#: Why an id is refused, spelled once so the parser's refusal and the loader's
+#: cannot drift into two accounts of one rule.
+CAMPAIGN_ID_REASON = (
+    f"must match {CAMPAIGN_ID.pattern}; it names one directory under "
+    "<root>/campaigns, and an absolute id or a '..' would name one "
+    "somewhere else entirely"
+)
 #: The ``ai-rfc`` every session finds first on its ``PATH``. It names
 #: :mod:`ai_rfc.cli` — the one door — rather than a CLI of its own, so an arm
 #: running through Bash reaches exactly the parser an operator does.
@@ -479,12 +499,23 @@ def load_campaign(campaign_dir: Path) -> Campaign:
         The campaign as it was frozen.
 
     Raises:
-        ExperimentError: If ``campaign.json`` is missing.
+        ExperimentError: If ``campaign.json`` is missing, or carries an id
+            that is not one path segment.
     """
     path = campaign_dir / CAMPAIGN_FILE
     if not path.exists():
         raise ExperimentError(f"{path} is missing; not a campaign directory")
     payload = json.loads(path.read_text())
+    # Checked here as well as at the parser, because this is a second door
+    # onto the same join: a `campaign.json` an operator edited, or one
+    # restored from an archive written before `_campaign_id` existed, reaches
+    # every consumer of `Campaign.dir` without a parser ever seeing its id.
+    # Defence in depth over an operator artifact, not a live hole.
+    campaign_id = str(payload.get("id", ""))
+    if not CAMPAIGN_ID.fullmatch(campaign_id):
+        raise ExperimentError(
+            f"{path}: campaign id '{printable(campaign_id)}' " f"{CAMPAIGN_ID_REASON}"
+        )
     # A campaign frozen before `panther_repo` was retired still carries it,
     # and a recording is not edited to match a later retirement: read it in
     # the shape it was written, and drop the key rather than keep a field

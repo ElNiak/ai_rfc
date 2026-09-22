@@ -30,7 +30,7 @@ from ai_rfc.driver.consolidation import Due, consolidation_due, consolidations_r
 from ai_rfc.driver.session import SessionResult, run_session, surface_shortfall
 
 from .. import ledger
-from ..draft.gate import _cluster_ordinals, load_revisions
+from ..draft.gate import cluster_ordinals, load_revisions
 from . import ExperimentError
 from .config import Campaign, render_task
 from .metrics import cluster_artifacts
@@ -179,7 +179,7 @@ def _checked_cluster_id(workspace: Path, cluster_id: str) -> str:
     Raises:
         ExperimentError: If it is not a cluster of this workspace's timeline.
     """
-    if cluster_id not in _cluster_ordinals(workspace / "timeline"):
+    if cluster_id not in cluster_ordinals(workspace / "timeline"):
         # Repr, not the bare value: the message is itself a line-per-record
         # artifact, and a forged id carries a newline.
         raise ExperimentError(

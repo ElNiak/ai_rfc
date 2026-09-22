@@ -15,7 +15,7 @@ name nothing. Requiring it to be one of the timeline's own ids covers that, a
 ``../..`` climbing out of the workspace and an absolute path replacing the
 join's root in a single test.
 
-The known set is read through :func:`ai_rfc.draft.gate._cluster_ordinals`, the
+The known set is read through :func:`ai_rfc.draft.gate.cluster_ordinals`, the
 same function the other two copies of this predicate use, so the three cannot
 disagree about which clusters a workspace has.
 """
@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ai_rfc.draft.gate import _cluster_ordinals
+from ai_rfc.draft.gate import cluster_ordinals
 
 from . import CoreError
 
@@ -57,7 +57,7 @@ def known_cluster_ids(workspace: Path) -> frozenset[str]:
     timeline = workspace / "timeline"
     rows = timeline / "clusters.jsonl"
     try:
-        return frozenset(_cluster_ordinals(timeline))
+        return frozenset(cluster_ordinals(timeline))
     except OSError as error:
         raise CoreError(
             f"no timeline to check a cluster id against at {rows}: {error}; "

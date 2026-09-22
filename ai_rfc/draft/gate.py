@@ -162,7 +162,31 @@ def latest_tag(workspace: Path) -> str:
     return max(entries, key=lambda entry: entry.number).tag if entries else "HEAD"
 
 
-def _cluster_ordinals(timeline_dir: Path) -> dict[str, int]:
+def cluster_ordinals(timeline_dir: Path) -> dict[str, int]:
+    """Every cluster id this timeline holds, with its ordinal.
+
+    **Public because three other modules already read it.** The membership
+    guard each of them needs — "is this id one the timeline actually has?" —
+    is derived from this mapping, and while the function was private each
+    importer reached across a leading underscore to get it. The set they
+    check against has to be the same set or they can disagree about which
+    clusters a workspace has, so the accessor is named rather than borrowed.
+
+    The whole timeline, not a window: a pre-seeded baseline is copied into a
+    workspace whole, so a legitimate id can sit below the window's first
+    ordinal.
+
+    Args:
+        timeline_dir: The workspace's ``timeline`` directory.
+
+    Returns:
+        Cluster id to ordinal, in the file's own order.
+
+    Raises:
+        OSError: If ``clusters.jsonl`` is absent or will not open.
+        ValueError: If a line will not parse as JSON.
+        KeyError: If a line parses and carries no ``id`` or ``ordinal``.
+    """
     rows = (timeline_dir / "clusters.jsonl").read_text().splitlines()
     return {
         record["id"]: record["ordinal"] for record in (json.loads(row) for row in rows)
@@ -311,7 +335,7 @@ def run_gate(
         question_ids = {question.id for question in load_questions(questions_path)}
     except QuestionError as error:
         raise GateError(str(error)) from None
-    ordinals = _cluster_ordinals(timeline_dir)
+    ordinals = cluster_ordinals(timeline_dir)
     tags = _repo_tags(draft_repo)
 
     findings: list[str] = []
