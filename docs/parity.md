@@ -67,6 +67,19 @@ operator's ledger over them — but obtaining the tool's composite costs it
 several calls instead of one, and any per-call measure must be read knowing
 that. A v2 campaign still compares those two arms.
 
+**A second asymmetry, recorded 2026-09-22 (`0e0062f`).** The `ai_rfc_corpus_query`
+tool's description now carries the corpus index's schema — every table and
+column, derived from `history/index.py`'s DDL with sqlite itself — because a
+Phase 5 run guessed three columns that do not exist. Arm A reads that
+description; arms B and C reach the same index through `ai-rfc corpus query`
+and `sqlite3`, whose only schema hint is the one example in the rendered
+prompt slot. Unlike D16's, this gap costs arms B and C **accuracy** rather than
+calls: an arm that must guess column names pays in failed queries. The
+prompt-slot half — deriving `{{corpus_query}}` and the A/B/C entries from the
+same summary and regenerating the pinned loop skill — changes every arm's
+rendered prompt and therefore re-freezes a campaign's instrument, so it is
+owed to the main-campaign map as #62b rather than landed here.
+
 ## Exit codes
 
 Every gate route — MCP tool, `ai-rfc` verb, or raw substrate command — surfaces
