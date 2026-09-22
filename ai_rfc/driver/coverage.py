@@ -52,7 +52,7 @@ import re
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path, PurePosixPath
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Iterable, Mapping
 
 from .. import ledger
 from . import DriverError, printable
@@ -256,7 +256,7 @@ def _cluster_of_call(
     return None
 
 
-def checkpoint_calls(events: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+def checkpoint_calls(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Every checkpoint-write call in a transcript, in stream order.
 
     Arm-free and era-aware: a run is one arm, but a reader that took the arm as
@@ -305,7 +305,7 @@ def _digest_of(text: str) -> str | None:
 
 
 def receipts(
-    events: Sequence[Mapping[str, Any]],
+    events: list[dict[str, Any]],
 ) -> dict[tuple[str, str | None], str]:
     """Every checkpoint a transcript proves was produced, and by what path.
 
@@ -404,7 +404,7 @@ def covers(
     checkpoints_dir: Path,
     *,
     session_rows: Iterable[Mapping[str, Any]],
-    transcripts: Iterable[Sequence[Mapping[str, Any]]],
+    transcripts: Iterable[list[dict[str, Any]]],
 ) -> dict[str, Route | None]:
     """Which route covers each checkpoint, and which checkpoint has none.
 
@@ -413,10 +413,15 @@ def covers(
             and never written.
         session_rows: Parsed ``sessions.jsonl`` rows, from the caller. A row
             naming no cluster — a consolidation session's — covers nothing.
-        transcripts: Already-parsed candidate transcripts, from the caller.
-            :func:`read_transcript` is how a caller turns a path into one
-            without letting a parse error escape; a transcript it could not
-            read contributes an empty event list, which covers nothing.
+            Typed as mappings, unlike ``transcripts`` below: nothing but this
+            function reads them, so nothing narrower is warranted.
+        transcripts: Already-parsed candidate transcripts, from the caller, in
+            the one shape :mod:`ai_rfc.driver.stream` states — every reader
+            there takes ``list[dict[str, Any]]``, and these are handed
+            straight on to two of them. :func:`read_transcript` is how a
+            caller turns a path into one without letting a parse error escape;
+            a transcript it could not read contributes an empty event list,
+            which covers nothing.
 
     Returns:
         One entry per written checkpoint: the route that covered it, or
