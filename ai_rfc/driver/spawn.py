@@ -5,11 +5,12 @@ the same lifetime guarantees as a single-session run rather than a second,
 subtly different copy of them. The MCP server is a child of the session, so a
 cap enforced on the process alone would leave it running.
 
-A run's transcript is also its directory's claim. A first session creates
-``events.jsonl`` exclusively, so a second launch reaching for the same run
-directory is refused here — before its process exists and before it has spent
-anything — rather than truncating a live run's transcript and spending a fresh
-budget beside it.
+A run's transcript is also its directory's claim. ``events.jsonl`` is created
+exclusively — by :func:`claim` for a caller with sidecars to write first, else
+by :func:`spawn` itself for a run's first session — so a second launch reaching
+for the same run directory is refused before its process exists and before it
+has spent anything, rather than truncating a live run's transcript and spending
+a fresh budget beside it.
 """
 
 from __future__ import annotations
@@ -96,6 +97,40 @@ def _claim(path: Path, mode: Literal["ab", "xb"]) -> BinaryIO:
         ) from error
 
 
+def claim(events_path: Path) -> None:
+    """Claim a run directory by creating its transcript, exclusively and empty.
+
+    The same exclusive create :func:`spawn` performs, taken by a caller that
+    has work to do *before* the spawn. ``experiment.runner.launch`` writes
+    four sidecars — ``guard.json`` among them — between deciding to run and
+    reaching :func:`spawn`, and a refusal at the spawn came four files too
+    late: the second launch had already rewritten the holder's guard settings,
+    restoring a tampered ``guard.json`` to pristine bytes past the digest that
+    exists to catch the tampering.
+
+    One syscall, so hoisting the claim turns nothing into a check-then-act.
+    The caller then spawns with ``append=True`` for the run's first session,
+    because the transcript it would otherwise create exclusively is the one
+    this function already made.
+
+    The file it leaves is zero bytes. That is not damage:
+    :func:`ai_rfc.driver.coverage.read_transcript` answers ``([], None)`` for
+    it — covers nothing, reports nothing unreadable — and
+    :func:`ai_rfc.driver.record.transcripts` skips a run directory that has no
+    transcript at all, so neither state is mistaken for the other.
+
+    Args:
+        events_path: The run's ``events.jsonl``, which does not yet exist.
+
+    Raises:
+        DriverError: If it does exist — another launch holds this run
+            directory. The message names the transcript and the move-aside
+            that releases it if the holding run is dead.
+        OSError: If it cannot be created for any other reason.
+    """
+    _claim(events_path, "xb").close()
+
+
 def spawn(
     argv: list[str],
     *,
@@ -140,31 +175,45 @@ def spawn(
     exit_code: int | None = None
     # The transcript is opened first because it is the claim: a second launch
     # is refused on it, before the stderr log it would otherwise have created.
-    with _claim(events_path, mode) as events, _claim(stderr_path, mode) as stderr:
-        process = subprocess.Popen(
-            argv,
-            cwd=cwd,
-            env=env,
-            stdin=subprocess.DEVNULL,
-            stdout=events,
-            stderr=stderr,
-            start_new_session=True,
-        )
+    with _claim(events_path, mode) as events:
         try:
-            exit_code = process.wait(timeout=timeout_s)
-        except subprocess.TimeoutExpired:
-            timed_out = True
-            _kill_group(process)
-        except BaseException:
-            # The terminal's SIGINT reached this process only: the session is in
-            # its own group. BaseException, not Exception, because the Ctrl-C
-            # and the SystemExit a signal handler raises orphan it alike, and
-            # nothing downstream can notice -- from this side a session that is
-            # still spending looks exactly like a finished one. The guard is for
-            # an asynchronous interrupt that landed after the child was already
-            # reaped, where signalling would only raise ProcessLookupError over
-            # the operator's interrupt.
-            if process.returncode is None:
-                _kill_group(process)
+            stderr_file = _claim(stderr_path, mode)
+        except DriverError:
+            if mode == "xb":
+                # A stray stderr.log with no transcript beside it: the claim
+                # above *succeeded*, so this refusal would otherwise leave a
+                # zero-byte events.jsonl holding the run directory in the name
+                # of a launch that never started -- while the message names
+                # stderr.log, which is then not what holds it. Released, so the
+                # refusal is true about what an operator will find.
+                events.close()
+                events_path.unlink(missing_ok=True)
             raise
+        with stderr_file as stderr:
+            process = subprocess.Popen(
+                argv,
+                cwd=cwd,
+                env=env,
+                stdin=subprocess.DEVNULL,
+                stdout=events,
+                stderr=stderr,
+                start_new_session=True,
+            )
+            try:
+                exit_code = process.wait(timeout=timeout_s)
+            except subprocess.TimeoutExpired:
+                timed_out = True
+                _kill_group(process)
+            except BaseException:
+                # The terminal's SIGINT reached this process only: the session
+                # is in its own group. BaseException, not Exception, because the
+                # Ctrl-C and the SystemExit a signal handler raises orphan it
+                # alike, and nothing downstream can notice -- from this side a
+                # session that is still spending looks exactly like a finished
+                # one. The guard is for an asynchronous interrupt that landed
+                # after the child was already reaped, where signalling would
+                # only raise ProcessLookupError over the operator's interrupt.
+                if process.returncode is None:
+                    _kill_group(process)
+                raise
     return exit_code, timed_out

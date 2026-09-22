@@ -539,7 +539,11 @@ def run_per_cluster(
                     task=task,
                     budget_usd=budget_left,
                     timeout_s=int(time_left),
-                    append=sessions > 0,
+                    # Always, including the first: `launch` claims the run
+                    # directory by creating `events.jsonl` before any session
+                    # exists, so there is no longer a session whose job is to
+                    # create it exclusively.
+                    append=True,
                 ),
                 ref.run_dir,
                 seen=results_seen,

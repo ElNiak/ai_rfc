@@ -6,9 +6,9 @@ process group (the MCP server is a child), and ``status.json`` is written
 exactly once — a run is never relaunched in place.
 
 That last rule holds for a run still going as well as for a finished one, and
-by the same file: ``events.jsonl`` is created exclusively by a run's first
-session, so it is the claim on the run directory, and a second launch of one
-run id is refused before it starts a process.
+by the same file: ``events.jsonl`` is created exclusively by ``launch`` before
+any session runs, so it is the claim on the run directory, and a second launch
+of one run id is refused before it writes a sidecar or starts a process.
 """
 
 from __future__ import annotations
@@ -29,6 +29,7 @@ from ai_rfc.driver.session import (
     run_session,
     session_env,
 )
+from ai_rfc.driver.spawn import claim
 from ai_rfc.driver.stream import merge_results, result_events, salvage_stream
 
 from . import ExperimentError
@@ -182,13 +183,13 @@ def launch(
     A campaign mints its run ids from the frozen order — ``A1``, ``B1``, ``C1``
     — so two launches of one campaign reach for the same directory by
     construction, and the guard below sees only a run that already *finished*.
-    A run still going is held by its transcript instead: the first session
-    creates ``events.jsonl`` exclusively
-    (:func:`~ai_rfc.driver.spawn.spawn`), so a second launch is refused at that
-    session, before its process exists and before it has spent anything. That
-    is the whole of the claim — no ``run.json`` is written here, since the
-    campaign layout ``audit_run`` and ``analyze_run`` read is
-    ``status.json``, ``events.jsonl``, ``arfc.json`` and ``workspace/``.
+    A run still going is held by its transcript instead: this function creates
+    ``events.jsonl`` exclusively (:func:`~ai_rfc.driver.spawn.claim`) **before
+    it writes a single sidecar**, so a second launch is refused with nothing of
+    the holder's touched and nothing spent. That is the whole of the claim — no
+    ``run.json`` is written here, since the campaign layout ``audit_run`` and
+    ``analyze_run`` read is ``status.json``, ``events.jsonl``, ``arfc.json``
+    and ``workspace/``.
 
     Args:
         campaign: The frozen campaign.
@@ -233,7 +234,18 @@ def launch(
             f"a new campaign onto it: experiment workspace reseal "
             f"{ref.workspace} --as <name>, then campaign init --baseline <name>"
         )
-    spec = session_spec(campaign, ref)
+    # The claim, before this function writes anything at all. `prepare_argv`
+    # below *writes* `guard.json` (`driver/session.py:305`), and argv.json,
+    # env.json and prompt.md follow it, so a refusal at the spawn came four
+    # files too late: a second launch of one run id rewrote the holder's
+    # sidecars before declining — restoring a `guard.json` the holder's own
+    # agent had tampered with to pristine bytes, past the digest taken below
+    # that exists to catch exactly that. The exclusive create is itself the
+    # claim, so hoisting it turns nothing into a check-then-act.
+    claim(ref.run_dir / EVENTS_FILE)
+    # `append=True` for the run's first session, because the transcript it
+    # would otherwise create exclusively is the one the claim just made.
+    spec = session_spec(campaign, ref, append=True)
     # Built here rather than left to `run_session`, which writes the guard and
     # spawns in one step: the run's audit record has to be laid down *before*
     # the process that could edit it exists, and there is no point inside that

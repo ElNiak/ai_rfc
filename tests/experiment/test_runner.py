@@ -237,3 +237,55 @@ def test_launch_refuses_a_run_whose_transcript_is_already_held(
     assert transcript.read_text() == held
     assert not (campaign.profile_dir / "fake-calls" / f"{ref.run_id}.json").exists()
     assert load_status(ref.run_dir) is None
+
+
+def test_a_refused_relaunch_leaves_the_holders_sidecars_exactly_as_they_were(
+    campaign, write_scenario
+):
+    """The claim has to come before ``prepare_argv``, not after it.
+
+    ``prepare_argv`` **writes** ``guard.json`` (``driver/session.py:305``), and
+    the refusal used to happen four files later, at the spawn. So a second
+    launch of one run id rewrote the holder's ``guard.json``, ``argv.json``,
+    ``env.json`` and ``prompt.md`` before declining — and a ``guard.json`` the
+    holder's own agent had tampered with, which is the tampering
+    ``guard_sha256`` exists to catch, was restored to pristine bytes on the
+    way past. The audit then passed a run it should have failed.
+
+    Bytes *and* mtime, because a rewrite with identical content is still a
+    rewrite past a digest that was taken before it.
+    """
+    ref = _ready(campaign, "A1")
+    write_scenario(
+        campaign.profile_dir, "A1", {"arm": "A", "cost": 1.25, "steps": COMPLETE_STEPS}
+    )
+    # What a live first launch leaves: sidecars written, transcript held, no
+    # status record yet.
+    prepare_argv(session_spec(campaign, ref), ref.run_dir)
+    guard = ref.run_dir / GUARD_FILE
+    tampered = '{"hooks": {}}\n'
+    guard.write_text(tampered)
+    before = guard.stat().st_mtime_ns
+    (ref.run_dir / EVENTS_FILE).write_text('{"type": "result"}\n')
+
+    with pytest.raises(DriverError):
+        launch(campaign, ref, report=lambda _: None)
+
+    assert guard.read_text() == tampered
+    assert guard.stat().st_mtime_ns == before
+    assert not (campaign.profile_dir / "fake-calls" / f"{ref.run_id}.json").exists()
+
+
+def test_a_zero_byte_transcript_covers_nothing_and_reports_no_damage(tmp_path):
+    """The claim leaves an empty ``events.jsonl`` between claim and spawn.
+
+    A reader that took an empty file for a damaged one would report ``cannot
+    adjudicate`` for every run in that window, so the detector's answer for
+    this exact state is pinned here rather than assumed.
+    """
+    from ai_rfc.driver.coverage import read_transcript
+
+    empty = tmp_path / "events.jsonl"
+    empty.write_text("")
+
+    assert read_transcript(empty) == ([], None)

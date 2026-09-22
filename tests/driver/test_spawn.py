@@ -6,6 +6,7 @@ import pytest
 from ai_rfc import cli
 from ai_rfc.driver import DriverError
 from ai_rfc.driver import spawn as spawn_module
+from ai_rfc.driver.spawn import spawn
 
 
 def test_an_interrupt_kills_the_group_it_started(tmp_path, monkeypatch):
@@ -285,3 +286,32 @@ def test_a_continuing_session_still_appends_to_the_transcript(tmp_path):
 
     assert (exit_code, timed_out) == (0, False)
     assert events.read_bytes() == held
+
+
+def test_a_failed_stderr_claim_releases_the_transcript_it_just_created(tmp_path):
+    """The refusal must not leave a holder the message never mentions.
+
+    ``events.jsonl`` is claimed first, so with a stray ``stderr.log`` and no
+    transcript the transcript claim *succeeds* — creating a zero-byte file
+    that now holds the directory — and the stderr claim then refuses, naming
+    the other file. The operator is told about ``stderr.log`` while
+    ``events.jsonl`` is what holds the run, and the run directory is held in
+    the name of a launch that never started.
+    """
+    events = tmp_path / "events.jsonl"
+    stderr = tmp_path / "stderr.log"
+    stderr.write_text("left over\n")
+
+    with pytest.raises(DriverError) as raised:
+        spawn(
+            ["/bin/echo", "hi"],
+            cwd=tmp_path,
+            env={},
+            events_path=events,
+            stderr_path=stderr,
+            timeout_s=5,
+        )
+
+    assert str(stderr) in str(raised.value)
+    # Nothing of this refused launch is left behind holding the directory.
+    assert not events.exists()
