@@ -489,31 +489,86 @@ def test_a_configured_toolchain_that_is_missing_is_refused_before_any_session(
 # --- criterion 2: resume after a kill ----------------------------------------
 
 
-def _await_session(profile: Path, scenario: str, number: int) -> None:
-    """Block until the fake has begun its ``number``-th session of this run.
+def _await_session(recon: "Reconstruction", number: int) -> None:
+    """Block until the fake's ``number``-th session of this run is *sleeping*.
 
-    The counter is written before the init event and therefore before the
-    scenario's sleep, so a kill sent once it reads ``number`` lands inside that
-    session's sleep — before it has touched the workspace at all.
+    Two barriers, not one, and the second is what makes the kill reliable
+    under load. The fake writes the counter in ``session_id()``, **then**
+    emits its ``init`` event, **then** enters the scenario's
+    ``KILL_WINDOW_S`` sleep. Waiting on the counter alone therefore returned
+    while the session still had an interpreter's worth of work and a pipe
+    flush ahead of it, and every millisecond of that came out of the 1.5 s
+    window the kill has to land in. Under whole-suite ``-n 4`` load that
+    window closed first: the sweep finished, the signal arrived at a driver
+    with nothing left to interrupt, and the stop read ``done`` instead of
+    ``operator_interrupt``.
+
+    The ``init`` event is the evidence that the child process is running and
+    has reached the sleep, and it is the *producer's own* next write after the
+    counter — so the second barrier is not a longer sleep, it is the missing
+    half of the first.
 
     Args:
-        profile: ``CLAUDE_CONFIG_DIR``.
-        scenario: The run id, which is the counter's filename.
+        recon: The reconstruction being driven; its profile holds the counter
+            and its newest run directory holds the transcript.
         number: The session to wait for.
 
     Raises:
-        AssertionError: If it has not begun within the launch timeout.
+        AssertionError: If the session has not reached its sleep within the
+            launch timeout, with whichever of the two barriers it was still
+            waiting on.
     """
-    counter = profile / "fake-sessions" / f"{scenario}.txt"
+    counter = recon.profile / "fake-sessions" / f"{recon.scenario}.txt"
     deadline = time.monotonic() + 60
+    started = 0
     while time.monotonic() < deadline:
         try:
-            if int(counter.read_text()) >= number:
-                return
+            started = int(counter.read_text())
         except (OSError, ValueError):
-            pass
+            started = 0
+        if started >= number:
+            break
         time.sleep(0.01)
-    raise AssertionError(f"session {number} never started; counter at {counter}")
+    else:
+        raise AssertionError(f"session {number} never started; counter at {counter}")
+
+    while time.monotonic() < deadline:
+        if _init_events(recon) >= number:
+            return
+        time.sleep(0.01)
+    raise AssertionError(
+        f"session {number} started (counter {started}) but never emitted its "
+        f"init event; transcript in {recon.latest_run()}"
+    )
+
+
+def _init_events(recon: "Reconstruction") -> int:
+    """How many sessions of the live run have announced themselves.
+
+    One ``init`` event per session, emitted immediately before the scenario's
+    sleep. Read tolerantly: the transcript is being appended to as this reads
+    it, so a truncated final line is ordinary rather than damage.
+
+    Args:
+        recon: The reconstruction being driven.
+
+    Returns:
+        The count, or 0 while no run directory or transcript exists yet.
+    """
+    try:
+        transcript = recon.latest_run() / record.EVENTS_FILE
+        lines = transcript.read_text(errors="replace").splitlines()
+    except (AssertionError, OSError):
+        return 0
+    count = 0
+    for line in lines:
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if event.get("type") == "system" and event.get("subtype") == "init":
+            count += 1
+    return count
 
 
 def test_a_killed_sweep_resumes_without_redoing_the_finished_cluster(
@@ -551,7 +606,7 @@ def test_a_killed_sweep_resumes_without_redoing_the_finished_cluster(
         stderr=subprocess.PIPE,
         text=True,
     )
-    _await_session(recon.profile, recon.scenario, 2)
+    _await_session(recon, 2)
     os.kill(first.pid, signal.SIGINT)
     first.communicate(timeout=120)
 
@@ -654,7 +709,7 @@ def test_an_operator_interrupt_stops_with_a_record_and_a_resume_line(
         stderr=subprocess.PIPE,
         text=True,
     )
-    _await_session(recon.profile, recon.scenario, 2)
+    _await_session(recon, 2)
     os.kill(driver.pid, sig)
     _out, err = driver.communicate(timeout=120)
 
