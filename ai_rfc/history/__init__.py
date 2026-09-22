@@ -12,7 +12,7 @@ from .git_log import (
     extract_commits,
     read_file_changes,
 )
-from .index import INDEX_FILE, StaleIndexError, build_index, open_index
+from .index import INDEX_FILE, IndexBuildError, StaleIndexError, build_index, open_index
 from .models import Commit, ExtractionReport, FileChange
 from .store import COMMITS_FILE, FILES_FILE, REPORT_FILE, read_corpus, write_corpus
 
@@ -26,6 +26,7 @@ __all__ = [
     "ExtractionReport",
     "FileChange",
     "GitError",
+    "IndexBuildError",
     "ShallowRepositoryError",
     "StaleIndexError",
     "build_index",

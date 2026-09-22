@@ -60,3 +60,32 @@ def test_cap_is_recorded_in_the_report(corpus_repo: Path, tmp_path: Path):
     main([str(corpus_repo), "--out", str(out), "--cap", "2"])
     payload = json.loads((out / REPORT_FILE).read_text())
     assert payload["truncated_count"] == 1
+
+
+def test_a_sqlite_failure_while_indexing_is_reported_rather_than_raised(
+    corpus_repo: Path, tmp_path: Path, capsys, monkeypatch
+):
+    """``sqlite3.Error`` is not an ``OSError``, so the verb's clause missed it.
+
+    A full disk, a read-only directory or a corrupt file reaches
+    ``build_index`` as a :class:`sqlite3.Error`, which derives from
+    ``Exception``. By then the JSONL corpus — the durable record — is already
+    written, so the command has a partial success to report; a traceback
+    reports none of it and exits 1 for a reason nobody can read.
+    """
+    import sqlite3
+
+    def _refuse(*args, **kwargs):
+        raise sqlite3.OperationalError("disk is full")
+
+    monkeypatch.setattr(sqlite3, "connect", _refuse)
+
+    out = tmp_path / "corpus"
+    assert main([str(corpus_repo), "--out", str(out)]) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("error: ")
+    assert "disk is full" in err
+    # The path, because "disk is full" alone does not say which file.
+    assert INDEX_FILE in err
+    # The corpus survived; only the derived index did not.
+    assert (out / COMMITS_FILE).exists()

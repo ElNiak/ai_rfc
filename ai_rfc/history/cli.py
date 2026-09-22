@@ -11,7 +11,7 @@ from ai_rfc.driver import printable
 from ai_rfc.parser import Parser
 
 from .git_log import DEFAULT_FILE_CAP, GitError, extract
-from .index import build_index
+from .index import IndexBuildError, build_index
 from .store import write_corpus
 
 
@@ -101,10 +101,12 @@ def run(args: argparse.Namespace) -> int:
         # ``build_index`` both create directories and files, and an OSError
         # from either is the same kind of refusal as one from ``extract``:
         # something outside this command made it impossible to finish.
+        # ``IndexBuildError`` is the same refusal arriving from sqlite, which
+        # raises out of its own hierarchy rather than ``OSError``'s.
         write_corpus(commits, changes, report, args.out)
         if not args.no_index:
             build_index(args.out)
-    except (GitError, OSError) as error:
+    except (GitError, OSError, IndexBuildError) as error:
         _report(f"error: {error}")
         return 1
 

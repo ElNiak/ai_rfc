@@ -45,6 +45,17 @@ class StaleIndexError(RuntimeError):
     """Raised when an index no longer matches the corpus it was built from."""
 
 
+class IndexBuildError(RuntimeError):
+    """Raised when the index cannot be written, though its corpus reads fine.
+
+    Its own type rather than an ``OSError``, because it is not one:
+    :class:`sqlite3.Error` derives from ``Exception``, and re-raising it as
+    something it is not would make every handler that names ``OSError`` wrong
+    about what it caught. The verbs that build an index catch this beside the
+    errors they already name.
+    """
+
+
 def _digest(path: Path) -> str:
     """Return a hex digest of a file's bytes."""
     return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -61,43 +72,55 @@ def build_index(directory: Path) -> Path:
 
     Raises:
         FileNotFoundError: If the corpus is absent.
+        IndexBuildError: If sqlite cannot create, populate or close the index
+            — a full disk, a read-only directory, a file that is not a
+            database. The corpus itself is already on disk when this is
+            raised, so the caller has a partial success to report.
     """
     commits, changes = read_corpus(directory)
     index_path = directory / INDEX_FILE
     index_path.unlink(missing_ok=True)
 
-    conn = sqlite3.connect(index_path)
+    # The connect is inside the clause, not above it: it is the call most
+    # likely to fail (the file is created here) and it sat outside the only
+    # `try` this function had. `sqlite3.Error` is the whole category — one
+    # base class for every sqlite failure — rather than the three or four
+    # subclasses somebody would otherwise list.
     try:
-        conn.executescript(_SCHEMA)
-        conn.executemany(
-            "INSERT INTO commits VALUES (?, ?, ?, ?, ?, ?, ?)",
-            [
-                (
-                    c.sha,
-                    c.authored_at,
-                    c.author_email,
-                    c.subject,
-                    int(c.is_merge),
-                    c.file_count,
-                    int(c.files_truncated),
-                )
-                for c in commits
-            ],
-        )
-        conn.executemany(
-            "INSERT INTO file_changes VALUES (?, ?, ?, ?)",
-            [(c.sha, c.path, c.status, c.previous_path) for c in changes],
-        )
-        conn.executemany(
-            "INSERT INTO corpus_source VALUES (?, ?)",
-            [
-                (COMMITS_FILE, _digest(directory / COMMITS_FILE)),
-                (FILES_FILE, _digest(directory / FILES_FILE)),
-            ],
-        )
-        conn.commit()
-    finally:
-        conn.close()
+        conn = sqlite3.connect(index_path)
+        try:
+            conn.executescript(_SCHEMA)
+            conn.executemany(
+                "INSERT INTO commits VALUES (?, ?, ?, ?, ?, ?, ?)",
+                [
+                    (
+                        c.sha,
+                        c.authored_at,
+                        c.author_email,
+                        c.subject,
+                        int(c.is_merge),
+                        c.file_count,
+                        int(c.files_truncated),
+                    )
+                    for c in commits
+                ],
+            )
+            conn.executemany(
+                "INSERT INTO file_changes VALUES (?, ?, ?, ?)",
+                [(c.sha, c.path, c.status, c.previous_path) for c in changes],
+            )
+            conn.executemany(
+                "INSERT INTO corpus_source VALUES (?, ?)",
+                [
+                    (COMMITS_FILE, _digest(directory / COMMITS_FILE)),
+                    (FILES_FILE, _digest(directory / FILES_FILE)),
+                ],
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    except sqlite3.Error as error:
+        raise IndexBuildError(f"{index_path}: {error}") from None
     return index_path
 
 
