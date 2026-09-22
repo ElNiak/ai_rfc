@@ -1,5 +1,6 @@
 import json
 
+import pytest
 import yaml
 
 from ai_rfc.driver.arms import arm_profile
@@ -749,8 +750,23 @@ def test_a_revision_naming_an_escaping_cluster_does_not_abort_the_aggregate(
     assert intact["manifest_status"] == "read"
 
 
+def test_the_campaign_fixtures_run_order_puts_b1_before_a1(campaign):
+    """The premise the parametrised test below depends on, asserted not assumed.
+
+    ``run_order`` is a *seeded shuffle* (``config.run_order``), so which of two
+    runs ``analyze_campaign`` reaches first is a property of the fixture's seed
+    rather than of the ids. Only the case where the **damaged** run is analyzed
+    first can tell the ``window_ids`` guard apart from an unconditional first
+    run — the review found the original test could not, because ``A1`` sorts
+    last. If the fixture's seed ever changes, this fails here instead of
+    quietly turning that pin back into an assertion that cannot fail.
+    """
+    assert [run for run in campaign.run_order if run in {"A1", "B1"}] == ["B1", "A1"]
+
+
+@pytest.mark.parametrize("damaged", ["B1", "A1"])
 def test_a_damaged_timeline_does_not_abort_the_campaigns_analysis(
-    campaign, write_scenario
+    campaign, write_scenario, damaged
 ):
     """R2-1, the same defect one field along from R31's.
 
@@ -761,10 +777,17 @@ def test_a_damaged_timeline_does_not_abort_the_campaigns_analysis(
     ``aggregate.json`` was never written and no run's analysis survived, not
     even the runs whose timelines were intact.
 
-    ``A1``'s timeline is truncated mid-line after the run, so the failure is
-    the one a kill really leaves. ``B1`` is untouched, which is the half that
-    says the damage was contained rather than that nothing was analyzed.
+    The timeline is truncated mid-line after the run, so the failure is the one
+    a kill really leaves, and the other run is untouched — the half that says
+    the damage was contained rather than that nothing was analyzed.
+
+    **Both orders are covered on purpose.** The window every arm's ``pass^k``
+    is scored over must come off a run that could enumerate it, and that is
+    only observable when the damaged run is reached *first*: by the test above,
+    ``B1`` is. With ``damaged == "A1"`` the intact run leads and the guard and
+    an unconditional first run agree, which is why one case is not enough.
     """
+    intact = "A1" if damaged == "B1" else "B1"
     _run(
         campaign,
         write_scenario,
@@ -773,26 +796,26 @@ def test_a_damaged_timeline_does_not_abort_the_campaigns_analysis(
             "B1": {"arm": "B", "cost": 1.0, "steps": COMPLETE_STEPS},
         },
     )
-    timeline = campaign.runs_dir / "A1" / "workspace" / "timeline" / "clusters.jsonl"
+    timeline = campaign.runs_dir / damaged / "workspace" / "timeline" / "clusters.jsonl"
     timeline.write_text(timeline.read_text()[:40])
 
     aggregate = analyze_campaign(campaign)
 
     assert (campaign.analysis_dir / "aggregate.json").is_file()
-    damaged = aggregate["runs"]["A1"]
-    assert damaged["timeline_status"] == "unreadable"
-    assert damaged["timeline_error"]
-    assert damaged["clusters"] == [] and damaged["window_size"] == 0
-    assert damaged["completed_fraction"] == 0.0 and damaged["claims"] == {}
-    # The intact run kept its whole analysis, and the window every arm's
-    # pass^k is computed over is read off it rather than off the damaged run
-    # that happens to sort first.
-    intact = aggregate["runs"]["B1"]
-    assert intact["timeline_status"] == "read" and intact["timeline_error"] is None
-    assert intact["clusters"] and intact["window_size"] == len(intact["clusters"])
-    assert set(aggregate["arms"]["B"]["pass_k"]) == {
-        cluster["cluster_id"] for cluster in intact["clusters"]
-    }
+    hurt = aggregate["runs"][damaged]
+    assert hurt["timeline_status"] == "unreadable"
+    assert hurt["timeline_error"]
+    assert hurt["clusters"] == [] and hurt["window_size"] == 0
+    assert hurt["completed_fraction"] == 0.0 and hurt["claims"] == {}
+    whole = aggregate["runs"][intact]
+    assert whole["timeline_status"] == "read" and whole["timeline_error"] is None
+    assert whole["clusters"] and whole["window_size"] == len(whole["clusters"])
+    # `pass_k`'s keys are exactly `window_ids`, so an aggregate that read the
+    # window off the damaged run scores every arm over an empty one. Asserted
+    # for both arms: whichever run leads, neither may lose its window.
+    expected = {cluster["cluster_id"] for cluster in whole["clusters"]}
+    assert set(aggregate["arms"][intact[0]]["pass_k"]) == expected
+    assert set(aggregate["arms"][damaged[0]]["pass_k"]) == expected
 
 
 def test_a_run_with_no_timeline_at_all_is_reported_as_missing(campaign, write_scenario):

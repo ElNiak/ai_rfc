@@ -17,9 +17,11 @@ import json
 from pathlib import Path, PurePosixPath
 
 from ai_rfc import ledger
+from ai_rfc.driver import coverage as coverage_module
 from ai_rfc.driver.arms import arm_profile
 from ai_rfc.driver.coverage import (
     ALIASES,
+    Era,
     Route,
     checkpoint_calls,
     covers,
@@ -369,3 +371,36 @@ def test_the_alias_table_holds_two_dated_eras_and_names_what_closed_the_first():
 def test_the_current_eras_prefixes_are_derived_from_the_arm_not_spelled_again():
     assert ALIASES[-1].cli_prefixes == bash_prefixes(arm_profile("B"))
     assert ARM_B_PREFIX not in ALIASES[0].cli_prefixes
+
+
+def test_every_command_prefix_an_era_declares_is_tried(tmp_path, monkeypatch):
+    """The second prefix of an era matches as readily as the first.
+
+    Arm B declares exactly one prefix today, so the loop over
+    ``Era.cli_prefixes`` is unreachable from the live profiles and a reader
+    taking only ``cli_prefixes[0]`` behaves identically — which is what let
+    that narrowing ship once already. ``arms.py`` states the rule this pins:
+    how many prefixes an arm declares is that module's business, so the day it
+    declares a second family every reader must already follow it.
+
+    The era substituted here is a fixture, not a claim about history: its first
+    prefix deliberately matches nothing, so only a reader that goes on to the
+    second one sees the write call at all.
+    """
+    era = Era(
+        first_seen="2026-09-22",
+        closed=None,
+        closed_by=None,
+        mcp_tool="mcp__ai_rfc__ai_rfc_checkpoint",
+        cli_prefixes=("decoy ", ARM_B_PREFIX),
+        module_forms=(".draft checkpoint", " draft checkpoint"),
+    )
+    monkeypatch.setattr(coverage_module, "ALIASES", (era,))
+    checkpoints = _checkpoints(tmp_path, C2)
+    events = _cli(checkpoints, C2, SHA_C2, prefix=ARM_B_PREFIX)
+
+    (call,) = checkpoint_calls(events)
+    assert call["arm"] == "B" and call["cluster_id"] == C2
+    assert covers(checkpoints, session_rows=[], transcripts=[events]) == {
+        C2: Route.receipt
+    }

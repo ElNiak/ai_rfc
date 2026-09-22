@@ -327,9 +327,26 @@ def receipts(
 
     Returns:
         ``(cluster_id, manifest_sha256)`` to the receipt's path as written. The
-        digest is ``None`` for arm C, which emits no envelope. The key carries
-        the cluster id because a digest is not unique: an unchanged manifest
-        checkpointed against two clusters gives both the same one.
+        digest is ``None`` for arm C, which emits no envelope.
+
+        **The cluster half is what every consumer today reads.** :func:`covers`
+        and the campaign audit both reduce the key to its cluster and discard
+        the digest, so a cluster-only key would pass this package's suite —
+        the composite is not load-bearing for anything that exists now, and a
+        later simplifier should know that before believing otherwise.
+
+        **It is kept, and the map ruled it rather than this module.** The
+        cluster is in the key because a digest is *not* unique: A2 checkpointed
+        ``c0003`` and ``c0004`` from an unchanged manifest and both carry
+        ``be7b828b…``, so keying on the digest alone merges two productions.
+        The digest is in the key because it is what makes a receipt name **one
+        specific production** rather than the cluster in general — two receipts
+        for the same cluster with different digests are two distinct writes,
+        which only the composite keeps apart. A consumer that has to tell those
+        apart, such as a reconciliation against an on-disk
+        ``checkpoint.json``'s ``manifest_sha256``, needs the half nothing reads
+        yet; dropping it now would have to be undone then, against an archive
+        that cannot be re-produced.
     """
     calls = {call["id"]: call for call in checkpoint_calls(events)}
     found: dict[tuple[str, str | None], str] = {}
