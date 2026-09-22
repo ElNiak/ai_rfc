@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from ai_rfc.driver import CONFIG_FILE, DriverError
+from ai_rfc.driver import CONFIG_FILE, DriverError, printable
 from ai_rfc.driver.arms import ARMS, MCP_FILE, arm_flags, arm_profile, mcp_config
 from ai_rfc.driver.enforcement import bash_prefixes, render_settings
 from ai_rfc.driver.stream import (
@@ -519,8 +519,14 @@ def _run_all(
         # timeout. Announced before it runs rather than after, because a line
         # that appears once the call returns says nothing while it is the one
         # you are waiting on — and a silent quarter of an hour reads as a hang.
+        # Through ``printable`` for the reason every other stderr boundary in
+        # the package is: ``invocation.name`` is composed from the campaign's
+        # own arm names, and the escape belongs to the boundary rather than to
+        # the value somebody judged safe today.
         print(
-            f"preflight {index}/{total}: {invocation.name} " f"(up to {timeout_s}s)",
+            printable(
+                f"preflight {index}/{total}: {invocation.name} " f"(up to {timeout_s}s)"
+            ),
             file=sys.stderr,
         )
         outcome = run_invocation(invocation, timeout_s)
@@ -528,7 +534,8 @@ def _run_all(
             # A run can exit 0 having written nothing at all; that is a harness
             # failure, and scoring it as evidence makes the verdict a coin flip.
             print(
-                f"note: {invocation.name}: empty stream, retrying once", file=sys.stderr
+                printable(f"note: {invocation.name}: empty stream, retrying once"),
+                file=sys.stderr,
             )
             outcome = run_invocation(invocation, timeout_s)
         outcomes[invocation.name] = outcome

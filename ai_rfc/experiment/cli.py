@@ -165,7 +165,20 @@ _REHEARSAL_ROUNDS = 3
 
 
 def _report(message: str) -> None:
-    print(message, file=sys.stderr)
+    """Write a diagnostic to stderr, as one printable line.
+
+    The harness's twin of :func:`ai_rfc.lifecycle.common.report`, which it may
+    not call: ``experiment`` sits above ``driver`` and beside ``lifecycle``,
+    and reaching across for one line would invert that. Escaped here rather
+    than at each call site, because the values these lines carry — a campaign
+    id, a model's own text, a caught error's message — are the operator's and
+    the agent's, and one carrying a line break forges a second diagnostic
+    beneath the first.
+
+    Args:
+        message: The line to print.
+    """
+    print(printable(message), file=sys.stderr)
 
 
 def _window(value: str) -> tuple[int, int]:

@@ -535,7 +535,7 @@ coupling the file-on-disk boundary exists to prevent:
 | Helper | Copies |
 |---|---|
 | `_git` subprocess call | `anchors.py` · `draft/gate.py` · `coverage/commit.py` · `history/git_log.py` · `lifecycle/workspace.py` · `pipeline/substrate.py` · `draft/build.py` |
-| stderr `_report` | `check/cli.py` · `coverage/cli.py` · `forge/cli.py` · `history/cli.py` · `pipeline/cli.py` · `timeline/cli.py` · `views/cli.py` |
+| stderr `_report` | `check/cli.py` · `coverage/cli.py` · `driver/guard.py` · `forge/cli.py` · `history/cli.py` · `pipeline/cli.py` · `timeline/cli.py` · `views/cli.py` |
 | stderr `report` (consolidated, not a copy) | `lifecycle/common.py` — every lifecycle verb imports this one rather than keeping its own, and so does `draft/cli.py`, which had the eighth `_report` until a `cluster_id` out of `revisions.yaml` was shown forging a `note: gate clean` line through it. Not tracked by `TRACKED_HELPERS`, and **not for the reason this note used to give**: the row lookup is backtick-delimited (`` `report` `` is not a substring of `` `_report` ``) and tells the two apart perfectly well. The actual blocker is that `driver/sweep.py:101` defines its own `report`, so `_defines("report")` answers `{driver/sweep.py, lifecycle/common.py}` — two functions of one name and different contracts, one of them the consolidated original. A row naming both would record the original as a copy of itself; a row naming one would fail. Listed here so the `_report` row above is not read as the whole picture, and so the next person looks at `sweep.py` rather than at the lookup. |
 | SHA-256 `_digest` (path → hex) | `history/index.py` · `timeline/store.py` · `views/emit.py` |
 | SHA-256 `_digest_bytes` (bytes → hex) | `draft/checkpoint.py` · `views/emit.py` |
@@ -575,14 +575,18 @@ so the debt *was* discovered twice. **Adding a substrate subpackage means
 adding its copies here**, and since then something counts them:
 `tests/substrate/test_cli_conventions.py` scans the package for every helper
 the table names and fails when a row and the code disagree. The bodies
-themselves have not drifted: all seven `_report` copies are identical but for
-one clause `check/cli.py` adds about its own exit-3 gate. (Seven, not the
-eight this sentence said until the count above dropped to seven — the row and
-the prose are maintained by different hands and drifted apart, which is the
-failure the row's own test now catches and this sentence did not have.) Each
-body is `print(printable(message), file=sys.stderr)`: every copy is an
-escaping boundary, the twin of `lifecycle/common.report`, because the
-substrate may not import `lifecycle` to call the original.
+themselves have not drifted: all eight `_report` copies are identical but for
+one clause `check/cli.py` adds about its own exit-3 gate. (Eight since
+`driver/guard.py` gained one; seven before that, and not the eight this
+sentence said until the count above dropped to seven — the row and the prose
+are maintained by different hands and drifted apart, which is the failure the
+row's own test now catches and this sentence did not have.) Each body is
+`print(printable(message), file=sys.stderr)`: every copy is an escaping
+boundary, the twin of `lifecycle/common.report`, because the substrate may not
+import `lifecycle` to call the original. `driver/guard.py`'s is the newest and
+the one that is not a CLI: the hook script wrote five raw `sys.stderr.write`
+calls, one of them echoing the agent's own refused Bash `command`, and it took
+the same body rather than five copies of the escape.
 
 **The register speaks for the substrate only.** `server/` and `experiment/`
 keep their own `_git` (`server/core/draft.py`, `experiment/workspace.py`) and
@@ -592,7 +596,12 @@ substrate, and their copies have different contracts — the server's `_git`
 takes its `Context` and always targets the workspace's `draft/` clone, and
 the experiment's raises `ExperimentError` and can pin commit dates so a
 scaffold commit hashes identically in every pristine workspace. They are
-named here so nobody counts them as drift.
+named here so nobody counts them as drift. **That exclusion is about
+copy-tracking, not about escaping**: `experiment/cli.py`'s `_report` is outside
+`TRACKED_HELPERS` because no substrate command shares it, never because it is
+exempt from the stderr boundary — it escapes through `printable` exactly as the
+seven copies do. Until this row it did not, which is how being unlisted came to
+read as being unowned.
 
 This row named a `server/cli.py` copy of `_report` until that module was
 deleted. Two things were wrong with it and only one of them was the

@@ -16,7 +16,25 @@ from pathlib import Path
 # Claude Code spawns.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from ai_rfc.driver import printable  # noqa: E402
 from ai_rfc.driver.enforcement import is_allowed  # noqa: E402
+
+
+def _report(message: str) -> None:
+    """Write one diagnostic to stderr, as one printable line.
+
+    Every write this script makes goes through here, including the two
+    that interpolate nothing: the escape is a property of the *boundary*,
+    not of the value somebody judged dangerous today. The one that matters
+    is the refusal below, which echoes ``command`` — the Bash string the
+    agent under test asked for, straight off the hook payload. A line
+    break in it forged a second line on the guard's own stderr, which
+    reaches the agent's context and the audit's ``denials()[].detail``.
+
+    Args:
+        message: The line, without its terminator.
+    """
+    print(printable(message), file=sys.stderr)
 
 
 def main(argv: list[str]) -> int:
@@ -35,23 +53,23 @@ def main(argv: list[str]) -> int:
         # for every type nobody named: json.load raises RecursionError on deep
         # nesting, which is not a ValueError, and an escaped exception exits 1,
         # which permits the call. "Unreadable" cannot be a list of exceptions.
-        sys.stderr.write(f"guard: unreadable hook payload: {error!r}\n")
+        _report(f"guard: unreadable hook payload: {error!r}")
         return 2
     # Valid JSON is not necessarily an object, and ``tool_input`` can be truthy
     # without being one — in both cases ``.get`` raises, and an exception here
     # exits 1, which does not block. Unreadable must mean blocked, not allowed.
     if not isinstance(payload, dict):
-        sys.stderr.write("guard: hook payload is not an object\n")
+        _report("guard: hook payload is not an object")
         return 2
     tool_input = payload.get("tool_input") or {}
     if not isinstance(tool_input, dict):
-        sys.stderr.write("guard: tool_input is not an object\n")
+        _report("guard: tool_input is not an object")
         return 2
     command = str(tool_input.get("command", ""))
     if is_allowed(command, argv):
         return 0
     prefixes = ", ".join(repr(prefix) for prefix in argv) or "(none)"
-    sys.stderr.write(f"denied: this arm may run only {prefixes}; refused: {command}\n")
+    _report(f"denied: this arm may run only {prefixes}; refused: {command}")
     return 2
 
 
@@ -61,5 +79,5 @@ if __name__ == "__main__":
     try:
         sys.exit(main(sys.argv[1:]))
     except Exception as error:  # noqa: BLE001 - blocking is the only safe exit
-        sys.stderr.write(f"guard: refusing after an internal error: {error!r}\n")
+        _report(f"guard: refusing after an internal error: {error!r}")
         sys.exit(2)
