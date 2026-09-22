@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from ai_rfc.history.index import schema_summary
+
 from .core import build, claims, draft, gates, queries, questions, revisions, structures
 from .paths import resolve_context
 
@@ -23,6 +25,23 @@ def ai_rfc_status() -> dict[str, Any]:
 def ai_rfc_corpus_query(sql: str) -> list[dict[str, Any]]:
     """Run one SELECT over the corpus index (at most 200 rows)."""
     return queries.corpus_query(resolve_context(), sql)
+
+
+# The schema is appended here rather than typed into the docstring above,
+# because a hand-written copy is what went wrong: the description named no
+# columns at all, and an arm asked for `commit_sha`, `parents` and
+# `committed_at`, none of which exist. `schema_columns` derives them from
+# `history.index._SCHEMA` **by building it in sqlite**, so a column added
+# there reaches this description with no second edit and this description can
+# never name one the index does not have.
+#
+# Assigned to `__doc__` because that is what a caller reads: `server.py:12`
+# registers each of these with `mcp.tool()`, and FastMCP publishes the
+# callable's docstring as the tool's description. Every tool in this module
+# already depends on that, so this depends on nothing new.
+ai_rfc_corpus_query.__doc__ = (
+    f"{ai_rfc_corpus_query.__doc__} Tables and columns: {schema_summary()}."
+)
 
 
 def ai_rfc_cluster_next() -> dict[str, Any] | None:

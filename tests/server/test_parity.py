@@ -906,3 +906,29 @@ def test_every_tool_has_a_parity_twin():
     """
     assert set(TWINS) == {tool.__name__ for tool in tools.ALL_TOOLS}
     assert all(callable(globals().get(name)) for name in TWINS.values())
+
+
+def test_the_corpus_query_description_names_every_column_of_every_table():
+    """An agent cannot write SELECT against a schema nobody showed it.
+
+    The description said only "Run one SELECT over the corpus index (at most
+    200 rows)", so arm A's Phase 5 run guessed `commit_sha`, `parents` and
+    `committed_at` — none of which exist. The columns are now derived from
+    ``history.index._SCHEMA`` by sqlite, and this asserts over that derivation
+    rather than over a list written here: a column added to the schema fails
+    this test until the description carries it, and the description can never
+    name one the index does not have.
+    """
+    from ai_rfc.history.index import schema_columns
+    from ai_rfc.server import tools
+
+    description = tools.ai_rfc_corpus_query.__doc__ or ""
+
+    tables = schema_columns()
+    assert tables, "the schema declares at least one table"
+    for table, columns in tables.items():
+        assert table in description, table
+        for column in columns:
+            assert column in description, f"{table}.{column}"
+    # And the sentence the tool opened with is still there.
+    assert "at most 200 rows" in description

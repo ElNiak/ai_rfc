@@ -56,6 +56,62 @@ class IndexBuildError(RuntimeError):
     """
 
 
+def schema_columns() -> dict[str, tuple[str, ...]]:
+    """Each table this index holds, with its columns in declaration order.
+
+    **Derived from** :data:`_SCHEMA` **by sqlite itself**, not read off a list
+    somebody kept in step by hand: the DDL is built here, into an in-memory
+    database, and the answer comes back from ``sqlite_master`` and
+    ``PRAGMA table_info``. So a column added to :data:`_SCHEMA` reaches every
+    description of this index without a second edit, and none of them can
+    describe a column the index does not have — which is the defect this
+    exists to close (an arm guessed ``commit_sha``, ``parents`` and
+    ``committed_at``, none of which are real).
+
+    sqlite is used as the parser rather than a regular expression for the
+    reason this package applies everywhere else: the grammar's own
+    implementation is not an approximation of it.
+
+    Returns:
+        Table name to its column names, both in the order the schema declares
+        them. Indexes are not tables and do not appear.
+    """
+    connection = sqlite3.connect(":memory:")
+    try:
+        connection.executescript(_SCHEMA)
+        names = [
+            str(row[0])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table' "
+                "ORDER BY rootpage"
+            )
+        ]
+        return {
+            name: tuple(
+                str(column[1])
+                for column in connection.execute(f'PRAGMA table_info("{name}")')
+            )
+            for name in names
+        }
+    finally:
+        connection.close()
+
+
+def schema_summary() -> str:
+    """The index's tables and columns, as one line a description can carry.
+
+    Args:
+        None.
+
+    Returns:
+        ``table(col, col, …); table(col, …)`` over every table in
+        :func:`schema_columns`.
+    """
+    return "; ".join(
+        f"{table}({', '.join(columns)})" for table, columns in schema_columns().items()
+    )
+
+
 def _digest(path: Path) -> str:
     """Return a hex digest of a file's bytes."""
     return hashlib.sha256(path.read_bytes()).hexdigest()
