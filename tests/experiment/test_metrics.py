@@ -832,3 +832,54 @@ def test_a_run_with_no_timeline_at_all_is_reported_as_missing(campaign, write_sc
     assert analysis["timeline_status"] == "missing"
     assert analysis["timeline_error"]
     assert analysis["clusters"] == []
+
+
+def test_an_appended_consolidation_rounds_cost_reaches_the_analysis(
+    campaign, write_scenario
+):
+    """``result.json`` is written once, and the append never rewrites it.
+
+    ``runner.launch`` merges the run's result events into ``result.json`` at
+    the end of the run; ``experiment run … --task consolidation
+    --append-to-finished-run`` then appends a whole session to
+    ``events.jsonl`` and writes ``appended.jsonl``, and nothing revisits the
+    cost record. So the round's spend was invisible to ``analyze`` — measured
+    read-only on ``mark-full-1-consolidate-sp7d-v2/A1``, where ``result.json``
+    says $187.381676 while the transcript's 40 result events sum to
+    $198.752015, the difference being one appended round.
+
+    The extra event is not hand-written: it is the run's **own** last result
+    event, re-emitted with a different cost, so its shape is whatever the fake
+    really produces rather than whatever this test imagines.
+    """
+    _run(
+        campaign,
+        write_scenario,
+        {"A1": {"arm": "A", "cost": 1.0, "steps": COMPLETE_STEPS}},
+    )
+    run_dir = campaign.runs_dir / "A1"
+    before = analyze_run(campaign, "A1")["cost"]
+    assert before["total_cost_usd"] == 1.0
+
+    transcript = run_dir / "events.jsonl"
+    results = [
+        json.loads(line)
+        for line in transcript.read_text().splitlines()
+        if line.strip() and json.loads(line).get("type") == "result"
+    ]
+    assert len(results) == 1, "the fixture run is one session"
+    appended_event = dict(results[-1], total_cost_usd=0.25, num_turns=3)
+    with transcript.open("a") as handle:
+        handle.write(json.dumps(appended_event) + "\n")
+    # What `_record_append` writes beside it, so the run reads as one an
+    # operator extended deliberately rather than as a damaged one.
+    (run_dir / "appended.jsonl").write_text(
+        json.dumps({"kind": "consolidation", "ordinal": 1, "recorded": True}) + "\n"
+    )
+
+    after = analyze_run(campaign, "A1")["cost"]
+
+    assert after["total_cost_usd"] == pytest.approx(1.25)
+    assert after["num_turns"] == before["num_turns"] + 3
+    # The stale record is still on disk and is no longer what is reported.
+    assert json.loads((run_dir / "result.json").read_text())["total_cost_usd"] == 1.0

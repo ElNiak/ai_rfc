@@ -23,6 +23,8 @@ from ai_rfc.driver.session import EVENTS_FILE
 from ai_rfc.driver.stream import (
     ai_rfc_connected,
     mcp_servers,
+    merge_results,
+    result_events,
     salvage_stream,
     tool_uses,
     usage_series,
@@ -296,6 +298,57 @@ def trajectory(
     }
 
 
+def _run_cost_record(run_dir: Path, events: list[dict[str, Any]]) -> dict[str, Any]:
+    """What the run cost, from the transcript rather than from ``result.json``.
+
+    **The transcript is authoritative and ``result.json`` is the fallback**,
+    which is a change of which record is believed rather than of how either is
+    computed. ``runner.launch`` writes ``result.json`` once, at the end of a
+    run, as ``merge_results(result_events(salvage_stream(events.jsonl)))``;
+    this is that same merge over those same bytes, so for a run nothing was
+    appended to the two are equal **by construction** and not by coincidence.
+    What they stop agreeing about is a run that grew afterwards: ``experiment
+    run … --task consolidation --append-to-finished-run`` appends a whole
+    session to ``events.jsonl`` and writes ``appended.jsonl``, and nothing
+    rewrites the cost record — so an appended round's spend was reported as
+    zero. Measured read-only on ``mark-full-1-consolidate-sp7d-v2/A1``:
+    ``result.json`` says 187.381676 over 2,465 turns, the transcript's 40
+    result events sum to 198.752015, and the 11.370339 between them is one
+    round (#61).
+
+    The transcript is the right authority for the reason
+    :func:`ai_rfc.driver.record.spent` already reads transcripts rather than
+    ``sessions.jsonl``: a derived record written once cannot describe a file
+    that is still being appended to, and here the appending is a supported
+    operation rather than a crash.
+
+    Args:
+        run_dir: The run's directory.
+        events: The run's salvaged transcript, as ``analyze_run`` read it.
+
+    Returns:
+        The merged result record, or ``{}`` when neither the transcript nor
+        ``result.json`` yields one.
+    """
+    merged = merge_results(result_events(events))
+    if merged is not None:
+        return merged
+    # Only when the transcript holds no result event at all — a run killed
+    # before its first session reported. `result.json` is written at `:309`
+    # and `status.json` at `:332`, and `analyze_run` has already refused a run
+    # without a status, so on any run that reaches here the file is present
+    # unless somebody removed it.
+    path = run_dir / RESULT_FILE
+    if not path.exists():
+        # Reported as "no cost known", not raised: `analyze_campaign` builds
+        # its result in a comprehension, and one run missing a derived file
+        # must not abort the aggregate for every other — the rule this module
+        # already states for a damaged transcript and an unreadable revision
+        # map.
+        return {}
+    return json.loads(path.read_text()) or {}
+
+
 def analyze_run(
     campaign: Campaign, run_id: str, *, build: bool = False
 ) -> dict[str, Any]:
@@ -338,7 +391,7 @@ def analyze_run(
     events, damaged_lines = salvage_stream(
         (run_dir / EVENTS_FILE).read_text(errors="replace")
     )
-    final = json.loads((run_dir / RESULT_FILE).read_text()) or {}
+    final = _run_cost_record(run_dir, events)
     rows, timeline_status, timeline_error = timeline_window(workspace)
     clusters = [cluster_artifacts(workspace, row) for row in rows]
     gates = run_gates(workspace, campaign)

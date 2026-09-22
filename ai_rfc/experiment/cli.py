@@ -825,7 +825,10 @@ def _run_one_consolidation(
 
     from . import per_cluster
     from .campaign_runs import checked_run_id
-    from .runner import run_ref
+
+    # `RESULT_FILE` named from the runner, not from `.optimize.run`, which
+    # defines a constant of the same name for a different file.
+    from .runner import RESULT_FILE, run_ref
 
     if only is None or len(only) != 1:
         raise ExperimentError(
@@ -908,6 +911,16 @@ def _run_one_consolidation(
         f"recorded={recorded} timed_out={timed_out}"
     )
     print(f"appended past line {lines_before} of {events_path}; see {APPENDED_FILE}")
+    # Said out loud because the opposite was true until #61 was fixed, and an
+    # operator who ran a round by hand had no way to tell from here whether it
+    # would be paid for in the figures. `analyze` merges the transcript's
+    # result events; `result.json`, written when the run first finished, is no
+    # longer what the cost is read from.
+    print(
+        f"`experiment analyze --only {ref.run_id}` counts this round's cost: "
+        f"it merges the result events in {events_path.name}, not the "
+        f"{RESULT_FILE} written when the run first finished"
+    )
     return 0 if recorded else 1
 
 
